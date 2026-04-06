@@ -1,0 +1,142 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT_ID: raven-ai-6ff76
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev/raven-ai-6ff76/cloud-run-source-deploy
+  BACKEND_API_URL: https://afrovision-backend-134538542038.us-central1.run.app
+
+jobs:
+  # ── Detect which services changed ──────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      website: ${{ steps.filter.outputs.website }}
+      admin: ${{ steps.filter.outputs.admin }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            website:
+              - 'website/**'
+            admin:
+              - 'admin/**'
+
+  # ── Deploy Backend ─────────────────────────────────────────
+  deploy-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build & Push
+        run: |
+          IMAGE=${{ env.REGISTRY }}/afrovision-backend:${{ github.sha }}
+          docker build -t $IMAGE -t ${{ env.REGISTRY }}/afrovision-backend:latest backend/
+          docker push $IMAGE
+          docker push ${{ env.REGISTRY }}/afrovision-backend:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy afrovision-backend \
+            --image=${{ env.REGISTRY }}/afrovision-backend:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --memory=512Mi \
+            --set-env-vars="FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCS_BUCKET=afrovision-media,ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}"
+
+  # ── Deploy Website ─────────────────────────────────────────
+  deploy-website:
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build & Push
+        run: |
+          IMAGE=${{ env.REGISTRY }}/afrovision-website:${{ github.sha }}
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL=${{ env.BACKEND_API_URL }} \
+            -t $IMAGE \
+            -t ${{ env.REGISTRY }}/afrovision-website:latest \
+            website/
+          docker push $IMAGE
+          docker push ${{ env.REGISTRY }}/afrovision-website:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy afrovision-website \
+            --image=${{ env.REGISTRY }}/afrovision-website:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --memory=1Gi
+
+  # ── Deploy Admin ───────────────────────────────────────────
+  deploy-admin:
+    needs: changes
+    if: needs.changes.outputs.admin == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build & Push
+        run: |
+          IMAGE=${{ env.REGISTRY }}/afrovision-admin:${{ github.sha }}
+          docker build -t $IMAGE -t ${{ env.REGISTRY }}/afrovision-admin:latest admin/
+          docker push $IMAGE
+          docker push ${{ env.REGISTRY }}/afrovision-admin:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy afrovision-admin \
+            --image=${{ env.REGISTRY }}/afrovision-admin:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --memory=1Gi \
+            --set-env-vars="NEXT_PUBLIC_API_BASE_URL=${{ env.BACKEND_API_URL }},API_BASE_URL=${{ env.BACKEND_API_URL }}"
