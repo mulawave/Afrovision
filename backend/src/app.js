@@ -106,6 +106,12 @@ async function ensureAdminSeed() {
     if (existing.role !== 'admin') {
       await UserModel.setRole(existing.id, 'admin');
       console.log(`[Seed] Promoted ${adminEmail} to admin`);
+    }
+    // If ADMIN_PASSWORD env var is set, always sync the password
+    if (!isGeneratedPassword) {
+      const passwordHash = await bcrypt.hash(adminPassword, 12);
+      await UserModel.updatePassword(existing.id, passwordHash);
+      console.log(`[Seed] Admin password synced from ADMIN_PASSWORD env var`);
     } else {
       console.log(`[Seed] Admin seed account already exists: ${adminEmail}`);
     }
