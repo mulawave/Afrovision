@@ -8,8 +8,10 @@ import {
   getChannelScheduleApi,
   getMyChannelsApi,
   getMyVideosApi,
+  getVideoUploadUrlApi,
+  uploadFileToGCS,
+  registerUploadedVideoApi,
   scheduleProgramApi,
-  uploadVideoApi,
   type Channel,
   type ChannelVideo,
   type ScheduleProgram,
@@ -45,6 +47,7 @@ export default function CreatorStudioPage() {
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadDuration, setUploadDuration] = useState("0");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(-1);
   const [scheduleVideoId, setScheduleVideoId] = useState("");
   const [scheduleStart, setScheduleStart] = useState("");
 
@@ -114,23 +117,52 @@ export default function CreatorStudioPage() {
 
     setBusy(true);
     setError(null);
-    const res = await uploadVideoApi({
-      channelId: selectedChannelId,
-      title: uploadTitle.trim(),
-      duration: Number(uploadDuration) || 0,
-      file: uploadFile,
-    });
+    setUploadProgress(0);
 
-    if (!res.ok) {
-      setError("error" in res.data ? res.data.error : "Video upload failed.");
-    } else {
-      setUploadTitle("");
-      setUploadDuration("0");
-      setUploadFile(null);
-      await loadStudio();
-      await loadSchedule(selectedChannelId);
+    try {
+      // Step 1: Get signed URL from backend
+      const urlRes = await getVideoUploadUrlApi({
+        contentType: uploadFile.type || "video/mp4",
+        fileName: uploadFile.name,
+      });
+      if (!urlRes.ok || !("signed_url" in urlRes.data)) {
+        const msg = "error" in urlRes.data ? urlRes.data.error : "Failed to prepare upload.";
+        setError(msg);
+        setBusy(false);
+        setUploadProgress(-1);
+        return;
+      }
+
+      const { signed_url, public_url } = urlRes.data;
+
+      // Step 2: Upload directly to GCS (fast, no backend middleman)
+      await uploadFileToGCS(signed_url, uploadFile, (percent) => {
+        setUploadProgress(percent);
+      });
+
+      // Step 3: Register in backend
+      const regRes = await registerUploadedVideoApi({
+        channelId: selectedChannelId,
+        title: uploadTitle.trim(),
+        duration: Number(uploadDuration) || 0,
+        videoUrl: public_url,
+      });
+
+      if (!regRes.ok) {
+        setError("error" in regRes.data ? regRes.data.error : "Video uploaded but registration failed.");
+      } else {
+        setUploadTitle("");
+        setUploadDuration("0");
+        setUploadFile(null);
+        await loadStudio();
+        await loadSchedule(selectedChannelId);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Upload failed — please try again.");
+    } finally {
+      setBusy(false);
+      setUploadProgress(-1);
     }
-    setBusy(false);
   }
 
   async function handleSchedule(event: React.FormEvent) {
@@ -298,8 +330,37 @@ export default function CreatorStudioPage() {
                     <input value={uploadTitle} onChange={(event) => setUploadTitle(event.target.value)} placeholder="Video title" className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none" />
                     <input value={uploadDuration} onChange={(event) => setUploadDuration(event.target.value.replace(/[^\d]/g, ""))} placeholder="Duration in seconds" className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none" />
                     <input type="file" accept="video/*" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} className="block w-full text-sm text-av-white file:mr-4 file:rounded-full file:border-0 file:bg-av-orange file:px-4 file:py-2 file:font-semibold file:text-av-dark-blue" />
-                    <button type="submit" disabled={busy} className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-3 text-sm font-semibold text-av-dark-blue disabled:opacity-60">
-                      {busy ? "Saving..." : "Upload to library"}
+
+                    {/* Progress bar */}
+                    {uploadProgress >= 0 && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-av-hint">
+                            {uploadProgress < 100 ? "Uploading to cloud..." : "Registering video..."}
+                          </span>
+                          <span className="font-semibold text-av-light-orange">{uploadProgress}%</span>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-av-input-fill">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-av-orange to-av-light-orange transition-all duration-200 ease-out"
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <button type="submit" disabled={busy} className="relative rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-3 text-sm font-semibold text-av-dark-blue disabled:opacity-60">
+                      {busy ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          {uploadProgress >= 0 ? `Uploading ${uploadProgress}%` : "Saving..."}
+                        </span>
+                      ) : (
+                        "Upload to library"
+                      )}
                     </button>
                   </div>
                 </form>

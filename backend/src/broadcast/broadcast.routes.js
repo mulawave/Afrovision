@@ -10,6 +10,8 @@ const router = Router();
 router.get('/time', ctrl.getServerTime);
 
 // Video management (creator)
+router.post('/videos/upload-url', authenticateToken, ctrl.getVideoUploadUrl);
+router.post('/videos/register', authenticateToken, ctrl.registerUploadedVideo);
 router.post('/videos', authenticateToken, videoUpload.single('video'), uploadVideoToGCS, ctrl.uploadVideo);
 router.get('/videos/me', authenticateToken, ctrl.getMyVideos);
 router.get('/videos/channel/:channelId', authenticateToken, ctrl.getChannelVideos);

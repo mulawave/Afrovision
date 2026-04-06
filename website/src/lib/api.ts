@@ -620,6 +620,76 @@ export async function getMyVideosApi() {
   });
 }
 
+/**
+ * Get a signed GCS upload URL for direct browser-to-cloud upload.
+ */
+export async function getVideoUploadUrlApi(input: {
+  contentType: string;
+  fileName: string;
+}) {
+  return api<{ signed_url: string; public_url: string; filename: string } | ErrorResponse>(
+    "/broadcast/videos/upload-url",
+    {
+      method: "POST",
+      body: { content_type: input.contentType, file_name: input.fileName },
+      requireAuth: true,
+    }
+  );
+}
+
+/**
+ * Upload a file directly to GCS using a signed URL.
+ * Returns a promise that resolves when upload finishes.
+ * Calls `onProgress(0-100)` during upload.
+ */
+export function uploadFileToGCS(
+  signedUrl: string,
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", signedUrl);
+    xhr.setRequestHeader("Content-Type", file.type);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`GCS upload failed (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.ontimeout = () => reject(new Error("Upload timed out"));
+    xhr.send(file);
+  });
+}
+
+/**
+ * Register a video that was uploaded directly to GCS.
+ */
+export async function registerUploadedVideoApi(input: {
+  channelId: string;
+  title: string;
+  duration?: number;
+  videoUrl: string;
+}) {
+  return api<{ video: ChannelVideo } | ErrorResponse>("/broadcast/videos/register", {
+    method: "POST",
+    body: {
+      channel_id: input.channelId,
+      title: input.title,
+      duration: input.duration || 0,
+      video_url: input.videoUrl,
+    },
+    requireAuth: true,
+  });
+}
+
+/**
+ * Legacy multipart upload (kept as fallback).
+ */
 export async function uploadVideoApi(input: {
   channelId: string;
   title: string;

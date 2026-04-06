@@ -5,6 +5,87 @@ const User = require('../users/user.model');
 const LiveTrigger = require('../channels/live_trigger');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
+const crypto = require('crypto');
+const path = require('path');
+const { generateSignedUploadUrl } = require('../utils/gcs');
+
+// ─── SIGNED UPLOAD URL (Direct-to-GCS) ──────────────────
+
+const ALLOWED_VIDEO_TYPES = {
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/x-msvideo': '.avi',
+  'video/x-matroska': '.mkv',
+  'video/webm': '.webm',
+};
+
+async function getVideoUploadUrl(req, res) {
+  try {
+    const user = User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.role !== 'creator' && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only creators can upload videos' });
+    }
+
+    const { content_type, file_name } = req.body;
+    if (!content_type) return res.status(400).json({ error: 'content_type is required' });
+
+    if (!ALLOWED_VIDEO_TYPES[content_type]) {
+      return res.status(400).json({
+        error: `Unsupported video type: ${content_type}. Allowed: ${Object.keys(ALLOWED_VIDEO_TYPES).join(', ')}`,
+      });
+    }
+
+    const ext = ALLOWED_VIDEO_TYPES[content_type] || path.extname(file_name || '').toLowerCase() || '.mp4';
+    const filename = `videos/${crypto.randomUUID()}${ext}`;
+
+    const { signedUrl, publicUrl } = await generateSignedUploadUrl(filename, content_type, 60);
+
+    res.json({ signed_url: signedUrl, public_url: publicUrl, filename });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function registerUploadedVideo(req, res) {
+  try {
+    const user = User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.role !== 'creator' && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only creators can upload videos' });
+    }
+
+    const { channel_id, title, duration, video_url } = req.body;
+    if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
+    if (!title) return res.status(400).json({ error: 'title is required' });
+    if (!video_url) return res.status(400).json({ error: 'video_url is required' });
+
+    // Validate URL is from our GCS bucket
+    const BUCKET_NAME = process.env.GCS_BUCKET || 'afrovision-media';
+    if (!video_url.startsWith(`https://storage.googleapis.com/${BUCKET_NAME}/videos/`)) {
+      return res.status(400).json({ error: 'Invalid video URL — must be from the AfroVision media bucket' });
+    }
+
+    const channel = Channel.findById(channel_id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    if (channel.owner_id !== req.userId) {
+      return res.status(403).json({ error: 'Not channel owner' });
+    }
+
+    const video = await Video.create({
+      creatorUid: req.userId,
+      channelId: channel_id,
+      title,
+      videoUrl: video_url,
+      thumbnailUrl: null,
+      duration: duration ? parseInt(duration, 10) : 0,
+    });
+
+    res.status(201).json({ video });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
 
 // ─── VIDEO UPLOAD ────────────────────────────────────────
 
@@ -409,6 +490,8 @@ function getServerTime(_req, res) {
 }
 
 module.exports = {
+  getVideoUploadUrl,
+  registerUploadedVideo,
   uploadVideo,
   uploadThumbnail,
   getChannelVideos,

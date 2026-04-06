@@ -48,4 +48,25 @@ function extractGCSPath(url) {
   return null;
 }
 
-module.exports = { uploadToGCS, deleteFromGCS, extractGCSPath, BUCKET_NAME };
+/**
+ * Generate a signed URL for direct client upload to GCS.
+ * @param {string} filename - Destination path in bucket (e.g. "videos/uuid.mp4")
+ * @param {string} contentType - MIME type the client will upload
+ * @param {number} [expiresMinutes=30] - URL validity in minutes
+ * @returns {Promise<{signedUrl: string, publicUrl: string}>}
+ */
+async function generateSignedUploadUrl(filename, contentType, expiresMinutes = 30) {
+  const blob = bucket.file(filename);
+  const [url] = await blob.getSignedUrl({
+    version: 'v4',
+    action: 'write',
+    expires: Date.now() + expiresMinutes * 60 * 1000,
+    contentType,
+  });
+  return {
+    signedUrl: url,
+    publicUrl: `https://storage.googleapis.com/${BUCKET_NAME}/${filename}`,
+  };
+}
+
+module.exports = { uploadToGCS, deleteFromGCS, extractGCSPath, generateSignedUploadUrl, BUCKET_NAME };
