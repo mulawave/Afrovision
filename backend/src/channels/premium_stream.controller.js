@@ -229,7 +229,7 @@ async function adminSetPremium(req, res) {
       access_duration_minutes,
     } = req.body;
 
-    Channel.updatePremium(req.params.id, {
+    await Channel.updatePremium(req.params.id, {
       requires_payment,
       entry_fee_type,
       entry_fee_vpt_units,

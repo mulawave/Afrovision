@@ -7,7 +7,7 @@ function sanitize(str) {
   return str.replace(/[<>]/g, '').trim();
 }
 
-function createChannel(req, res) {
+async function createChannel(req, res) {
   const user = User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -31,7 +31,7 @@ function createChannel(req, res) {
     return res.status(403).json({ error: 'Only premium creators can create private channels' });
   }
 
-  const channel = Channel.create({
+  const channel = await Channel.create({
     ownerId: req.userId,
     name: sanitize(name),
     description: sanitize(description),
@@ -67,7 +67,7 @@ function getChannelByNumber(req, res) {
   res.json({ channel: enrichChannel(channel, owner, req.userId) });
 }
 
-function updateChannel(req, res) {
+async function updateChannel(req, res) {
   const channel = Channel.findById(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   if (channel.owner_id !== req.userId) {
@@ -81,7 +81,7 @@ function updateChannel(req, res) {
   }
 
   const { name, description, category } = req.body;
-  const updated = Channel.update(req.params.id, {
+  const updated = await Channel.update(req.params.id, {
     name: name ? sanitize(name) : undefined,
     description: description ? sanitize(description) : undefined,
     category: category ? sanitize(category) : undefined,
@@ -90,14 +90,14 @@ function updateChannel(req, res) {
   res.json({ channel: enrichChannel(updated, owner, req.userId) });
 }
 
-function deleteChannel(req, res) {
+async function deleteChannel(req, res) {
   const channel = Channel.findById(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   if (channel.owner_id !== req.userId) {
     return res.status(403).json({ error: 'Not channel owner' });
   }
 
-  Channel.disable(req.params.id);
+  await Channel.disable(req.params.id);
   res.json({ message: 'Channel disabled' });
 }
 
@@ -110,7 +110,7 @@ function getMyChannels(req, res) {
   res.json({ channels: enriched });
 }
 
-function enableChannel(req, res) {
+async function enableChannel(req, res) {
   const channel = Channel.findById(req.params.id) ||
     Channel.getAllByOwner(req.userId).find((c) => c.id === req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
@@ -118,7 +118,7 @@ function enableChannel(req, res) {
     return res.status(403).json({ error: 'Not channel owner' });
   }
 
-  const enabled = Channel.enable(req.params.id);
+  const enabled = await Channel.enable(req.params.id);
   const owner = User.findById(enabled.owner_id);
   res.json({ channel: enrichChannel(enabled, owner, req.userId) });
 }
@@ -141,7 +141,7 @@ function enrichChannel(channel, owner, requesterId) {
   };
 }
 
-function uploadMedia(req, res) {
+async function uploadMedia(req, res) {
   const channel = Channel.findById(req.params.id) ||
     Channel.getAllByOwner(req.userId).find((c) => c.id === req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
@@ -157,7 +157,7 @@ function uploadMedia(req, res) {
 
   const url = req.file.gcsUrl;
   const field = mediaType === 'logo' ? 'logo_url' : 'banner_url';
-  Channel.update(channel.id, { [field]: url });
+  await Channel.update(channel.id, { [field]: url });
 
   // Re-fetch to get updated data (handle disabled channels)
   const updated = Channel.getAllByOwner(req.userId).find((c) => c.id === channel.id);
@@ -165,7 +165,7 @@ function uploadMedia(req, res) {
   res.json({ channel: enrichChannel(updated, owner, req.userId) });
 }
 
-function createChannelWithMedia(req, res) {
+async function createChannelWithMedia(req, res) {
   const user = User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -189,7 +189,7 @@ function createChannelWithMedia(req, res) {
     return res.status(403).json({ error: 'Only premium creators can create private channels' });
   }
 
-  const channel = Channel.create({
+  const channel = await Channel.create({
     ownerId: req.userId,
     name: sanitize(name),
     description: sanitize(description),
@@ -200,10 +200,10 @@ function createChannelWithMedia(req, res) {
   // Attach uploaded files if present
   if (req.files) {
     if (req.files.logo && req.files.logo[0]) {
-      Channel.update(channel.id, { logo_url: req.files.logo[0].gcsUrl });
+      await Channel.update(channel.id, { logo_url: req.files.logo[0].gcsUrl });
     }
     if (req.files.banner && req.files.banner[0]) {
-      Channel.update(channel.id, { banner_url: req.files.banner[0].gcsUrl });
+      await Channel.update(channel.id, { banner_url: req.files.banner[0].gcsUrl });
     }
   }
 

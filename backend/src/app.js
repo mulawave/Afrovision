@@ -45,6 +45,9 @@ const SwapService = require('./vpt/swap.service');
 const GiftModel = require('./interactions/gift.model');
 const GiftWalletModel = require('./interactions/gift-wallet.model');
 const StreamStatsModel = require('./analytics/stream_stats.model');
+const ChannelModel = require('./channels/channel.model');
+const CategoryModel = require('./channels/category.model');
+const PlanModel = require('./subscriptions/plan.model');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
 const app = express();
@@ -160,6 +163,9 @@ async function startServer() {
     ReferralModel.init(),
     ChallengeModel.init(),
     KycModel.init(),
+    ChannelModel.init(),
+    CategoryModel.init(),
+    PlanModel.init(),
   ]);
 
   // Start the renewal worker AFTER models are initialized

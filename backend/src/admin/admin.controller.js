@@ -67,40 +67,40 @@ function listPlans(req, res) {
   res.json({ plans });
 }
 
-function createPlan(req, res) {
+async function createPlan(req, res) {
   if (!requireAdmin(req, res)) return;
   const { name, price, currency, features, display_labels, badge } = req.body;
   if (!name) return res.status(400).json({ error: 'Plan name is required' });
-  const plan = Plan.create({ name, price, currency, features, display_labels, badge });
+  const plan = await Plan.create({ name, price, currency, features, display_labels, badge });
   res.status(201).json({ plan });
 }
 
-function updatePlan(req, res) {
+async function updatePlan(req, res) {
   if (!requireAdmin(req, res)) return;
-  const plan = Plan.update(req.params.id, req.body);
+  const plan = await Plan.update(req.params.id, req.body);
   if (!plan) return res.status(404).json({ error: 'Plan not found' });
   res.json({ plan });
 }
 
-function deletePlan(req, res) {
+async function deletePlan(req, res) {
   if (!requireAdmin(req, res)) return;
-  const removed = Plan.remove(req.params.id);
+  const removed = await Plan.remove(req.params.id);
   if (!removed) return res.status(404).json({ error: 'Plan not found' });
   res.json({ message: 'Plan deleted' });
 }
 
-function addFeatureToPlan(req, res) {
+async function addFeatureToPlan(req, res) {
   if (!requireAdmin(req, res)) return;
   const { feature, label } = req.body;
   if (!feature) return res.status(400).json({ error: 'feature is required' });
-  const plan = Plan.addFeature(req.params.id, feature, label);
+  const plan = await Plan.addFeature(req.params.id, feature, label);
   if (!plan) return res.status(404).json({ error: 'Plan not found' });
   res.json({ plan });
 }
 
-function removeFeatureFromPlan(req, res) {
+async function removeFeatureFromPlan(req, res) {
   if (!requireAdmin(req, res)) return;
-  const plan = Plan.removeFeature(req.params.id, req.params.feature);
+  const plan = await Plan.removeFeature(req.params.id, req.params.feature);
   if (!plan) return res.status(404).json({ error: 'Plan not found' });
   res.json({ plan });
 }
@@ -113,24 +113,24 @@ function getCategories(req, res) {
   res.json({ categories });
 }
 
-function createCategory(req, res) {
+async function createCategory(req, res) {
   if (!requireAdmin(req, res)) return;
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'Category name is required' });
-  const category = Category.create({ name });
+  const category = await Category.create({ name });
   res.status(201).json({ category });
 }
 
-function updateCategory(req, res) {
+async function updateCategory(req, res) {
   if (!requireAdmin(req, res)) return;
-  const category = Category.update(req.params.id, req.body);
+  const category = await Category.update(req.params.id, req.body);
   if (!category) return res.status(404).json({ error: 'Category not found' });
   res.json({ category });
 }
 
-function deleteCategory(req, res) {
+async function deleteCategory(req, res) {
   if (!requireAdmin(req, res)) return;
-  const removed = Category.remove(req.params.id);
+  const removed = await Category.remove(req.params.id);
   if (!removed) return res.status(404).json({ error: 'Category not found' });
   res.json({ message: 'Category deleted' });
 }
@@ -256,7 +256,7 @@ async function deleteUser(req, res) {
 
   const activeOwnedChannels = Channel.getEvery().filter((channel) => channel.owner_id === uid && channel.is_active);
   for (const channel of activeOwnedChannels) {
-    Channel.disable(channel.id);
+    await Channel.disable(channel.id);
   }
 
   const deleted = await User.softDelete(uid, caller.id);
@@ -586,7 +586,7 @@ async function cleanupDuplicates(req, res) {
     for (const dupe of dupes) {
       const activeChannels = Channel.getEvery().filter((ch) => ch.owner_id === dupe.id && ch.is_active);
       for (const ch of activeChannels) {
-        Channel.disable(ch.id);
+        await Channel.disable(ch.id);
       }
       await User.softDelete(dupe.id, caller.id);
       removed++;
@@ -613,7 +613,7 @@ async function cleanupEmpty(req, res) {
   for (const user of empties) {
     const activeChannels = Channel.getEvery().filter((ch) => ch.owner_id === user.id && ch.is_active);
     for (const ch of activeChannels) {
-      Channel.disable(ch.id);
+      await Channel.disable(ch.id);
     }
     await User.hardDelete(user.id);
     removed++;
@@ -693,7 +693,7 @@ function listAllChannels(req, res) {
 async function adminDisableChannel(req, res) {
   const caller = requireAdmin(req, res);
   if (!caller) return;
-  const channel = Channel.disable(req.params.id);
+  const channel = await Channel.disable(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   await AuditService.logAction(caller.id, 'disable_channel', req.params.id, { name: channel.name });
   res.json({ channel: serializeChannelForAdmin(channel) });
@@ -702,7 +702,7 @@ async function adminDisableChannel(req, res) {
 async function adminEnableChannel(req, res) {
   const caller = requireAdmin(req, res);
   if (!caller) return;
-  const channel = Channel.enable(req.params.id);
+  const channel = await Channel.enable(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   await AuditService.logAction(caller.id, 'enable_channel', req.params.id, { name: channel.name });
   res.json({ channel: serializeChannelForAdmin(channel) });
