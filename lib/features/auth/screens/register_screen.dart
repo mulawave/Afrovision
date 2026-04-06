@@ -19,6 +19,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
+  final _referralController = TextEditingController();
   bool _loading = false;
   bool _acceptedTerms = false;
   String? _error;
@@ -34,9 +35,10 @@ class _RegisterScreenState extends State<RegisterScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _fadeIn = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut),
-    );
+    _fadeIn = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _slideUp = Tween<Offset>(
       begin: const Offset(0, 0.15),
       end: Offset.zero,
@@ -46,6 +48,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     _emailController.addListener(_onFieldChanged);
     _passwordController.addListener(_onFieldChanged);
     _confirmController.addListener(_onFieldChanged);
+    _referralController.addListener(_onFieldChanged);
   }
 
   @override
@@ -54,6 +57,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     _emailController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
+    _referralController.dispose();
     super.dispose();
   }
 
@@ -90,7 +94,12 @@ class _RegisterScreenState extends State<RegisterScreen>
     });
 
     try {
-      await AuthService.register(email, password);
+      final referralCode = _referralController.text.trim();
+      await AuthService.register(
+        email,
+        password,
+        referralCode: referralCode.isEmpty ? null : referralCode,
+      );
       if (!mounted) return;
       Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
     } catch (e) {
@@ -114,8 +123,10 @@ class _RegisterScreenState extends State<RegisterScreen>
             child: SlideTransition(
               position: _slideUp,
               child: SingleChildScrollView(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 24,
+                ),
                 child: Column(
                   children: [
                     const SizedBox(height: 24),
@@ -147,29 +158,41 @@ class _RegisterScreenState extends State<RegisterScreen>
                         width: double.infinity,
                         margin: const EdgeInsets.only(bottom: 20),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.errorRed.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                              color:
-                                  AppColors.errorRed.withValues(alpha: 0.3)),
+                            color: AppColors.errorRed.withValues(alpha: 0.3),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.error_outline,
-                                color: AppColors.errorRed, size: 18),
+                            const Icon(
+                              Icons.error_outline,
+                              color: AppColors.errorRed,
+                              size: 18,
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: _error!.toLowerCase().contains('already registered')
+                              child:
+                                  _error!.toLowerCase().contains(
+                                    'already registered',
+                                  )
                                   ? GestureDetector(
-                                      onTap: () => Navigator.pushReplacementNamed(
-                                          context, '/login'),
+                                      onTap: () =>
+                                          Navigator.pushReplacementNamed(
+                                            context,
+                                            '/login',
+                                          ),
                                       child: Text.rich(
                                         TextSpan(
                                           children: [
                                             const TextSpan(
-                                              text: 'Email already registered. ',
+                                              text:
+                                                  'Email already registered. ',
                                               style: TextStyle(
                                                 color: AppColors.errorRed,
                                                 fontSize: 13,
@@ -239,6 +262,14 @@ class _RegisterScreenState extends State<RegisterScreen>
                       errorText: _confirmError,
                     ),
 
+                    const SizedBox(height: 20),
+                    AppTextField(
+                      controller: _referralController,
+                      label: 'REFERRAL CODE (OPTIONAL)',
+                      hint: 'Enter referral code',
+                      prefixIcon: Icons.card_giftcard_outlined,
+                    ),
+
                     // Terms & Privacy checkbox
                     const SizedBox(height: 20),
                     Row(
@@ -269,8 +300,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                           child: RichText(
                             text: TextSpan(
                               style: TextStyle(
-                                color:
-                                    AppColors.hintText.withValues(alpha: 0.9),
+                                color: AppColors.hintText.withValues(
+                                  alpha: 0.9,
+                                ),
                                 fontSize: 12.5,
                                 height: 1.4,
                               ),
@@ -285,8 +317,8 @@ class _RegisterScreenState extends State<RegisterScreen>
                                     decorationColor: AppColors.orange,
                                   ),
                                   recognizer: TapGestureRecognizer()
-                                    ..onTap = () => Navigator.pushNamed(
-                                        context, '/terms'),
+                                    ..onTap = () =>
+                                        Navigator.pushNamed(context, '/terms'),
                                 ),
                                 const TextSpan(text: ' and '),
                                 TextSpan(
@@ -299,7 +331,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                                   ),
                                   recognizer: TapGestureRecognizer()
                                     ..onTap = () => Navigator.pushNamed(
-                                        context, '/privacy-policy'),
+                                      context,
+                                      '/privacy-policy',
+                                    ),
                                 ),
                               ],
                             ),
@@ -360,8 +394,8 @@ class _RegisterScreenState extends State<RegisterScreen>
                           ),
                         ),
                         GestureDetector(
-                          onTap: () => Navigator.pushReplacementNamed(
-                              context, '/login'),
+                          onTap: () =>
+                              Navigator.pushReplacementNamed(context, '/login'),
                           child: const Text(
                             'Sign In',
                             style: TextStyle(

@@ -1,5 +1,11 @@
 const Channel = require('./channel.model');
 const User = require('../users/user.model');
+const CreatorSub = require('../subscriptions/creator_subscription.model');
+
+function sanitize(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/[<>]/g, '').trim();
+}
 
 function createChannel(req, res) {
   const user = User.findById(req.userId);
@@ -13,6 +19,8 @@ function createChannel(req, res) {
   if (!name) return res.status(400).json({ error: 'Channel name is required' });
   if (!description) return res.status(400).json({ error: 'Description is required' });
   if (!category) return res.status(400).json({ error: 'Category is required' });
+  if (name.length > 100) return res.status(400).json({ error: 'Channel name must be 100 characters or fewer' });
+  if (description.length > 2000) return res.status(400).json({ error: 'Description must be 2000 characters or fewer' });
 
   const channelType = type || 'public';
   if (!['public', 'private'].includes(channelType)) {
@@ -25,20 +33,20 @@ function createChannel(req, res) {
 
   const channel = Channel.create({
     ownerId: req.userId,
-    name,
-    description,
-    category,
+    name: sanitize(name),
+    description: sanitize(description),
+    category: sanitize(category),
     type: channelType,
   });
 
-  res.status(201).json({ channel: enrichChannel(channel, user) });
+  res.status(201).json({ channel: enrichChannel(channel, user, req.userId) });
 }
 
 function getPublicChannels(req, res) {
   const channels = Channel.getPublicChannels();
   const enriched = channels.map((ch) => {
     const owner = User.findById(ch.owner_id);
-    return enrichChannel(ch, owner);
+    return enrichChannel(ch, owner, null);
   });
   res.json({ channels: enriched });
 }
@@ -48,7 +56,7 @@ function getChannelById(req, res) {
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
   const owner = User.findById(channel.owner_id);
-  res.json({ channel: enrichChannel(channel, owner) });
+  res.json({ channel: enrichChannel(channel, owner, req.userId) });
 }
 
 function getChannelByNumber(req, res) {
@@ -56,7 +64,7 @@ function getChannelByNumber(req, res) {
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
   const owner = User.findById(channel.owner_id);
-  res.json({ channel: enrichChannel(channel, owner) });
+  res.json({ channel: enrichChannel(channel, owner, req.userId) });
 }
 
 function updateChannel(req, res) {
@@ -73,9 +81,13 @@ function updateChannel(req, res) {
   }
 
   const { name, description, category } = req.body;
-  const updated = Channel.update(req.params.id, { name, description, category });
+  const updated = Channel.update(req.params.id, {
+    name: name ? sanitize(name) : undefined,
+    description: description ? sanitize(description) : undefined,
+    category: category ? sanitize(category) : undefined,
+  });
   const owner = User.findById(updated.owner_id);
-  res.json({ channel: enrichChannel(updated, owner) });
+  res.json({ channel: enrichChannel(updated, owner, req.userId) });
 }
 
 function deleteChannel(req, res) {
@@ -93,7 +105,7 @@ function getMyChannels(req, res) {
   const channels = Channel.getAllByOwner(req.userId);
   const enriched = channels.map((ch) => {
     const owner = User.findById(ch.owner_id);
-    return enrichChannel(ch, owner);
+    return enrichChannel(ch, owner, req.userId);
   });
   res.json({ channels: enriched });
 }
@@ -108,10 +120,10 @@ function enableChannel(req, res) {
 
   const enabled = Channel.enable(req.params.id);
   const owner = User.findById(enabled.owner_id);
-  res.json({ channel: enrichChannel(enabled, owner) });
+  res.json({ channel: enrichChannel(enabled, owner, req.userId) });
 }
 
-function enrichChannel(channel, owner) {
+function enrichChannel(channel, owner, requesterId) {
   return {
     id: channel.id,
     name: channel.name,
@@ -124,7 +136,8 @@ function enrichChannel(channel, owner) {
     is_active: channel.is_active,
     created_at: channel.created_at,
     owner_id: channel.owner_id,
-    owner_name: channel.type === 'private' ? 'No information available' : (owner?.name || owner?.email || 'Unknown'),
+    owner_name: owner?.name || owner?.email || 'Unknown',
+    followers_count: User.countFollowers ? User.countFollowers(channel.owner_id) : 0,
   };
 }
 
@@ -149,7 +162,7 @@ function uploadMedia(req, res) {
   // Re-fetch to get updated data (handle disabled channels)
   const updated = Channel.getAllByOwner(req.userId).find((c) => c.id === channel.id);
   const owner = User.findById(updated.owner_id);
-  res.json({ channel: enrichChannel(updated, owner) });
+  res.json({ channel: enrichChannel(updated, owner, req.userId) });
 }
 
 function createChannelWithMedia(req, res) {
@@ -164,6 +177,8 @@ function createChannelWithMedia(req, res) {
   if (!name) return res.status(400).json({ error: 'Channel name is required' });
   if (!description) return res.status(400).json({ error: 'Description is required' });
   if (!category) return res.status(400).json({ error: 'Category is required' });
+  if (name.length > 100) return res.status(400).json({ error: 'Channel name must be 100 characters or fewer' });
+  if (description.length > 2000) return res.status(400).json({ error: 'Description must be 2000 characters or fewer' });
 
   const channelType = type || 'public';
   if (!['public', 'private'].includes(channelType)) {
@@ -176,9 +191,9 @@ function createChannelWithMedia(req, res) {
 
   const channel = Channel.create({
     ownerId: req.userId,
-    name,
-    description,
-    category,
+    name: sanitize(name),
+    description: sanitize(description),
+    category: sanitize(category),
     type: channelType,
   });
 
@@ -193,7 +208,24 @@ function createChannelWithMedia(req, res) {
   }
 
   const updated = Channel.findById(channel.id);
-  res.status(201).json({ channel: enrichChannel(updated, user) });
+  res.status(201).json({ channel: enrichChannel(updated, user, req.userId) });
+}
+
+/**
+ * GET /channels/subscriber-feed
+ * Returns channels owned by creators the authenticated user actively subscribes to.
+ * Useful for "Subscriber-Only Live Now" section on home screen.
+ */
+function getSubscriberFeed(req, res) {
+  // All active subscriptions where the caller is the subscriber
+  const subs = CreatorSub.getBySubscriber(req.userId).filter((s) => s.status === 'active');
+  const creatorUids = [...new Set(subs.map((s) => s.creator_uid))];
+
+  const channels = Channel.getAll().filter(
+    (c) => c.is_active && creatorUids.includes(c.owner_id)
+  );
+
+  res.json({ channels });
 }
 
 module.exports = {
@@ -207,4 +239,5 @@ module.exports = {
   getMyChannels,
   enableChannel,
   uploadMedia,
+  getSubscriberFeed,
 };

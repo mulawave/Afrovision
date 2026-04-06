@@ -27,14 +27,14 @@ const Vpt = require('./vpt.model');
  * Queue a vPT conversion for a creator.
  * Called after plan payment → split → extraction.
  */
-function queueVPT(creatorUid, ngnAmount, referenceId) {
-  const item = DistQueue.create({
+async function queueVPT(creatorUid, ngnAmount, referenceId) {
+  const item = await DistQueue.create({
     creatorUid,
     ngnValue: ngnAmount,
     referenceId,
   });
 
-  Ledger.create({
+  await Ledger.create({
     uid: creatorUid,
     type: 'VPT_QUEUE',
     amount_ngn: ngnAmount,
@@ -52,13 +52,13 @@ function queueVPT(creatorUid, ngnAmount, referenceId) {
  * Step 1: Create a batch from all pending queue items.
  * Links each queue item to the batch via batch_id.
  */
-function createBatch() {
+async function createBatch() {
   const pending = DistQueue.getPending();
 
   // Also pick up retryable failed items
   const retryable = DistQueue.getRetryable();
   for (const item of retryable) {
-    DistQueue.resetForRetry(item.id);
+    await DistQueue.resetForRetry(item.id);
   }
 
   // Gather all eligible items
@@ -71,11 +71,11 @@ function createBatch() {
   const totalNGN = items.reduce((sum, item) => sum + item.ngn_value, 0);
   const itemIds = items.map((item) => item.id);
 
-  const batch = Batch.create({ totalNGN, itemIds });
+  const batch = await Batch.create({ totalNGN, itemIds });
 
   // Link each item to this batch
   for (const item of items) {
-    DistQueue.assignToBatch(item.id, batch.id);
+    await DistQueue.assignToBatch(item.id, batch.id);
   }
 
   return batch;
@@ -88,10 +88,10 @@ function createBatch() {
  * Converts NGN → BNB → vPT via market.
  */
 async function executeSwap(batch) {
-  const totalBNB = SwapService.convertNGNtoBNB(batch.total_ngn);
+  const totalBNB = await SwapService.convertNGNtoBNB(batch.total_ngn);
 
   // Log swap initiation
-  const swapLedger = Ledger.create({
+  const swapLedger = await Ledger.create({
     uid: null,
     type: 'VPT_SWAP',
     amount_ngn: batch.total_ngn,
@@ -104,34 +104,36 @@ async function executeSwap(batch) {
     const result = await SwapService.buyVPT(totalBNB);
 
     // Update batch
-    Batch.setSwapped(batch.id, {
+    await Batch.setSwapped(batch.id, {
       totalBNB,
       totalVPT: result.vptAmount,
+      totalVPTWei: result.vptAmountWei,
       txHash: result.txHash,
     });
 
     // Update ledger entry to success
-    Ledger.updateStatus(swapLedger.id, 'success', {
+    await Ledger.updateStatus(swapLedger.id, 'success', {
       amount_vpt: result.vptAmount,
+      amount_vpt_wei: result.vptAmountWei,
       tx_hash: result.txHash,
     });
 
     return { ...result, totalBNB };
 
   } catch (err) {
-    Batch.setFailed(batch.id);
+    await Batch.setFailed(batch.id);
 
     // Mark all batch items as failed
     const items = DistQueue.getByBatch(batch.id);
     for (const item of items) {
-      DistQueue.setFailed(item.id);
+      await DistQueue.setFailed(item.id);
     }
 
-    Ledger.updateStatus(swapLedger.id, 'failed', {
+    await Ledger.updateStatus(swapLedger.id, 'failed', {
       meta: { ...swapLedger.meta, error: err.message },
     });
 
-    Ledger.create({
+    await Ledger.create({
       uid: null,
       type: 'SWAP_FAILED',
       amount_ngn: batch.total_ngn,
@@ -153,60 +155,70 @@ async function executeSwap(batch) {
 async function distribute(batch) {
   const items = DistQueue.getByBatch(batch.id);
   const totalVPT = batch.total_vpt;
+  const totalVPTWei = BigInt(batch.total_vpt_wei || '0');
   let distributed = 0;
+  let allocatedWei = 0n;
   const results = [];
 
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     // Skip already completed (e.g., from partial retry)
     if (item.status === 'completed') {
       distributed++;
       continue;
     }
 
-    const share = item.ngn_value / batch.total_ngn;
-    const vptAmount = Math.round(totalVPT * share * 100) / 100;
+    let vptAmountWei;
+    if (index === items.length - 1) {
+      vptAmountWei = totalVPTWei - allocatedWei;
+    } else {
+      vptAmountWei = (totalVPTWei * BigInt(item.ngn_value)) / BigInt(batch.total_ngn);
+      allocatedWei += vptAmountWei;
+    }
+
+    const vptAmount = await SwapService.formatTokenAmount(vptAmountWei);
+    const vptAmountWeiString = vptAmountWei.toString();
 
     // Get creator's wallet address
     const wallet = WalletModel.findByUserId(item.creator_uid);
     if (!wallet || wallet.status !== 'active') {
-      DistQueue.setFailed(item.id);
-      Ledger.create({
+      await DistQueue.setFailed(item.id);
+      await Ledger.create({
         uid: item.creator_uid,
         type: 'DISTRIBUTION_FAILED',
         amount_vpt: vptAmount,
+        amount_vpt_wei: vptAmountWeiString,
         status: 'failed',
         meta: { batch_id: batch.id, queue_id: item.id, reason: 'no_active_wallet' },
         description: `No active wallet for user ${item.creator_uid}`,
       });
-      results.push({ id: item.id, uid: item.creator_uid, vptAmount, status: 'failed', error: 'no_active_wallet' });
+      results.push({ id: item.id, uid: item.creator_uid, vptAmount, vptAmountWei: vptAmountWeiString, status: 'failed', error: 'no_active_wallet' });
       continue;
     }
 
     try {
-      const tx = await SwapService.sendVPT(wallet.bsc_address, vptAmount);
+      const tx = await SwapService.sendVPT(wallet.bsc_address, vptAmountWeiString);
 
       // Update in-app vPT balance
-      const user = User.findById(item.creator_uid);
-      if (user) {
-        user.vpt_balance += vptAmount;
-      }
+      await User.adjustVptBalance(item.creator_uid, vptAmount);
 
       // Log vPT transaction record
-      Vpt.create({
+      await Vpt.create({
         userId: item.creator_uid,
         type: 'vpt_distribution',
         amount: vptAmount,
+        amountWei: vptAmountWeiString,
         description: `vPT distribution: ₦${item.ngn_value} → ${vptAmount} vPT`,
       });
 
       // Mark queue item completed
-      DistQueue.setCompleted(item.id, tx.txHash, vptAmount);
+      await DistQueue.setCompleted(item.id, tx.txHash, vptAmount, vptAmountWeiString);
 
       // Ledger entry for this distribution
-      Ledger.create({
+      await Ledger.create({
         uid: item.creator_uid,
         type: 'VPT_DISTRIBUTION',
         amount_vpt: vptAmount,
+        amount_vpt_wei: vptAmountWeiString,
         tx_hash: tx.txHash,
         status: 'success',
         meta: { batch_id: batch.id, queue_id: item.id, wallet: wallet.bsc_address },
@@ -214,27 +226,28 @@ async function distribute(batch) {
       });
 
       distributed++;
-      results.push({ id: item.id, uid: item.creator_uid, vptAmount, status: 'completed', txHash: tx.txHash });
+      results.push({ id: item.id, uid: item.creator_uid, vptAmount, vptAmountWei: vptAmountWeiString, status: 'completed', txHash: tx.txHash });
 
     } catch (err) {
       // Isolate failure — don't block other distributions
-      DistQueue.setFailed(item.id);
+      await DistQueue.setFailed(item.id);
 
-      Ledger.create({
+      await Ledger.create({
         uid: item.creator_uid,
         type: 'DISTRIBUTION_FAILED',
         amount_vpt: vptAmount,
+        amount_vpt_wei: vptAmountWeiString,
         status: 'failed',
         meta: { batch_id: batch.id, queue_id: item.id, error: err.message },
         description: `Distribution failed: ${err.message}`,
       });
 
-      results.push({ id: item.id, uid: item.creator_uid, vptAmount, status: 'failed', error: err.message });
+      results.push({ id: item.id, uid: item.creator_uid, vptAmount, vptAmountWei: vptAmountWeiString, status: 'failed', error: err.message });
     }
   }
 
   // Mark batch as distributed (even if some items failed — they retry independently)
-  Batch.setDistributed(batch.id);
+  await Batch.setDistributed(batch.id);
 
   return { distributed, total: items.length, results };
 }
@@ -247,7 +260,7 @@ async function distribute(batch) {
  */
 async function processBatch() {
   // Step 1: Create batch
-  const batch = createBatch();
+  const batch = await createBatch();
   if (!batch) {
     return { processed: 0, message: 'No pending items' };
   }
@@ -287,14 +300,14 @@ async function retryBatch(batchId) {
   if (!batch) return { error: 'Batch not found' };
   if (!Batch.canRetry(batchId)) return { error: 'Max retries exceeded' };
 
-  Batch.resetForRetry(batchId);
+  await Batch.resetForRetry(batchId);
 
   // Reset all failed items in this batch back to pending
   const items = DistQueue.getByBatch(batchId);
   for (const item of items) {
     if (item.status === 'failed') {
-      DistQueue.resetForRetry(item.id);
-      DistQueue.assignToBatch(item.id, batchId);
+      await DistQueue.resetForRetry(item.id);
+      await DistQueue.assignToBatch(item.id, batchId);
     }
   }
 

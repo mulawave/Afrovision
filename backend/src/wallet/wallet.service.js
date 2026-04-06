@@ -1,15 +1,13 @@
 const crypto = require('crypto');
 const Wallet = require('./wallet.model');
 const Ledger = require('../vpt/ledger.model');
-const Settings = require('../admin/settings.model');
-
-const ALGORITHM = 'aes-256-cbc';
-const KEY_LENGTH = 32;
+const SettingsService = require('../admin/settings.service');
+const { encryptWithSecret, decryptWithSecret } = require('../utils/crypto');
 
 let ethersModule = null;
 
 /**
- * Lazy-load ethers (ESM-only in v6). Falls back to dev mode if unavailable.
+ * Lazy-load ethers (ESM-only in v6).
  */
 async function getEthers() {
   if (ethersModule) return ethersModule;
@@ -22,44 +20,25 @@ async function getEthers() {
   }
 }
 
-function getSecret() {
-  const secret = Settings.get('WALLET_SECRET');
+async function getSecret() {
+  const secret = await SettingsService.get('WALLET_SECRET');
   if (!secret) {
-    throw new Error('WALLET_SECRET is required for wallet encryption (set via admin settings or .env)');
+    throw new Error('WALLET_SECRET is required in Firebase settings for wallet encryption');
   }
-  // Derive a 32-byte key from the secret using SHA-256
-  return crypto.createHash('sha256').update(secret).digest();
+  return secret;
 }
 
-function encrypt(text) {
-  const key = getSecret();
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-
-  let encrypted = cipher.update(text, 'utf8');
-  encrypted = Buffer.concat([encrypted, cipher.final()]);
-
-  return iv.toString('hex') + ':' + encrypted.toString('hex');
+async function encrypt(text) {
+  return encryptWithSecret(text, await getSecret());
 }
 
-function decrypt(text) {
-  const key = getSecret();
-  const [ivHex, encryptedHex] = text.split(':');
-
-  const iv = Buffer.from(ivHex, 'hex');
-  const encrypted = Buffer.from(encryptedHex, 'hex');
-
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-
-  let decrypted = decipher.update(encrypted);
-  decrypted = Buffer.concat([decrypted, decipher.final()]);
-
-  return decrypted.toString('utf8');
+async function decrypt(text) {
+  return decryptWithSecret(text, await getSecret());
 }
 
 /**
  * Create a new BSC wallet for a user.
- * Uses ethers in production, crypto fallback in dev.
+ * Uses ethers random wallet generation for staging/production environments.
  */
 async function createWallet(userId) {
   const existing = Wallet.findByUserId(userId);
@@ -69,32 +48,23 @@ async function createWallet(userId) {
 
   const ethers = await getEthers();
 
-  let address, privateKey;
-
-  if (ethers && ethers.Wallet) {
-    // Production: real BSC wallet
-    const wallet = ethers.Wallet.createRandom();
-    address = wallet.address;
-    privateKey = wallet.privateKey;
-  } else {
-    // Dev mode: simulated wallet
-    privateKey = '0x' + crypto.randomBytes(32).toString('hex');
-    address = '0x' + crypto.createHash('sha256')
-      .update(privateKey)
-      .digest('hex')
-      .slice(0, 40);
-    console.log('[WalletService] Dev mode — simulated wallet created');
+  if (!ethers || !ethers.Wallet) {
+    throw new Error('ethers runtime unavailable for wallet creation');
   }
 
-  const encryptedKey = encrypt(privateKey);
+  const wallet = ethers.Wallet.createRandom();
+  const address = wallet.address;
+  const privateKey = wallet.privateKey;
 
-  const walletRecord = Wallet.create({
+  const encryptedKey = await encrypt(privateKey);
+
+  const walletRecord = await Wallet.create({
     userId,
     bscAddress: address,
     encryptedPrivateKey: encryptedKey,
   });
 
-  Ledger.create({
+  await Ledger.create({
     uid: userId,
     type: 'WALLET_CREATED',
     amount_ngn: 0,
@@ -107,8 +77,7 @@ async function createWallet(userId) {
 }
 
 /**
- * Get or create wallet for user. Returns ethers Wallet instance if ethers available,
- * otherwise returns the wallet record.
+ * Get or create wallet for user. Returns ethers Wallet instance.
  */
 async function getWallet(userId) {
   let walletRecord = Wallet.findByUserId(userId);
@@ -117,32 +86,28 @@ async function getWallet(userId) {
     walletRecord = await createWallet(userId);
   }
 
-  Wallet.touchLastUsed(userId);
+  await Wallet.touchLastUsed(userId);
 
   const ethers = await getEthers();
 
-  if (ethers && ethers.Wallet) {
-    const privateKey = decrypt(walletRecord.encrypted_private_key);
-    const provider = getProvider(ethers);
-    if (provider) {
-      return new ethers.Wallet(privateKey, provider);
-    }
-    return new ethers.Wallet(privateKey);
+  if (!ethers || !ethers.Wallet) {
+    throw new Error('ethers runtime unavailable for wallet access');
   }
 
-  // Dev mode: return record with decrypted key for internal use
-  return {
-    address: walletRecord.bsc_address,
-    privateKey: decrypt(walletRecord.encrypted_private_key),
-    _record: walletRecord,
-  };
+  const privateKey = await decrypt(walletRecord.encrypted_private_key);
+  const provider = await getProvider(ethers);
+  if (provider) {
+    return new ethers.Wallet(privateKey, provider);
+  }
+
+  return new ethers.Wallet(privateKey);
 }
 
 /**
  * Get BSC JSON-RPC provider (production only).
  */
-function getProvider(ethers) {
-  const rpc = Settings.get('BSC_RPC');
+async function getProvider(ethers) {
+  const rpc = await SettingsService.get('BSC_RPC');
   if (!rpc || !ethers.JsonRpcProvider) return null;
   return new ethers.JsonRpcProvider(rpc);
 }

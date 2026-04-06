@@ -4,7 +4,7 @@ const Vpt = require('../vpt/vpt.model');
 const Ledger = require('../vpt/ledger.model');
 const Distribution = require('../vpt/distribution.service');
 const WalletService = require('../wallet/wallet.service');
-const Settings = require('../admin/settings.model');
+const SettingsService = require('../admin/settings.service');
 
 function getPlans(req, res) {
   const plans = Plan.getAll();
@@ -33,8 +33,8 @@ async function subscribe(req, res) {
       return res.status(400).json({ error: 'Insufficient vPT balance' });
     }
     // Deduct vPT
-    user.vpt_balance -= plan.price;
-    Vpt.create({
+    await User.adjustVptBalance(req.userId, -plan.price);
+    await Vpt.create({
       userId: req.userId,
       type: 'subscription_payment',
       amount: -plan.price,
@@ -45,7 +45,7 @@ async function subscribe(req, res) {
   const expiry = new Date();
   expiry.setDate(expiry.getDate() + 30);
 
-  User.setSubscription(req.userId, {
+  await User.setSubscription(req.userId, {
     plan: plan.name,
     status: 'active',
     expiry: expiry.toISOString(),
@@ -53,25 +53,27 @@ async function subscribe(req, res) {
 
   // Track first subscription
   if (!user.first_subscription_at) {
-    user.first_subscription_at = new Date().toISOString();
+    await User.setFirstSubscriptionAt(req.userId, new Date().toISOString());
   }
 
   // Auto-set role to creator
-  User.setRole(req.userId, 'creator');
+  await User.setRole(req.userId, 'creator');
 
   // Premium plan grants premium creator status
   if (plan.name === 'premium') {
-    User.setPremium(req.userId, true);
+    await User.setPremium(req.userId, true);
   } else {
-    User.setPremium(req.userId, false);
+    await User.setPremium(req.userId, false);
   }
 
   // --- ECONOMIC ENGINE: Ledger + Split + Queue ---
 
   // 1. Log the plan payment (ledger = source of truth)
-  Ledger.create({
+  await Ledger.create({
     uid: req.userId,
     type: 'PLAN_PAYMENT',
+    direction: 'debit',
+    currency: 'ngn',
     amount_ngn: plan.price,
     status: 'success',
     meta: { plan_id: plan.id, plan_name: plan.name, method },
@@ -79,16 +81,18 @@ async function subscribe(req, res) {
   });
 
   // 2. Split: community pool = 20% of plan price
-  const communityPoolRate = (Settings.getNumber('COMMUNITY_POOL_PERCENT') || 20) / 100;
+  const communityPoolRate = ((await SettingsService.getNumber('COMMUNITY_POOL_PERCENT')) || 20) / 100;
   const communityPool = Math.round(plan.price * communityPoolRate);
 
   // 3. Extract: configurable % of community pool → vPT conversion
-  const vptExtractionRate = (Settings.getNumber('VPT_EXTRACTION_PERCENT') || 30) / 100;
+  const vptExtractionRate = ((await SettingsService.getNumber('VPT_EXTRACTION_PERCENT')) || 30) / 100;
   const vptPortion = Math.round(communityPool * vptExtractionRate);
 
-  Ledger.create({
+  await Ledger.create({
     uid: req.userId,
     type: 'SPLIT',
+    direction: 'credit',
+    currency: 'ngn',
     amount_ngn: vptPortion,
     status: 'success',
     meta: {
@@ -101,7 +105,7 @@ async function subscribe(req, res) {
   });
 
   // 4. Queue vPT conversion
-  const queueItem = Distribution.queueVPT(req.userId, vptPortion, plan.id);
+  const queueItem = await Distribution.queueVPT(req.userId, vptPortion, plan.id);
 
   // 5. Auto-create BSC wallet for creator (blocking — needed for distribution)
   let walletCreated = false;

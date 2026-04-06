@@ -11,6 +11,17 @@ class ChannelModel {
   final bool isActive;
   final String createdAt;
   final String? ownerName;
+  final int followersCount;
+
+  // Module 11 — Premium stream fields
+  final bool requiresPayment;
+  final String? entryFeeType; // 'vpt' | 'ngn'
+  final int entryFeeVptUnits;
+  final double entryFeeNgn;
+  final int accessDurationMinutes;
+
+  // Module 12 — Retention fields
+  final bool isSubscriberOnly;
 
   ChannelModel({
     required this.id,
@@ -25,10 +36,18 @@ class ChannelModel {
     required this.isActive,
     required this.createdAt,
     this.ownerName,
+    this.followersCount = 0,
+    this.requiresPayment = false,
+    this.entryFeeType,
+    this.entryFeeVptUnits = 0,
+    this.entryFeeNgn = 0,
+    this.accessDurationMinutes = 120,
+    this.isSubscriberOnly = false,
   });
 
   bool get isPrivate => type == 'private';
   bool get isPublic => type == 'public';
+  bool get isPremium => requiresPayment;
 
   factory ChannelModel.fromJson(Map<String, dynamic> json) {
     return ChannelModel(
@@ -44,6 +63,14 @@ class ChannelModel {
       isActive: json['is_active'] as bool? ?? true,
       createdAt: json['created_at'] as String,
       ownerName: json['owner_name'] as String?,
+      followersCount: (json['followers_count'] as num?)?.toInt() ?? 0,
+      requiresPayment: json['requires_payment'] as bool? ?? false,
+      entryFeeType: json['entry_fee_type'] as String?,
+      entryFeeVptUnits: (json['entry_fee_vpt_units'] as num?)?.toInt() ?? 0,
+      entryFeeNgn: (json['entry_fee_ngn'] as num?)?.toDouble() ?? 0,
+      accessDurationMinutes:
+          (json['access_duration_minutes'] as num?)?.toInt() ?? 120,
+      isSubscriberOnly: json['is_subscriber_only'] as bool? ?? false,
     );
   }
 }

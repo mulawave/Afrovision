@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* AfroVision brand palette */
+  --color-av-dark-blue: #050A30;
+  --color-av-light-blue: #173A6D;
+  --color-av-light-orange: #F5C16C;
+  --color-av-orange: #F49617;
+  --color-av-white: #FFFFFF;
+  --color-av-input-fill: #0D1442;
+  --color-av-input-border: #1E2A5A;
+  --color-av-hint: #5A6190;
+  --color-av-error: #FF4D6A;
+  --color-av-card: #0A1040;
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: linear-gradient(to bottom, #173A6D, #050A30);
+  color: #FFFFFF;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #050A30;
+}
+::-webkit-scrollbar-thumb {
+  background: #1E2A5A;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #F49617;
+}
+
+/* Horizontal scroll hide for marquees */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Shimmer loading animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, #0A1040 25%, #1E2A5A 50%, #0A1040 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Fade-in animation */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fadeInUp 0.8s ease-out forwards;
+}
+
+/* Stagger children animation */
+.stagger-children > * {
+  opacity: 0;
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.2s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.3s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.4s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.5s; }
+.stagger-children > *:nth-child(6) { animation-delay: 0.6s; }
+
+/* Floating reaction animation */
+@keyframes reactionFloat {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: translateY(-60px) scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-120px) scale(0.8);
+  }
+}
+.reaction-float {
+  animation: reactionFloat 2.2s ease-out forwards;
+}
+
+/* Gift send pulse animation */
+@keyframes giftSendPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+.gift-send-animation {
+  animation: giftSendPulse 0.5s ease-in-out;
+}
+
+/* Viewer count pulse */
+@keyframes viewerPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.animate-viewer-pulse {
+  animation: viewerPulse 2s ease-in-out infinite;
+}

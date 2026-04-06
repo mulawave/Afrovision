@@ -12,6 +12,22 @@
 
 5. **Animation Standards**: Screens should include fade-in and slide-up entry animations consistent with existing screens. Interactive elements should have appropriate feedback animations.
 
+## Implementation Completeness (MANDATORY — apply to ALL new features, functions, and flows)
+
+1. **End-to-End Only**: Every new implementation must be completed end to end. Do not stop at a partial scaffold, isolated backend logic, page shell, button shell, placeholder state, or a single happy path.
+
+2. **Full User Experience Required**: If a feature is visible to users, build the full supporting experience around it. This includes entry points, destination screens, connected actions, data wiring, navigation, empty states, loading states, error states, success states, disabled states, and any management controls needed to actually use the feature.
+
+3. **Supporting Flows Are Part of the Feature**: If a new surface implies follow-up actions, those actions must also be implemented. Do not add an icon, menu item, page link, or card unless the downstream flow is also complete and functional.
+
+4. **Operational Controls Must Exist**: If a feature creates manageable content, include the controls users need to operate it properly. Examples include mark as read, archive, delete, select all, clear all, filters, status indicators, and other expected controls relevant to the feature.
+
+5. **Readiness Standard**: A feature is only complete when the full flow works across all touched layers: UI, state management, API or backend, storage, navigation, permissions, validation, and edge cases.
+
+6. **No Misleading Partial Delivery**: Do not present a feature as done if important supporting pieces are missing. If a real blocker prevents complete delivery, explicitly state the blocker and what remains incomplete instead of leaving a half-baked implementation.
+
+7. **Example Standard**: If implementing header notifications, the implementation must include the notification icon, badge counter, dropdown or panel, read and unread distinction, clear notification list presentation, mark all as read, links from each notification to relevant content, and a fully wired notifications page with controls such as mark as read, archive, delete, select all, delete all, and any other necessary management actions.
+
 ## Brand Colors
 - Dark Blue: `#050A30`
 - Light Blue: `#173A6D`

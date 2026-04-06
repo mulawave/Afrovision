@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "node ./.github/hooks/implementation-guard.js",
+        "timeout": 10
+      },
+      {
+        "type": "command",
+        "command": "node ./.github/hooks/design-guard.js",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "node ./.github/hooks/pre-complete-gate.js",
+        "timeout": 10
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "node ./.github/hooks/post-edit-verify.js",
+        "timeout": 10
+      }
+    ]
+  }
+}

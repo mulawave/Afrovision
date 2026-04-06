@@ -3,8 +3,24 @@ const { authenticateToken } = require('../utils/jwt');
 const Channel = require('./channel.model');
 const User = require('../users/user.model');
 const Ledger = require('../vpt/ledger.model');
+const designCtrl = require('../design/homepage-design.controller');
+const SettingsService = require('../admin/settings.service');
 
 const router = Router();
+
+// GET /home/content — public homepage design/content payload for website rendering
+router.get('/content', designCtrl.getHomepageContent);
+
+// GET /home/captcha-key — public, returns reCAPTCHA site key for client-side use
+router.get('/captcha-key', async (req, res) => {
+  try {
+    const siteKey = await SettingsService.get('RECAPTCHA_SITE_KEY');
+    res.json({ siteKey: siteKey || '' });
+  } catch (err) {
+    console.error('[Home] captcha-key error:', err);
+    res.json({ siteKey: '' });
+  }
+});
 
 // GET /home/stats — community pool, recent channels, total counts
 router.get('/stats', authenticateToken, (req, res) => {

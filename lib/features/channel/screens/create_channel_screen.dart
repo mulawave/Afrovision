@@ -62,7 +62,9 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
       final user = await ProfileService.getProfile();
       if (!mounted) return;
       setState(() => _user = user);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[CreateChannel] profile load error: $e');
+    }
 
     try {
       final cats = await ChannelService.getCategories();

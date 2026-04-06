@@ -88,7 +88,9 @@ class _PlansScreenState extends State<PlansScreen>
         _currencySymbol = data['symbol'] as String? ?? '₦';
         _displayPrices = prices;
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[Plans] price conversion error: $e');
+    }
   }
 
   void _onCurrencyChanged(String? code) {

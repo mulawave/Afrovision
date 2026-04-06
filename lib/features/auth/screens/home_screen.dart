@@ -4,6 +4,7 @@ import '../services/auth_service.dart';
 import '../services/profile_service.dart';
 import '../services/home_service.dart';
 import '../models/user_model.dart';
+import '../../notifications/services/notification_inbox_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/widgets/role_badge.dart';
@@ -26,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen>
   late PageController _promoPageController;
   Timer? _promoTimer;
   int _promoPage = 0;
+  int _unreadNotifications = 0;
 
   @override
   void initState() {
@@ -55,20 +57,24 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       final results = await Future.wait([
         ProfileService.getProfile(),
-        HomeService.getStats().catchError((_) => HomeStats(
-              totalVpt: 0,
-              vptRate: 750,
-              nairaEquivalent: 0,
-              recentChannels: [],
-              promotedChannels: [],
-              totalChannels: 0,
-              totalMembers: 0,
-            )),
+        HomeService.getStats().catchError(
+          (_) => HomeStats(
+            totalVpt: 0,
+            vptRate: 750,
+            nairaEquivalent: 0,
+            recentChannels: [],
+            promotedChannels: [],
+            totalChannels: 0,
+            totalMembers: 0,
+          ),
+        ),
+        NotificationInboxService.getUnreadCount().catchError((_) => 0),
       ]);
       if (!mounted) return;
       setState(() {
         _user = results[0] as UserModel;
         _stats = results[1] as HomeStats;
+        _unreadNotifications = results[2] as int;
         _loading = false;
       });
       _animController.forward();
@@ -104,6 +110,12 @@ class _HomeScreenState extends State<HomeScreen>
     if (result == true) _loadData();
   }
 
+  Future<void> _goToNotifications() async {
+    await Navigator.pushNamed(context, '/notifications');
+    if (!mounted) return;
+    _loadData();
+  }
+
   String _formatNumber(double n) {
     if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
     if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
@@ -137,8 +149,9 @@ class _HomeScreenState extends State<HomeScreen>
                 child: _loading
                     ? const Center(
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(AppColors.orange),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.orange,
+                          ),
                         ),
                       )
                     : RefreshIndicator(
@@ -227,6 +240,12 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
           const SizedBox(width: 8),
+          _topBarBtn(
+            Icons.notifications_rounded,
+            _goToNotifications,
+            badgeCount: _unreadNotifications,
+          ),
+          const SizedBox(width: 8),
           _topBarBtn(Icons.person_rounded, _goToProfile),
           const SizedBox(width: 8),
           _topBarBtn(Icons.logout_rounded, _logout),
@@ -235,17 +254,47 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _topBarBtn(IconData icon, VoidCallback onTap) {
+  Widget _topBarBtn(IconData icon, VoidCallback onTap, {int badgeCount = 0}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: AppColors.inputFill,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppColors.inputBorder),
         ),
-        child: Icon(icon, color: AppColors.orange, size: 20),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Icon(icon, color: AppColors.orange, size: 20),
+            ),
+            if (badgeCount > 0)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.orange,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    badgeCount > 99 ? '99+' : '$badgeCount',
+                    style: const TextStyle(
+                      color: AppColors.darkBlue,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -297,8 +346,11 @@ class _HomeScreenState extends State<HomeScreen>
                     color: AppColors.orange.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.account_balance_rounded,
-                      color: AppColors.lightOrange, size: 22),
+                  child: const Icon(
+                    Icons.account_balance_rounded,
+                    color: AppColors.lightOrange,
+                    size: 22,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 const Expanded(
@@ -313,8 +365,10 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
@@ -474,8 +528,11 @@ class _HomeScreenState extends State<HomeScreen>
               final ch = promoted[index];
               return GestureDetector(
                 onTap: () async {
-                  await Navigator.pushNamed(context, '/channel-view',
-                      arguments: ch.id);
+                  await Navigator.pushNamed(
+                    context,
+                    '/channel-view',
+                    arguments: ch.id,
+                  );
                   _loadData();
                 },
                 child: Container(
@@ -488,15 +545,18 @@ class _HomeScreenState extends State<HomeScreen>
                     image: ch.bannerUrl != null
                         ? DecorationImage(
                             image: NetworkImage(
-                                '${AppConfig.baseUrl}${ch.bannerUrl}'),
+                              '${AppConfig.baseUrl}${ch.bannerUrl}',
+                            ),
                             fit: BoxFit.cover,
                           )
                         : null,
                     gradient: ch.bannerUrl == null
-                        ? LinearGradient(colors: [
-                            AppColors.lightBlue.withValues(alpha: 0.5),
-                            AppColors.darkBlue,
-                          ])
+                        ? LinearGradient(
+                            colors: [
+                              AppColors.lightBlue.withValues(alpha: 0.5),
+                              AppColors.darkBlue,
+                            ],
+                          )
                         : null,
                   ),
                   clipBehavior: Clip.antiAlias,
@@ -531,12 +591,14 @@ class _HomeScreenState extends State<HomeScreen>
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: AppColors.lightOrange
-                                        .withValues(alpha: 0.5),
+                                    color: AppColors.lightOrange.withValues(
+                                      alpha: 0.5,
+                                    ),
                                   ),
                                   image: DecorationImage(
                                     image: NetworkImage(
-                                        '${AppConfig.baseUrl}${ch.logoUrl}'),
+                                      '${AppConfig.baseUrl}${ch.logoUrl}',
+                                    ),
                                     fit: BoxFit.cover,
                                   ),
                                 ),
@@ -574,7 +636,9 @@ class _HomeScreenState extends State<HomeScreen>
                         right: 10,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 3),
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.orange.withValues(alpha: 0.85),
                             borderRadius: BorderRadius.circular(6),
@@ -642,14 +706,19 @@ class _HomeScreenState extends State<HomeScreen>
               final ch = channels[index];
               return GestureDetector(
                 onTap: () async {
-                  await Navigator.pushNamed(context, '/channel-view',
-                      arguments: ch.id);
+                  await Navigator.pushNamed(
+                    context,
+                    '/channel-view',
+                    arguments: ch.id,
+                  );
                   _loadData();
                 },
                 child: Container(
                   margin: const EdgeInsets.only(right: 10),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.inputFill,
                     borderRadius: BorderRadius.circular(22),
@@ -669,14 +738,18 @@ class _HomeScreenState extends State<HomeScreen>
                           image: ch.logoUrl != null
                               ? DecorationImage(
                                   image: NetworkImage(
-                                      '${AppConfig.baseUrl}${ch.logoUrl}'),
+                                    '${AppConfig.baseUrl}${ch.logoUrl}',
+                                  ),
                                   fit: BoxFit.cover,
                                 )
                               : null,
                         ),
                         child: ch.logoUrl == null
-                            ? const Icon(Icons.live_tv_rounded,
-                                color: AppColors.orange, size: 13)
+                            ? const Icon(
+                                Icons.live_tv_rounded,
+                                color: AppColors.orange,
+                                size: 13,
+                              )
                             : null,
                       ),
                       const SizedBox(width: 8),
@@ -729,8 +802,7 @@ class _HomeScreenState extends State<HomeScreen>
                 child: _actionCard(
                   icon: Icons.dialpad_rounded,
                   label: 'Channel\nNumber',
-                  onTap: () =>
-                      Navigator.pushNamed(context, '/channel-access'),
+                  onTap: () => Navigator.pushNamed(context, '/channel-access'),
                 ),
               ),
               const SizedBox(width: 12),
@@ -738,9 +810,11 @@ class _HomeScreenState extends State<HomeScreen>
                 child: _actionCard(
                   icon: Icons.video_settings_rounded,
                   label: 'Creator\nStudio',
-                  onTap: () =>
-                      Navigator.pushNamed(context, '/creator-studio'),
-                  locked: _user != null && _user!.role != 'creator' && _user!.role != 'admin',
+                  onTap: () => Navigator.pushNamed(context, '/creator-studio'),
+                  locked:
+                      _user != null &&
+                      _user!.role != 'creator' &&
+                      _user!.role != 'admin',
                 ),
               ),
             ],
@@ -778,13 +852,32 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ],
           ),
+          // Admin Panel (admin only)
+          if (_user != null && _user!.isAdmin) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _actionCard(
+                    icon: Icons.admin_panel_settings_rounded,
+                    label: 'Admin\nPanel',
+                    onTap: () => Navigator.pushNamed(context, '/admin-panel'),
+                    accentColor: AppColors.orange,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(child: SizedBox()),
+                const SizedBox(width: 12),
+                const Expanded(child: SizedBox()),
+              ],
+            ),
+          ],
           // Subscribe button
           if (_user != null && !_user!.hasActiveSubscription) ...[
             const SizedBox(height: 18),
             GestureDetector(
               onTap: () async {
-                final result =
-                    await Navigator.pushNamed(context, '/plans');
+                final result = await Navigator.pushNamed(context, '/plans');
                 if (result == true) _loadData();
               },
               child: Container(
@@ -797,8 +890,11 @@ class _HomeScreenState extends State<HomeScreen>
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.diamond_rounded,
-                        color: AppColors.white, size: 18),
+                    Icon(
+                      Icons.diamond_rounded,
+                      color: AppColors.white,
+                      size: 18,
+                    ),
                     SizedBox(width: 8),
                     Text(
                       'Subscribe to a Plan',
@@ -855,11 +951,13 @@ class _HomeScreenState extends State<HomeScreen>
                 color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon,
-                  color: locked
-                      ? AppColors.hintText.withValues(alpha: 0.4)
-                      : color,
-                  size: 22),
+              child: Icon(
+                icon,
+                color: locked
+                    ? AppColors.hintText.withValues(alpha: 0.4)
+                    : color,
+                size: 22,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -876,8 +974,11 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             if (locked) ...[
               const SizedBox(height: 4),
-              Icon(Icons.lock_rounded,
-                  color: AppColors.hintText.withValues(alpha: 0.3), size: 12),
+              Icon(
+                Icons.lock_rounded,
+                color: AppColors.hintText.withValues(alpha: 0.3),
+                size: 12,
+              ),
             ],
           ],
         ),
@@ -920,8 +1021,11 @@ class _HomeScreenState extends State<HomeScreen>
                     color: AppColors.orange.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: const Icon(Icons.rocket_launch_rounded,
-                      color: AppColors.orange, size: 28),
+                  child: const Icon(
+                    Icons.rocket_launch_rounded,
+                    color: AppColors.orange,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -948,8 +1052,11 @@ class _HomeScreenState extends State<HomeScreen>
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right_rounded,
-                    color: AppColors.orange.withValues(alpha: 0.6), size: 22),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.orange.withValues(alpha: 0.6),
+                  size: 22,
+                ),
               ],
             ),
           ),
@@ -1048,9 +1155,11 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.campaign_rounded,
-                          color: AppColors.orange.withValues(alpha: 0.8),
-                          size: 16),
+                      Icon(
+                        Icons.campaign_rounded,
+                        color: AppColors.orange.withValues(alpha: 0.8),
+                        size: 16,
+                      ),
                       const SizedBox(width: 6),
                       const Text(
                         'Updates',
@@ -1102,9 +1211,11 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.insights_rounded,
-                          color: AppColors.lightOrange.withValues(alpha: 0.8),
-                          size: 16),
+                      Icon(
+                        Icons.insights_rounded,
+                        color: AppColors.lightOrange.withValues(alpha: 0.8),
+                        size: 16,
+                      ),
                       const SizedBox(width: 6),
                       const Text(
                         'Highlights',
@@ -1150,7 +1261,11 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _announcementItem(
-      String title, String body, IconData icon, Color color) {
+    String title,
+    String body,
+    IconData icon,
+    Color color,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1194,8 +1309,11 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _highlightStat(IconData icon, String label, String value) {
     return Row(
       children: [
-        Icon(icon,
-            color: AppColors.lightOrange.withValues(alpha: 0.7), size: 14),
+        Icon(
+          icon,
+          color: AppColors.lightOrange.withValues(alpha: 0.7),
+          size: 14,
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: Text(

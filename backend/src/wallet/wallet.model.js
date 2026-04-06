@@ -1,8 +1,28 @@
 const crypto = require('crypto');
+const { getFirestore } = require('../utils/firestore');
 
-const wallets = [];
+const COLLECTION = 'wallets';
+let wallets = [];
+let initialized = false;
 
-function create({ userId, bscAddress, encryptedPrivateKey }) {
+async function persist(wallet) {
+  const db = getFirestore();
+  await db.collection(COLLECTION).doc(wallet.user_id).set(wallet);
+}
+
+async function init() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  wallets = snapshot.docs.map((doc) => doc.data());
+  initialized = true;
+  return wallets;
+}
+
+function isInitialized() {
+  return initialized;
+}
+
+async function create({ userId, bscAddress, encryptedPrivateKey }) {
   const wallet = {
     id: crypto.randomUUID(),
     user_id: userId,
@@ -13,6 +33,7 @@ function create({ userId, bscAddress, encryptedPrivateKey }) {
     last_used_at: null,
   };
   wallets.push(wallet);
+  await persist(wallet);
   return wallet;
 }
 
@@ -24,17 +45,19 @@ function findByAddress(address) {
   return wallets.find((w) => w.bsc_address === address);
 }
 
-function setStatus(userId, status) {
+async function setStatus(userId, status) {
   const wallet = findByUserId(userId);
   if (!wallet) return null;
   wallet.status = status;
+  await persist(wallet);
   return wallet;
 }
 
-function touchLastUsed(userId) {
+async function touchLastUsed(userId) {
   const wallet = findByUserId(userId);
   if (!wallet) return null;
   wallet.last_used_at = Date.now();
+  await persist(wallet);
   return wallet;
 }
 
@@ -54,4 +77,14 @@ function toSafe(wallet) {
   };
 }
 
-module.exports = { create, findByUserId, findByAddress, setStatus, touchLastUsed, getAll, toSafe };
+module.exports = {
+  init,
+  isInitialized,
+  create,
+  findByUserId,
+  findByAddress,
+  setStatus,
+  touchLastUsed,
+  getAll,
+  toSafe,
+};

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/storage/auth_storage.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_logo.dart';
@@ -24,12 +25,14 @@ class _SplashScreenState extends State<SplashScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
-    _fadeIn = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-    _scale = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-    );
+    _fadeIn = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    _scale = Tween<double>(
+      begin: 0.8,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
     _controller.forward();
     _checkAuth();
   }
@@ -52,6 +55,20 @@ class _SplashScreenState extends State<SplashScreen>
 
     try {
       await AuthService.getCurrentUser();
+      if (!mounted) return;
+
+      // Register FCM token silently (permission may already be granted).
+      await NotificationService.registerToken();
+
+      // On first launch (or after OS permission is reset), show the
+      // in-app rationale then trigger the Android 13+ system prompt.
+      final notDetermined =
+          await NotificationService.isPermissionNotDetermined();
+      if (notDetermined && mounted) {
+        await NotificationService.requestPermission(context);
+        if (mounted) await NotificationService.registerToken();
+      }
+
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
     } catch (_) {
@@ -82,8 +99,9 @@ class _SplashScreenState extends State<SplashScreen>
                   height: 24,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(AppColors.lightOrange),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.lightOrange,
+                    ),
                   ),
                 ),
               ],

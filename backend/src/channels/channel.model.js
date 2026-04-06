@@ -5,7 +5,7 @@ const channels = [];
 function generateChannelNumber() {
   let number;
   do {
-    number = Math.floor(100000 + Math.random() * 900000).toString();
+    number = (100000 + parseInt(crypto.randomBytes(3).toString('hex'), 16) % 900000).toString();
   } while (channels.some((c) => c.channel_number === number));
   return number;
 }
@@ -23,6 +23,14 @@ function create({ ownerId, name, description, category, type }) {
     banner_url: null,
     is_active: true,
     created_at: new Date().toISOString(),
+    // Premium stream fields (Module 11)
+    requires_payment: false,
+    entry_fee_type: null,       // 'vpt' | 'ngn'
+    entry_fee_vpt_units: 0,
+    entry_fee_ngn: 0,
+    access_duration_minutes: 120,
+    // Retention fields (Module 12)
+    is_subscriber_only: false,
   };
   channels.push(channel);
   return channel;
@@ -73,6 +81,21 @@ function enable(id) {
   return channel;
 }
 
+/**
+ * Update premium stream settings on a channel.
+ */
+function updatePremium(id, fields) {
+  const channel = findById(id);
+  if (!channel) return null;
+  if (fields.requires_payment !== undefined) channel.requires_payment = !!fields.requires_payment;
+  if (fields.entry_fee_type !== undefined) channel.entry_fee_type = fields.entry_fee_type;
+  if (fields.entry_fee_vpt_units !== undefined) channel.entry_fee_vpt_units = Number(fields.entry_fee_vpt_units) || 0;
+  if (fields.entry_fee_ngn !== undefined) channel.entry_fee_ngn = Number(fields.entry_fee_ngn) || 0;
+  if (fields.access_duration_minutes !== undefined) channel.access_duration_minutes = Number(fields.access_duration_minutes) || 120;
+  if (fields.is_subscriber_only !== undefined) channel.is_subscriber_only = !!fields.is_subscriber_only;
+  return channel;
+}
+
 function getRecentPublic(limit = 10) {
   return channels
     .filter((c) => c.type === 'public' && c.is_active)
@@ -82,6 +105,10 @@ function getRecentPublic(limit = 10) {
 
 function getAll() {
   return channels.filter((c) => c.is_active);
+}
+
+function getEvery() {
+  return channels;
 }
 
 module.exports = {
@@ -94,6 +121,8 @@ module.exports = {
   getByOwner,
   getAllByOwner,
   update,
+  updatePremium,
   disable,
   enable,
+  getEvery,
 };

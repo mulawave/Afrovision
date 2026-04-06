@@ -11,6 +11,9 @@ class AppColors {
   static const Color inputFocusBorder = Color(0xFFF49617);
   static const Color hintText = Color(0xFF5A6190);
   static const Color errorRed = Color(0xFFFF4D6A);
+  static const Color successGreen = Color(0xFF4CAF50);
+  static const Color infoBlue = Color(0xFF2196F3);
+  static const Color softBlue = Color(0xFF64B5F6);
   static const Color cardBg = Color(0xFF0A1040);
 
   static const LinearGradient primaryGradient = LinearGradient(

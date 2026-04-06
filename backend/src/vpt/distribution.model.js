@@ -1,6 +1,9 @@
 const crypto = require('crypto');
+const { getFirestore } = require('../utils/firestore');
 
-const queue = [];
+const COLLECTION = 'vpt_queue';
+let queue = [];
+let initialized = false;
 
 /**
  * vPT Conversion Queue — tracks individual creator queue items.
@@ -14,7 +17,24 @@ const queue = [];
 
 const MAX_RETRIES = 3;
 
-function create({ creatorUid, ngnValue, referenceId }) {
+async function persist(item) {
+  const db = getFirestore();
+  await db.collection(COLLECTION).doc(item.id).set(item);
+}
+
+async function init() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  queue = snapshot.docs.map((doc) => doc.data());
+  initialized = true;
+  return queue;
+}
+
+function isInitialized() {
+  return initialized;
+}
+
+async function create({ creatorUid, ngnValue, referenceId }) {
   const item = {
     id: crypto.randomUUID(),
     creator_uid: creatorUid,
@@ -24,11 +44,13 @@ function create({ creatorUid, ngnValue, referenceId }) {
     batch_id: null,
     tx_hash: null,
     vpt_amount: null,
+    vpt_amount_wei: null,
     retry_count: 0,
     created_at: Date.now(),
     processed_at: null,
   };
   queue.push(item);
+  await persist(item);
   return item;
 }
 
@@ -54,37 +76,42 @@ function getByCreator(creatorUid) {
     .sort((a, b) => b.created_at - a.created_at);
 }
 
-function assignToBatch(id, batchId) {
+async function assignToBatch(id, batchId) {
   const item = findById(id);
   if (!item) return null;
   item.batch_id = batchId;
   item.status = 'processing';
+  await persist(item);
   return item;
 }
 
-function setCompleted(id, txHash, vptAmount) {
+async function setCompleted(id, txHash, vptAmount, vptAmountWei) {
   const item = findById(id);
   if (!item) return null;
   item.status = 'completed';
   item.tx_hash = txHash;
   item.vpt_amount = vptAmount;
+  item.vpt_amount_wei = vptAmountWei || null;
   item.processed_at = Date.now();
+  await persist(item);
   return item;
 }
 
-function setFailed(id) {
+async function setFailed(id) {
   const item = findById(id);
   if (!item) return null;
   item.status = 'failed';
   item.retry_count += 1;
+  await persist(item);
   return item;
 }
 
-function resetForRetry(id) {
+async function resetForRetry(id) {
   const item = findById(id);
   if (!item || item.retry_count >= MAX_RETRIES) return null;
   item.status = 'pending';
   item.batch_id = null;
+  await persist(item);
   return item;
 }
 
@@ -105,6 +132,8 @@ function getStats() {
 }
 
 module.exports = {
+  init,
+  isInitialized,
   create,
   findById,
   getPending,

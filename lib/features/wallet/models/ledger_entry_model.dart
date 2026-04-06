@@ -2,8 +2,15 @@ class LedgerEntryModel {
   final String id;
   final String? uid;
   final String type;
+  final String? direction;
+  final String? currency;
   final double amountNgn;
   final double amountVpt;
+  final int amountVptUnits;
+  final double? balanceBefore;
+  final double? balanceAfter;
+  final String? referenceId;
+  final String? channelId;
   final String? txHash;
   final String status;
   final Map<String, dynamic> meta;
@@ -14,8 +21,15 @@ class LedgerEntryModel {
     required this.id,
     this.uid,
     required this.type,
+    this.direction,
+    this.currency,
     required this.amountNgn,
     required this.amountVpt,
+    this.amountVptUnits = 0,
+    this.balanceBefore,
+    this.balanceAfter,
+    this.referenceId,
+    this.channelId,
     this.txHash,
     required this.status,
     required this.meta,
@@ -28,8 +42,15 @@ class LedgerEntryModel {
       id: json['id'] as String? ?? '',
       uid: json['uid'] as String?,
       type: json['type'] as String? ?? '',
+      direction: json['direction'] as String?,
+      currency: json['currency'] as String?,
       amountNgn: (json['amount_ngn'] as num?)?.toDouble() ?? 0,
       amountVpt: (json['amount_vpt'] as num?)?.toDouble() ?? 0,
+      amountVptUnits: (json['amount_vpt_units'] as num?)?.toInt() ?? 0,
+      balanceBefore: (json['balance_before'] as num?)?.toDouble(),
+      balanceAfter: (json['balance_after'] as num?)?.toDouble(),
+      referenceId: json['reference_id'] as String?,
+      channelId: json['channel_id'] as String?,
       txHash: json['tx_hash'] as String?,
       status: json['status'] as String? ?? 'pending',
       meta: json['meta'] as Map<String, dynamic>? ?? {},
@@ -56,6 +77,20 @@ class LedgerEntryModel {
         return 'Swap Failed';
       case 'DISTRIBUTION_FAILED':
         return 'Distribution Failed';
+      case 'GIFT_SENT_VPT':
+        return 'Gift Sent (vPT)';
+      case 'GIFT_RECEIVED_VPT':
+        return 'Gift Received (vPT)';
+      case 'GIFT_SENT_NGN':
+        return 'Gift Sent (NGN)';
+      case 'GIFT_RECEIVED_NGN':
+        return 'Gift Received (NGN)';
+      case 'WALLET_FUND':
+        return 'Wallet Funded';
+      case 'WITHDRAWAL':
+        return 'Withdrawal';
+      case 'REVERSAL':
+        return 'Reversal';
       default:
         return type;
     }
@@ -79,7 +114,16 @@ class LedgerEntryModel {
   bool get isFailed => status == 'failed';
 
   bool get isIncome =>
-      type == 'VPT_DISTRIBUTION' || type == 'VPT_SWAP';
+      type == 'VPT_DISTRIBUTION' ||
+      type == 'VPT_SWAP' ||
+      type == 'GIFT_RECEIVED_VPT' ||
+      type == 'GIFT_RECEIVED_NGN' ||
+      type == 'WALLET_FUND';
+
+  bool get isExpense =>
+      type == 'GIFT_SENT_VPT' ||
+      type == 'GIFT_SENT_NGN' ||
+      type == 'WITHDRAWAL';
 
   bool get isPayment => type == 'PLAN_PAYMENT';
 
@@ -87,8 +131,7 @@ class LedgerEntryModel {
 
   bool get isQueue => type == 'VPT_QUEUE';
 
-  DateTime get dateTime =>
-      DateTime.fromMillisecondsSinceEpoch(createdAt);
+  DateTime get dateTime => DateTime.fromMillisecondsSinceEpoch(createdAt);
 
   String get timeAgo {
     final diff = DateTime.now().difference(dateTime);

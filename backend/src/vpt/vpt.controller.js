@@ -108,6 +108,18 @@ async function getTreasuryBalance(req, res) {
   }
 }
 
+async function getBlockchainPreflight(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    const readiness = await SwapService.getBlockchainReadiness();
+    res.json({ readiness });
+  } catch (err) {
+    console.error('[VPT] Blockchain preflight error:', err.message);
+    res.status(500).json({ error: 'Failed to evaluate blockchain readiness' });
+  }
+}
+
 module.exports = {
   getBalance,
   getTransactions,
@@ -121,4 +133,5 @@ module.exports = {
   triggerBatchProcess,
   retryBatch,
   getTreasuryBalance,
+  getBlockchainPreflight,
 };

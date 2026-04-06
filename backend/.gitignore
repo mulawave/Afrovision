@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment — NEVER commit secrets
+.env
+.env.local
+.env.production
+
+# Uploaded user files
+uploads/
+
+# Hardhat build artifacts
+artifacts/
+cache/
+typechain-types/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp

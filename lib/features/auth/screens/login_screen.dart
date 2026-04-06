@@ -32,9 +32,10 @@ class _LoginScreenState extends State<LoginScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _fadeIn = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut),
-    );
+    _fadeIn = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _slideUp = Tween<Offset>(
       begin: const Offset(0, 0.15),
       end: Offset.zero,
@@ -71,9 +72,10 @@ class _LoginScreenState extends State<LoginScreen>
     });
 
     try {
-      await AuthService.login(email, password);
+      final user = await AuthService.login(email, password);
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      final route = user.isAdmin ? '/admin-panel' : '/home';
+      Navigator.pushNamedAndRemoveUntil(context, route, (_) => false);
     } catch (e) {
       setState(() {
         _error = e.toString();
@@ -95,8 +97,10 @@ class _LoginScreenState extends State<LoginScreen>
             child: SlideTransition(
               position: _slideUp,
               child: SingleChildScrollView(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 24,
+                ),
                 child: Column(
                   children: [
                     const SizedBox(height: 40),
@@ -118,18 +122,23 @@ class _LoginScreenState extends State<LoginScreen>
                         width: double.infinity,
                         margin: const EdgeInsets.only(bottom: 20),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.errorRed.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                              color:
-                                  AppColors.errorRed.withValues(alpha: 0.3)),
+                            color: AppColors.errorRed.withValues(alpha: 0.3),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.error_outline,
-                                color: AppColors.errorRed, size: 18),
+                            const Icon(
+                              Icons.error_outline,
+                              color: AppColors.errorRed,
+                              size: 18,
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -211,8 +220,9 @@ class _LoginScreenState extends State<LoginScreen>
                           child: RichText(
                             text: TextSpan(
                               style: TextStyle(
-                                color:
-                                    AppColors.hintText.withValues(alpha: 0.9),
+                                color: AppColors.hintText.withValues(
+                                  alpha: 0.9,
+                                ),
                                 fontSize: 12.5,
                                 height: 1.4,
                               ),
@@ -227,8 +237,8 @@ class _LoginScreenState extends State<LoginScreen>
                                     decorationColor: AppColors.orange,
                                   ),
                                   recognizer: TapGestureRecognizer()
-                                    ..onTap = () => Navigator.pushNamed(
-                                        context, '/terms'),
+                                    ..onTap = () =>
+                                        Navigator.pushNamed(context, '/terms'),
                                 ),
                                 const TextSpan(text: ' and '),
                                 TextSpan(
@@ -241,7 +251,9 @@ class _LoginScreenState extends State<LoginScreen>
                                   ),
                                   recognizer: TapGestureRecognizer()
                                     ..onTap = () => Navigator.pushNamed(
-                                        context, '/privacy-policy'),
+                                      context,
+                                      '/privacy-policy',
+                                    ),
                                 ),
                               ],
                             ),
@@ -292,6 +304,41 @@ class _LoginScreenState extends State<LoginScreen>
 
                     const SizedBox(height: 24),
 
+                    // Login with PAK button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, '/pak-login'),
+                        icon: const Icon(
+                          Icons.vpn_key_outlined,
+                          color: AppColors.lightOrange,
+                          size: 20,
+                        ),
+                        label: const Text(
+                          'LOGIN WITH PAK',
+                          style: TextStyle(
+                            color: AppColors.lightOrange,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(
+                            color: AppColors.lightOrange,
+                            width: 1.5,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
                     // Register link
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -305,7 +352,9 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                         GestureDetector(
                           onTap: () => Navigator.pushReplacementNamed(
-                              context, '/register'),
+                            context,
+                            '/register',
+                          ),
                           child: const Text(
                             'Sign Up',
                             style: TextStyle(

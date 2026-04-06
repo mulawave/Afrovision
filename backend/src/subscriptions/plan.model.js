@@ -59,6 +59,24 @@ const plans = [
     badge: 'Premium',
     is_active: true,
   },
+  {
+    id: 'plan_premium_viewer',
+    name: 'premium_viewer',
+    price: 500,
+    currency: 'NGN',
+    features: [
+      'digital_tv',
+      'private_channel',
+      'premium_stream',
+    ],
+    display_labels: {
+      digital_tv: 'Digital TV',
+      private_channel: 'Private Channel Access',
+      premium_stream: 'Premium Stream Access',
+    },
+    badge: 'Viewer+',
+    is_active: true,
+  },
 ];
 
 function getAll() {

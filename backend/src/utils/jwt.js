@@ -1,26 +1,41 @@
 const jwt = require('jsonwebtoken');
+const SettingsService = require('../admin/settings.service');
 
-const SECRET = process.env.JWT_SECRET || 'fallback_secret';
+async function getJwtSecret() {
+  const secret = await SettingsService.get('JWT_SECRET');
 
-function generateToken(userId) {
-  return jwt.sign({ userId }, SECRET, { expiresIn: '7d' });
+  if (!secret) {
+    throw new Error('JWT_SECRET is required in Firebase settings for authentication');
+  }
+
+  return secret;
 }
 
-function verifyToken(token) {
-  return jwt.verify(token, SECRET);
+async function generateToken(userId) {
+  const secret = await getJwtSecret();
+  return jwt.sign({ userId }, secret, { expiresIn: '7d' });
 }
 
-function authenticateToken(req, res, next) {
+async function verifyToken(token) {
+  const secret = await getJwtSecret();
+  return jwt.verify(token, secret);
+}
+
+async function authenticateToken(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'No token provided' });
   }
   const token = header.split(' ')[1];
   try {
-    const payload = verifyToken(token);
+    const payload = await verifyToken(token);
     req.userId = payload.userId;
     next();
-  } catch {
+  } catch (error) {
+    if (error.message === 'JWT_SECRET is required in Firebase settings for authentication') {
+      return res.status(503).json({ error: error.message });
+    }
+
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }

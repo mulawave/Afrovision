@@ -1,6 +1,9 @@
 const crypto = require('crypto');
+const { getFirestore } = require('../utils/firestore');
 
-const batches = [];
+const COLLECTION = 'vpt_batches';
+let batches = [];
+let initialized = false;
 
 /**
  * vPT Batches — groups queue items into a single swap operation.
@@ -16,12 +19,30 @@ const batches = [];
 
 const MAX_RETRIES = 3;
 
-function create({ totalNGN, itemIds }) {
+async function persist(batch) {
+  const db = getFirestore();
+  await db.collection(COLLECTION).doc(batch.id).set(batch);
+}
+
+async function init() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  batches = snapshot.docs.map((doc) => doc.data());
+  initialized = true;
+  return batches;
+}
+
+function isInitialized() {
+  return initialized;
+}
+
+async function create({ totalNGN, itemIds }) {
   const batch = {
     id: crypto.randomUUID(),
     total_ngn: totalNGN,
     total_bnb: 0,
     total_vpt: 0,
+    total_vpt_wei: '0',
     tx_hash: null,
     status: 'pending',
     item_ids: itemIds || [],
@@ -32,6 +53,7 @@ function create({ totalNGN, itemIds }) {
     distributed_at: null,
   };
   batches.push(batch);
+  await persist(batch);
   return batch;
 }
 
@@ -39,30 +61,34 @@ function findById(id) {
   return batches.find((b) => b.id === id);
 }
 
-function setSwapped(id, { totalBNB, totalVPT, txHash }) {
+async function setSwapped(id, { totalBNB, totalVPT, totalVPTWei, txHash }) {
   const batch = findById(id);
   if (!batch) return null;
   batch.status = 'swapped';
   batch.total_bnb = totalBNB;
   batch.total_vpt = totalVPT;
+  batch.total_vpt_wei = totalVPTWei || '0';
   batch.tx_hash = txHash;
   batch.swapped_at = Date.now();
+  await persist(batch);
   return batch;
 }
 
-function setDistributed(id) {
+async function setDistributed(id) {
   const batch = findById(id);
   if (!batch) return null;
   batch.status = 'distributed';
   batch.distributed_at = Date.now();
+  await persist(batch);
   return batch;
 }
 
-function setFailed(id) {
+async function setFailed(id) {
   const batch = findById(id);
   if (!batch) return null;
   batch.status = 'failed';
   batch.retry_count += 1;
+  await persist(batch);
   return batch;
 }
 
@@ -71,15 +97,17 @@ function canRetry(id) {
   return batch && batch.status === 'failed' && batch.retry_count < MAX_RETRIES;
 }
 
-function resetForRetry(id) {
+async function resetForRetry(id) {
   const batch = findById(id);
   if (!batch || batch.retry_count >= MAX_RETRIES) return null;
   batch.status = 'pending';
   batch.tx_hash = null;
   batch.total_bnb = 0;
   batch.total_vpt = 0;
+  batch.total_vpt_wei = '0';
   batch.swapped_at = null;
   batch.distributed_at = null;
+  await persist(batch);
   return batch;
 }
 
@@ -123,6 +151,8 @@ function getStats() {
 }
 
 module.exports = {
+  init,
+  isInitialized,
   create,
   findById,
   setSwapped,

@@ -109,6 +109,29 @@ class ApiService {
     }
     return data;
   }
+
+  static Future<Map<String, dynamic>> uploadFileWithFields(
+      String path, File file, Map<String, String> fields,
+      {String fieldName = 'file'}) async {
+    final token = await AuthStorage.getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$_baseUrl$path'),
+    );
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+    request.fields.addAll(fields);
+    request.files.add(await http.MultipartFile.fromPath(fieldName, file.path));
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode >= 400) {
+      throw ApiException(
+          data['error'] as String? ?? 'Upload failed', response.statusCode);
+    }
+    return data;
+  }
 }
 
 class ApiException implements Exception {

@@ -1,14 +1,22 @@
 import '../../../core/api/api_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/storage/auth_storage.dart';
 import '../models/user_model.dart';
 
 class AuthService {
-  static Future<UserModel> register(String email, String password) async {
-    final data = await ApiService.post('/auth/register', {
-      'email': email,
-      'password': password,
-    });
+  static Future<UserModel> register(
+    String email,
+    String password, {
+    String? referralCode,
+  }) async {
+    final body = <String, dynamic>{'email': email, 'password': password};
+    if (referralCode != null && referralCode.isNotEmpty) {
+      body['referral_code'] = referralCode;
+    }
+    final data = await ApiService.post('/auth/register', body);
     await AuthStorage.saveToken(data['token'] as String);
+    // Register FCM token silently after new account creation
+    NotificationService.registerToken();
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 
@@ -18,6 +26,8 @@ class AuthService {
       'password': password,
     });
     await AuthStorage.saveToken(data['token'] as String);
+    // Re-register FCM token on every login (token may have rotated)
+    NotificationService.registerToken();
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 
@@ -27,6 +37,8 @@ class AuthService {
   }
 
   static Future<void> logout() async {
+    // Remove FCM token from backend before clearing the session
+    await NotificationService.unregisterToken();
     await AuthStorage.deleteToken();
   }
 
@@ -42,5 +54,14 @@ class AuthService {
       'token': token,
       'password': password,
     });
+  }
+
+  /// Login with PAK (Personal Access Key) — mirrors the exact raven_lib handleLogin flow.
+  /// The backend performs: CI3 API → Firestore fallback chain → UID derivation → merge write.
+  static Future<UserModel> pakLogin(String pak) async {
+    final data = await ApiService.post('/auth/pak-login', {'pak': pak});
+    await AuthStorage.saveToken(data['token'] as String);
+    NotificationService.registerToken();
+    return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 }

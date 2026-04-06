@@ -1,0 +1,32 @@
+{
+  "hosting": [
+    {
+      "site": "afrovision-website",
+      "public": "website/public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "afrovision-website",
+            "region": "us-central1"
+          }
+        }
+      ]
+    },
+    {
+      "site": "afrovision-admin",
+      "public": "admin/public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "afrovision-admin",
+            "region": "us-central1"
+          }
+        }
+      ]
+    }
+  ]
+}

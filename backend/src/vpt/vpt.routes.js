@@ -16,6 +16,7 @@ router.get('/admin/ledger-stats', authenticateToken, ctrl.getLedgerStats);
 router.get('/admin/ledger', authenticateToken, ctrl.getFullLedger);
 router.get('/admin/batches', authenticateToken, ctrl.getBatchHistory);
 router.get('/admin/batches/failed', authenticateToken, ctrl.getFailedBatches);
+router.get('/admin/preflight', authenticateToken, ctrl.getBlockchainPreflight);
 router.post('/admin/process-batch', authenticateToken, ctrl.triggerBatchProcess);
 router.post('/admin/batches/:batchId/retry', authenticateToken, ctrl.retryBatch);
 router.get('/admin/treasury', authenticateToken, ctrl.getTreasuryBalance);

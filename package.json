@@ -1,0 +1,17 @@
+{
+  "name": "afrovision",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix website run dev",
+    "dev:web": "npm --prefix website run dev",
+    "dev:admin": "npm --prefix admin run dev",
+    "dev:backend": "npm --prefix backend run start",
+    "build:web": "npm --prefix website run build",
+    "lint:web": "npm --prefix website run lint",
+    "analyze:flutter": "flutter analyze",
+    "doctor:firestore": "npm --prefix backend run doctor:firestore",
+    "preflight:blockchain": "npm --prefix backend run preflight:blockchain",
+    "deploy:testnet": "npm --prefix backend run deploy:testnet",
+    "add-liquidity": "npm --prefix backend run add-liquidity"
+  }
+}

@@ -1,4 +1,4 @@
- import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/models/user_model.dart';
@@ -24,6 +24,8 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
   UserModel? _user;
   List<LedgerEntryModel> _ledger = [];
   Map<String, dynamic>? _wallet;
+  Map<String, dynamic>? _blockchainPreflight;
+  String? _blockchainPreflightError;
   bool _loading = true;
   String? _error;
   String _filter = 'all';
@@ -35,9 +37,10 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _fadeIn = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut),
-    );
+    _fadeIn = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _slideUp = Tween<Offset>(
       begin: const Offset(0, 0.15),
       end: Offset.zero,
@@ -53,16 +56,29 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
 
   Future<void> _loadData() async {
     try {
+      final profile = await ProfileService.getProfile();
       final results = await Future.wait([
-        ProfileService.getProfile(),
         WalletService.getLedger(),
         WalletService.getMyWallet(),
       ]);
+      Map<String, dynamic>? blockchainPreflight;
+      String? blockchainPreflightError;
+
+      if (profile.isAdmin) {
+        try {
+          blockchainPreflight = await WalletService.getBlockchainPreflight();
+        } catch (e) {
+          blockchainPreflightError = e.toString();
+        }
+      }
+
       if (!mounted) return;
       setState(() {
-        _user = results[0] as UserModel;
-        _ledger = results[1] as List<LedgerEntryModel>;
-        _wallet = results[2] as Map<String, dynamic>?;
+        _user = profile;
+        _ledger = results[0] as List<LedgerEntryModel>;
+        _wallet = results[1] as Map<String, dynamic>?;
+        _blockchainPreflight = blockchainPreflight;
+        _blockchainPreflightError = blockchainPreflightError;
         _loading = false;
       });
       _animCtrl.forward();
@@ -103,36 +119,44 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                 child: _loading
                     ? const Center(
                         child: CircularProgressIndicator(
-                            color: AppColors.orange, strokeWidth: 2))
+                          color: AppColors.orange,
+                          strokeWidth: 2,
+                        ),
+                      )
                     : _error != null
-                        ? _buildError()
-                        : FadeTransition(
-                            opacity: _fadeIn,
-                            child: SlideTransition(
-                              position: _slideUp,
-                              child: RefreshIndicator(
-                                onRefresh: _loadData,
-                                color: AppColors.orange,
-                                child: ListView(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 24),
-                                  children: [
-                                    const SizedBox(height: 8),
-                                    _buildBalanceCard(),
-                                    const SizedBox(height: 16),
-                                    _buildWalletCard(),
-                                    const SizedBox(height: 16),
-                                    _buildEconomicBreakdown(),
-                                    const SizedBox(height: 20),
-                                    _buildFilterRow(),
-                                    const SizedBox(height: 12),
-                                    _buildTransactionList(),
-                                    const SizedBox(height: 32),
-                                  ],
-                                ),
+                    ? _buildError()
+                    : FadeTransition(
+                        opacity: _fadeIn,
+                        child: SlideTransition(
+                          position: _slideUp,
+                          child: RefreshIndicator(
+                            onRefresh: _loadData,
+                            color: AppColors.orange,
+                            child: ListView(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
                               ),
+                              children: [
+                                const SizedBox(height: 8),
+                                _buildBalanceCard(),
+                                if (_user?.isAdmin ?? false) ...[
+                                  const SizedBox(height: 16),
+                                  _buildBlockchainPreflightCard(),
+                                ],
+                                const SizedBox(height: 16),
+                                _buildWalletCard(),
+                                const SizedBox(height: 16),
+                                _buildEconomicBreakdown(),
+                                const SizedBox(height: 20),
+                                _buildFilterRow(),
+                                const SizedBox(height: 12),
+                                _buildTransactionList(),
+                                const SizedBox(height: 32),
+                              ],
                             ),
                           ),
+                        ),
+                      ),
               ),
             ],
           ),
@@ -159,8 +183,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                   color: AppColors.inputBorder.withValues(alpha: 0.3),
                 ),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.white, size: 18),
+              child: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: AppColors.white,
+                size: 18,
+              ),
             ),
           ),
           const Expanded(
@@ -199,9 +226,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.orange.withValues(alpha: 0.25),
-        ),
+        border: Border.all(color: AppColors.orange.withValues(alpha: 0.25)),
         boxShadow: [
           BoxShadow(
             color: AppColors.orange.withValues(alpha: 0.08),
@@ -220,8 +245,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                   color: AppColors.orange.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.token_rounded,
-                    color: AppColors.orange, size: 26),
+                child: const Icon(
+                  Icons.token_rounded,
+                  color: AppColors.orange,
+                  size: 26,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -270,8 +298,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
             ),
             child: Row(
               children: [
-                const Icon(Icons.diamond_rounded,
-                    color: AppColors.lightOrange, size: 16),
+                const Icon(
+                  Icons.diamond_rounded,
+                  color: AppColors.lightOrange,
+                  size: 16,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   user.subscriptionPlan?.toUpperCase() ?? 'NO PLAN',
@@ -284,8 +315,10 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                 ),
                 const Spacer(),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: user.hasActiveSubscription
                         ? const Color(0xFF4CAF50).withValues(alpha: 0.15)
@@ -311,8 +344,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.info_outline_rounded,
-                  color: AppColors.hintText.withValues(alpha: 0.5), size: 12),
+              Icon(
+                Icons.info_outline_rounded,
+                color: AppColors.hintText.withValues(alpha: 0.5),
+                size: 12,
+              ),
               const SizedBox(width: 4),
               Text(
                 '1 vPT = ₦${_vptPrice.toInt()}',
@@ -331,6 +367,151 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
 
   // ─── Wallet Card ──────────────────────────────────────
 
+  Widget _buildBlockchainPreflightCard() {
+    final readiness = _blockchainPreflight;
+    final ready = readiness?['ready'] == true;
+    final environment = readiness?['environment'] as String? ?? 'staging';
+    final missing = _stringList(readiness?['missing']);
+    final invalid = _stringList(readiness?['invalid']);
+    final chainId = readiness?['chain_id'] as String?;
+    final expectedChainId = readiness?['expected_chain_id'] as String?;
+    final chainLabel = readiness?['chain_label'] as String?;
+    final treasuryAddress = readiness?['treasury_address'] as String?;
+    final errorMessage =
+        _blockchainPreflightError ?? readiness?['error'] as String?;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: ready
+              ? AppColors.lightOrange.withValues(alpha: 0.35)
+              : AppColors.orange.withValues(alpha: 0.4),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkBlue.withValues(alpha: 0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(
+                  Icons.security_rounded,
+                  color: AppColors.orange,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Blockchain Preflight',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Admin staging readiness for real swap execution',
+                      style: TextStyle(
+                        color: AppColors.hintText,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _buildStatusChip(
+                ready ? 'READY' : 'ACTION NEEDED',
+                ready ? AppColors.lightOrange : AppColors.orange,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _preflightMetric(
+                  'Environment',
+                  environment.toUpperCase(),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _preflightMetric(
+                  'Chain',
+                  chainLabel ?? (chainId != null ? 'ID $chainId' : 'Pending'),
+                ),
+              ),
+            ],
+          ),
+          if (chainId != null || expectedChainId != null) ...[
+            const SizedBox(height: 12),
+            _buildInfoRow(
+              'Chain Validation',
+              chainId == null && expectedChainId == null
+                  ? 'Pending'
+                  : 'Expected ${expectedChainId ?? 'unknown'} • Current ${chainId ?? 'unknown'}',
+            ),
+          ],
+          if (treasuryAddress != null) ...[
+            const SizedBox(height: 12),
+            _buildInfoRow('Treasury', treasuryAddress, monospace: true),
+          ],
+          if (missing.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _buildTagGroup('Missing Settings', missing),
+          ],
+          if (invalid.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _buildTagGroup('Invalid Values', invalid),
+          ],
+          if (errorMessage != null && errorMessage.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.inputFill,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.inputBorder.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Text(
+                errorMessage,
+                style: TextStyle(
+                  color: AppColors.hintText.withValues(alpha: 0.9),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildWalletCard() {
     final address = _wallet?['bsc_address'] as String? ?? _user?.bscAddress;
 
@@ -339,9 +520,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
       decoration: BoxDecoration(
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.inputBorder.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: AppColors.inputBorder.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -354,8 +533,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                   color: const Color(0xFF64B5F6).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.account_balance_wallet_rounded,
-                    color: Color(0xFF64B5F6), size: 18),
+                child: const Icon(
+                  Icons.account_balance_wallet_rounded,
+                  color: Color(0xFF64B5F6),
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 10),
               const Text(
@@ -381,8 +563,10 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                     );
                   },
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.orange.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
@@ -390,8 +574,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.copy_rounded,
-                            color: AppColors.orange, size: 12),
+                        Icon(
+                          Icons.copy_rounded,
+                          color: AppColors.orange,
+                          size: 12,
+                        ),
                         SizedBox(width: 4),
                         Text(
                           'Copy',
@@ -449,12 +636,12 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
   Widget _buildEconomicBreakdown() {
     final payments = _ledger.where((e) => e.isPayment && e.isSuccess);
     final splits = _ledger.where((e) => e.isSplit && e.isSuccess);
-    final distributions =
-        _ledger.where((e) => e.type == 'VPT_DISTRIBUTION' && e.isSuccess);
+    final distributions = _ledger.where(
+      (e) => e.type == 'VPT_DISTRIBUTION' && e.isSuccess,
+    );
     final queued = _ledger.where((e) => e.isQueue && e.isSuccess);
 
-    final totalPaid =
-        payments.fold<double>(0, (sum, e) => sum + e.amountNgn);
+    final totalPaid = payments.fold<double>(0, (sum, e) => sum + e.amountNgn);
 
     double communityPoolNgn = 0;
     double extractedNgn = 0;
@@ -465,12 +652,16 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
     final poolRetainedNgn = communityPoolNgn - extractedNgn;
     final poolRetainedVpt = poolRetainedNgn / _vptPrice;
 
-    final totalDistributedVpt =
-        distributions.fold<double>(0, (sum, e) => sum + e.amountVpt);
+    final totalDistributedVpt = distributions.fold<double>(
+      0,
+      (sum, e) => sum + e.amountVpt,
+    );
     final totalDistributedNgn = totalDistributedVpt * _vptPrice;
 
-    final totalQueuedNgn =
-        queued.fold<double>(0, (sum, e) => sum + e.amountNgn);
+    final totalQueuedNgn = queued.fold<double>(
+      0,
+      (sum, e) => sum + e.amountNgn,
+    );
     final totalQueuedVpt = totalQueuedNgn / _vptPrice;
 
     return Container(
@@ -478,9 +669,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
       decoration: BoxDecoration(
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.inputBorder.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: AppColors.inputBorder.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.3),
@@ -494,8 +683,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
         children: [
           const Row(
             children: [
-              Icon(Icons.pie_chart_rounded,
-                  color: AppColors.lightOrange, size: 18),
+              Icon(
+                Icons.pie_chart_rounded,
+                color: AppColors.lightOrange,
+                size: 18,
+              ),
               SizedBox(width: 8),
               Text(
                 'Economic Breakdown',
@@ -541,8 +733,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
     );
   }
 
-  Widget _breakdownRow(
-      String label, String value, IconData icon, Color color) {
+  Widget _breakdownRow(String label, String value, IconData icon, Color color) {
     return Row(
       children: [
         Container(
@@ -646,8 +837,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Column(
           children: [
-            Icon(Icons.receipt_long_rounded,
-                color: AppColors.hintText.withValues(alpha: 0.3), size: 48),
+            Icon(
+              Icons.receipt_long_rounded,
+              color: AppColors.hintText.withValues(alpha: 0.3),
+              size: 48,
+            ),
             const SizedBox(height: 12),
             Text(
               'No transactions yet',
@@ -694,9 +888,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
       decoration: BoxDecoration(
         color: AppColors.inputFill,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.inputBorder.withValues(alpha: 0.2),
-        ),
+        border: Border.all(color: AppColors.inputBorder.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -773,8 +965,8 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                       color: entry.isSuccess
                           ? const Color(0xFF4CAF50)
                           : entry.isPending
-                              ? AppColors.lightOrange
-                              : AppColors.errorRed,
+                          ? AppColors.lightOrange
+                          : AppColors.errorRed,
                     ),
                   ),
                   const SizedBox(width: 4),
@@ -848,8 +1040,11 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline_rounded,
-                color: AppColors.errorRed.withValues(alpha: 0.5), size: 48),
+            Icon(
+              Icons.error_outline_rounded,
+              color: AppColors.errorRed.withValues(alpha: 0.5),
+              size: 48,
+            ),
             const SizedBox(height: 16),
             Text(
               'Failed to load data',
@@ -881,8 +1076,10 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                 _loadData();
               },
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   gradient: AppColors.buttonGradient,
                   borderRadius: BorderRadius.circular(10),
@@ -901,6 +1098,141 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildStatusChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+        ),
+      ),
+    );
+  }
+
+  Widget _preflightMetric(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.inputBorder.withValues(alpha: 0.24),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: AppColors.hintText.withValues(alpha: 0.8),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, {bool monospace = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: AppColors.hintText.withValues(alpha: 0.8),
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          style: TextStyle(
+            color: AppColors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            fontFamily: monospace ? 'monospace' : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTagGroup(String title, List<String> values) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: AppColors.hintText.withValues(alpha: 0.85),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: values
+              .map(
+                (value) => Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.inputFill,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: AppColors.inputBorder.withValues(alpha: 0.28),
+                    ),
+                  ),
+                  child: Text(
+                    value,
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+
+  List<String> _stringList(dynamic values) {
+    if (values is! List) return const [];
+    return values
+        .whereType<String>()
+        .where((value) => value.isNotEmpty)
+        .toList();
   }
 
   String _formatAmount(double amount) {

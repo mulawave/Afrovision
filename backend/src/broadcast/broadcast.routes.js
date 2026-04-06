@@ -1,0 +1,36 @@
+const { Router } = require('express');
+const { authenticateToken } = require('../utils/jwt');
+const ctrl = require('./broadcast.controller');
+const { videoUpload } = require('./video.upload');
+const { upload } = require('../utils/upload');
+
+const router = Router();
+
+// Server time (public — no auth needed for sync)
+router.get('/time', ctrl.getServerTime);
+
+// Video management (creator)
+router.post('/videos', authenticateToken, videoUpload.single('video'), ctrl.uploadVideo);
+router.get('/videos/me', authenticateToken, ctrl.getMyVideos);
+router.get('/videos/channel/:channelId', authenticateToken, ctrl.getChannelVideos);
+router.post(
+  '/videos/:videoId/thumbnail',
+  authenticateToken,
+  upload.single('file'),
+  ctrl.uploadThumbnail
+);
+router.delete('/videos/:videoId', authenticateToken, ctrl.deleteVideo);
+
+// Schedule management (creator)
+router.post('/schedule', authenticateToken, ctrl.scheduleProgram);
+router.post('/schedule/sequential', authenticateToken, ctrl.scheduleSequential);
+router.get('/schedule/:channelId', authenticateToken, ctrl.getChannelSchedule);
+router.delete('/schedule/:programId', authenticateToken, ctrl.deleteProgram);
+
+// Playback (viewer) — authenticated for subscription gating
+router.get('/now-playing/:channelId', authenticateToken, ctrl.getNowPlaying);
+
+// Go-live notification trigger
+router.post('/go-live', authenticateToken, ctrl.goLive);
+
+module.exports = router;

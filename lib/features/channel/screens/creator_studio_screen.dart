@@ -15,6 +15,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
     with SingleTickerProviderStateMixin {
   List<ChannelModel> _channels = [];
   bool _loading = true;
+  String? _togglingId;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
 
@@ -51,6 +52,8 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
   }
 
   Future<void> _toggleStatus(ChannelModel channel) async {
+    if (_togglingId != null) return;
+    setState(() => _togglingId = channel.id);
     try {
       if (channel.isActive) {
         await ChannelService.deleteChannel(channel.id);
@@ -65,10 +68,13 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
           content: Text(e.toString()),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
+    } finally {
+      if (mounted) setState(() => _togglingId = null);
     }
   }
 
@@ -87,13 +93,14 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                 child: _loading
                     ? const Center(
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(AppColors.orange),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.orange,
+                          ),
                         ),
                       )
                     : _channels.isEmpty
-                        ? _buildEmpty()
-                        : _buildList(),
+                    ? _buildEmpty()
+                    : _buildList(),
               ),
             ],
           ),
@@ -116,8 +123,11 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.white, size: 18),
+              child: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: AppColors.white,
+                size: 18,
+              ),
             ),
           ),
           const SizedBox(width: 16),
@@ -132,8 +142,10 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
           const Spacer(),
           GestureDetector(
             onTap: () async {
-              final result =
-                  await Navigator.pushNamed(context, '/create-channel');
+              final result = await Navigator.pushNamed(
+                context,
+                '/create-channel',
+              );
               if (result == true || result == null) _loadChannels();
             },
             child: Container(
@@ -143,8 +155,11 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.add_rounded,
-                  color: AppColors.orange, size: 20),
+              child: const Icon(
+                Icons.add_rounded,
+                color: AppColors.orange,
+                size: 20,
+              ),
             ),
           ),
         ],
@@ -157,8 +172,11 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.video_library_rounded,
-              color: AppColors.hintText.withValues(alpha: 0.5), size: 56),
+          Icon(
+            Icons.video_library_rounded,
+            color: AppColors.hintText.withValues(alpha: 0.5),
+            size: 56,
+          ),
           const SizedBox(height: 16),
           Text(
             'No channels created yet',
@@ -191,8 +209,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 20),
           itemCount: _channels.length,
-          itemBuilder: (context, index) =>
-              _buildChannelCard(_channels[index]),
+          itemBuilder: (context, index) => _buildChannelCard(_channels[index]),
         ),
       ),
     );
@@ -271,24 +288,28 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                         GestureDetector(
                           onTap: () {
                             Clipboard.setData(
-                                ClipboardData(text: channel.channelNumber));
+                              ClipboardData(text: channel.channelNumber),
+                            );
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: const Text('Channel number copied'),
-                                backgroundColor: const Color(0xFF4CAF50)
-                                    .withValues(alpha: 0.9),
+                                backgroundColor: const Color(
+                                  0xFF4CAF50,
+                                ).withValues(alpha: 0.9),
                                 behavior: SnackBarBehavior.floating,
                                 duration: const Duration(seconds: 2),
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10)),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
                               ),
                             );
                           },
                           child: Text(
                             '#${channel.channelNumber}',
                             style: TextStyle(
-                              color:
-                                  AppColors.lightOrange.withValues(alpha: 0.8),
+                              color: AppColors.lightOrange.withValues(
+                                alpha: 0.8,
+                              ),
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                             ),
@@ -312,8 +333,10 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                   color: AppColors.orange,
                   onTap: () async {
                     final result = await Navigator.pushNamed(
-                        context, '/edit-channel',
-                        arguments: channel);
+                      context,
+                      '/edit-channel',
+                      arguments: channel,
+                    );
                     if (result == true) _loadChannels();
                   },
                 ),
@@ -329,6 +352,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                       ? AppColors.hintText
                       : const Color(0xFF4CAF50),
                   onTap: () => _toggleStatus(channel),
+                  isLoading: _togglingId == channel.id,
                 ),
               ),
               const SizedBox(width: 8),
@@ -339,9 +363,47 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                   color: AppColors.lightOrange,
                   onTap: () async {
                     final result = await Navigator.pushNamed(
-                        context, '/channel-view',
-                        arguments: channel.id);
+                      context,
+                      '/channel-view',
+                      arguments: channel.id,
+                    );
                     if (result == true) _loadChannels();
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Broadcast actions
+          Row(
+            children: [
+              Expanded(
+                child: _buildActionButton(
+                  icon: Icons.video_library_rounded,
+                  label: 'Videos',
+                  color: AppColors.orange,
+                  onTap: () async {
+                    final result = await Navigator.pushNamed(
+                      context,
+                      '/video-upload',
+                      arguments: channel.id,
+                    );
+                    if (result == true) _loadChannels();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildActionButton(
+                  icon: Icons.schedule_rounded,
+                  label: 'Schedule',
+                  color: AppColors.lightOrange,
+                  onTap: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/schedule',
+                      arguments: channel.id,
+                    );
                   },
                 ),
               ),
@@ -375,30 +437,45 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
     required String label,
     required Color color,
     required VoidCallback onTap,
+    bool isLoading = false,
   }) {
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withValues(alpha: 0.2)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 15),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+      onTap: isLoading ? null : onTap,
+      child: AnimatedOpacity(
+        opacity: isLoading ? 0.6 : 1.0,
+        duration: const Duration(milliseconds: 200),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (isLoading)
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                  ),
+                )
+              else
+                Icon(icon, color: color, size: 15),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
