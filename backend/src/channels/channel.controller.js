@@ -155,7 +155,7 @@ function uploadMedia(req, res) {
     return res.status(400).json({ error: 'Media type must be logo or banner' });
   }
 
-  const url = `/uploads/${req.file.filename}`;
+  const url = req.file.gcsUrl;
   const field = mediaType === 'logo' ? 'logo_url' : 'banner_url';
   Channel.update(channel.id, { [field]: url });
 
@@ -200,10 +200,10 @@ function createChannelWithMedia(req, res) {
   // Attach uploaded files if present
   if (req.files) {
     if (req.files.logo && req.files.logo[0]) {
-      Channel.update(channel.id, { logo_url: `/uploads/${req.files.logo[0].filename}` });
+      Channel.update(channel.id, { logo_url: req.files.logo[0].gcsUrl });
     }
     if (req.files.banner && req.files.banner[0]) {
-      Channel.update(channel.id, { banner_url: `/uploads/${req.files.banner[0].filename}` });
+      Channel.update(channel.id, { banner_url: req.files.banner[0].gcsUrl });
     }
   }
 

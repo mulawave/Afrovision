@@ -56,7 +56,7 @@ async function uploadHomepageAsset(req, res) {
     return res.status(400).json({ error: 'file is required' });
   }
 
-  const imageUrl = `/uploads/${req.file.filename}`;
+  const imageUrl = req.file.gcsUrl;
 
   try {
     await AuditService.logAction(caller.id, 'upload_homepage_asset', 'homepage', {
@@ -83,7 +83,7 @@ async function uploadBrandingAsset(req, res) {
     return res.status(400).json({ error: 'field must be logo_url or favicon_url' });
   }
 
-  const imageUrl = `/uploads/${req.file.filename}`;
+  const imageUrl = req.file.gcsUrl;
 
   try {
     const design = await HomepageDesignService.getAdminHomepageDesign();

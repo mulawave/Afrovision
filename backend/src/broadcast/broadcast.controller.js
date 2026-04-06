@@ -27,7 +27,7 @@ async function uploadVideo(req, res) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
-    const videoUrl = `/uploads/${req.file.filename}`;
+    const videoUrl = req.file.gcsUrl;
     const video = await Video.create({
       creatorUid: req.userId,
       channelId: channel_id,
@@ -52,7 +52,7 @@ async function uploadThumbnail(req, res) {
     }
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const thumbnailUrl = `/uploads/${req.file.filename}`;
+    const thumbnailUrl = req.file.gcsUrl;
     const updated = await Video.update(video.id, { thumbnail_url: thumbnailUrl });
     res.json({ video: updated });
   } catch (err) {

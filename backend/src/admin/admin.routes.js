@@ -5,7 +5,7 @@ const premiumCtrl = require('../channels/premium_stream.controller');
 const creatorSubCtrl = require('../subscriptions/creator_subscription.controller');
 const creatorAnalyticsCtrl = require('../analytics/creator_analytics.controller');
 const designCtrl = require('../design/homepage-design.controller');
-const { upload } = require('../utils/upload');
+const { upload, uploadSingleToGCS } = require('../utils/upload');
 
 const router = Router();
 
@@ -37,8 +37,8 @@ router.post('/settings/:key/reset', authenticateToken, ctrl.resetSetting);
 // Homepage design management
 router.get('/design/homepage', authenticateToken, designCtrl.getHomepageDesign);
 router.patch('/design/homepage', authenticateToken, designCtrl.updateHomepageDesign);
-router.post('/design/homepage/assets', authenticateToken, upload.single('file'), designCtrl.uploadHomepageAsset);
-router.post('/design/homepage/branding', authenticateToken, upload.single('file'), designCtrl.uploadBrandingAsset);
+router.post('/design/homepage/assets', authenticateToken, upload.single('file'), uploadSingleToGCS, designCtrl.uploadHomepageAsset);
+router.post('/design/homepage/branding', authenticateToken, upload.single('file'), uploadSingleToGCS, designCtrl.uploadBrandingAsset);
 
 // User management
 router.get('/users', authenticateToken, ctrl.listUsers);

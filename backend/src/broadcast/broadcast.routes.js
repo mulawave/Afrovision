@@ -1,8 +1,8 @@
 const { Router } = require('express');
 const { authenticateToken } = require('../utils/jwt');
 const ctrl = require('./broadcast.controller');
-const { videoUpload } = require('./video.upload');
-const { upload } = require('../utils/upload');
+const { videoUpload, uploadVideoToGCS } = require('./video.upload');
+const { upload, uploadSingleToGCS } = require('../utils/upload');
 
 const router = Router();
 
@@ -10,13 +10,14 @@ const router = Router();
 router.get('/time', ctrl.getServerTime);
 
 // Video management (creator)
-router.post('/videos', authenticateToken, videoUpload.single('video'), ctrl.uploadVideo);
+router.post('/videos', authenticateToken, videoUpload.single('video'), uploadVideoToGCS, ctrl.uploadVideo);
 router.get('/videos/me', authenticateToken, ctrl.getMyVideos);
 router.get('/videos/channel/:channelId', authenticateToken, ctrl.getChannelVideos);
 router.post(
   '/videos/:videoId/thumbnail',
   authenticateToken,
   upload.single('file'),
+  uploadSingleToGCS,
   ctrl.uploadThumbnail
 );
 router.delete('/videos/:videoId', authenticateToken, ctrl.deleteVideo);
