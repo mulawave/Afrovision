@@ -30,10 +30,12 @@ router.get('/my', authenticateToken, ctrl.getMyRegistration);
 // Admin
 router.get('/admin/list', authenticateToken, ctrl.adminListChallenges);
 router.post('/admin/create', authenticateToken, ctrl.adminCreateChallenge);
-router.patch('/admin/:id', authenticateToken, ctrl.adminUpdateChallenge);
-router.patch('/admin/:id/phase', authenticateToken, ctrl.adminAdvancePhase);
-router.get('/admin/:id/registrations', authenticateToken, ctrl.adminListRegistrations);
+router.get('/admin/registrations', authenticateToken, ctrl.adminListAllRegistrations);
 router.patch('/admin/registrations/:regId', authenticateToken, ctrl.adminUpdateRegistration);
 router.delete('/admin/registrations/:regId', authenticateToken, ctrl.adminDeleteRegistration);
+router.patch('/admin/:id/phase', authenticateToken, ctrl.adminAdvancePhase);
+router.get('/admin/:id/registrations', authenticateToken, ctrl.adminListRegistrations);
+router.patch('/admin/:id', authenticateToken, ctrl.adminUpdateChallenge);
+router.delete('/admin/:id', authenticateToken, ctrl.adminDeleteChallenge);
 
 module.exports = router;

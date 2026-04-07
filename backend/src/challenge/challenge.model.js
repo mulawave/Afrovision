@@ -188,6 +188,23 @@ async function deleteRegistration(id) {
   return removed;
 }
 
+async function deleteChallenge(id) {
+  const idx = challenges.findIndex((c) => c.id === id);
+  if (idx === -1) return null;
+  const removed = challenges.splice(idx, 1)[0];
+  const db = getFirestore();
+  // Delete the challenge document
+  await db.collection(CHALLENGES_COLLECTION).doc(id).delete();
+  // Delete associated registrations
+  const relatedRegs = registrations.filter((r) => r.challenge_id === id);
+  for (const reg of relatedRegs) {
+    const rIdx = registrations.findIndex((r) => r.id === reg.id);
+    if (rIdx !== -1) registrations.splice(rIdx, 1);
+    await db.collection(REGISTRATIONS_COLLECTION).doc(reg.id).delete();
+  }
+  return removed;
+}
+
 module.exports = {
   PHASES,
   init,
@@ -204,4 +221,5 @@ module.exports = {
   countRegistrations,
   getApprovedRegistrations,
   deleteRegistration,
+  deleteChallenge,
 };

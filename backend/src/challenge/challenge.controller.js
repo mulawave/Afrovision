@@ -221,6 +221,33 @@ async function adminDeleteRegistration(req, res) {
   }
 }
 
+async function adminDeleteChallenge(req, res) {
+  try {
+    const removed = await ChallengeModel.deleteChallenge(req.params.id);
+    if (!removed) return res.status(404).json({ error: 'Challenge not found' });
+    res.json({ message: 'Challenge deleted' });
+  } catch (err) {
+    console.error('[Challenge] adminDeleteChallenge error:', err);
+    res.status(500).json({ error: 'Failed to delete challenge' });
+  }
+}
+
+async function adminListAllRegistrations(req, res) {
+  try {
+    const { status, limit, offset } = req.query;
+    const result = ChallengeModel.listRegistrations({
+      challenge_id: undefined,
+      status,
+      limit: limit ? Number(limit) : 200,
+      offset: offset ? Number(offset) : 0,
+    });
+    res.json({ registrations: result.items, total: result.total });
+  } catch (err) {
+    console.error('[Challenge] adminListAllRegistrations error:', err);
+    res.status(500).json({ error: 'Failed to list registrations' });
+  }
+}
+
 module.exports = {
   getActiveChallenge,
   registerForChallenge,
@@ -233,4 +260,6 @@ module.exports = {
   adminListRegistrations,
   adminUpdateRegistration,
   adminDeleteRegistration,
+  adminDeleteChallenge,
+  adminListAllRegistrations,
 };
