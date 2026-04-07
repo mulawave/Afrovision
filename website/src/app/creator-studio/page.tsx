@@ -111,6 +111,10 @@ export default function CreatorStudioPage() {
   const [scheduleVideoId, setScheduleVideoId] = useState("");
   const [scheduleStart, setScheduleStart] = useState("");
 
+  // ── Library auto-schedule state
+  const [libraryAutoStart, setLibraryAutoStart] = useState("");
+  const [schedulingLibrary, setSchedulingLibrary] = useState(false);
+
   // ── Drag state
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
@@ -351,6 +355,39 @@ export default function CreatorStudioPage() {
       await loadSchedule(selectedChannelId);
     }
     setSchedulingBulk(false);
+  }
+
+  /* ── Auto-schedule entire library ────────────────── */
+
+  async function handleAutoScheduleLibrary() {
+    if (
+      selectedChannelVideos.length === 0 ||
+      !libraryAutoStart ||
+      !selectedChannelId
+    ) {
+      setError("Pick a start time and make sure the library has videos.");
+      return;
+    }
+
+    setSchedulingLibrary(true);
+    setError(null);
+
+    const videoIds = selectedChannelVideos.map((v) => v.id);
+    const res = await scheduleSequentialApi({
+      channelId: selectedChannelId,
+      videoIds,
+      startTime: new Date(libraryAutoStart).getTime(),
+    });
+
+    if (!res.ok) {
+      setError(
+        "error" in res.data ? res.data.error : "Auto-scheduling failed.",
+      );
+    } else {
+      setLibraryAutoStart("");
+      await loadSchedule(selectedChannelId);
+    }
+    setSchedulingLibrary(false);
   }
 
   /* ── Single schedule (for existing library videos) ── */
@@ -662,7 +699,7 @@ export default function CreatorStudioPage() {
 
                     {/* File list — drag to reorder */}
                     {uploadEntries.length > 0 && (
-                      <div className="mt-4 space-y-2">
+                      <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
                         {uploadEntries.map((entry, index) => (
                           <div
                             key={entry.id}
@@ -942,7 +979,7 @@ export default function CreatorStudioPage() {
                         No programs scheduled for this channel yet.
                       </p>
                     ) : (
-                      <div className="mt-4 space-y-3">
+                      <div className="mt-4 max-h-[400px] space-y-3 overflow-y-auto pr-1">
                         {schedule.map((item) => (
                           <div
                             key={item.id}
@@ -972,6 +1009,63 @@ export default function CreatorStudioPage() {
                     )}
                   </div>
 
+                  {/* ── Auto-schedule library ── */}
+                  {selectedChannelVideos.length >= 2 && (
+                    <div className="rounded-3xl border border-av-orange/20 bg-av-card p-6">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-av-orange/15">
+                          <svg
+                            className="h-5 w-5 text-av-orange"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </div>
+                        <div>
+                          <h2 className="text-lg font-semibold text-av-white">
+                            Auto-schedule library
+                          </h2>
+                          <p className="text-xs text-av-hint">
+                            Chain {selectedChannelVideos.length} videos back-to-back
+                            &middot; Total runtime{" "}
+                            {formatDuration(
+                              selectedChannelVideos.reduce(
+                                (s, v) => s + v.duration,
+                                0,
+                              ),
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                        <input
+                          type="datetime-local"
+                          value={libraryAutoStart}
+                          min={toDateTimeLocal(new Date().toISOString())}
+                          onChange={(e) => setLibraryAutoStart(e.target.value)}
+                          className="h-11 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAutoScheduleLibrary}
+                          disabled={schedulingLibrary || !libraryAutoStart}
+                          className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
+                        >
+                          {schedulingLibrary
+                            ? "Scheduling..."
+                            : "Auto-schedule all"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
                     <div className="flex items-center justify-between gap-3">
                       <h2 className="text-lg font-semibold text-av-white">
@@ -987,7 +1081,7 @@ export default function CreatorStudioPage() {
                         broadcast library.
                       </p>
                     ) : (
-                      <div className="mt-4 space-y-3">
+                      <div className="mt-4 max-h-[400px] space-y-3 overflow-y-auto pr-1">
                         {selectedChannelVideos.map((video) => (
                           <div
                             key={video.id}
