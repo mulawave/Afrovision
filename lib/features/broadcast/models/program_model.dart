@@ -35,10 +35,16 @@ class ProgramModel {
     this.isLoop = false,
   });
 
-  String? get fullVideoUrl =>
-      videoUrl != null ? '${AppConfig.baseUrl}$videoUrl' : null;
-  String? get fullThumbnailUrl =>
-      thumbnailUrl != null ? '${AppConfig.baseUrl}$thumbnailUrl' : null;
+  String? get fullVideoUrl => videoUrl != null
+      ? (videoUrl!.startsWith('http')
+            ? videoUrl!
+            : '${AppConfig.baseUrl}$videoUrl')
+      : null;
+  String? get fullThumbnailUrl => thumbnailUrl != null
+      ? (thumbnailUrl!.startsWith('http')
+            ? thumbnailUrl!
+            : '${AppConfig.baseUrl}$thumbnailUrl')
+      : null;
 
   factory ProgramModel.fromJson(Map<String, dynamic> json) {
     return ProgramModel(

@@ -364,7 +364,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                   onTap: () async {
                     final result = await Navigator.pushNamed(
                       context,
-                      '/channel-view',
+                      '/channel-player',
                       arguments: channel.id,
                     );
                     if (result == true) _loadChannels();

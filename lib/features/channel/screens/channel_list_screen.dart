@@ -72,8 +72,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
         channels: _channels.where((c) => c.isPublic).toList(),
         onSelect: (channel) async {
           Navigator.pop(context);
-          await Navigator.pushNamed(context, '/channel-view',
-              arguments: channel.id);
+          await Navigator.pushNamed(
+            context,
+            '/channel-player',
+            arguments: channel.id,
+          );
           _loadChannels();
         },
       ),
@@ -95,13 +98,14 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 child: _loading
                     ? const Center(
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(AppColors.orange),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.orange,
+                          ),
                         ),
                       )
                     : _channels.isEmpty
-                        ? _buildEmpty()
-                        : _buildPaginatedList(),
+                    ? _buildEmpty()
+                    : _buildPaginatedList(),
               ),
             ],
           ),
@@ -124,8 +128,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.white, size: 18),
+              child: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: AppColors.white,
+                size: 18,
+              ),
             ),
           ),
           const SizedBox(width: 16),
@@ -147,8 +154,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.search_rounded,
-                  color: AppColors.orange, size: 20),
+              child: const Icon(
+                Icons.search_rounded,
+                color: AppColors.orange,
+                size: 20,
+              ),
             ),
           ),
           const SizedBox(width: 10),
@@ -164,8 +174,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.add_rounded,
-                  color: AppColors.orange, size: 20),
+              child: const Icon(
+                Icons.add_rounded,
+                color: AppColors.orange,
+                size: 20,
+              ),
             ),
           ),
         ],
@@ -186,9 +199,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.tv_off_rounded,
-                      color: AppColors.hintText.withValues(alpha: 0.5),
-                      size: 56),
+                  Icon(
+                    Icons.tv_off_rounded,
+                    color: AppColors.hintText.withValues(alpha: 0.5),
+                    size: 56,
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     'No channels yet',
@@ -230,9 +245,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                       final isActive = i == _currentPage;
                       return GestureDetector(
                         onTap: () {
-                          _pageController.animateToPage(i,
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut);
+                          _pageController.animateToPage(
+                            i,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
                         },
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 250),
@@ -256,8 +273,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
             child: PageView.builder(
               controller: _pageController,
               itemCount: _totalPages,
-              onPageChanged: (page) =>
-                  setState(() => _currentPage = page),
+              onPageChanged: (page) => setState(() => _currentPage = page),
               itemBuilder: (context, pageIndex) {
                 final pageItems = _pageChannels(pageIndex);
                 return RefreshIndicator(
@@ -266,7 +282,9 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                   onRefresh: _loadChannels,
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 4),
+                      horizontal: 20,
+                      vertical: 4,
+                    ),
                     itemCount: pageItems.length,
                     itemBuilder: (context, index) =>
                         _buildChannelCard(pageItems[index]),
@@ -286,8 +304,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
 
     return GestureDetector(
       onTap: () async {
-        await Navigator.pushNamed(context, '/channel-view',
-            arguments: channel.id);
+        await Navigator.pushNamed(
+          context,
+          '/channel-player',
+          arguments: channel.id,
+        );
         _loadChannels();
       },
       child: Container(
@@ -355,20 +376,24 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                     right: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.darkBlue.withValues(alpha: 0.75),
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
-                          color: const Color(0xFF4CAF50)
-                              .withValues(alpha: 0.4),
+                          color: const Color(0xFF4CAF50).withValues(alpha: 0.4),
                         ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.public_rounded,
-                              size: 9, color: Color(0xFF4CAF50)),
+                          const Icon(
+                            Icons.public_rounded,
+                            size: 9,
+                            color: Color(0xFF4CAF50),
+                          ),
                           const SizedBox(width: 3),
                           const Text(
                             'PUBLIC',
@@ -404,7 +429,8 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                       image: hasLogo
                           ? DecorationImage(
                               image: NetworkImage(
-                                  '${AppConfig.baseUrl}${channel.logoUrl}'),
+                                '${AppConfig.baseUrl}${channel.logoUrl}',
+                              ),
                               fit: BoxFit.cover,
                             )
                           : null,
@@ -420,8 +446,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                           : null,
                     ),
                     child: !hasLogo
-                        ? const Icon(Icons.live_tv_rounded,
-                            color: AppColors.orange, size: 18)
+                        ? const Icon(
+                            Icons.live_tv_rounded,
+                            color: AppColors.orange,
+                            size: 18,
+                          )
                         : null,
                   ),
                   const SizedBox(width: 10),
@@ -455,14 +484,16 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                                 ),
                               ),
                               Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 6),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
                                 child: Container(
                                   width: 3,
                                   height: 3,
                                   decoration: BoxDecoration(
-                                    color: AppColors.hintText
-                                        .withValues(alpha: 0.4),
+                                    color: AppColors.hintText.withValues(
+                                      alpha: 0.4,
+                                    ),
                                     shape: BoxShape.circle,
                                   ),
                                 ),
@@ -471,8 +502,9 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                             Text(
                               '#${channel.channelNumber}',
                               style: TextStyle(
-                                color: AppColors.lightOrange
-                                    .withValues(alpha: 0.9),
+                                color: AppColors.lightOrange.withValues(
+                                  alpha: 0.9,
+                                ),
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -482,9 +514,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                       ],
                     ),
                   ),
-                  Icon(Icons.chevron_right_rounded,
-                      color: AppColors.hintText.withValues(alpha: 0.4),
-                      size: 20),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.hintText.withValues(alpha: 0.4),
+                    size: 20,
+                  ),
                 ],
               ),
             ),
@@ -558,10 +592,12 @@ class _SearchModalState extends State<_SearchModal> {
     }
     setState(() {
       _results = widget.channels
-          .where((ch) =>
-              ch.name.toLowerCase().contains(q) ||
-              (ch.category?.toLowerCase().contains(q) ?? false) ||
-              ch.channelNumber.contains(q))
+          .where(
+            (ch) =>
+                ch.name.toLowerCase().contains(q) ||
+                (ch.category?.toLowerCase().contains(q) ?? false) ||
+                ch.channelNumber.contains(q),
+          )
           .take(10)
           .toList();
     });
@@ -597,37 +633,43 @@ class _SearchModalState extends State<_SearchModal> {
                 color: AppColors.inputFill,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                    color: AppColors.orange.withValues(alpha: 0.3)),
+                  color: AppColors.orange.withValues(alpha: 0.3),
+                ),
               ),
               child: TextField(
                 controller: _controller,
                 focusNode: _focusNode,
                 onChanged: _onSearch,
-                style: const TextStyle(
-                    color: AppColors.white, fontSize: 15),
+                style: const TextStyle(color: AppColors.white, fontSize: 15),
                 decoration: InputDecoration(
                   hintText: 'Search channels...',
                   hintStyle: TextStyle(
                     color: AppColors.hintText.withValues(alpha: 0.5),
                     fontSize: 15,
                   ),
-                  prefixIcon: const Icon(Icons.search_rounded,
-                      color: AppColors.orange, size: 22),
+                  prefixIcon: const Icon(
+                    Icons.search_rounded,
+                    color: AppColors.orange,
+                    size: 22,
+                  ),
                   suffixIcon: _controller.text.isNotEmpty
                       ? GestureDetector(
                           onTap: () {
                             _controller.clear();
                             _onSearch('');
                           },
-                          child: Icon(Icons.close_rounded,
-                              color: AppColors.hintText
-                                  .withValues(alpha: 0.5),
-                              size: 20),
+                          child: Icon(
+                            Icons.close_rounded,
+                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            size: 20,
+                          ),
                         )
                       : null,
                   border: InputBorder.none,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                 ),
               ),
             ),
@@ -657,9 +699,11 @@ class _SearchModalState extends State<_SearchModal> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.search_off_rounded,
-                            color: AppColors.hintText.withValues(alpha: 0.3),
-                            size: 40),
+                        Icon(
+                          Icons.search_off_rounded,
+                          color: AppColors.hintText.withValues(alpha: 0.3),
+                          size: 40,
+                        ),
                         const SizedBox(height: 8),
                         Text(
                           'No channels found',
@@ -672,8 +716,7 @@ class _SearchModalState extends State<_SearchModal> {
                     ),
                   )
                 : ListView.builder(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: _results.length,
                     itemBuilder: (context, index) {
                       final ch = _results[index];
@@ -686,8 +729,7 @@ class _SearchModalState extends State<_SearchModal> {
                           decoration: BoxDecoration(
                             color: AppColors.inputFill,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                                color: AppColors.inputBorder),
+                            border: Border.all(color: AppColors.inputBorder),
                           ),
                           child: Row(
                             children: [
@@ -698,38 +740,43 @@ class _SearchModalState extends State<_SearchModal> {
                                   shape: BoxShape.circle,
                                   color: AppColors.inputFill,
                                   border: Border.all(
-                                    color: AppColors.lightOrange
-                                        .withValues(alpha: 0.4),
+                                    color: AppColors.lightOrange.withValues(
+                                      alpha: 0.4,
+                                    ),
                                   ),
                                   image: hasLogo
                                       ? DecorationImage(
                                           image: NetworkImage(
-                                              '${AppConfig.baseUrl}${ch.logoUrl}'),
+                                            '${AppConfig.baseUrl}${ch.logoUrl}',
+                                          ),
                                           fit: BoxFit.cover,
                                         )
                                       : null,
                                   gradient: !hasLogo
                                       ? LinearGradient(
                                           colors: [
-                                            AppColors.orange
-                                                .withValues(alpha: 0.15),
-                                            AppColors.lightOrange
-                                                .withValues(alpha: 0.05),
+                                            AppColors.orange.withValues(
+                                              alpha: 0.15,
+                                            ),
+                                            AppColors.lightOrange.withValues(
+                                              alpha: 0.05,
+                                            ),
                                           ],
                                         )
                                       : null,
                                 ),
                                 child: !hasLogo
-                                    ? const Icon(Icons.live_tv_rounded,
+                                    ? const Icon(
+                                        Icons.live_tv_rounded,
                                         color: AppColors.orange,
-                                        size: 16)
+                                        size: 16,
+                                      )
                                     : null,
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       ch.name,
@@ -753,9 +800,9 @@ class _SearchModalState extends State<_SearchModal> {
                                             ),
                                           ),
                                           Padding(
-                                            padding:
-                                                const EdgeInsets.symmetric(
-                                                    horizontal: 5),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 5,
+                                            ),
                                             child: Container(
                                               width: 3,
                                               height: 3,
@@ -780,8 +827,11 @@ class _SearchModalState extends State<_SearchModal> {
                                   ],
                                 ),
                               ),
-                              const Icon(Icons.arrow_forward_ios_rounded,
-                                  color: AppColors.orange, size: 14),
+                              const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                color: AppColors.orange,
+                                size: 14,
+                              ),
                             ],
                           ),
                         ),

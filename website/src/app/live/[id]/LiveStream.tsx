@@ -27,6 +27,7 @@ import {
   getChannelEventsApi,
   getChannelEventsSinceApi,
 } from "@/lib/api";
+import { resolveWebsiteMediaUrl } from "@/lib/media";
 
 type RightPanel = "chat" | "gifts";
 
@@ -270,11 +271,14 @@ export function LiveStream({ id }: { id: string }) {
             <div className="relative">
               <LivePlayer
                 channelName={channelName}
+                channelLogoUrl={channel?.logo_url ?? undefined}
                 title={streamTitle}
                 viewers={0}
                 isLive={!!nowPlaying}
-                streamUrl={nowPlaying?.video_url}
+                streamUrl={nowPlaying?.video_url ? resolveWebsiteMediaUrl(nowPlaying.video_url) : undefined}
                 startTime={nowPlaying?.start_time}
+                duration={nowPlaying?.duration}
+                isLoop={nowPlaying?.is_loop}
               />
 
               {/* Gift overlay animation */}
@@ -457,7 +461,8 @@ export function LiveStream({ id }: { id: string }) {
                 </div>
               </div>
 
-              {/* Gift history / ledger preview */}
+              {/* Gift history / ledger preview — admin only */}
+              {user?.role === "admin" && (
               <div className="mt-3 rounded-xl bg-av-card border border-av-input-border/20 p-4">
                 <h4 className="text-xs font-semibold text-av-white mb-2">Gift Ledger</h4>
                 <p className="text-[10px] text-av-hint leading-relaxed">
@@ -477,6 +482,7 @@ export function LiveStream({ id }: { id: string }) {
                   ))}
                 </div>
               </div>
+              )}
             </div>
           </div>
         </div>

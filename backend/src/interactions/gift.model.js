@@ -22,11 +22,12 @@ function isInitialized() {
   return initialized;
 }
 
-async function create({ name, icon, animation, currency, vptUnits, nairaValue, sortOrder }) {
+async function create({ name, icon, imageUrl, animation, currency, vptUnits, nairaValue, sortOrder }) {
   const gift = {
     id: crypto.randomUUID(),
     name,
     icon,
+    image_url: imageUrl || null,
     animation: animation || null,
     currency, // 'vpt' | 'ngn'
     vpt_units: currency === 'vpt' ? (vptUnits || 0) : 0,
@@ -59,6 +60,7 @@ async function update(id, fields) {
   if (!gift) return null;
   if (fields.name !== undefined) gift.name = fields.name;
   if (fields.icon !== undefined) gift.icon = fields.icon;
+  if (fields.image_url !== undefined) gift.image_url = fields.image_url;
   if (fields.animation !== undefined) gift.animation = fields.animation;
   if (fields.currency !== undefined) gift.currency = fields.currency;
   if (fields.vpt_units !== undefined) gift.vpt_units = fields.vpt_units;

@@ -145,8 +145,10 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                                 ],
                                 const SizedBox(height: 16),
                                 _buildWalletCard(),
-                                const SizedBox(height: 16),
-                                _buildEconomicBreakdown(),
+                                if (_user?.isAdmin ?? false) ...[
+                                  const SizedBox(height: 16),
+                                  _buildEconomicBreakdown(),
+                                ],
                                 const SizedBox(height: 20),
                                 _buildFilterRow(),
                                 const SizedBox(height: 12),

@@ -530,7 +530,7 @@ class _HomeScreenState extends State<HomeScreen>
                 onTap: () async {
                   await Navigator.pushNamed(
                     context,
-                    '/channel-view',
+                    '/channel-player',
                     arguments: ch.id,
                   );
                   _loadData();
@@ -708,7 +708,7 @@ class _HomeScreenState extends State<HomeScreen>
                 onTap: () async {
                   await Navigator.pushNamed(
                     context,
-                    '/channel-view',
+                    '/channel-player',
                     arguments: ch.id,
                   );
                   _loadData();

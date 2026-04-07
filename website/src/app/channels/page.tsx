@@ -64,7 +64,7 @@ export default function ChannelsPage() {
     setNumberLoading(false);
 
     if (res.ok && "channel" in res.data) {
-      router.push(`/channel/${res.data.channel.id}`);
+      router.push(`/live/${res.data.channel.id}`);
       return;
     }
 
@@ -137,7 +137,7 @@ export default function ChannelsPage() {
             {filteredChannels.map((channel) => (
               <Link
                 key={channel.id}
-                href={`/channel/${channel.id}`}
+                href={`/live/${channel.id}`}
                 className="group rounded-2xl border border-av-input-border/30 bg-av-card overflow-hidden transition-all hover:border-av-orange/40 hover:-translate-y-1 hover:shadow-lg hover:shadow-av-orange/10"
               >
                 <div className="relative h-36 bg-gradient-to-br from-av-light-blue/40 via-av-dark-blue to-av-dark-blue">
@@ -160,7 +160,7 @@ export default function ChannelsPage() {
                   <p className="mt-3 line-clamp-2 text-sm text-av-white/70">{channel.description}</p>
                   <div className="mt-4 flex items-center justify-between text-xs text-av-hint">
                     <span>{channel.followers_count ?? 0} followers</span>
-                    <span className="text-av-orange">Open →</span>
+                    <span className="text-av-orange">Watch →</span>
                   </div>
                 </div>
               </Link>

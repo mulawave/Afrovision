@@ -125,7 +125,11 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         _isLoop = _nowPlaying!['is_loop'] as bool? ?? false;
         final positionSec = _nowPlaying!['position'] as int? ?? 0;
         final videoUrl = _nowPlaying!['video_url'] as String? ?? '';
-        final fullUrl = '${AppConfig.baseUrl}$videoUrl';
+        // Use video URL directly if it's already a full URL (GCS),
+        // otherwise prepend the backend base URL
+        final fullUrl = videoUrl.startsWith('http')
+            ? videoUrl
+            : '${AppConfig.baseUrl}$videoUrl';
 
         await _initBroadcastPlayer(
           fullUrl,
@@ -462,38 +466,221 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   }
 
   Widget _buildNoProgram() {
+    final hasLogo = _channel?.logoUrl != null;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.tv_off_outlined,
-              color: AppColors.hintText.withValues(alpha: 0.5),
-              size: 64,
+            // TV color bars
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SizedBox(
+                height: 4,
+                width: 220,
+                child: Row(
+                  children: const [
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFFC0C0C0),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFFC0C000),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF00C0C0),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF00C000),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFFC000C0),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFFC00000),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF0000C0),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 28),
+            // Channel logo or TV icon
+            if (hasLogo)
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: AppColors.inputBorder.withValues(alpha: 0.3),
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Image.network(
+                  _channel!.logoUrl!.startsWith('http')
+                      ? _channel!.logoUrl!
+                      : '${AppConfig.baseUrl}${_channel!.logoUrl}',
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Icon(
+                    Icons.tv_rounded,
+                    color: AppColors.hintText.withValues(alpha: 0.4),
+                    size: 40,
+                  ),
+                ),
+              )
+            else
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: AppColors.cardBg,
+                  border: Border.all(
+                    color: AppColors.inputBorder.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Icon(
+                  Icons.tv_rounded,
+                  color: AppColors.hintText.withValues(alpha: 0.4),
+                  size: 40,
+                ),
+              ),
+            const SizedBox(height: 16),
+            Text(
+              _channel?.name ?? 'Channel',
+              style: TextStyle(
+                color: AppColors.white.withValues(alpha: 0.7),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 12),
             const Text(
-              'No program currently airing',
+              'This channel is currently not\ntransmitting any show now',
               style: TextStyle(
                 color: AppColors.white,
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
-              'Check back later or view the schedule',
+              'Check back later',
               style: TextStyle(
                 color: AppColors.hintText.withValues(alpha: 0.7),
-                fontSize: 14,
+                fontSize: 13,
               ),
+            ),
+            const SizedBox(height: 16),
+            // Standby indicator
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: AppColors.hintText.withValues(alpha: 0.4),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'STANDBY',
+                  style: TextStyle(
+                    color: AppColors.hintText.withValues(alpha: 0.4),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2,
+                  ),
+                ),
+              ],
             ),
             if (_nextProgram != null) ...[
               const SizedBox(height: 32),
               _buildUpNextCard(),
             ],
+            const SizedBox(height: 28),
+            // Bottom color bars
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SizedBox(
+                height: 4,
+                width: 220,
+                child: Row(
+                  children: const [
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF0000C0),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF131313),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFFC000C0),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF131313),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF00C0C0),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF131313),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFFC0C0C0),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 28),
             GestureDetector(
               onTap: _fetchNowPlaying,

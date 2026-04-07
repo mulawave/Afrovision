@@ -56,7 +56,7 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
     try {
       final channel = await ChannelService.getChannelByNumber(number);
       if (!mounted) return;
-      Navigator.pushNamed(context, '/channel-view', arguments: channel.id);
+      Navigator.pushNamed(context, '/channel-player', arguments: channel.id);
       setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
@@ -78,8 +78,10 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
           child: Column(
             children: [
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
                     GestureDetector(
@@ -91,8 +93,11 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: AppColors.inputBorder),
                         ),
-                        child: const Icon(Icons.arrow_back_ios_new_rounded,
-                            color: AppColors.white, size: 18),
+                        child: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          color: AppColors.white,
+                          size: 18,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -126,17 +131,19 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
                               gradient: LinearGradient(
                                 colors: [
                                   AppColors.orange.withValues(alpha: 0.25),
-                                  AppColors.lightOrange
-                                      .withValues(alpha: 0.1),
+                                  AppColors.lightOrange.withValues(alpha: 0.1),
                                 ],
                               ),
                               border: Border.all(
-                                  color:
-                                      AppColors.orange.withValues(alpha: 0.4),
-                                  width: 2),
+                                color: AppColors.orange.withValues(alpha: 0.4),
+                                width: 2,
+                              ),
                             ),
-                            child: const Icon(Icons.dialpad_rounded,
-                                color: AppColors.orange, size: 36),
+                            child: const Icon(
+                              Icons.dialpad_rounded,
+                              color: AppColors.orange,
+                              size: 36,
+                            ),
                           ),
                           const SizedBox(height: 20),
                           const Text(

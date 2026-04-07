@@ -21,9 +21,13 @@ class VideoModel {
     required this.createdAt,
   });
 
-  String get fullVideoUrl => '${AppConfig.baseUrl}$videoUrl';
-  String? get fullThumbnailUrl =>
-      thumbnailUrl != null ? '${AppConfig.baseUrl}$thumbnailUrl' : null;
+  String get fullVideoUrl =>
+      videoUrl.startsWith('http') ? videoUrl : '${AppConfig.baseUrl}$videoUrl';
+  String? get fullThumbnailUrl => thumbnailUrl != null
+      ? (thumbnailUrl!.startsWith('http')
+            ? thumbnailUrl!
+            : '${AppConfig.baseUrl}$thumbnailUrl')
+      : null;
 
   factory VideoModel.fromJson(Map<String, dynamic> json) {
     return VideoModel(

@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { authenticateToken } = require('../utils/jwt');
 const ctrl = require('./interactions.controller');
 const chatCtrl = require('./chat.controller');
+const { upload, uploadSingleToGCS } = require('../utils/upload');
 
 const router = Router();
 
@@ -11,6 +12,9 @@ router.get('/gifts/all', authenticateToken, ctrl.getAllGifts);
 router.post('/gifts', authenticateToken, ctrl.createGift);
 router.patch('/gifts/:giftId', authenticateToken, ctrl.updateGift);
 router.delete('/gifts/:giftId', authenticateToken, ctrl.deleteGift);
+
+// ─── Gift image upload (admin only) ─────────────────────
+router.post('/gifts/upload-image', authenticateToken, upload.single('image'), uploadSingleToGCS, ctrl.uploadGiftImage);
 
 // ─── Gift wallet ─────────────────────────────────────────
 router.get('/wallet', authenticateToken, ctrl.getMyGiftWallet);

@@ -50,9 +50,9 @@ async function createGift(req, res) {
       return res.status(403).json({ error: 'Admin only' });
     }
 
-    const { name, icon, animation, currency, vpt_units, naira_value, sort_order } = req.body;
-    if (!name || !icon) {
-      return res.status(400).json({ error: 'Name and icon are required' });
+    const { name, icon, image_url, animation, currency, vpt_units, naira_value, sort_order } = req.body;
+    if (!name || (!icon && !image_url)) {
+      return res.status(400).json({ error: 'Name and icon (emoji or image) are required' });
     }
     if (!['vpt', 'ngn'].includes(currency)) {
       return res.status(400).json({ error: 'Currency must be vpt or ngn' });
@@ -61,6 +61,7 @@ async function createGift(req, res) {
     const gift = await GiftModel.create({
       name,
       icon,
+      imageUrl: image_url,
       animation,
       currency,
       vptUnits: vpt_units,
@@ -106,6 +107,22 @@ async function deleteGift(req, res) {
   } catch (err) {
     console.error('[Interactions] deleteGift error:', err.message);
     res.status(500).json({ error: 'Failed to delete gift' });
+  }
+}
+
+async function uploadGiftImage(req, res) {
+  try {
+    const user = User.findById(req.userId);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    if (!req.file || !req.file.gcsUrl) {
+      return res.status(400).json({ error: 'No image uploaded' });
+    }
+    res.json({ image_url: req.file.gcsUrl });
+  } catch (err) {
+    console.error('[Interactions] uploadGiftImage error:', err.message);
+    res.status(500).json({ error: 'Failed to upload gift image' });
   }
 }
 
@@ -604,6 +621,7 @@ module.exports = {
   createGift,
   updateGift,
   deleteGift,
+  uploadGiftImage,
   getGifts,
   getAllGifts,
   getMyGiftWallet,

@@ -7,9 +7,12 @@ interface LivePlayerProps {
   streamUrl?: string;
   startTime?: number;
   channelName: string;
+  channelLogoUrl?: string;
   title: string;
   viewers: number;
   isLive: boolean;
+  duration?: number;
+  isLoop?: boolean;
 }
 
 function formatViewers(n: number): string {
@@ -28,34 +31,57 @@ export function LivePlayer({
   streamUrl,
   startTime,
   channelName,
+  channelLogoUrl,
   title,
   viewers,
   isLive,
+  duration,
+  isLoop,
 }: LivePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [showControls, setShowControls] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Server-time sync (non-negotiable: server = authority)
+  // Server-time sync — relaxed threshold (8s) to avoid aggressive seeking
+  // that causes the "plays a few seconds then restarts" issue.
+  // For loop mode, let the browser handle native looping instead of seeking.
   const syncToServer = useCallback(async () => {
     if (!videoRef.current || !startTime) return;
+    const vid = videoRef.current;
+
+    // In loop mode, let the browser handle looping natively
+    if (isLoop) {
+      vid.loop = true;
+      return;
+    }
+
     const res = await getServerTimeApi();
     if (!res.ok || !("server_time" in res.data)) return;
     const serverNow = res.data.server_time;
-    const expectedPos = (serverNow - startTime) / 1000;
-    if (Math.abs(videoRef.current.currentTime - expectedPos) > 2) {
-      videoRef.current.currentTime = expectedPos;
+    let expectedPos = (serverNow - startTime) / 1000;
+
+    // If duration is known and expectedPos exceeds it, wrap for loop-like behavior
+    if (duration && duration > 0 && expectedPos > duration) {
+      expectedPos = expectedPos % duration;
     }
-  }, [startTime]);
+
+    const drift = Math.abs(vid.currentTime - expectedPos);
+
+    // Only seek if drift exceeds 8 seconds — prevents constant restarts
+    if (drift > 8) {
+      vid.currentTime = expectedPos;
+    }
+  }, [startTime, duration, isLoop]);
 
   useEffect(() => {
     if (!startTime) return;
-    syncToServer();
-    const interval = setInterval(syncToServer, 30000); // re-sync every 30s
-    return () => clearInterval(interval);
+    // Initial sync after a short delay to let video buffer
+    const initialTimeout = setTimeout(syncToServer, 2000);
+    // Re-sync every 30s (with relaxed 8s threshold, this is gentle)
+    const interval = setInterval(syncToServer, 30000);
+    return () => { clearTimeout(initialTimeout); clearInterval(interval); };
   }, [startTime, syncToServer]);
 
   // Elapsed timer
@@ -72,17 +98,7 @@ export function LivePlayer({
     hideTimer.current = setTimeout(() => setShowControls(false), 3000);
   };
 
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      videoRef.current.play();
-      setIsPlaying(true);
-    } else {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-  };
-
+  // TV mode: no play/pause — only mute and fullscreen
   const toggleMute = () => {
     if (!videoRef.current) return;
     videoRef.current.muted = !videoRef.current.muted;
@@ -99,14 +115,27 @@ export function LivePlayer({
     }
   };
 
+  // Ensure video stays playing (TV behavior — no user pause control)
+  useEffect(() => {
+    if (!videoRef.current || !streamUrl) return;
+    const vid = videoRef.current;
+
+    const handlePause = () => {
+      // Auto-resume if paused unexpectedly (TV mode: always playing)
+      vid.play().catch(() => {});
+    };
+
+    vid.addEventListener("pause", handlePause);
+    return () => vid.removeEventListener("pause", handlePause);
+  }, [streamUrl]);
+
   return (
     <div
-      className="relative aspect-video rounded-2xl overflow-hidden bg-black group cursor-pointer"
+      className="relative aspect-video rounded-2xl overflow-hidden bg-black group"
       onMouseMove={resetHideTimer}
       onMouseLeave={() => setShowControls(false)}
-      onClick={togglePlay}
     >
-      {/* Video element (hidden when no stream URL — shows placeholder) */}
+      {/* Video element (hidden when no stream URL — shows "Not Transmitting") */}
       {streamUrl ? (
         <video
           ref={videoRef}
@@ -114,125 +143,155 @@ export function LivePlayer({
           autoPlay
           muted={isMuted}
           playsInline
+          loop={!!isLoop}
           className="w-full h-full object-cover"
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
+          onEnded={() => {
+            // If not loop mode, try to restart
+            if (!isLoop && videoRef.current) {
+              videoRef.current.currentTime = 0;
+              videoRef.current.play().catch(() => {});
+            }
+          }}
         />
       ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-av-light-blue/20 via-[#080e35] to-av-dark-blue flex items-center justify-center">
-          {/* Animated pulse rings */}
-          <div className="relative">
-            <div className="absolute -inset-16 rounded-full border border-av-error/10 animate-ping" style={{ animationDuration: "3s" }} />
-            <div className="absolute -inset-10 rounded-full border border-av-error/15 animate-ping" style={{ animationDuration: "2s" }} />
-            <div className="w-24 h-24 rounded-full bg-av-error/15 border-2 border-av-error/40 flex items-center justify-center backdrop-blur-sm">
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="#FF4D6A">
-                <path d="M8 5v14l11-7z" />
+        /* ── "Not Transmitting" screen — TV static / color bars ── */
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-[#0a0e2e] via-[#060b2a] to-[#020520]">
+          {/* Classic TV color bars at top */}
+          <div className="absolute top-0 left-0 right-0 flex h-3 opacity-60">
+            <div className="flex-1 bg-[#c0c0c0]" />
+            <div className="flex-1 bg-[#c0c000]" />
+            <div className="flex-1 bg-[#00c0c0]" />
+            <div className="flex-1 bg-[#00c000]" />
+            <div className="flex-1 bg-[#c000c0]" />
+            <div className="flex-1 bg-[#c00000]" />
+            <div className="flex-1 bg-[#0000c0]" />
+          </div>
+
+          {/* Static noise overlay */}
+          <div className="absolute inset-0 opacity-[0.03]" style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")`,
+            backgroundSize: "128px 128px",
+          }} />
+
+          {/* Channel logo or TV icon */}
+          {channelLogoUrl ? (
+            <img
+              src={channelLogoUrl}
+              alt={channelName}
+              className="w-24 h-24 rounded-2xl border-2 border-white/10 object-cover mb-5 opacity-80"
+            />
+          ) : (
+            <div className="w-24 h-24 rounded-2xl border-2 border-white/10 bg-white/5 flex items-center justify-center mb-5">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5">
+                <rect x="2" y="7" width="20" height="15" rx="2" />
+                <polyline points="17 2 12 7 7 2" />
               </svg>
             </div>
-          </div>
-          <p className="absolute bottom-20 text-sm text-av-hint/60 font-medium">
-            Stream will begin shortly...
+          )}
+
+          <p className="text-sm font-semibold text-white/70 mb-1.5 tracking-wide uppercase">
+            {channelName}
           </p>
+          <p className="text-sm text-white/40 max-w-xs text-center leading-relaxed">
+            This channel is currently not transmitting any show now, check back later.
+          </p>
+
+          {/* Pulsing dot */}
+          <div className="mt-6 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-white/20 animate-pulse" />
+            <span className="text-[11px] text-white/25 uppercase tracking-widest font-medium">standby</span>
+          </div>
+
+          {/* Color bars at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 flex h-3 opacity-60">
+            <div className="flex-1 bg-[#0000c0]" />
+            <div className="flex-1 bg-[#131313]" />
+            <div className="flex-1 bg-[#c000c0]" />
+            <div className="flex-1 bg-[#131313]" />
+            <div className="flex-1 bg-[#00c0c0]" />
+            <div className="flex-1 bg-[#131313]" />
+            <div className="flex-1 bg-[#c0c0c0]" />
+          </div>
         </div>
       )}
 
-      {/* Top overlay bar — always visible */}
-      <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
-        <div className="flex items-center gap-2.5 pointer-events-auto">
-          {isLive && (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-av-error text-[11px] font-bold uppercase tracking-wider text-white shadow-lg shadow-av-error/30">
-              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              LIVE
+      {/* Top overlay bar — always visible when stream is playing */}
+      {streamUrl && (
+        <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
+          <div className="flex items-center gap-2.5 pointer-events-auto">
+            {isLive && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-av-error text-[11px] font-bold uppercase tracking-wider text-white shadow-lg shadow-av-error/30">
+                <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                LIVE
+              </span>
+            )}
+            <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[11px] font-medium text-av-white/80">
+              👁 {formatViewers(viewers)} watching
             </span>
-          )}
-          <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[11px] font-medium text-av-white/80">
-            👁 {formatViewers(viewers)} watching
+            {elapsed > 0 && (
+              <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[11px] font-mono text-av-white/60">
+                ⏱ {formatDuration(elapsed)}
+              </span>
+            )}
+          </div>
+          <span className="px-3 py-1 rounded-full bg-av-card/60 backdrop-blur-sm text-[11px] font-semibold text-av-light-orange">
+            📺 {channelName}
           </span>
-          {elapsed > 0 && (
-            <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[11px] font-mono text-av-white/60">
-              ⏱ {formatDuration(elapsed)}
-            </span>
-          )}
         </div>
-        <span className="px-3 py-1 rounded-full bg-av-card/60 backdrop-blur-sm text-[11px] font-semibold text-av-light-orange">
-          📺 {channelName}
-        </span>
-      </div>
+      )}
 
-      {/* Bottom controls bar */}
-      <div
-        className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent transition-opacity duration-300 ${showControls || !isPlaying ? "opacity-100" : "opacity-0"}`}
-      >
-        {/* Progress bar — live: animated accent line; VOD: elapsed-based */}
-        <div className="w-full h-1 rounded-full bg-white/10 mb-3 overflow-hidden">
-          {isLive ? (
+      {/* Bottom controls bar — TV mode: mute + fullscreen only, NO play/pause */}
+      {streamUrl && (
+        <div
+          className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}
+        >
+          {/* Live indicator bar (no interactive progress/seek) */}
+          <div className="w-full h-1 rounded-full bg-white/10 mb-3 overflow-hidden">
             <div className="h-1 rounded-full bg-av-error w-full origin-left animate-pulse" />
-          ) : (
-            <div
-              className="h-1 rounded-full bg-av-orange transition-all duration-1000"
-              style={{ width: elapsed > 0 ? `${Math.min((elapsed / Math.max(elapsed + 60, 1)) * 100, 100)}%` : "0%" }}
-            />
-          )}
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {/* Play/Pause */}
-            <button
-              onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-              className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-all"
-              aria-label={isPlaying ? "Pause" : "Play"}
-            >
-              {isPlaying ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                  <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              )}
-            </button>
-
-            {/* Mute/Unmute */}
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleMute(); }}
-              className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-all"
-              aria-label={isMuted ? "Unmute" : "Mute"}
-            >
-              {isMuted ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                  <path d="M16.5 12A4.5 4.5 0 0014 7.97v2.21l2.45 2.45c.03-.21.05-.43.05-.63zM19 12c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                  <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-3.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-                </svg>
-              )}
-            </button>
-
-            <span className="text-xs text-av-white/50 font-medium">{title}</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Quality indicator */}
-            <span className="px-2 py-0.5 rounded bg-white/10 text-[10px] font-bold text-av-white/60">
-              HD
-            </span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {/* Mute/Unmute */}
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+                className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-all"
+                aria-label={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                    <path d="M16.5 12A4.5 4.5 0 0014 7.97v2.21l2.45 2.45c.03-.21.05-.43.05-.63zM19 12c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-3.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+                  </svg>
+                )}
+              </button>
 
-            {/* Fullscreen */}
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
-              className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-all"
-              aria-label="Toggle fullscreen"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
-              </svg>
-            </button>
+              <span className="text-xs text-av-white/50 font-medium">{title}</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Quality indicator */}
+              <span className="px-2 py-0.5 rounded bg-white/10 text-[10px] font-bold text-av-white/60">
+                HD
+              </span>
+
+              {/* Fullscreen */}
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+                className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-all"
+                aria-label="Toggle fullscreen"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                  <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

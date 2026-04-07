@@ -41,7 +41,7 @@ function ChannelCard({ channel }: { channel: Channel }) {
 
   return (
     <NavLink
-      href={channel.href || `/channel/${channel.id}`}
+      href={channel.href || `/live/${channel.id}`}
       className="group flex-shrink-0 w-[280px] sm:w-[320px] rounded-2xl bg-av-card border border-av-input-border/30 overflow-hidden transition-all duration-300 hover:border-av-orange/40 hover:shadow-lg hover:shadow-av-orange/10 hover:-translate-y-1"
     >
       {/* Background visual */}

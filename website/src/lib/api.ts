@@ -741,6 +741,28 @@ export async function deleteProgramApi(programId: string) {
   });
 }
 
+/**
+ * Schedule multiple videos sequentially — each program starts when the previous ends.
+ */
+export async function scheduleSequentialApi(input: {
+  channelId: string;
+  videoIds: string[];
+  startTime: number;
+}) {
+  return api<{ programs: ScheduleProgram[] } | ErrorResponse>(
+    "/broadcast/schedule/sequential",
+    {
+      method: "POST",
+      body: {
+        channel_id: input.channelId,
+        video_ids: input.videoIds,
+        start_time: input.startTime,
+      },
+      requireAuth: true,
+    }
+  );
+}
+
 // ── Creator Subscription API methods ───────────────────────
 
 export interface CreatorSubscription {

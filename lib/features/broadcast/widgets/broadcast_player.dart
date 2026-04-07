@@ -6,6 +6,11 @@ import '../services/broadcast_service.dart';
 /// Centralized broadcast player wrapper.
 /// Handles: init, sync, lifecycle resume, buffer recovery, network retry,
 /// drift protection, and program-end detection.
+///
+/// Sync philosophy: minimize seeks to avoid re-buffering.
+/// - Loop mode: let VideoPlayer handle native looping, only seek once on init.
+/// - Live mode: gentle drift correction — only seek on large drift (>8s),
+///   check program end, and recalibrate server offset periodically.
 class BroadcastPlayer extends ChangeNotifier {
   VideoPlayerController? _controller;
   Timer? _syncTimer;
@@ -25,6 +30,7 @@ class BroadcastPlayer extends ChangeNotifier {
   // Sync
   int _syncTick = 0;
   bool _disposed = false;
+  bool _isSeeking = false;
 
   VideoPlayerController? get controller => _controller;
 
@@ -56,7 +62,12 @@ class BroadcastPlayer extends ChangeNotifier {
       await ctrl.initialize();
       if (_disposed) return;
 
-      if (positionSec > 0) {
+      // Loop mode: let VideoPlayer handle native looping
+      if (isLoop) {
+        await ctrl.setLooping(true);
+      }
+
+      if (positionSec > 0 && positionSec < duration) {
         await ctrl.seekTo(Duration(seconds: positionSec));
       }
       await ctrl.play();
@@ -75,61 +86,73 @@ class BroadcastPlayer extends ChangeNotifier {
     }
   }
 
-  // ─── Sync Engine (3s interval, millisecond precision) ───
+  // ─── Sync Engine ───
+  // Live mode: 5s interval, gentle drift correction
+  // Loop mode: no sync needed — native looping handles it
 
   void _startSyncTimer() {
     _syncTimer?.cancel();
     _syncTick = 0;
-    _syncTimer =
-        Timer.periodic(const Duration(seconds: 3), (_) => _onSyncTick());
+    _syncTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _onSyncTick(),
+    );
   }
 
   Future<void> _onSyncTick() async {
     if (_disposed || _controller == null || !_controller!.value.isInitialized) {
       return;
     }
+    if (_isSeeking || isBuffering) return;
 
     try {
       _syncTick++;
 
-      // Recalibrate server offset every ~3 minutes (60 ticks × 3s)
+      // Recalibrate server offset every ~5 minutes (60 ticks × 5s)
       if (_syncTick % 60 == 0) {
         await BroadcastService.syncServerOffset();
       }
 
+      // Loop mode: no sync needed — native looping handles playback.
+      // Just ensure the video is still playing.
+      if (isLoop) {
+        if (!_controller!.value.isPlaying && !isBuffering) {
+          _controller!.play();
+        }
+        return;
+      }
+
+      // ── Live (non-loop) mode ──
+
       final correctedTime = BroadcastService.correctedNow;
 
-      // Program end check (non-loop only)
-      if (!isLoop && correctedTime >= programEndTime) {
+      // Program end check
+      if (correctedTime >= programEndTime) {
         _syncTimer?.cancel();
         await _controller?.pause();
         onProgramEnded?.call();
         return;
       }
 
-      // Compute expected position in milliseconds for precision
-      int expectedMs;
-      if (isLoop) {
-        final elapsedMs = correctedTime - programEndTime;
-        expectedMs = elapsedMs % (videoDuration * 1000);
-      } else {
-        expectedMs = correctedTime - programStartTime;
-      }
-
+      // Compute expected position
+      final expectedMs = correctedTime - programStartTime;
       final actualMs = _controller!.value.position.inMilliseconds;
       final driftMs = (expectedMs - actualMs).abs();
 
-      // Smart sync: hard correction > 5s, moderate correction > 1.5s
-      if (driftMs > 5000 || driftMs > 1500) {
-        _controller!.seekTo(Duration(milliseconds: expectedMs));
+      // Only seek on significant drift (>8s) to avoid constant re-buffering.
+      // Small drifts are acceptable for sim-live content.
+      if (driftMs > 8000) {
+        _isSeeking = true;
+        await _controller!.seekTo(Duration(milliseconds: expectedMs));
+        _isSeeking = false;
       }
 
-      // Force hard sync every 30s (10 ticks × 3s) as drift protection
-      if (_syncTick % 10 == 0) {
-        _controller!.seekTo(Duration(milliseconds: expectedMs));
+      // Ensure playback is running
+      if (!_controller!.value.isPlaying && !isBuffering) {
+        _controller!.play();
       }
     } catch (_) {
-      // Silent fail — retry on next tick
+      _isSeeking = false;
     }
   }
 
@@ -142,9 +165,9 @@ class BroadcastPlayer extends ChangeNotifier {
     final wasBuffering = isBuffering;
     isBuffering = value.isBuffering;
 
-    // Buffer recovery: resync when buffering ends
-    if (wasBuffering && !isBuffering) {
-      _resyncNow();
+    // Buffer recovery: resume playback when buffering ends (no re-seek)
+    if (wasBuffering && !isBuffering && !value.isPlaying) {
+      _controller!.play();
     }
 
     // Network/error recovery
@@ -163,24 +186,21 @@ class BroadcastPlayer extends ChangeNotifier {
   /// Call when app resumes from background.
   void onAppResumed() {
     if (_controller == null || !_controller!.value.isInitialized) return;
-    _resyncNow();
+
+    // For live mode, resync to current position
+    if (!isLoop) {
+      final correctedTime = BroadcastService.correctedNow;
+      if (correctedTime >= programEndTime) {
+        onProgramEnded?.call();
+        return;
+      }
+      final expectedMs = correctedTime - programStartTime;
+      _controller!.seekTo(Duration(milliseconds: expectedMs));
+    }
+
     if (!_controller!.value.isPlaying) {
       _controller!.play();
     }
-  }
-
-  void _resyncNow() {
-    if (_controller == null || !_controller!.value.isInitialized) return;
-
-    final correctedTime = BroadcastService.correctedNow;
-    int expectedMs;
-    if (isLoop) {
-      final elapsedMs = correctedTime - programEndTime;
-      expectedMs = elapsedMs % (videoDuration * 1000);
-    } else {
-      expectedMs = correctedTime - programStartTime;
-    }
-    _controller!.seekTo(Duration(milliseconds: expectedMs));
   }
 
   Future<void> _retryPlayback() async {
@@ -191,7 +211,15 @@ class BroadcastPlayer extends ChangeNotifier {
 
     try {
       await _controller!.initialize();
-      _resyncNow();
+      if (isLoop) {
+        await _controller!.setLooping(true);
+      }
+      // Seek to approximate current position for live mode
+      if (!isLoop) {
+        final correctedTime = BroadcastService.correctedNow;
+        final expectedMs = correctedTime - programStartTime;
+        await _controller!.seekTo(Duration(milliseconds: expectedMs));
+      }
       await _controller!.play();
       hasError = false;
       errorMessage = null;
@@ -221,6 +249,7 @@ class BroadcastPlayer extends ChangeNotifier {
     isInitialized = false;
     isBuffering = false;
     hasError = false;
+    _isSeeking = false;
   }
 
   @override
