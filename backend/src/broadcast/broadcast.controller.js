@@ -245,11 +245,6 @@ async function deleteProgram(req, res) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
-    // Program locking: cannot delete programs that have already started
-    if (Date.now() >= program.start_time) {
-      return res.status(403).json({ error: 'Cannot delete a program that has already started' });
-    }
-
     await Program.remove(program.id);
     res.json({ message: 'Program removed' });
   } catch (err) {
