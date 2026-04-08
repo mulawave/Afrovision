@@ -119,6 +119,11 @@ export default function CreatorStudioPage() {
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
 
+  // ── Selection state for bulk operations
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
+  const [selectedProgramIds, setSelectedProgramIds] = useState<Set<string>>(new Set());
+  const [deletingBulk, setDeletingBulk] = useState(false);
+
   const loadStudio = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -164,6 +169,8 @@ export default function CreatorStudioPage() {
 
   useEffect(() => {
     if (!selectedChannelId) return;
+    setSelectedVideoIds(new Set());
+    setSelectedProgramIds(new Set());
     const timeoutId = window.setTimeout(() => {
       void loadSchedule(selectedChannelId);
     }, 0);
@@ -445,6 +452,130 @@ export default function CreatorStudioPage() {
       await loadSchedule(selectedChannelId);
     }
     setBusy(false);
+  }
+
+  /* ── Bulk selection & delete — Video Library ───────── */
+
+  function toggleVideoSelection(id: string) {
+    setSelectedVideoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVideos() {
+    if (selectedVideoIds.size === selectedChannelVideos.length) {
+      setSelectedVideoIds(new Set());
+    } else {
+      setSelectedVideoIds(new Set(selectedChannelVideos.map((v) => v.id)));
+    }
+  }
+
+  async function handleDeleteSelectedVideos() {
+    if (selectedVideoIds.size === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${selectedVideoIds.size} selected video${selectedVideoIds.size > 1 ? "s" : ""}? This cannot be undone.`,
+      )
+    )
+      return;
+    setDeletingBulk(true);
+    setError(null);
+    let failed = 0;
+    for (const id of selectedVideoIds) {
+      const res = await deleteVideoApi(id);
+      if (!res.ok) failed++;
+    }
+    if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
+    setSelectedVideoIds(new Set());
+    await loadStudio();
+    await loadSchedule(selectedChannelId);
+    setDeletingBulk(false);
+  }
+
+  async function handleDeleteAllVideos() {
+    if (selectedChannelVideos.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ALL ${selectedChannelVideos.length} videos in this channel? This cannot be undone.`,
+      )
+    )
+      return;
+    setDeletingBulk(true);
+    setError(null);
+    let failed = 0;
+    for (const v of selectedChannelVideos) {
+      const res = await deleteVideoApi(v.id);
+      if (!res.ok) failed++;
+    }
+    if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
+    setSelectedVideoIds(new Set());
+    await loadStudio();
+    await loadSchedule(selectedChannelId);
+    setDeletingBulk(false);
+  }
+
+  /* ── Bulk selection & delete — Scheduled Lineup ────── */
+
+  function toggleProgramSelection(id: string) {
+    setSelectedProgramIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllPrograms() {
+    if (selectedProgramIds.size === schedule.length) {
+      setSelectedProgramIds(new Set());
+    } else {
+      setSelectedProgramIds(new Set(schedule.map((p) => p.id)));
+    }
+  }
+
+  async function handleDeleteSelectedPrograms() {
+    if (selectedProgramIds.size === 0) return;
+    if (
+      !window.confirm(
+        `Remove ${selectedProgramIds.size} selected program${selectedProgramIds.size > 1 ? "s" : ""} from the schedule?`,
+      )
+    )
+      return;
+    setDeletingBulk(true);
+    setError(null);
+    let failed = 0;
+    for (const id of selectedProgramIds) {
+      const res = await deleteProgramApi(id);
+      if (!res.ok) failed++;
+    }
+    if (failed > 0) setError(`${failed} program(s) could not be removed.`);
+    setSelectedProgramIds(new Set());
+    await loadSchedule(selectedChannelId);
+    setDeletingBulk(false);
+  }
+
+  async function handleDeleteAllPrograms() {
+    if (schedule.length === 0) return;
+    if (
+      !window.confirm(
+        `Remove ALL ${schedule.length} programs from the schedule? This cannot be undone.`,
+      )
+    )
+      return;
+    setDeletingBulk(true);
+    setError(null);
+    let failed = 0;
+    for (const p of schedule) {
+      const res = await deleteProgramApi(p.id);
+      if (!res.ok) failed++;
+    }
+    if (failed > 0) setError(`${failed} program(s) could not be removed.`);
+    setSelectedProgramIds(new Set());
+    await loadSchedule(selectedChannelId);
+    setDeletingBulk(false);
   }
 
   /* ── derived ───────────────────────────────────────── */
@@ -922,193 +1053,311 @@ export default function CreatorStudioPage() {
 
                 {/* ════ RIGHT COLUMN ════ */}
                 <section className="space-y-6">
-                  <form
-                    onSubmit={handleSchedule}
-                    className="rounded-3xl border border-av-input-border/30 bg-av-card p-6"
-                  >
-                    <h2 className="text-lg font-semibold text-av-white">
-                      Schedule next program
-                    </h2>
-                    <div className="mt-4 grid gap-4 md:grid-cols-2">
-                      <select
-                        value={scheduleVideoId}
-                        onChange={(event) =>
-                          setScheduleVideoId(event.target.value)
-                        }
-                        className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none md:col-span-2"
-                      >
-                        <option value="">
-                          Select a video from this channel
-                        </option>
-                        {selectedChannelVideos.map((video) => (
-                          <option key={video.id} value={video.id}>
-                            {video.title} ({video.duration}s)
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="datetime-local"
-                        value={scheduleStart}
-                        min={toDateTimeLocal(new Date().toISOString())}
-                        onChange={(event) =>
-                          setScheduleStart(event.target.value)
-                        }
-                        className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none md:col-span-2"
-                      />
-                      <button
-                        type="submit"
-                        disabled={busy || selectedChannelVideos.length === 0}
-                        className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-3 text-sm font-semibold text-av-dark-blue disabled:opacity-60 md:col-span-2"
-                      >
-                        {busy ? "Scheduling..." : "Add to schedule"}
-                      </button>
-                    </div>
-                  </form>
-
-                  <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
-                    <div className="flex items-center justify-between gap-3">
-                      <h2 className="text-lg font-semibold text-av-white">
-                        Scheduled lineup
-                      </h2>
-                      <span className="text-xs text-av-hint">
-                        {schedule.length} slots
-                      </span>
-                    </div>
-                    {schedule.length === 0 ? (
-                      <p className="mt-4 text-sm text-av-hint">
-                        No programs scheduled for this channel yet.
-                      </p>
-                    ) : (
-                      <div className="mt-4 max-h-[400px] space-y-3 overflow-y-auto pr-1">
-                        {schedule.map((item) => (
-                          <div
-                            key={item.id}
-                            className="rounded-2xl border border-av-input-border/20 bg-av-input-fill/30 p-4"
-                          >
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-av-white">
-                                  {item.video_title}
-                                </p>
-                                <p className="mt-1 text-xs text-av-hint">
-                                  Starts {formatTimestamp(item.start_time)} ·
-                                  Ends {formatTimestamp(item.end_time)}
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => handleDeleteProgram(item.id)}
-                                disabled={busy}
-                                className="rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error disabled:opacity-50"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ── Auto-schedule library ── */}
-                  {selectedChannelVideos.length >= 2 && (
-                    <div className="rounded-3xl border border-av-orange/20 bg-av-card p-6">
+                  {/* ── Content Library ── */}
+                  <div className="rounded-3xl border border-av-input-border/30 bg-av-card">
+                    {/* Header */}
+                    <div className="flex items-center justify-between gap-3 border-b border-av-input-border/15 px-6 py-5">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-av-orange/15">
-                          <svg
-                            className="h-5 w-5 text-av-orange"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-av-orange/15">
+                          <svg className="h-5 w-5 text-av-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5a1.125 1.125 0 01-1.125-1.125m8.625-12.75h-17.25" />
                           </svg>
                         </div>
                         <div>
                           <h2 className="text-lg font-semibold text-av-white">
-                            Auto-schedule library
+                            Content Library
                           </h2>
                           <p className="text-xs text-av-hint">
-                            Chain {selectedChannelVideos.length} videos back-to-back
-                            &middot; Total runtime{" "}
-                            {formatDuration(
-                              selectedChannelVideos.reduce(
-                                (s, v) => s + v.duration,
-                                0,
-                              ),
-                            )}
+                            {selectedChannelVideos.length} video{selectedChannelVideos.length !== 1 ? "s" : ""} for this channel
                           </p>
                         </div>
                       </div>
-                      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                        <input
-                          type="datetime-local"
-                          value={libraryAutoStart}
-                          min={toDateTimeLocal(new Date().toISOString())}
-                          onChange={(e) => setLibraryAutoStart(e.target.value)}
-                          className="h-11 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
-                        />
+                    </div>
+
+                    {/* Management Toolbar */}
+                    {selectedChannelVideos.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 border-b border-av-input-border/10 px-6 py-3">
+                        <label className="flex cursor-pointer items-center gap-2 text-xs text-av-hint transition-colors hover:text-av-white">
+                          <input
+                            type="checkbox"
+                            checked={selectedVideoIds.size === selectedChannelVideos.length && selectedChannelVideos.length > 0}
+                            onChange={toggleAllVideos}
+                            className="h-4 w-4 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
+                          />
+                          Select all
+                        </label>
+                        <div className="mx-1 h-4 w-px bg-av-input-border/20" />
+                        {selectedVideoIds.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleDeleteSelectedVideos}
+                            disabled={deletingBulk}
+                            className="rounded-lg border border-av-error/30 bg-av-error/10 px-3 py-1 text-[11px] font-semibold text-av-error transition-all hover:bg-av-error/20 disabled:opacity-50"
+                          >
+                            Delete selected ({selectedVideoIds.size})
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={handleAutoScheduleLibrary}
-                          disabled={schedulingLibrary || !libraryAutoStart}
-                          className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
+                          onClick={handleDeleteAllVideos}
+                          disabled={deletingBulk}
+                          className="rounded-lg border border-av-error/20 bg-av-error/5 px-3 py-1 text-[11px] font-semibold text-av-error/70 transition-all hover:bg-av-error/15 hover:text-av-error disabled:opacity-50"
                         >
-                          {schedulingLibrary
-                            ? "Scheduling..."
-                            : "Auto-schedule all"}
+                          Delete all
                         </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
-                    <div className="flex items-center justify-between gap-3">
-                      <h2 className="text-lg font-semibold text-av-white">
-                        Video library
-                      </h2>
-                      <span className="text-xs text-av-hint">
-                        {selectedChannelVideos.length} for this channel
-                      </span>
-                    </div>
-                    {selectedChannelVideos.length === 0 ? (
-                      <p className="mt-4 text-sm text-av-hint">
-                        Upload a video to start building this channel&apos;s
-                        broadcast library.
-                      </p>
-                    ) : (
-                      <div className="mt-4 max-h-[400px] space-y-3 overflow-y-auto pr-1">
-                        {selectedChannelVideos.map((video) => (
-                          <div
-                            key={video.id}
-                            className="rounded-2xl border border-av-input-border/20 bg-av-input-fill/30 p-4"
-                          >
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-av-white">
-                                  {video.title}
-                                </p>
-                                <p className="mt-1 text-xs text-av-hint">
-                                  {video.duration}s · Added{" "}
-                                  {formatTimestamp(video.created_at)}
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => handleDeleteVideo(video.id)}
-                                disabled={busy}
-                                className="rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error disabled:opacity-50"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                        {deletingBulk && (
+                          <div className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
+                        )}
                       </div>
                     )}
+
+                    {/* Video list */}
+                    <div className="px-6 py-4">
+                      {selectedChannelVideos.length === 0 ? (
+                        <p className="py-6 text-center text-sm text-av-hint">
+                          Upload a video to start building this channel&apos;s
+                          broadcast library.
+                        </p>
+                      ) : (
+                        <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                          {selectedChannelVideos.map((video) => (
+                            <div
+                              key={video.id}
+                              className={`group rounded-2xl border p-4 transition-all ${
+                                selectedVideoIds.has(video.id)
+                                  ? "border-av-orange/40 bg-av-orange/5"
+                                  : "border-av-input-border/20 bg-av-input-fill/30 hover:border-av-input-border/40"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedVideoIds.has(video.id)}
+                                  onChange={() => toggleVideoSelection(video.id)}
+                                  className="h-4 w-4 flex-shrink-0 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold text-av-white">
+                                    {video.title}
+                                  </p>
+                                  <p className="mt-0.5 text-xs text-av-hint">
+                                    {formatDuration(video.duration)} · Added{" "}
+                                    {formatTimestamp(video.created_at)}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteVideo(video.id)}
+                                  disabled={busy || deletingBulk}
+                                  className="flex-shrink-0 rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Auto-schedule library (integrated footer) */}
+                    {selectedChannelVideos.length >= 2 && (
+                      <div className="border-t border-av-input-border/15 px-6 py-5">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-av-orange/15">
+                            <svg className="h-4 w-4 text-av-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-av-white">
+                              Auto-schedule library
+                            </p>
+                            <p className="text-[11px] text-av-hint">
+                              Chain {selectedChannelVideos.length} videos
+                              back-to-back · Total{" "}
+                              {formatDuration(
+                                selectedChannelVideos.reduce(
+                                  (s, v) => s + v.duration,
+                                  0,
+                                ),
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <input
+                            type="datetime-local"
+                            value={libraryAutoStart}
+                            min={toDateTimeLocal(new Date().toISOString())}
+                            onChange={(e) => setLibraryAutoStart(e.target.value)}
+                            className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAutoScheduleLibrary}
+                            disabled={schedulingLibrary || !libraryAutoStart}
+                            className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
+                          >
+                            {schedulingLibrary
+                              ? "Scheduling..."
+                              : "Auto-schedule all"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Broadcast Schedule ── */}
+                  <div className="rounded-3xl border border-av-input-border/30 bg-av-card">
+                    {/* Header */}
+                    <div className="flex items-center justify-between gap-3 border-b border-av-input-border/15 px-6 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-av-light-orange/15">
+                          <svg className="h-5 w-5 text-av-light-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                          </svg>
+                        </div>
+                        <div>
+                          <h2 className="text-lg font-semibold text-av-white">
+                            Broadcast Schedule
+                          </h2>
+                          <p className="text-xs text-av-hint">
+                            {schedule.length} scheduled slot{schedule.length !== 1 ? "s" : ""}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick Schedule Form */}
+                    <form
+                      onSubmit={handleSchedule}
+                      className="border-b border-av-input-border/10 px-6 py-4"
+                    >
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-av-hint">
+                        Add to schedule
+                      </p>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <select
+                          value={scheduleVideoId}
+                          onChange={(event) =>
+                            setScheduleVideoId(event.target.value)
+                          }
+                          className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                        >
+                          <option value="">Select video</option>
+                          {selectedChannelVideos.map((video) => (
+                            <option key={video.id} value={video.id}>
+                              {video.title} ({formatDuration(video.duration)})
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="datetime-local"
+                          value={scheduleStart}
+                          min={toDateTimeLocal(new Date().toISOString())}
+                          onChange={(event) =>
+                            setScheduleStart(event.target.value)
+                          }
+                          className="h-10 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                        />
+                        <button
+                          type="submit"
+                          disabled={busy || selectedChannelVideos.length === 0}
+                          className="h-10 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
+                        >
+                          {busy ? "..." : "Add"}
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* Management Toolbar */}
+                    {schedule.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 border-b border-av-input-border/10 px-6 py-3">
+                        <label className="flex cursor-pointer items-center gap-2 text-xs text-av-hint transition-colors hover:text-av-white">
+                          <input
+                            type="checkbox"
+                            checked={selectedProgramIds.size === schedule.length && schedule.length > 0}
+                            onChange={toggleAllPrograms}
+                            className="h-4 w-4 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
+                          />
+                          Select all
+                        </label>
+                        <div className="mx-1 h-4 w-px bg-av-input-border/20" />
+                        {selectedProgramIds.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleDeleteSelectedPrograms}
+                            disabled={deletingBulk}
+                            className="rounded-lg border border-av-error/30 bg-av-error/10 px-3 py-1 text-[11px] font-semibold text-av-error transition-all hover:bg-av-error/20 disabled:opacity-50"
+                          >
+                            Remove selected ({selectedProgramIds.size})
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleDeleteAllPrograms}
+                          disabled={deletingBulk}
+                          className="rounded-lg border border-av-error/20 bg-av-error/5 px-3 py-1 text-[11px] font-semibold text-av-error/70 transition-all hover:bg-av-error/15 hover:text-av-error disabled:opacity-50"
+                        >
+                          Clear all
+                        </button>
+                        {deletingBulk && (
+                          <div className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Schedule list */}
+                    <div className="px-6 py-4">
+                      {schedule.length === 0 ? (
+                        <p className="py-6 text-center text-sm text-av-hint">
+                          No programs scheduled for this channel yet.
+                        </p>
+                      ) : (
+                        <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                          {schedule.map((item, idx) => (
+                            <div
+                              key={item.id}
+                              className={`group rounded-2xl border p-4 transition-all ${
+                                selectedProgramIds.has(item.id)
+                                  ? "border-av-light-orange/40 bg-av-light-orange/5"
+                                  : "border-av-input-border/20 bg-av-input-fill/30 hover:border-av-input-border/40"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedProgramIds.has(item.id)}
+                                  onChange={() =>
+                                    toggleProgramSelection(item.id)
+                                  }
+                                  className="h-4 w-4 flex-shrink-0 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
+                                />
+                                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-av-light-orange/20 text-[10px] font-bold text-av-light-orange">
+                                  {idx + 1}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold text-av-white">
+                                    {item.video_title}
+                                  </p>
+                                  <p className="mt-0.5 text-[11px] text-av-hint">
+                                    {formatTimestamp(item.start_time)} →{" "}
+                                    {formatTimestamp(item.end_time)}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteProgram(item.id)}
+                                  disabled={busy || deletingBulk}
+                                  className="flex-shrink-0 rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </section>
               </div>
