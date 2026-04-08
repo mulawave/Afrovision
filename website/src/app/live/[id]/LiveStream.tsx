@@ -15,10 +15,12 @@ import {
   type NowPlaying,
   type Channel,
   type ChannelEvent,
+  type ScheduleProgram,
   sendGiftApi,
   sendReactionApi,
   getNowPlayingApi,
   getChannelApi,
+  getChannelScheduleApi,
   checkChannelAccessApi,
   payForAccessApi,
   getFollowStatusApi,
@@ -55,6 +57,7 @@ export function LiveStream({ id }: { id: string }) {
   const [access, setAccess] = useState<AccessState>({ checked: false, has_access: true });
   const [payLoading, setPayLoading] = useState(false);
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleProgram[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Use real VPT balance if authenticated, otherwise demo balance
@@ -66,10 +69,11 @@ export function LiveStream({ id }: { id: string }) {
 
     async function load() {
       setLoading(true);
-      const [channelRes, npRes, accessRes] = await Promise.all([
+      const [channelRes, npRes, accessRes, schedRes] = await Promise.all([
         getChannelApi(id),
         getNowPlayingApi(id),
         checkChannelAccessApi(id),
+        getChannelScheduleApi(id),
       ]);
 
       if (cancelled) return;
@@ -79,6 +83,9 @@ export function LiveStream({ id }: { id: string }) {
       }
       if (npRes.ok && "now_playing" in npRes.data && npRes.data.now_playing) {
         setNowPlaying(npRes.data.now_playing);
+      }
+      if (schedRes.ok && "schedule" in schedRes.data) {
+        setSchedule(schedRes.data.schedule);
       }
 
       // Set access state from backend
@@ -102,9 +109,15 @@ export function LiveStream({ id }: { id: string }) {
     // Poll now-playing every 60s to detect program changes
     const interval = setInterval(async () => {
       if (cancelled) return;
-      const res = await getNowPlayingApi(id);
-      if (res.ok && "now_playing" in res.data) {
-        setNowPlaying(res.data.now_playing ?? null);
+      const [npRes, schedRes] = await Promise.all([
+        getNowPlayingApi(id),
+        getChannelScheduleApi(id),
+      ]);
+      if (npRes.ok && "now_playing" in npRes.data) {
+        setNowPlaying(npRes.data.now_playing ?? null);
+      }
+      if (schedRes.ok && "schedule" in schedRes.data) {
+        setSchedule(schedRes.data.schedule);
       }
     }, 60000);
 
@@ -360,6 +373,14 @@ export function LiveStream({ id }: { id: string }) {
               <Reactions onReact={handleReaction} />
             </div>
 
+            {/* ═══ EPG — Program Guide ═══ */}
+            <EpgPanel
+              schedule={schedule}
+              nowPlayingId={nowPlaying?.program_id ?? null}
+              isLoop={nowPlaying?.is_loop ?? false}
+              nowPlayingTitle={nowPlaying?.video_title ?? null}
+            />
+
             <div className="mt-4 rounded-xl bg-av-card border border-av-input-border/20 p-4 sm:p-5">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-av-white">Live Activity</h3>
@@ -488,5 +509,213 @@ export function LiveStream({ id }: { id: string }) {
         </div>
       </div>
     </main>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EPG Panel — DSTV-style "Now" + "Up Next" program guide
+   ═══════════════════════════════════════════════════════════════ */
+
+function formatEpgTime(ts: number) {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatEpgDuration(seconds: number) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function EpgPanel({
+  schedule,
+  nowPlayingId,
+  isLoop,
+  nowPlayingTitle,
+}: {
+  schedule: ScheduleProgram[];
+  nowPlayingId: string | null;
+  isLoop: boolean;
+  nowPlayingTitle: string | null;
+}) {
+  const now = Date.now();
+
+  // Current program: match by ID, or find the one whose time window covers now
+  const currentProgram = schedule.find(
+    (p) => p.id === nowPlayingId || (now >= p.start_time && now < p.end_time),
+  );
+
+  // Upcoming: programs starting after now (or after current program ends), limited to 10
+  const upcomingPrograms = schedule
+    .filter((p) => p.start_time >= now && p.id !== currentProgram?.id)
+    .sort((a, b) => a.start_time - b.start_time)
+    .slice(0, 10);
+
+  // Progress percentage for the current program
+  const progress = currentProgram
+    ? Math.min(
+        100,
+        Math.max(
+          0,
+          ((now - currentProgram.start_time) /
+            (currentProgram.end_time - currentProgram.start_time)) *
+            100,
+        ),
+      )
+    : 0;
+
+  // Nothing to show
+  if (!currentProgram && upcomingPrograms.length === 0 && !isLoop) return null;
+
+  return (
+    <div className="mt-4 rounded-xl bg-av-card border border-av-input-border/20 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 sm:px-5 pt-4 pb-2">
+        <svg
+          className="h-4 w-4 text-av-orange flex-shrink-0"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+          />
+        </svg>
+        <h3 className="text-sm font-semibold text-av-white">Program Guide</h3>
+      </div>
+
+      {/* ── Now Playing ── */}
+      {(currentProgram || isLoop) && (
+        <div className="mx-4 sm:mx-5 mb-3 rounded-lg bg-gradient-to-r from-av-orange/10 to-av-light-orange/5 border border-av-orange/20 overflow-hidden">
+          {/* Progress bar */}
+          {currentProgram && !isLoop && (
+            <div className="h-[3px] w-full bg-av-input-fill">
+              <div
+                className="h-full bg-gradient-to-r from-av-orange to-av-light-orange transition-all duration-1000 ease-linear"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
+          <div className="flex items-center gap-3 px-3.5 py-3">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-av-orange/20">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-av-orange">
+                Now
+              </span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-av-white truncate">
+                {currentProgram?.video_title ?? nowPlayingTitle ?? "Playing"}
+                {isLoop && !currentProgram && (
+                  <span className="ml-1.5 text-[10px] font-normal text-av-hint">(repeat)</span>
+                )}
+              </p>
+              {currentProgram && !isLoop && (
+                <p className="text-[11px] text-av-hint mt-0.5">
+                  {formatEpgTime(currentProgram.start_time)} – {formatEpgTime(currentProgram.end_time)}
+                  <span className="mx-1.5">·</span>
+                  {formatEpgDuration(currentProgram.video_duration)}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+              </span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-red-400">
+                Live
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Up Next ── */}
+      {upcomingPrograms.length > 0 && (
+        <div className="px-4 sm:px-5 pb-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-av-hint mb-2">
+            Up Next
+          </p>
+          <div className="space-y-1">
+            {upcomingPrograms.map((program, index) => {
+              const startsToday =
+                new Date(program.start_time).toDateString() ===
+                new Date().toDateString();
+
+              return (
+                <div
+                  key={program.id}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-av-input-fill/30 group"
+                >
+                  {/* Time column */}
+                  <div className="w-[52px] flex-shrink-0 text-right">
+                    <p className="text-xs font-medium text-av-white/70 group-hover:text-av-white">
+                      {formatEpgTime(program.start_time)}
+                    </p>
+                    {!startsToday && (
+                      <p className="text-[9px] text-av-hint">
+                        {new Date(program.start_time).toLocaleDateString([], {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Vertical line connector */}
+                  <div className="flex flex-col items-center flex-shrink-0">
+                    <div
+                      className={`h-2 w-2 rounded-full border-2 ${
+                        index === 0
+                          ? "border-av-orange bg-av-orange/30"
+                          : "border-av-input-border/40 bg-transparent"
+                      }`}
+                    />
+                    {index < upcomingPrograms.length - 1 && (
+                      <div className="w-px h-6 bg-av-input-border/20 -mb-3" />
+                    )}
+                  </div>
+
+                  {/* Title + duration */}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-av-white/80 group-hover:text-av-white truncate">
+                      {program.video_title}
+                    </p>
+                    <p className="text-[10px] text-av-hint mt-0.5">
+                      {formatEpgDuration(program.video_duration)}
+                      <span className="mx-1">·</span>
+                      ends {formatEpgTime(program.end_time)}
+                    </p>
+                  </div>
+
+                  {/* Order badge for first 3 */}
+                  {index < 3 && (
+                    <span
+                      className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                        index === 0
+                          ? "bg-av-orange/20 text-av-orange"
+                          : "bg-av-input-fill text-av-hint"
+                      }`}
+                    >
+                      {index + 1}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!currentProgram && !isLoop && upcomingPrograms.length === 0 && (
+        <div className="px-4 sm:px-5 pb-4">
+          <p className="text-xs text-av-hint">No programs scheduled.</p>
+        </div>
+      )}
+    </div>
   );
 }
