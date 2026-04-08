@@ -13,6 +13,7 @@ interface LivePlayerProps {
   isLive: boolean;
   duration?: number;
   isLoop?: boolean;
+  onProgramEnd?: () => void;
 }
 
 function formatViewers(n: number): string {
@@ -37,6 +38,7 @@ export function LivePlayer({
   isLive,
   duration,
   isLoop,
+  onProgramEnd,
 }: LivePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -60,11 +62,12 @@ export function LivePlayer({
     const res = await getServerTimeApi();
     if (!res.ok || !("server_time" in res.data)) return;
     const serverNow = res.data.server_time;
-    let expectedPos = (serverNow - startTime) / 1000;
+    const expectedPos = (serverNow - startTime) / 1000;
 
-    // If duration is known and expectedPos exceeds it, wrap for loop-like behavior
-    if (duration && duration > 0 && expectedPos > duration) {
-      expectedPos = expectedPos % duration;
+    // If the program has ended (position exceeds duration), signal transition
+    if (duration && duration > 0 && expectedPos >= duration) {
+      onProgramEnd?.();
+      return;
     }
 
     const drift = Math.abs(vid.currentTime - expectedPos);
@@ -73,7 +76,7 @@ export function LivePlayer({
     if (drift > 8) {
       vid.currentTime = expectedPos;
     }
-  }, [startTime, duration, isLoop]);
+  }, [startTime, duration, isLoop, onProgramEnd]);
 
   useEffect(() => {
     if (!startTime) return;
@@ -146,10 +149,9 @@ export function LivePlayer({
           loop={!!isLoop}
           className="w-full h-full object-cover"
           onEnded={() => {
-            // If not loop mode, try to restart
-            if (!isLoop && videoRef.current) {
-              videoRef.current.currentTime = 0;
-              videoRef.current.play().catch(() => {});
+            // Program video finished — signal parent to fetch next program
+            if (!isLoop) {
+              onProgramEnd?.();
             }
           }}
         />

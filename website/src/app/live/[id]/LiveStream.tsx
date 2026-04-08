@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { LivePlayer } from "@/components/LivePlayer";
 import { LiveChat } from "@/components/LiveChat";
@@ -59,9 +59,24 @@ export function LiveStream({ id }: { id: string }) {
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
   const [schedule, setSchedule] = useState<ScheduleProgram[]>([]);
   const [loading, setLoading] = useState(true);
+  const programEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use real VPT balance if authenticated, otherwise demo balance
   const walletBalance = isAuthenticated && user ? user.vpt_balance : 0;
+
+  // Immediately fetch now-playing + schedule (used on program transitions)
+  const refreshNowPlaying = useCallback(async () => {
+    const [npRes, schedRes] = await Promise.all([
+      getNowPlayingApi(id),
+      getChannelScheduleApi(id),
+    ]);
+    if (npRes.ok && "now_playing" in npRes.data) {
+      setNowPlaying(npRes.data.now_playing ?? null);
+    }
+    if (schedRes.ok && "schedule" in schedRes.data) {
+      setSchedule(schedRes.data.schedule);
+    }
+  }, [id]);
 
   // Fetch channel + now-playing + access check
   useEffect(() => {
@@ -106,7 +121,7 @@ export function LiveStream({ id }: { id: string }) {
     }
 
     load();
-    // Poll now-playing every 60s to detect program changes
+    // Poll now-playing every 30s to detect program changes
     const interval = setInterval(async () => {
       if (cancelled) return;
       const [npRes, schedRes] = await Promise.all([
@@ -119,10 +134,38 @@ export function LiveStream({ id }: { id: string }) {
       if (schedRes.ok && "schedule" in schedRes.data) {
         setSchedule(schedRes.data.schedule);
       }
-    }, 60000);
+    }, 30000);
 
     return () => { cancelled = true; clearInterval(interval); };
   }, [id]);
+
+  // Precision timer: auto-refresh exactly when the current program ends
+  useEffect(() => {
+    if (programEndTimer.current) {
+      clearTimeout(programEndTimer.current);
+      programEndTimer.current = null;
+    }
+    if (!nowPlaying || nowPlaying.is_loop) return;
+
+    const msUntilEnd = nowPlaying.end_time - Date.now();
+    if (msUntilEnd <= 0) {
+      // Already past end — refresh immediately
+      refreshNowPlaying();
+      return;
+    }
+
+    // Set timer to refresh 1s after program end
+    programEndTimer.current = setTimeout(() => {
+      refreshNowPlaying();
+    }, msUntilEnd + 1000);
+
+    return () => {
+      if (programEndTimer.current) {
+        clearTimeout(programEndTimer.current);
+        programEndTimer.current = null;
+      }
+    };
+  }, [nowPlaying, refreshNowPlaying]);
 
   useEffect(() => {
     if (!isAuthenticated || !channel?.owner_id || channel.owner_id === user?.id) return;
@@ -292,6 +335,7 @@ export function LiveStream({ id }: { id: string }) {
                 startTime={nowPlaying?.start_time}
                 duration={nowPlaying?.duration}
                 isLoop={nowPlaying?.is_loop}
+                onProgramEnd={refreshNowPlaying}
               />
 
               {/* Gift overlay animation */}
@@ -637,9 +681,9 @@ function EpgPanel({
       {upcomingPrograms.length > 0 && (
         <div className="px-4 sm:px-5 pb-4">
           <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-av-hint mb-2">
-            Up Next
+            Up Next · {upcomingPrograms.length} program{upcomingPrograms.length > 1 ? "s" : ""}
           </p>
-          <div className="space-y-1">
+          <div className="max-h-[200px] space-y-1 overflow-y-auto pr-1">
             {upcomingPrograms.map((program, index) => {
               const startsToday =
                 new Date(program.start_time).toDateString() ===
