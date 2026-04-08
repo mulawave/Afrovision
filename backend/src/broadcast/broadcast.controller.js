@@ -1,10 +1,12 @@
 const Video = require('./video.model');
 const Program = require('./program.model');
+const Reminder = require('./reminder.model');
 const Channel = require('../channels/channel.model');
 const User = require('../users/user.model');
 const LiveTrigger = require('../channels/live_trigger');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
+const NotificationService = require('../notifications/notification.service');
 const crypto = require('crypto');
 const path = require('path');
 const { generateSignedUploadUrl } = require('../utils/gcs');
@@ -489,6 +491,105 @@ function getServerTime(_req, res) {
   res.json({ server_time: Date.now() });
 }
 
+// ─── UPCOMING ALL CHANNELS (PUBLIC) ──────────────────────
+
+function getUpcomingAll(_req, res) {
+  const programs = Program.getUpcomingAll(12);
+  const enriched = programs.map((p) => {
+    const video = Video.findById(p.video_id);
+    const channel = Channel.findById(p.channel_id);
+    return {
+      id: p.id,
+      channel_id: p.channel_id,
+      channel_name: channel ? channel.name : 'Unknown',
+      channel_category: channel ? channel.category : '',
+      video_title: video ? video.title : 'Unknown',
+      video_thumbnail: video ? video.thumbnail_url : null,
+      start_time: p.start_time,
+      end_time: p.end_time,
+    };
+  });
+  res.json({ upcoming: enriched });
+}
+
+// ─── REMINDERS ───────────────────────────────────────────
+
+async function createReminder(req, res) {
+  try {
+    const { program_id } = req.body;
+    if (!program_id) return res.status(400).json({ error: 'program_id is required' });
+
+    const program = Program.findById(program_id);
+    if (!program) return res.status(404).json({ error: 'Program not found' });
+
+    const existing = Reminder.getByProgramAndUser(program_id, req.userId);
+    if (existing) return res.status(409).json({ error: 'Reminder already set' });
+
+    const video = Video.findById(program.video_id);
+    const channel = Channel.findById(program.channel_id);
+
+    // Send notification 2 minutes before start, or now if less than 2 min away
+    const sendAt = Math.max(Date.now(), program.start_time - 2 * 60 * 1000);
+
+    const reminder = await Reminder.create({
+      userId: req.userId,
+      programId: program_id,
+      channelId: program.channel_id,
+      programTitle: video ? video.title : 'Upcoming Show',
+      channelName: channel ? channel.name : '',
+      sendAt,
+    });
+
+    res.status(201).json({ reminder });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function removeReminder(req, res) {
+  try {
+    const removed = await Reminder.remove(req.userId, req.params.programId);
+    if (!removed) return res.status(404).json({ error: 'Reminder not found' });
+    res.json({ message: 'Reminder removed' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+function getMyReminders(req, res) {
+  const reminders = Reminder.getByUser(req.userId);
+  res.json({ reminders });
+}
+
+// ─── REMINDER CHECK TIMER ────────────────────────────────
+
+let _reminderInterval = null;
+
+function startReminderTimer() {
+  if (_reminderInterval) return;
+  _reminderInterval = setInterval(async () => {
+    try {
+      const now = Date.now();
+      const due = Reminder.getDueReminders(now);
+      for (const reminder of due) {
+        await NotificationService.notifyUser(reminder.user_id, {
+          title: '🔔 Show Starting Soon!',
+          body: `"${reminder.program_title}" on ${reminder.channel_name} is about to start!`,
+          type: 'reminder',
+          link: `/live/${reminder.channel_id}`,
+          data: {
+            program_id: reminder.program_id,
+            channel_id: reminder.channel_id,
+          },
+        });
+        await Reminder.markSent(reminder.id);
+      }
+    } catch (err) {
+      console.error('[Reminder] Timer error:', err.message);
+    }
+  }, 30_000); // check every 30 seconds
+}
+
 module.exports = {
   getVideoUploadUrl,
   registerUploadedVideo,
@@ -504,4 +605,9 @@ module.exports = {
   getNowPlaying,
   getServerTime,
   goLive,
+  getUpcomingAll,
+  createReminder,
+  removeReminder,
+  getMyReminders,
+  startReminderTimer,
 };

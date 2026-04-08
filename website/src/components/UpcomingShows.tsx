@@ -1,75 +1,41 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { NavLink } from "@/components/NavLink";
 import type { HomepageUpcomingSection } from "@/lib/homepage";
+import {
+  getUpcomingShowsApi,
+  getMyRemindersApi,
+  setReminderApi,
+  removeReminderApi,
+  type UpcomingProgram,
+} from "@/lib/api";
 
-interface Show {
-  id: string;
-  title: string;
-  channel: string;
-  category: string;
-  scheduledAt: string; // ISO date
-  icon: string;
+// Category → emoji mapping
+const CATEGORY_ICONS: Record<string, string> = {
+  music: "🎵",
+  technology: "💻",
+  comedy: "😂",
+  nature: "🦁",
+  business: "🚀",
+  sports: "⚽",
+  news: "📰",
+  education: "📚",
+  entertainment: "🎬",
+  documentary: "🎥",
+  community: "🌍",
+};
+
+function iconForCategory(category: string): string {
+  return CATEGORY_ICONS[category?.toLowerCase()] || "📺";
 }
 
-const DEMO_SHOWS: Show[] = [
-  {
-    id: "1",
-    title: "AfroBeats Friday Night",
-    channel: "AfroBeats Live",
-    category: "Music",
-    scheduledAt: new Date(Date.now() + 3 * 3600000).toISOString(),
-    icon: "🎵",
-  },
-  {
-    id: "2",
-    title: "Tech Talk: AI in Africa",
-    channel: "Tech Africa",
-    category: "Technology",
-    scheduledAt: new Date(Date.now() + 8 * 3600000).toISOString(),
-    icon: "💻",
-  },
-  {
-    id: "3",
-    title: "Stand-Up Special: Lagos Laughs",
-    channel: "Lagos Comedy Club",
-    category: "Comedy",
-    scheduledAt: new Date(Date.now() + 26 * 3600000).toISOString(),
-    icon: "😂",
-  },
-  {
-    id: "4",
-    title: "Safari Sunset Stream",
-    channel: "Safari Streams",
-    category: "Nature",
-    scheduledAt: new Date(Date.now() + 50 * 3600000).toISOString(),
-    icon: "🦁",
-  },
-  {
-    id: "5",
-    title: "Amapiano Live Mix",
-    channel: "Amapiano Radio",
-    category: "Music",
-    scheduledAt: new Date(Date.now() + 72 * 3600000).toISOString(),
-    icon: "🎧",
-  },
-  {
-    id: "6",
-    title: "Startup Pitch Night",
-    channel: "Startup Hub",
-    category: "Business",
-    scheduledAt: new Date(Date.now() + 96 * 3600000).toISOString(),
-    icon: "🚀",
-  },
-];
-
-function useCountdown(targetDate: string) {
+function useCountdown(targetMs: number) {
   const [remaining, setRemaining] = useState("");
 
   useEffect(() => {
     const update = () => {
-      const diff = new Date(targetDate).getTime() - Date.now();
+      const diff = targetMs - Date.now();
       if (diff <= 0) {
         setRemaining("Starting soon");
         return;
@@ -88,31 +54,45 @@ function useCountdown(targetDate: string) {
     update();
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
-  }, [targetDate]);
+  }, [targetMs]);
 
   return remaining;
 }
 
-function ShowCard({ show }: { show: Show }) {
-  const countdown = useCountdown(show.scheduledAt);
-  const [reminded, setReminded] = useState(false);
-  const time = new Date(show.scheduledAt);
+function ShowCard({
+  show,
+  reminded,
+  onToggleReminder,
+}: {
+  show: UpcomingProgram;
+  reminded: boolean;
+  onToggleReminder: (programId: string, currentlySet: boolean) => void;
+}) {
+  const countdown = useCountdown(show.start_time);
+  const time = new Date(show.start_time);
+  const [loading, setLoading] = useState(false);
+
+  const handleClick = async () => {
+    setLoading(true);
+    await onToggleReminder(show.id, reminded);
+    setLoading(false);
+  };
 
   return (
     <article className="group rounded-2xl bg-av-card border border-av-input-border/30 p-5 transition-all duration-300 hover:border-av-orange/30 hover:shadow-lg hover:shadow-av-orange/5 hover:-translate-y-0.5 flex flex-col">
       <div className="flex items-start gap-3 mb-3">
-        <span className="text-2xl">{show.icon}</span>
+        <span className="text-2xl">{iconForCategory(show.channel_category)}</span>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-av-white truncate group-hover:text-av-orange transition-colors">
-            {show.title}
+            {show.video_title}
           </h3>
-          <p className="text-xs text-av-hint truncate">{show.channel}</p>
+          <p className="text-xs text-av-hint truncate">{show.channel_name}</p>
         </div>
       </div>
 
       <div className="flex items-center gap-2 mb-3">
         <span className="px-2 py-0.5 rounded-full bg-av-light-blue/30 border border-av-input-border/30 text-[10px] font-medium text-av-white/70">
-          {show.category}
+          {show.channel_category || "General"}
         </span>
         <span className="text-[10px] text-av-hint" suppressHydrationWarning>
           {time.toLocaleDateString("en-US", {
@@ -140,31 +120,102 @@ function ShowCard({ show }: { show: Show }) {
 
       {/* Reminder CTA */}
       <button
-        onClick={() => setReminded(!reminded)}
+        onClick={handleClick}
+        disabled={loading}
         className={`mt-auto w-full py-2.5 rounded-xl text-xs font-semibold transition-all ${
           reminded
             ? "bg-av-orange/15 text-av-orange border border-av-orange/30"
             : "bg-av-input-fill border border-av-input-border/40 text-av-white/70 hover:text-av-white hover:border-av-orange/40"
-        }`}
+        } ${loading ? "opacity-50 cursor-wait" : ""}`}
       >
-        {reminded ? "✓ Reminder Set" : "🔔 Set Reminder"}
+        {loading ? "..." : reminded ? "✓ Reminder Set" : "🔔 Set Reminder"}
       </button>
     </article>
   );
 }
 
 export function UpcomingShows({ section }: { section?: HomepageUpcomingSection }) {
-  const shows = section?.items?.length
-    ? section.items.map((item) => ({
-        id: item.id,
-        title: item.title,
-        channel: item.channel,
-        category: item.category,
-        scheduledAt: item.scheduled_at,
-        icon: item.icon,
-      }))
-    : DEMO_SHOWS;
-  const isEmpty = shows.length === 0;
+  const [shows, setShows] = useState<UpcomingProgram[]>([]);
+  const [reminderIds, setReminderIds] = useState<Set<string>>(new Set());
+  const [loaded, setLoaded] = useState(false);
+
+  // Fetch upcoming shows from live schedule
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getUpcomingShowsApi();
+        if (!cancelled && res.ok && "upcoming" in res.data) {
+          setShows(res.data.upcoming);
+        }
+      } catch {
+        // silently fall back to empty
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fetch user's active reminders (only if logged in)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getMyRemindersApi();
+        if (!cancelled && res.ok && "reminders" in res.data) {
+          setReminderIds(new Set(res.data.reminders.map((r) => r.program_id)));
+        }
+      } catch {
+        // not logged in or error — ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleToggleReminder = useCallback(
+    async (programId: string, currentlySet: boolean) => {
+      try {
+        if (currentlySet) {
+          const res = await removeReminderApi(programId);
+          if (res.ok) {
+            setReminderIds((prev) => {
+              const next = new Set(prev);
+              next.delete(programId);
+              return next;
+            });
+          }
+        } else {
+          const res = await setReminderApi(programId);
+          if (res.ok) {
+            setReminderIds((prev) => new Set(prev).add(programId));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
+  // Use section items as fallback if API returned nothing but section prop has items
+  const displayShows =
+    shows.length > 0
+      ? shows
+      : section?.items?.length
+        ? section.items.map((item) => ({
+            id: item.id,
+            channel_id: "",
+            channel_name: item.channel,
+            channel_category: item.category,
+            video_title: item.title,
+            video_thumbnail: null,
+            start_time: new Date(item.scheduled_at).getTime(),
+            end_time: new Date(item.scheduled_at).getTime() + 3600000,
+          }))
+        : [];
+
+  const isEmpty = loaded && displayShows.length === 0;
 
   return (
     <section className="py-12 lg:py-16">
@@ -176,7 +227,7 @@ export function UpcomingShows({ section }: { section?: HomepageUpcomingSection }
               {section?.title || "📅 Upcoming Shows"}
             </h2>
             <p className="text-sm text-av-hint mt-1">
-              {section?.subtitle || "Don&apos;t miss these live events — set a reminder"}
+              {section?.subtitle || "Don\u0027t miss these live events \u2014 set a reminder"}
             </p>
           </div>
           <NavLink
@@ -186,6 +237,18 @@ export function UpcomingShows({ section }: { section?: HomepageUpcomingSection }
             {section?.cta_label || "Full Schedule →"}
           </NavLink>
         </div>
+
+        {/* Loading state */}
+        {!loaded && (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="rounded-2xl bg-av-card/50 border border-av-input-border/20 p-5 animate-pulse h-52"
+              />
+            ))}
+          </div>
+        )}
 
         {/* Empty state */}
         {isEmpty && (
@@ -198,10 +261,15 @@ export function UpcomingShows({ section }: { section?: HomepageUpcomingSection }
         )}
 
         {/* Show grid */}
-        {!isEmpty && (
+        {loaded && displayShows.length > 0 && (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 stagger-children">
-            {shows.map((show) => (
-              <ShowCard key={show.id} show={show} />
+            {displayShows.map((show) => (
+              <ShowCard
+                key={show.id}
+                show={show}
+                reminded={reminderIds.has(show.id)}
+                onToggleReminder={handleToggleReminder}
+              />
             ))}
           </div>
         )}

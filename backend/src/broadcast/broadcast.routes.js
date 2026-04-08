@@ -9,6 +9,9 @@ const router = Router();
 // Server time (public — no auth needed for sync)
 router.get('/time', ctrl.getServerTime);
 
+// Upcoming shows across all channels (public)
+router.get('/upcoming', ctrl.getUpcomingAll);
+
 // Video management (creator)
 router.post('/videos/upload-url', authenticateToken, ctrl.getVideoUploadUrl);
 router.post('/videos/register', authenticateToken, ctrl.registerUploadedVideo);
@@ -32,6 +35,11 @@ router.delete('/schedule/:programId', authenticateToken, ctrl.deleteProgram);
 
 // Playback (viewer) — authenticated for subscription gating
 router.get('/now-playing/:channelId', authenticateToken, ctrl.getNowPlaying);
+
+// Reminders (viewer)
+router.get('/reminders/me', authenticateToken, ctrl.getMyReminders);
+router.post('/reminders', authenticateToken, ctrl.createReminder);
+router.delete('/reminders/:programId', authenticateToken, ctrl.removeReminder);
 
 // Go-live notification trigger
 router.post('/go-live', authenticateToken, ctrl.goLive);

@@ -56,6 +56,14 @@ function getUpcoming(channelId, limit = 10) {
     .slice(0, limit);
 }
 
+function getUpcomingAll(limit = 12) {
+  const now = Date.now();
+  return programs
+    .filter((p) => p.start_time > now)
+    .sort((a, b) => a.start_time - b.start_time)
+    .slice(0, limit);
+}
+
 function getSchedule(channelId) {
   return programs
     .filter((p) => p.channel_id === channelId)
@@ -104,6 +112,7 @@ module.exports = {
   findById,
   getCurrentProgram,
   getUpcoming,
+  getUpcomingAll,
   getSchedule,
   hasOverlap,
   updateStatus,

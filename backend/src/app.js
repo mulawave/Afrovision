@@ -37,6 +37,7 @@ const WalletModel = require('./wallet/wallet.model');
 const WithdrawalModel = require('./wallet/withdrawal.model');
 const VideoModel = require('./broadcast/video.model');
 const ProgramModel = require('./broadcast/program.model');
+const ReminderModel = require('./broadcast/reminder.model');
 const LedgerModel = require('./vpt/ledger.model');
 const DistributionModel = require('./vpt/distribution.model');
 const BatchModel = require('./vpt/batch.model');
@@ -153,6 +154,7 @@ async function startServer() {
     VptModel.init(),
     VideoModel.init(),
     ProgramModel.init(),
+    ReminderModel.init(),
     GiftModel.init(),
     GiftWalletModel.init(),
     StreamStatsModel.init(),
@@ -170,6 +172,10 @@ async function startServer() {
 
   // Start the renewal worker AFTER models are initialized
   RenewalWorker.start();
+
+  // Start reminder notification timer
+  const BroadcastCtrl = require('./broadcast/broadcast.controller');
+  BroadcastCtrl.startReminderTimer();
 
   // Seed default admin user (skipped if one already exists)
   await ensureAdminSeed();

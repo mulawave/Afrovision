@@ -763,6 +763,60 @@ export async function scheduleSequentialApi(input: {
   );
 }
 
+// ── Upcoming Shows (cross-channel, public) ─────────────────
+
+export interface UpcomingProgram {
+  id: string;
+  channel_id: string;
+  channel_name: string;
+  channel_category: string;
+  video_title: string;
+  video_thumbnail: string | null;
+  start_time: number;
+  end_time: number;
+}
+
+export async function getUpcomingShowsApi() {
+  return api<{ upcoming: UpcomingProgram[] }>("/broadcast/upcoming");
+}
+
+// ── Reminders ──────────────────────────────────────────────
+
+export interface ProgramReminder {
+  id: string;
+  user_id: string;
+  program_id: string;
+  channel_id: string;
+  program_title: string;
+  channel_name: string;
+  send_at: number;
+  sent: boolean;
+}
+
+export async function getMyRemindersApi() {
+  return api<{ reminders: ProgramReminder[] }>("/broadcast/reminders/me", {
+    requireAuth: true,
+  });
+}
+
+export async function setReminderApi(programId: string) {
+  return api<{ reminder: ProgramReminder } | ErrorResponse>("/broadcast/reminders", {
+    method: "POST",
+    body: { program_id: programId },
+    requireAuth: true,
+  });
+}
+
+export async function removeReminderApi(programId: string) {
+  return api<{ message: string } | ErrorResponse>(
+    `/broadcast/reminders/${programId}`,
+    {
+      method: "DELETE",
+      requireAuth: true,
+    }
+  );
+}
+
 // ── Creator Subscription API methods ───────────────────────
 
 export interface CreatorSubscription {
