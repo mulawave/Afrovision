@@ -718,9 +718,9 @@ export default function CreatorStudioPage() {
                 />
               </div>
 
-              <div className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-                {/* ════ LEFT COLUMN ════ */}
-                <section className="space-y-6">
+              <div className="mt-6 grid gap-6 lg:grid-cols-2">
+                {/* ════ LEFT COLUMN — Channels & Upload ════ */}
+                <section className="flex flex-col gap-6">
                   {/* Channel selector */}
                   <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
                     <div className="flex items-center justify-between gap-3">
@@ -778,7 +778,7 @@ export default function CreatorStudioPage() {
                   </div>
 
                   {/* ── Multi-upload form ── */}
-                  <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+                  <div className="flex-1 rounded-3xl border border-av-input-border/30 bg-av-card p-6">
                     <div className="mb-4 flex items-center justify-between gap-3">
                       <h2 className="text-lg font-semibold text-av-white">
                         Upload videos
@@ -830,7 +830,7 @@ export default function CreatorStudioPage() {
 
                     {/* File list — drag to reorder */}
                     {uploadEntries.length > 0 && (
-                      <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                      <div className="mt-4 max-h-[340px] space-y-2 overflow-y-auto pr-1">
                         {uploadEntries.map((entry, index) => (
                           <div
                             key={entry.id}
@@ -1051,164 +1051,9 @@ export default function CreatorStudioPage() {
                   </div>
                 </section>
 
-                {/* ════ RIGHT COLUMN ════ */}
-                <section className="space-y-6">
-                  {/* ── Content Library ── */}
-                  <div className="rounded-3xl border border-av-input-border/30 bg-av-card">
-                    {/* Header */}
-                    <div className="flex items-center justify-between gap-3 border-b border-av-input-border/15 px-6 py-5">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-av-orange/15">
-                          <svg className="h-5 w-5 text-av-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5a1.125 1.125 0 01-1.125-1.125m8.625-12.75h-17.25" />
-                          </svg>
-                        </div>
-                        <div>
-                          <h2 className="text-lg font-semibold text-av-white">
-                            Content Library
-                          </h2>
-                          <p className="text-xs text-av-hint">
-                            {selectedChannelVideos.length} video{selectedChannelVideos.length !== 1 ? "s" : ""} for this channel
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Management Toolbar */}
-                    {selectedChannelVideos.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-2 border-b border-av-input-border/10 px-6 py-3">
-                        <label className="flex cursor-pointer items-center gap-2 text-xs text-av-hint transition-colors hover:text-av-white">
-                          <input
-                            type="checkbox"
-                            checked={selectedVideoIds.size === selectedChannelVideos.length && selectedChannelVideos.length > 0}
-                            onChange={toggleAllVideos}
-                            className="h-4 w-4 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
-                          />
-                          Select all
-                        </label>
-                        <div className="mx-1 h-4 w-px bg-av-input-border/20" />
-                        {selectedVideoIds.size > 0 && (
-                          <button
-                            type="button"
-                            onClick={handleDeleteSelectedVideos}
-                            disabled={deletingBulk}
-                            className="rounded-lg border border-av-error/30 bg-av-error/10 px-3 py-1 text-[11px] font-semibold text-av-error transition-all hover:bg-av-error/20 disabled:opacity-50"
-                          >
-                            Delete selected ({selectedVideoIds.size})
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={handleDeleteAllVideos}
-                          disabled={deletingBulk}
-                          className="rounded-lg border border-av-error/20 bg-av-error/5 px-3 py-1 text-[11px] font-semibold text-av-error/70 transition-all hover:bg-av-error/15 hover:text-av-error disabled:opacity-50"
-                        >
-                          Delete all
-                        </button>
-                        {deletingBulk && (
-                          <div className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
-                        )}
-                      </div>
-                    )}
-
-                    {/* Video list */}
-                    <div className="px-6 py-4">
-                      {selectedChannelVideos.length === 0 ? (
-                        <p className="py-6 text-center text-sm text-av-hint">
-                          Upload a video to start building this channel&apos;s
-                          broadcast library.
-                        </p>
-                      ) : (
-                        <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                          {selectedChannelVideos.map((video) => (
-                            <div
-                              key={video.id}
-                              className={`group rounded-2xl border p-4 transition-all ${
-                                selectedVideoIds.has(video.id)
-                                  ? "border-av-orange/40 bg-av-orange/5"
-                                  : "border-av-input-border/20 bg-av-input-fill/30 hover:border-av-input-border/40"
-                              }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedVideoIds.has(video.id)}
-                                  onChange={() => toggleVideoSelection(video.id)}
-                                  className="h-4 w-4 flex-shrink-0 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm font-semibold text-av-white">
-                                    {video.title}
-                                  </p>
-                                  <p className="mt-0.5 text-xs text-av-hint">
-                                    {formatDuration(video.duration)} · Added{" "}
-                                    {formatTimestamp(video.created_at)}
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={() => handleDeleteVideo(video.id)}
-                                  disabled={busy || deletingBulk}
-                                  className="flex-shrink-0 rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Auto-schedule library (integrated footer) */}
-                    {selectedChannelVideos.length >= 2 && (
-                      <div className="border-t border-av-input-border/15 px-6 py-5">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-av-orange/15">
-                            <svg className="h-4 w-4 text-av-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm font-semibold text-av-white">
-                              Auto-schedule library
-                            </p>
-                            <p className="text-[11px] text-av-hint">
-                              Chain {selectedChannelVideos.length} videos
-                              back-to-back · Total{" "}
-                              {formatDuration(
-                                selectedChannelVideos.reduce(
-                                  (s, v) => s + v.duration,
-                                  0,
-                                ),
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                          <input
-                            type="datetime-local"
-                            value={libraryAutoStart}
-                            min={toDateTimeLocal(new Date().toISOString())}
-                            onChange={(e) => setLibraryAutoStart(e.target.value)}
-                            className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleAutoScheduleLibrary}
-                            disabled={schedulingLibrary || !libraryAutoStart}
-                            className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
-                          >
-                            {schedulingLibrary
-                              ? "Scheduling..."
-                              : "Auto-schedule all"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ── Broadcast Schedule ── */}
-                  <div className="rounded-3xl border border-av-input-border/30 bg-av-card">
+                {/* ════ RIGHT COLUMN — Broadcast Schedule ════ */}
+                <section className="flex flex-col">
+                  <div className="flex flex-1 flex-col rounded-3xl border border-av-input-border/30 bg-av-card">
                     {/* Header */}
                     <div className="flex items-center justify-between gap-3 border-b border-av-input-border/15 px-6 py-5">
                       <div className="flex items-center gap-3">
@@ -1236,13 +1081,13 @@ export default function CreatorStudioPage() {
                       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-av-hint">
                         Add to schedule
                       </p>
-                      <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="space-y-2">
                         <select
                           value={scheduleVideoId}
                           onChange={(event) =>
                             setScheduleVideoId(event.target.value)
                           }
-                          className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                          className="h-10 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
                         >
                           <option value="">Select video</option>
                           {selectedChannelVideos.map((video) => (
@@ -1251,22 +1096,24 @@ export default function CreatorStudioPage() {
                             </option>
                           ))}
                         </select>
-                        <input
-                          type="datetime-local"
-                          value={scheduleStart}
-                          min={toDateTimeLocal(new Date().toISOString())}
-                          onChange={(event) =>
-                            setScheduleStart(event.target.value)
-                          }
-                          className="h-10 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
-                        />
-                        <button
-                          type="submit"
-                          disabled={busy || selectedChannelVideos.length === 0}
-                          className="h-10 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
-                        >
-                          {busy ? "..." : "Add"}
-                        </button>
+                        <div className="flex gap-2">
+                          <input
+                            type="datetime-local"
+                            value={scheduleStart}
+                            min={toDateTimeLocal(new Date().toISOString())}
+                            onChange={(event) =>
+                              setScheduleStart(event.target.value)
+                            }
+                            className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                          />
+                          <button
+                            type="submit"
+                            disabled={busy || selectedChannelVideos.length === 0}
+                            className="h-10 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
+                          >
+                            {busy ? "..." : "Add"}
+                          </button>
+                        </div>
                       </div>
                     </form>
 
@@ -1308,7 +1155,7 @@ export default function CreatorStudioPage() {
                     )}
 
                     {/* Schedule list */}
-                    <div className="px-6 py-4">
+                    <div className="flex-1 px-6 py-4">
                       {schedule.length === 0 ? (
                         <p className="py-6 text-center text-sm text-av-hint">
                           No programs scheduled for this channel yet.
@@ -1360,6 +1207,145 @@ export default function CreatorStudioPage() {
                     </div>
                   </div>
                 </section>
+              </div>
+
+              {/* ════ FULL-WIDTH ROW — Content Library ════ */}
+              <div className="mt-6 rounded-3xl border border-av-input-border/30 bg-av-card">
+                {/* Header */}
+                <div className="flex items-center justify-between gap-3 border-b border-av-input-border/15 px-6 py-5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-av-orange/15">
+                      <svg className="h-5 w-5 text-av-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5a1.125 1.125 0 01-1.125-1.125m8.625-12.75h-17.25" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold text-av-white">
+                        Content Library
+                      </h2>
+                      <p className="text-xs text-av-hint">
+                        {selectedChannelVideos.length} video{selectedChannelVideos.length !== 1 ? "s" : ""} for this channel
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Auto-schedule library trigger */}
+                  {selectedChannelVideos.length >= 2 && (
+                    <div className="flex items-center gap-3">
+                      <p className="hidden text-xs text-av-hint sm:block">
+                        {selectedChannelVideos.length} videos ·{" "}
+                        {formatDuration(
+                          selectedChannelVideos.reduce(
+                            (s, v) => s + v.duration,
+                            0,
+                          ),
+                        )}
+                      </p>
+                      <input
+                        type="datetime-local"
+                        value={libraryAutoStart}
+                        min={toDateTimeLocal(new Date().toISOString())}
+                        onChange={(e) => setLibraryAutoStart(e.target.value)}
+                        className="h-9 rounded-xl border border-av-input-border/30 bg-av-input-fill px-3 text-xs text-av-white focus:border-av-orange/50 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAutoScheduleLibrary}
+                        disabled={schedulingLibrary || !libraryAutoStart}
+                        className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-4 py-2 text-xs font-semibold text-av-dark-blue disabled:opacity-60"
+                      >
+                        {schedulingLibrary
+                          ? "Scheduling..."
+                          : "Auto-schedule all"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Management Toolbar */}
+                {selectedChannelVideos.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 border-b border-av-input-border/10 px-6 py-3">
+                    <label className="flex cursor-pointer items-center gap-2 text-xs text-av-hint transition-colors hover:text-av-white">
+                      <input
+                        type="checkbox"
+                        checked={selectedVideoIds.size === selectedChannelVideos.length && selectedChannelVideos.length > 0}
+                        onChange={toggleAllVideos}
+                        className="h-4 w-4 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
+                      />
+                      Select all
+                    </label>
+                    <div className="mx-1 h-4 w-px bg-av-input-border/20" />
+                    {selectedVideoIds.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteSelectedVideos}
+                        disabled={deletingBulk}
+                        className="rounded-lg border border-av-error/30 bg-av-error/10 px-3 py-1 text-[11px] font-semibold text-av-error transition-all hover:bg-av-error/20 disabled:opacity-50"
+                      >
+                        Delete selected ({selectedVideoIds.size})
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleDeleteAllVideos}
+                      disabled={deletingBulk}
+                      className="rounded-lg border border-av-error/20 bg-av-error/5 px-3 py-1 text-[11px] font-semibold text-av-error/70 transition-all hover:bg-av-error/15 hover:text-av-error disabled:opacity-50"
+                    >
+                      Delete all
+                    </button>
+                    {deletingBulk && (
+                      <div className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
+                    )}
+                  </div>
+                )}
+
+                {/* Video grid — full width */}
+                <div className="px-6 py-4">
+                  {selectedChannelVideos.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-av-hint">
+                      Upload a video to start building this channel&apos;s
+                      broadcast library.
+                    </p>
+                  ) : (
+                    <div className="grid max-h-[400px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
+                      {selectedChannelVideos.map((video) => (
+                        <div
+                          key={video.id}
+                          className={`group rounded-2xl border p-4 transition-all ${
+                            selectedVideoIds.has(video.id)
+                              ? "border-av-orange/40 bg-av-orange/5"
+                              : "border-av-input-border/20 bg-av-input-fill/30 hover:border-av-input-border/40"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedVideoIds.has(video.id)}
+                              onChange={() => toggleVideoSelection(video.id)}
+                              className="h-4 w-4 flex-shrink-0 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-av-white">
+                                {video.title}
+                              </p>
+                              <p className="mt-0.5 text-xs text-av-hint">
+                                {formatDuration(video.duration)} · Added{" "}
+                                {formatTimestamp(video.created_at)}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteVideo(video.id)}
+                              disabled={busy || deletingBulk}
+                              className="flex-shrink-0 rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}
