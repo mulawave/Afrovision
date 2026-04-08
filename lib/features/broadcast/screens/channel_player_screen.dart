@@ -717,53 +717,60 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
     return Column(
       children: [
-        // Video player with buffering overlay
-        Stack(
-          alignment: Alignment.center,
-          children: [
-            if (initialized)
-              AspectRatio(
-                aspectRatio: ctrl.value.aspectRatio,
-                child: VideoPlayer(ctrl),
-              )
-            else
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Container(
-                  color: Colors.black,
-                  child: const Center(
-                    child: CircularProgressIndicator(color: AppColors.orange),
-                  ),
-                ),
-              ),
-            // Buffering overlay
-            if (_player?.isBuffering == true && initialized)
-              AspectRatio(
-                aspectRatio: ctrl.value.aspectRatio,
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(color: AppColors.orange),
-                        SizedBox(height: 12),
-                        Text(
-                          'Buffering...',
-                          style: TextStyle(
-                            color: AppColors.hintText,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+        // Video player with buffering overlay — contained to fit available space
+        Flexible(
+          child: Container(
+            color: Colors.black,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (initialized)
+                  Center(
+                    child: AspectRatio(
+                      aspectRatio: ctrl.value.aspectRatio,
+                      child: VideoPlayer(ctrl),
+                    ),
+                  )
+                else
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Container(
+                      color: Colors.black,
+                      child: const Center(
+                        child: CircularProgressIndicator(color: AppColors.orange),
+                      ),
                     ),
                   ),
-                ),
-              ),
-            // Gift overlay on top of video
-            GiftOverlay(key: _overlayKey),
-          ],
+                // Buffering overlay
+                if (_player?.isBuffering == true && initialized)
+                  AspectRatio(
+                    aspectRatio: ctrl.value.aspectRatio,
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(color: AppColors.orange),
+                            SizedBox(height: 12),
+                            Text(
+                              'Buffering...',
+                              style: TextStyle(
+                                color: AppColors.hintText,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                // Gift overlay on top of video
+                GiftOverlay(key: _overlayKey),
+              ],
+            ),
+          ),
         ),
 
         // Now playing info (no seek bar — live TV)

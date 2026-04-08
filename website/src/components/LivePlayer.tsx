@@ -147,7 +147,7 @@ export function LivePlayer({
           muted={isMuted}
           playsInline
           loop={!!isLoop}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain bg-black"
           onEnded={() => {
             // Program video finished — signal parent to fetch next program
             if (!isLoop) {
