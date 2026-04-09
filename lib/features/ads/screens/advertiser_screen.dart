@@ -26,9 +26,10 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _fadeIn = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut),
-    );
+    _fadeIn = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _tabCtrl = TabController(length: 3, vsync: this);
     _loadData();
   }
@@ -91,15 +92,15 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
                           ),
                         )
                       : _error != null
-                          ? _buildError()
-                          : TabBarView(
-                              controller: _tabCtrl,
-                              children: [
-                                _buildMyAdsTab(),
-                                _buildSubmitTab(),
-                                _buildAnalyticsTab(),
-                              ],
-                            ),
+                      ? _buildError()
+                      : TabBarView(
+                          controller: _tabCtrl,
+                          children: [
+                            _buildMyAdsTab(),
+                            _buildSubmitTab(),
+                            _buildAnalyticsTab(),
+                          ],
+                        ),
                 ),
               ],
             ),
@@ -123,8 +124,11 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child:
-                  const Icon(Icons.arrow_back, color: AppColors.white, size: 20),
+              child: const Icon(
+                Icons.arrow_back,
+                color: AppColors.white,
+                size: 20,
+              ),
             ),
           ),
           const SizedBox(width: 14),
@@ -144,10 +148,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
                 SizedBox(height: 2),
                 Text(
                   'Manage your ad campaigns',
-                  style: TextStyle(
-                    color: AppColors.hintText,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: AppColors.hintText, fontSize: 12),
                 ),
               ],
             ),
@@ -174,10 +175,11 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
         labelColor: AppColors.white,
         unselectedLabelColor: AppColors.hintText,
         dividerColor: Colors.transparent,
-        labelStyle:
-            const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-        unselectedLabelStyle:
-            const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+        unselectedLabelStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
         indicatorSize: TabBarIndicatorSize.tab,
         tabs: const [
           Tab(text: 'My Ads'),
@@ -195,7 +197,11 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, color: AppColors.errorRed, size: 48),
+            const Icon(
+              Icons.error_outline,
+              color: AppColors.errorRed,
+              size: 48,
+            ),
             const SizedBox(height: 16),
             Text(
               _error!,
@@ -206,8 +212,10 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
             GestureDetector(
               onTap: _loadData,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   gradient: AppColors.buttonGradient,
                   borderRadius: BorderRadius.circular(12),
@@ -278,7 +286,8 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
               color: AppColors.cardBg,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                  color: AppColors.inputBorder.withValues(alpha: 0.3)),
+                color: AppColors.inputBorder.withValues(alpha: 0.3),
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.2),
@@ -579,8 +588,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
     }
 
     final summary = _analytics!['summary'] as Map<String, dynamic>? ?? {};
-    final perAd =
-        List<Map<String, dynamic>>.from(_analytics!['per_ad'] ?? []);
+    final perAd = List<Map<String, dynamic>>.from(_analytics!['per_ad'] ?? []);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
@@ -632,47 +640,49 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
               ),
             ),
             const SizedBox(height: 12),
-            ...perAd.map((ad) => Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.cardBg,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.inputBorder.withValues(alpha: 0.2),
-                    ),
+            ...perAd.map(
+              (ad) => Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.cardBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.inputBorder.withValues(alpha: 0.2),
                   ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              ad['title'] as String? ?? 'Untitled',
-                              style: const TextStyle(
-                                color: AppColors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            ad['title'] as String? ?? 'Untitled',
+                            style: const TextStyle(
+                              color: AppColors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${ad['impressions'] ?? 0} impressions · ₦${(ad['spent'] as num?)?.toStringAsFixed(0) ?? '0'} spent',
-                              style: TextStyle(
-                                color: AppColors.hintText.withValues(alpha: 0.7),
-                                fontSize: 11,
-                              ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${ad['impressions'] ?? 0} impressions · ₦${(ad['spent'] as num?)?.toStringAsFixed(0) ?? '0'} spent',
+                            style: TextStyle(
+                              color: AppColors.hintText.withValues(alpha: 0.7),
+                              fontSize: 11,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      _statusBadge(ad['status'] as String? ?? 'pending'),
-                    ],
-                  ),
-                )),
+                    ),
+                    _statusBadge(ad['status'] as String? ?? 'pending'),
+                  ],
+                ),
+              ),
+            ),
           ],
         ],
       ),
@@ -686,8 +696,9 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
         decoration: BoxDecoration(
           color: AppColors.cardBg,
           borderRadius: BorderRadius.circular(14),
-          border:
-              Border.all(color: AppColors.inputBorder.withValues(alpha: 0.3)),
+          border: Border.all(
+            color: AppColors.inputBorder.withValues(alpha: 0.3),
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.2),
@@ -858,10 +869,9 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
                 style: const TextStyle(color: AppColors.white, fontSize: 14),
                 isExpanded: true,
                 items: _categories
-                    .map((c) => DropdownMenuItem(
-                          value: c.$1,
-                          child: Text(c.$2),
-                        ))
+                    .map(
+                      (c) => DropdownMenuItem(value: c.$1, child: Text(c.$2)),
+                    )
                     .toList(),
                 onChanged: (v) {
                   if (v != null) setState(() => _category = v);
@@ -872,8 +882,7 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
           const SizedBox(height: 14),
 
           _label('Budget (₦)'),
-          _textField(_budgetCtrl, 'e.g. 50000',
-              keyboard: TextInputType.number),
+          _textField(_budgetCtrl, 'e.g. 50000', keyboard: TextInputType.number),
           const SizedBox(height: 14),
 
           _label('Video URL (optional)'),
@@ -930,8 +939,12 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
     );
   }
 
-  Widget _textField(TextEditingController ctrl, String hint,
-      {int maxLines = 1, TextInputType? keyboard}) {
+  Widget _textField(
+    TextEditingController ctrl,
+    String hint, {
+    int maxLines = 1,
+    TextInputType? keyboard,
+  }) {
     return TextField(
       controller: ctrl,
       maxLines: maxLines,
@@ -954,8 +967,10 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.orange),
         ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
       ),
     );
   }

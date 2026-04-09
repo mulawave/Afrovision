@@ -4,6 +4,7 @@ const { getNextAd, getBannerAd, getInStreamAds, calculateRevenueSplit } = requir
 const User = require('../users/user.model');
 const Ledger = require('../vpt/ledger.model');
 const { generateSignedUploadUrl } = require('../utils/gcs');
+const { getFirestore } = require('../utils/firestore');
 const crypto = require('crypto');
 const path = require('path');
 
@@ -447,6 +448,20 @@ async function recordImpression(req, res) {
         meta: { ad_id: ad.id, impression_id: impression.id, source: 'ad_revenue' },
         description: `Ad revenue pool split: ₦${split.pool_share}`,
       });
+    }
+
+    // ── Credit Firestore pools (single source of truth) ─────────────
+    const admin = require('firebase-admin');
+    const db = getFirestore();
+    if (split.operations_share > 0) {
+      await db.collection('pools').doc('operations').set({
+        naira: admin.firestore.FieldValue.increment(split.operations_share),
+      }, { merge: true });
+    }
+    if (split.pool_share > 0) {
+      await db.collection('pools').doc('community').set({
+        naira: admin.firestore.FieldValue.increment(split.pool_share),
+      }, { merge: true });
     }
 
     res.json({

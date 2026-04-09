@@ -81,12 +81,12 @@ export function CommunityPoolBar() {
   ];
 
   return (
-    <div className="bg-gradient-to-r from-av-dark-blue via-av-light-blue/30 to-av-dark-blue border-b border-av-input-border/15">
+    <div className="bg-gradient-to-r from-av-dark-blue via-av-light-blue/40 to-av-dark-blue border-b border-av-orange/20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-center gap-4 sm:gap-8 py-1.5 overflow-x-auto">
+        <div className="flex items-center justify-center gap-6 sm:gap-10 py-2 overflow-x-auto">
           {/* Label */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-av-orange">
+            <span className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-av-orange">
               Community Pool
             </span>
           </div>
@@ -94,20 +94,20 @@ export function CommunityPoolBar() {
           {stats.map((s) => (
             <div
               key={s.label}
-              className="flex items-center gap-1.5 flex-shrink-0"
+              className="flex items-center gap-2 flex-shrink-0"
             >
-              <span className="text-av-orange/60">{s.icon}</span>
-              <span className="text-[10px] font-medium text-av-hint">
+              <span className="text-av-orange">{s.icon}</span>
+              <span className="text-[11px] font-bold text-av-white">
                 {s.label}:
               </span>
               {"count" in s ? (
-                <span className="text-[11px] font-semibold text-av-white">
+                <span className="text-[12px] font-extrabold text-av-orange">
                   {s.count!.toLocaleString()}
                 </span>
               ) : (
-                <span className="text-[11px] font-semibold text-av-white">
+                <span className="text-[12px] font-extrabold text-av-white">
                   {formatNum(s.vpt!)} vPT{" "}
-                  <span className="text-av-hint font-normal">
+                  <span className="text-[11px] font-bold text-av-orange">
                     (₦{formatNum(s.ngn!)})
                   </span>
                 </span>

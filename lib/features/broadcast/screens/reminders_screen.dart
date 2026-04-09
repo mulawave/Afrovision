@@ -24,9 +24,10 @@ class _RemindersScreenState extends State<RemindersScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _fadeIn = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut),
-    );
+    _fadeIn = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _loadReminders();
   }
 
@@ -85,11 +86,17 @@ class _RemindersScreenState extends State<RemindersScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.hintText)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.hintText),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Clear All', style: TextStyle(color: AppColors.errorRed)),
+            child: const Text(
+              'Clear All',
+              style: TextStyle(color: AppColors.errorRed),
+            ),
           ),
         ],
       ),
@@ -131,13 +138,14 @@ class _RemindersScreenState extends State<RemindersScreen>
                   child: _loading
                       ? const Center(
                           child: CircularProgressIndicator(
-                              color: AppColors.orange),
+                            color: AppColors.orange,
+                          ),
                         )
                       : _error != null
-                          ? _buildError()
-                          : _reminders.isEmpty
-                              ? _buildEmpty()
-                              : _buildList(),
+                      ? _buildError()
+                      : _reminders.isEmpty
+                      ? _buildEmpty()
+                      : _buildList(),
                 ),
               ],
             ),
@@ -161,8 +169,11 @@ class _RemindersScreenState extends State<RemindersScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.arrow_back,
-                  color: AppColors.white, size: 20),
+              child: const Icon(
+                Icons.arrow_back,
+                color: AppColors.white,
+                size: 20,
+              ),
             ),
           ),
           const SizedBox(width: 14),
@@ -191,8 +202,10 @@ class _RemindersScreenState extends State<RemindersScreen>
             GestureDetector(
               onTap: _clearAll,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.errorRed.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -222,8 +235,11 @@ class _RemindersScreenState extends State<RemindersScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline,
-                color: AppColors.errorRed, size: 48),
+            const Icon(
+              Icons.error_outline,
+              color: AppColors.errorRed,
+              size: 48,
+            ),
             const SizedBox(height: 16),
             Text(
               _error!,
@@ -234,8 +250,10 @@ class _RemindersScreenState extends State<RemindersScreen>
             GestureDetector(
               onTap: _loadReminders,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   gradient: AppColors.buttonGradient,
                   borderRadius: BorderRadius.circular(12),
@@ -243,7 +261,9 @@ class _RemindersScreenState extends State<RemindersScreen>
                 child: const Text(
                   'Retry',
                   style: TextStyle(
-                      color: AppColors.white, fontWeight: FontWeight.w600),
+                    color: AppColors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
@@ -258,8 +278,11 @@ class _RemindersScreenState extends State<RemindersScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.notifications_none_rounded,
-              color: AppColors.hintText, size: 56),
+          Icon(
+            Icons.notifications_none_rounded,
+            color: AppColors.hintText,
+            size: 56,
+          ),
           SizedBox(height: 16),
           Text(
             'No reminders set',
@@ -290,8 +313,7 @@ class _RemindersScreenState extends State<RemindersScreen>
         itemCount: _reminders.length,
         itemBuilder: (context, index) {
           final reminder = _reminders[index];
-          final title =
-              reminder['video_title'] as String? ?? 'Unknown Program';
+          final title = reminder['video_title'] as String? ?? 'Unknown Program';
           final channelName =
               reminder['channel_name'] as String? ?? 'Unknown Channel';
           final sendAtMs = reminder['send_at'] as int? ?? 0;
@@ -301,8 +323,7 @@ class _RemindersScreenState extends State<RemindersScreen>
           final isPast = sendAt.isBefore(now);
           final timeStr =
               '${sendAt.hour.toString().padLeft(2, '0')}:${sendAt.minute.toString().padLeft(2, '0')}';
-          final dateStr =
-              '${sendAt.day}/${sendAt.month}/${sendAt.year}';
+          final dateStr = '${sendAt.day}/${sendAt.month}/${sendAt.year}';
 
           return Dismissible(
             key: Key(programId),
@@ -314,8 +335,11 @@ class _RemindersScreenState extends State<RemindersScreen>
                 color: AppColors.errorRed.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: const Icon(Icons.delete_outline,
-                  color: AppColors.errorRed, size: 24),
+              child: const Icon(
+                Icons.delete_outline,
+                color: AppColors.errorRed,
+                size: 24,
+              ),
             ),
             onDismissed: (_) => _removeReminder(programId),
             child: Container(
@@ -352,7 +376,9 @@ class _RemindersScreenState extends State<RemindersScreen>
                       isPast
                           ? Icons.notifications_off_outlined
                           : Icons.notifications_active,
-                      color: isPast ? AppColors.hintText : AppColors.lightOrange,
+                      color: isPast
+                          ? AppColors.hintText
+                          : AppColors.lightOrange,
                       size: 22,
                     ),
                   ),

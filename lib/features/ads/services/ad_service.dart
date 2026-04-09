@@ -6,7 +6,9 @@ class AdService {
     return List<Map<String, dynamic>>.from(data['ads'] ?? []);
   }
 
-  static Future<Map<String, dynamic>> submitAd(Map<String, dynamic> body) async {
+  static Future<Map<String, dynamic>> submitAd(
+    Map<String, dynamic> body,
+  ) async {
     return ApiService.post('/ads', body);
   }
 
