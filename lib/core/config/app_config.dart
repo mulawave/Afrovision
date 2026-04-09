@@ -7,4 +7,10 @@ class AppConfig {
     'API_BASE_URL',
     defaultValue: 'https://afrovision-backend-134538542038.us-central1.run.app',
   );
+
+  /// Resolves a media URL — returns as-is if already absolute, otherwise prepends baseUrl.
+  static String mediaUrl(String path) {
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    return '$baseUrl$path';
+  }
 }

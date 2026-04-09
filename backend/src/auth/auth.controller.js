@@ -380,6 +380,20 @@ async function pakLogin(req, res) {
 
       mobile: existing?.mobile ?? profile.mobile,
       refCode: existing?.refCode ?? profile.refCode,
+
+      // ── AfroVision-required fields (must exist for toSafeUser) ──
+      role: existing?.role ?? 'viewer',
+      is_premium_creator: existing?.is_premium_creator ?? false,
+      kyc_status: existing?.kyc_status ?? 'none',
+      subscription_plan: existing?.subscription_plan ?? null,
+      subscription_status: existing?.subscription_status ?? 'inactive',
+      subscription_expiry: existing?.subscription_expiry ?? null,
+      preferred_currency: existing?.preferred_currency ?? (profile.currency || 'NGN'),
+      vpt_balance: existing?.vpt_balance ?? 0,
+      first_subscription_at: existing?.first_subscription_at ?? null,
+      following_creator_ids: existing?.following_creator_ids ?? [],
+      fcm_tokens: existing?.fcm_tokens ?? [],
+      created_at: existing?.created_at ?? new Date().toISOString(),
     };
 
     if (existingCoinsNum == null) {

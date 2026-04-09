@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:video_player/video_player.dart';
 import '../../../core/theme/app_colors.dart';
@@ -63,6 +64,11 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   String _flashType = 'now_playing';
   String _flashTitle = '';
 
+  // Fullscreen state
+  bool _isFullscreen = false;
+  bool _showFullscreenControls = true;
+  Timer? _hideControlsTimer;
+
   @override
   void initState() {
     super.initState();
@@ -93,8 +99,15 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _eventTimer?.cancel();
+    _hideControlsTimer?.cancel();
     _player?.dispose();
     _animCtrl.dispose();
+    // Restore portrait orientation
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
@@ -353,10 +366,48 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     _lastProgramId = programId;
   }
 
+  // ─── Fullscreen ───
+
+  void _enterFullscreen() {
+    setState(() => _isFullscreen = true);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _startHideControlsTimer();
+  }
+
+  void _exitFullscreen() {
+    setState(() {
+      _isFullscreen = false;
+      _showFullscreenControls = true;
+    });
+    _hideControlsTimer?.cancel();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  void _startHideControlsTimer() {
+    _hideControlsTimer?.cancel();
+    _hideControlsTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _showFullscreenControls = false);
+    });
+  }
+
+  void _onFullscreenTap() {
+    setState(() => _showFullscreenControls = !_showFullscreenControls);
+    if (_showFullscreenControls) _startHideControlsTimer();
+  }
+
   // ─── Build ───
 
   @override
   Widget build(BuildContext context) {
+    if (_isFullscreen) return _buildFullscreenPlayer();
     return Scaffold(
       backgroundColor: AppColors.darkBlue,
       body: Container(
@@ -374,6 +425,244 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildFullscreenPlayer() {
+    final ctrl = _player?.controller;
+    final initialized = ctrl != null && ctrl.value.isInitialized;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onTap: _onFullscreenTap,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Video
+            if (initialized)
+              Center(
+                child: AspectRatio(
+                  aspectRatio: ctrl.value.aspectRatio,
+                  child: VideoPlayer(ctrl),
+                ),
+              )
+            else
+              const Center(
+                child: CircularProgressIndicator(color: AppColors.orange),
+              ),
+            // Gift overlay
+            GiftOverlay(key: _overlayKey),
+            // Timer overlay (top-left)
+            if (initialized)
+              Positioned(top: 12, left: 12, child: _buildTimerOverlay(ctrl)),
+            // Channel logo + name (top-right)
+            if (_channel != null)
+              Positioned(top: 12, right: 12, child: _buildChannelBadge()),
+            // Fullscreen controls overlay
+            if (_showFullscreenControls)
+              Positioned(
+                top: 12,
+                right: _channel != null ? 12 : 12,
+                bottom: 12,
+                left: 12,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Interactions menu button
+                        _buildFloatingMenuButton(),
+                        // Exit fullscreen
+                        GestureDetector(
+                          onTap: _exitFullscreen,
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.fullscreen_exit_rounded,
+                              color: AppColors.white,
+                              size: 26,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingMenuButton() {
+    return PopupMenuButton<String>(
+      icon: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(
+          Icons.chat_bubble_outline_rounded,
+          color: AppColors.white,
+          size: 22,
+        ),
+      ),
+      color: AppColors.cardBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (value) {
+        if (value == 'gift') {
+          showModalBottomSheet(
+            context: context,
+            backgroundColor: Colors.transparent,
+            isScrollControlled: true,
+            builder: (_) => GiftSheet(channelId: _channelId!),
+          );
+        } else if (value == 'react') {
+          _onReactionTap('❤️');
+        } else if (value == 'chat') {
+          _exitFullscreen();
+        }
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'gift',
+          child: Row(
+            children: [
+              Icon(
+                Icons.card_giftcard_rounded,
+                color: AppColors.orange,
+                size: 18,
+              ),
+              SizedBox(width: 8),
+              Text('Gift', style: TextStyle(color: AppColors.white)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'react',
+          child: Row(
+            children: [
+              Icon(Icons.favorite_rounded, color: AppColors.orange, size: 18),
+              SizedBox(width: 8),
+              Text('React', style: TextStyle(color: AppColors.white)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'chat',
+          child: Row(
+            children: [
+              Icon(Icons.chat_rounded, color: AppColors.orange, size: 18),
+              SizedBox(width: 8),
+              Text('Chat', style: TextStyle(color: AppColors.white)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTimerOverlay(VideoPlayerController ctrl) {
+    return ValueListenableBuilder(
+      valueListenable: ctrl,
+      builder: (_, value, __) {
+        final sec = value.position.inSeconds;
+        final m = (sec ~/ 60).toString().padLeft(2, '0');
+        final s = (sec % 60).toString().padLeft(2, '0');
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            '$m:$s',
+            style: const TextStyle(
+              color: AppColors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildChannelBadge() {
+    final hasLogo = _channel?.logoUrl != null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasLogo)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.network(
+                AppConfig.mediaUrl(_channel!.logoUrl!),
+                width: 20,
+                height: 20,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: AppColors.orange,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Icon(
+                    Icons.tv_rounded,
+                    color: AppColors.white,
+                    size: 12,
+                  ),
+                ),
+              ),
+            )
+          else
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: AppColors.orange,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Icon(
+                Icons.tv_rounded,
+                color: AppColors.white,
+                size: 12,
+              ),
+            ),
+          const SizedBox(width: 6),
+          Text(
+            _channel!.name,
+            style: const TextStyle(
+              color: AppColors.darkBlue,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -418,31 +707,35 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: _isLoop
-                    ? AppColors.hintText.withValues(alpha: 0.2)
+                    ? const Color(0xFFE53935).withValues(alpha: 0.2)
                     : AppColors.orange.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: _isLoop
-                      ? AppColors.hintText.withValues(alpha: 0.5)
+                      ? const Color(0xFFE53935).withValues(alpha: 0.5)
                       : AppColors.orange.withValues(alpha: 0.5),
                 ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: _isLoop ? AppColors.hintText : AppColors.orange,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
+                  _isLoop
+                      ? _PulsingDot(color: const Color(0xFFE53935))
+                      : Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: AppColors.orange,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                   const SizedBox(width: 6),
                   Text(
-                    _isLoop ? 'REPLAY' : 'LIVE',
+                    _isLoop ? 'Rerun' : 'LIVE',
                     style: TextStyle(
-                      color: _isLoop ? AppColors.hintText : AppColors.orange,
+                      color: _isLoop
+                          ? const Color(0xFFE53935)
+                          : AppColors.orange,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1,
@@ -658,9 +951,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Image.network(
-                  _channel!.logoUrl!.startsWith('http')
-                      ? _channel!.logoUrl!
-                      : '${AppConfig.baseUrl}${_channel!.logoUrl}',
+                  AppConfig.mediaUrl(_channel!.logoUrl!),
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Icon(
                     Icons.tv_rounded,
@@ -909,6 +1200,32 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                       onComplete: _onAdBreakComplete,
                     ),
                   ),
+                // Timer overlay (top-left)
+                if (initialized)
+                  Positioned(top: 8, left: 8, child: _buildTimerOverlay(ctrl)),
+                // Channel logo + name badge (top-right)
+                if (_channel != null)
+                  Positioned(top: 8, right: 8, child: _buildChannelBadge()),
+                // Fullscreen toggle (bottom-right)
+                Positioned(
+                  bottom: 8,
+                  right: 8,
+                  child: GestureDetector(
+                    onTap: _enterFullscreen,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.fullscreen_rounded,
+                        color: AppColors.white,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -989,70 +1306,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     return ValueListenableBuilder(
       valueListenable: ctrl,
       builder: (_, value, __) {
-        final current = value.position.inSeconds;
-        final total = _duration > 0 ? _duration : 1;
-        final progress = (current / total).clamp(0.0, 1.0);
-
-        String formatTime(int sec) {
-          final m = (sec ~/ 60).toString().padLeft(2, '0');
-          final s = (sec % 60).toString().padLeft(2, '0');
-          return '$m:$s';
-        }
-
-        return Column(
-          children: [
-            // Non-interactive progress bar
-            ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(
-                value: progress,
-                backgroundColor: AppColors.inputBorder.withValues(alpha: 0.3),
-                valueColor: const AlwaysStoppedAnimation<Color>(
-                  AppColors.orange,
-                ),
-                minHeight: 4,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  formatTime(current),
-                  style: const TextStyle(
-                    color: AppColors.hintText,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                // Live indicator instead of total time
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: _isLoop ? AppColors.hintText : AppColors.orange,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _isLoop ? 'REPLAY' : 'LIVE',
-                      style: TextStyle(
-                        color: _isLoop ? AppColors.hintText : AppColors.orange,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        );
+        // Timer is now shown as an overlay on the video — see _buildPlayer()
+        return const SizedBox.shrink();
       },
     );
   }
@@ -1411,5 +1666,48 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         combo: result['combo'] as int? ?? 1,
       );
     }
+  }
+}
+
+/// A pulsing/blinking dot widget for the Rerun badge.
+class _PulsingDot extends StatefulWidget {
+  final Color color;
+  const _PulsingDot({required this.color});
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+    _opacity = Tween<double>(begin: 0.3, end: 1.0).animate(_ctrl);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+      ),
+    );
   }
 }

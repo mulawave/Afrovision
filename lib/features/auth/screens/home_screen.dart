@@ -7,6 +7,7 @@ import '../models/user_model.dart';
 import '../../notifications/services/notification_inbox_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/api/api_service.dart';
 import '../../../core/widgets/role_badge.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
 
@@ -29,10 +30,17 @@ class _HomeScreenState extends State<HomeScreen>
   Timer? _promoTimer;
   int _promoPage = 0;
   int _unreadNotifications = 0;
+  late ScrollController _recentScrollController;
+  Timer? _recentScrollTimer;
+  List<String> _marqueeTopics = [];
+  late ScrollController _marqueeController;
+  Timer? _marqueeTimer;
 
   @override
   void initState() {
     super.initState();
+    _recentScrollController = ScrollController();
+    _marqueeController = ScrollController();
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -51,6 +59,10 @@ class _HomeScreenState extends State<HomeScreen>
     _animController.dispose();
     _promoPageController.dispose();
     _promoTimer?.cancel();
+    _recentScrollTimer?.cancel();
+    _recentScrollController.dispose();
+    _marqueeTimer?.cancel();
+    _marqueeController.dispose();
     super.dispose();
   }
 
@@ -84,6 +96,8 @@ class _HomeScreenState extends State<HomeScreen>
       });
       _animController.forward();
       _startPromoAutoScroll();
+      _startRecentAutoScroll();
+      _loadMarquee();
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -101,6 +115,56 @@ class _HomeScreenState extends State<HomeScreen>
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeInOut,
       );
+    });
+  }
+
+  void _startRecentAutoScroll() {
+    final count = _stats?.recentChannels.length ?? 0;
+    if (count <= 2) return;
+    _recentScrollTimer?.cancel();
+    _recentScrollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted || !_recentScrollController.hasClients) return;
+      final max = _recentScrollController.position.maxScrollExtent;
+      final current = _recentScrollController.offset;
+      final next = current + 160;
+      _recentScrollController.animateTo(
+        next >= max ? 0 : next,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    });
+  }
+
+  Future<void> _loadMarquee() async {
+    try {
+      final data = await ApiService.getPublic('/home/marquee');
+      if (!mounted) return;
+      if (data is List) {
+        final topics = data
+            .where((t) => t['active'] == true)
+            .map<String>((t) => t['text'] as String)
+            .toList();
+        if (topics.isNotEmpty) {
+          setState(() => _marqueeTopics = topics);
+          _startMarqueeScroll();
+        }
+      }
+    } catch (_) {
+      // silent — marquee is non-critical
+    }
+  }
+
+  void _startMarqueeScroll() {
+    _marqueeTimer?.cancel();
+    _marqueeTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      if (!mounted || !_marqueeController.hasClients) return;
+      final max = _marqueeController.position.maxScrollExtent;
+      final current = _marqueeController.offset;
+      if (current >= max) {
+        _marqueeController.jumpTo(0);
+      } else {
+        _marqueeController.jumpTo(current + 0.8);
+      }
     });
   }
 
@@ -174,6 +238,12 @@ class _HomeScreenState extends State<HomeScreen>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   _buildCommunityPoolBanner(),
+                                  if (_marqueeTopics.isNotEmpty)
+                                    _buildMarqueeTicker(),
+                                  if (_user != null &&
+                                      _user!.kycStatus != 'verified' &&
+                                      _user!.kycStatus != 'pending')
+                                    _buildKycAlert(),
                                   const SizedBox(height: 20),
                                   _buildBranding(),
                                   const SizedBox(height: 22),
@@ -535,6 +605,114 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ───────── MARQUEE TICKER ─────────
+  Widget _buildMarqueeTicker() {
+    final text = _marqueeTopics.join('   •   ');
+    // Duplicate for seamless scrolling
+    final fullText = '$text   •   $text';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+      child: Container(
+        height: 32,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          color: AppColors.darkBlue.withValues(alpha: 0.7),
+          border: Border.all(
+            color: AppColors.orange.withValues(alpha: 0.15),
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SingleChildScrollView(
+            controller: _marqueeController,
+            scrollDirection: Axis.horizontal,
+            physics: const NeverScrollableScrollPhysics(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(
+                fullText,
+                style: TextStyle(
+                  color: AppColors.lightOrange.withValues(alpha: 0.85),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.3,
+                ),
+                maxLines: 1,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ───────── KYC ALERT ─────────
+  Widget _buildKycAlert() {
+    final isRejected = _user?.kycStatus == 'rejected';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: GestureDetector(
+        onTap: () => Navigator.pushNamed(context, '/kyc'),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: isRejected
+                ? Colors.red.withValues(alpha: 0.1)
+                : AppColors.orange.withValues(alpha: 0.1),
+            border: Border.all(
+              color: isRejected
+                  ? Colors.red.withValues(alpha: 0.25)
+                  : AppColors.orange.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isRejected
+                    ? Icons.warning_amber_rounded
+                    : Icons.verified_user_outlined,
+                color: isRejected ? Colors.red[400] : AppColors.orange,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isRejected
+                      ? 'KYC rejected. Tap to re-submit.'
+                      : 'Complete KYC to unlock all features',
+                  style: TextStyle(
+                    color: isRejected ? Colors.red[300] : AppColors.lightOrange,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: isRejected ? Colors.red : AppColors.orange,
+                ),
+                child: Text(
+                  isRejected ? 'Re-submit' : 'Complete',
+                  style: const TextStyle(
+                    color: AppColors.darkBlue,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ───────── BRANDING ─────────
   Widget _buildBranding() {
     return Center(
@@ -627,7 +805,7 @@ class _HomeScreenState extends State<HomeScreen>
                     image: ch.bannerUrl != null
                         ? DecorationImage(
                             image: NetworkImage(
-                              '${AppConfig.baseUrl}${ch.bannerUrl}',
+                              AppConfig.mediaUrl(ch.bannerUrl!),
                             ),
                             fit: BoxFit.cover,
                           )
@@ -679,7 +857,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   ),
                                   image: DecorationImage(
                                     image: NetworkImage(
-                                      '${AppConfig.baseUrl}${ch.logoUrl}',
+                                      AppConfig.mediaUrl(ch.logoUrl!),
                                     ),
                                     fit: BoxFit.cover,
                                   ),
@@ -781,6 +959,7 @@ class _HomeScreenState extends State<HomeScreen>
         SizedBox(
           height: 44,
           child: ListView.builder(
+            controller: _recentScrollController,
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 18),
             itemCount: channels.length,
@@ -820,7 +999,7 @@ class _HomeScreenState extends State<HomeScreen>
                           image: ch.logoUrl != null
                               ? DecorationImage(
                                   image: NetworkImage(
-                                    '${AppConfig.baseUrl}${ch.logoUrl}',
+                                    AppConfig.mediaUrl(ch.logoUrl!),
                                   ),
                                   fit: BoxFit.cover,
                                 )
@@ -1086,68 +1265,71 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           const SizedBox(height: 10),
           // Premium ad banners
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.orange.withValues(alpha: 0.15),
-                  AppColors.darkBlue.withValues(alpha: 0.9),
+          GestureDetector(
+            onTap: () => Navigator.pushNamed(context, '/advertiser'),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.orange.withValues(alpha: 0.15),
+                    AppColors.darkBlue.withValues(alpha: 0.9),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: Border.all(
+                  color: AppColors.orange.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.orange.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.rocket_launch_rounded,
+                      color: AppColors.orange,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Boost Your Channel',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Promote your content to thousands of viewers across Africa.',
+                          style: TextStyle(
+                            color: AppColors.hintText.withValues(alpha: 0.7),
+                            fontSize: 11,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.orange.withValues(alpha: 0.6),
+                    size: 22,
+                  ),
                 ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
               ),
-              border: Border.all(
-                color: AppColors.orange.withValues(alpha: 0.2),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.orange.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.rocket_launch_rounded,
-                    color: AppColors.orange,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Boost Your Channel',
-                        style: TextStyle(
-                          color: AppColors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Promote your content to thousands of viewers across Africa.',
-                        style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.7),
-                          fontSize: 11,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.orange.withValues(alpha: 0.6),
-                  size: 22,
-                ),
-              ],
             ),
           ),
           const SizedBox(height: 10),
@@ -1155,20 +1337,26 @@ class _HomeScreenState extends State<HomeScreen>
           Row(
             children: [
               Expanded(
-                child: _adBox(
-                  icon: Icons.workspace_premium_rounded,
-                  title: 'Go Premium',
-                  subtitle: 'Unlock exclusive features',
-                  color: AppColors.lightOrange,
+                child: GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, '/plans'),
+                  child: _adBox(
+                    icon: Icons.workspace_premium_rounded,
+                    title: 'Go Premium',
+                    subtitle: 'Unlock exclusive features',
+                    color: AppColors.lightOrange,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _adBox(
-                  icon: Icons.groups_rounded,
-                  title: 'Refer & Earn',
-                  subtitle: 'Earn vPT for invites',
-                  color: const Color(0xFF4CAF50),
+                child: GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, '/referral'),
+                  child: _adBox(
+                    icon: Icons.groups_rounded,
+                    title: 'Refer & Earn',
+                    subtitle: 'Earn vPT for invites',
+                    color: const Color(0xFF4CAF50),
+                  ),
                 ),
               ),
             ],

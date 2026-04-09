@@ -9,6 +9,7 @@ const DEFAULTS = [
   {
     id: 'plan_basic',
     name: 'basic',
+    type: 'creator',
     price: 2000,
     currency: 'NGN',
     features: ['digital_tv'],
@@ -21,6 +22,7 @@ const DEFAULTS = [
   {
     id: 'plan_pro',
     name: 'pro',
+    type: 'creator',
     price: 10000,
     currency: 'NGN',
     features: [
@@ -41,6 +43,7 @@ const DEFAULTS = [
   {
     id: 'plan_premium',
     name: 'premium',
+    type: 'creator',
     price: 50000,
     currency: 'NGN',
     features: [
@@ -65,21 +68,61 @@ const DEFAULTS = [
     is_active: true,
   },
   {
-    id: 'plan_premium_viewer',
-    name: 'premium_viewer',
-    price: 500,
+    id: 'plan_viewer_free',
+    name: 'free',
+    type: 'viewer',
+    price: 0,
+    yearly_price: 0,
     currency: 'NGN',
     features: [
-      'digital_tv',
-      'private_channel',
-      'premium_stream',
+      'public_channels',
+      '0x_multiplier',
     ],
     display_labels: {
-      digital_tv: 'Digital TV',
-      private_channel: 'Private Channel Access',
-      premium_stream: 'Premium Stream Access',
+      public_channels: 'Public Channels Only',
+      '0x_multiplier': '0.0x vPT Multiplier',
     },
-    badge: 'Viewer+',
+    badge: null,
+    is_active: true,
+  },
+  {
+    id: 'plan_viewer_pro',
+    name: 'pro_viewer',
+    type: 'viewer',
+    price: 500,
+    yearly_price: 5100,
+    currency: 'NGN',
+    features: [
+      'public_channels',
+      'private_channels',
+      '1x_multiplier',
+    ],
+    display_labels: {
+      public_channels: 'Public Channels',
+      private_channels: 'Private Channel Access',
+      '1x_multiplier': '1.0x vPT Multiplier',
+    },
+    badge: 'Pro',
+    is_active: true,
+  },
+  {
+    id: 'plan_viewer_premium',
+    name: 'premium_viewer',
+    type: 'viewer',
+    price: 2000,
+    yearly_price: 16800,
+    currency: 'NGN',
+    features: [
+      'all_channels',
+      'exclusive_deals',
+      '3_5x_multiplier',
+    ],
+    display_labels: {
+      all_channels: 'All Channels Access',
+      exclusive_deals: 'Exclusive Deals & Perks',
+      '3_5x_multiplier': '3.5x vPT Multiplier',
+    },
+    badge: 'Premium',
     is_active: true,
   },
 ];

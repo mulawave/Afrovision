@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/config/app_config.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
 
@@ -170,7 +171,7 @@ class _SubscriberFeedSectionState extends State<SubscriberFeedSection> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: Image.network(
-                      channel.logoUrl!,
+                      AppConfig.mediaUrl(channel.logoUrl!),
                       width: 32,
                       height: 32,
                       fit: BoxFit.cover,

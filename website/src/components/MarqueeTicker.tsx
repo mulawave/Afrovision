@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "";
+import { API_BASE } from "@/lib/api";
 
 interface Topic {
   id: string;
@@ -18,7 +17,7 @@ export function MarqueeTicker() {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`${API}/home/marquee`);
+        const res = await fetch(`${API_BASE}/home/marquee`);
         if (res.ok) {
           const data = await res.json();
           if (!cancelled && Array.isArray(data) && data.length > 0) {

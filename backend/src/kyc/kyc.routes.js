@@ -12,11 +12,13 @@
  */
 const { Router } = require('express');
 const { authenticateToken } = require('../utils/jwt');
+const { upload, uploadSingleToGCS } = require('../utils/upload');
 const ctrl = require('./kyc.controller');
 
 const router = Router();
 
 // Authenticated user
+router.post('/upload-doc', authenticateToken, upload.single('file'), uploadSingleToGCS, ctrl.uploadKycDoc);
 router.post('/submit', authenticateToken, ctrl.submitKyc);
 router.get('/me', authenticateToken, ctrl.getMyKyc);
 

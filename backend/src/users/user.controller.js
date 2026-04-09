@@ -1,4 +1,5 @@
 const User = require('./user.model');
+const { uploadSingleToGCS, upload } = require('../utils/upload');
 
 function getProfile(req, res) {
   const user = User.findById(req.userId);
@@ -16,8 +17,30 @@ function resolveCreator(creatorId) {
 }
 
 async function updateProfile(req, res) {
-  const { name } = req.body;
-  const user = await User.updateProfile(req.userId, { name });
+  const { name, email } = req.body;
+  const fields = {};
+  if (name !== undefined) fields.name = name;
+  if (email !== undefined) {
+    const emailStr = String(email).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailStr)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+    const existing = User.findByEmail(emailStr);
+    if (existing && existing.id !== req.userId) {
+      return res.status(409).json({ error: 'Email already in use' });
+    }
+    fields.email = emailStr;
+  }
+  const user = await User.updateProfile(req.userId, fields);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ user: User.toSafeUser(user) });
+}
+
+async function uploadAvatar(req, res) {
+  if (!req.file || !req.file.gcsUrl) {
+    return res.status(400).json({ error: 'Avatar image is required' });
+  }
+  const user = await User.updateProfile(req.userId, { avatar_url: req.file.gcsUrl });
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: User.toSafeUser(user) });
 }
@@ -124,6 +147,7 @@ function getFollowingCreators(req, res) {
 module.exports = {
   getProfile,
   updateProfile,
+  uploadAvatar,
   updateCurrency,
   requestCreator,
   registerFcmToken,

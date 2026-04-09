@@ -11,6 +11,7 @@ class UserModel {
   final String preferredCurrency;
   final double vptBalance;
   final String? bscAddress;
+  final String? avatarUrl;
   final String? firstSubscriptionAt;
   final String createdAt;
 
@@ -27,6 +28,7 @@ class UserModel {
     required this.preferredCurrency,
     required this.vptBalance,
     this.bscAddress,
+    this.avatarUrl,
     this.firstSubscriptionAt,
     required this.createdAt,
   });
@@ -41,21 +43,21 @@ class UserModel {
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
-      id: json['id'] as String,
-      email: json['email'] as String,
+      id: (json['id'] ?? '') as String,
+      email: (json['email'] ?? '') as String,
       name: json['name'] as String?,
-      role: json['role'] as String,
+      role: (json['role'] ?? 'viewer') as String,
       isPremiumCreator: json['is_premium_creator'] as bool? ?? false,
       kycStatus: json['kyc_status'] as String? ?? 'none',
       subscriptionPlan: json['subscription_plan'] as String?,
-      subscriptionStatus:
-          json['subscription_status'] as String? ?? 'inactive',
+      subscriptionStatus: json['subscription_status'] as String? ?? 'inactive',
       subscriptionExpiry: json['subscription_expiry'] as String?,
       preferredCurrency: json['preferred_currency'] as String? ?? 'NGN',
       vptBalance: (json['vpt_balance'] as num?)?.toDouble() ?? 0,
       bscAddress: json['bsc_address'] as String?,
+      avatarUrl: json['avatar_url'] as String?,
       firstSubscriptionAt: json['first_subscription_at'] as String?,
-      createdAt: json['created_at'] as String,
+      createdAt: (json['created_at'] ?? '') as String,
     );
   }
 }

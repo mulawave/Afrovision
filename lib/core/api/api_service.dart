@@ -132,6 +132,21 @@ class ApiService {
     }
     return data;
   }
+
+  /// Public GET — no auth header, returns dynamic (can be List or Map)
+  static Future<dynamic> getPublic(String path) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl$path'),
+      headers: {'Content-Type': 'application/json'},
+    );
+    final data = jsonDecode(response.body);
+    if (response.statusCode >= 400) {
+      throw ApiException(
+          (data is Map ? data['error'] : null) as String? ?? 'Request failed',
+          response.statusCode);
+    }
+    return data;
+  }
 }
 
 class ApiException implements Exception {

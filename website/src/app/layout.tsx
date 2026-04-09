@@ -5,6 +5,7 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { CommunityPoolBar } from "@/components/CommunityPoolBar";
 import { MarqueeTicker } from "@/components/MarqueeTicker";
+import { KycAlertBanner } from "@/components/KycAlertBanner";
 import { AuthProvider } from "@/lib/AuthContext";
 import { getBranding } from "@/lib/homepage";
 
@@ -57,6 +58,7 @@ export default async function RootLayout({
           <div className="h-16 lg:h-20" />
           <MarqueeTicker />
           <CommunityPoolBar />
+          <KycAlertBanner />
           <main className="flex-1">{children}</main>
           <Footer logoUrl={branding.logo_url} />
         </AuthProvider>

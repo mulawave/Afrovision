@@ -351,7 +351,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 children: [
                   hasBanner
                       ? Image.network(
-                          '${AppConfig.baseUrl}${channel.bannerUrl}',
+                          AppConfig.mediaUrl(channel.bannerUrl!),
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => _buildDefaultBanner(),
                         )
@@ -432,7 +432,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                       image: hasLogo
                           ? DecorationImage(
                               image: NetworkImage(
-                                '${AppConfig.baseUrl}${channel.logoUrl}',
+                                AppConfig.mediaUrl(channel.logoUrl!),
                               ),
                               fit: BoxFit.cover,
                             )
@@ -750,7 +750,7 @@ class _SearchModalState extends State<_SearchModal> {
                                   image: hasLogo
                                       ? DecorationImage(
                                           image: NetworkImage(
-                                            '${AppConfig.baseUrl}${ch.logoUrl}',
+                                            AppConfig.mediaUrl(ch.logoUrl!),
                                           ),
                                           fit: BoxFit.cover,
                                         )

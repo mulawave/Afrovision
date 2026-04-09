@@ -2,7 +2,7 @@ import '../../../core/api/api_service.dart';
 
 class AdService {
   static Future<List<Map<String, dynamic>>> getMyAds() async {
-    final data = await ApiService.get('/ads/mine');
+    final data = await ApiService.get('/ads/me');
     return List<Map<String, dynamic>>.from(data['ads'] ?? []);
   }
 
@@ -13,7 +13,7 @@ class AdService {
   }
 
   static Future<Map<String, dynamic>> getMyAnalytics() async {
-    return ApiService.get('/ads/billing/my-analytics');
+    return ApiService.get('/ads/my-analytics');
   }
 
   static Future<Map<String, dynamic>> topUp(String adId, double amount) async {

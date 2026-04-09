@@ -1,11 +1,13 @@
 const { Router } = require('express');
 const { authenticateToken } = require('../utils/jwt');
+const { upload, uploadSingleToGCS } = require('../utils/upload');
 const ctrl = require('./user.controller');
 
 const router = Router();
 
 router.get('/me', authenticateToken, ctrl.getProfile);
 router.put('/update-profile', authenticateToken, ctrl.updateProfile);
+router.post('/avatar', authenticateToken, upload.single('avatar'), uploadSingleToGCS, ctrl.uploadAvatar);
 router.patch('/currency', authenticateToken, ctrl.updateCurrency);
 router.post('/request-creator', authenticateToken, ctrl.requestCreator);
 router.post('/fcm-token', authenticateToken, ctrl.registerFcmToken);

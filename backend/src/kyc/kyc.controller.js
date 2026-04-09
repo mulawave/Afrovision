@@ -15,6 +15,18 @@ const UserModel = require('../users/user.model');
 
 /* ── User-facing ──────────────────────────────────────────────── */
 
+async function uploadKycDoc(req, res) {
+  try {
+    if (!req.file || !req.file.gcsUrl) {
+      return res.status(400).json({ error: 'File is required' });
+    }
+    res.json({ url: req.file.gcsUrl });
+  } catch (err) {
+    console.error('[KYC] upload error:', err);
+    res.status(500).json({ error: 'Failed to upload document' });
+  }
+}
+
 async function submitKyc(req, res) {
   try {
     const userId = req.userId;
@@ -179,6 +191,7 @@ async function adminDeleteKyc(req, res) {
 }
 
 module.exports = {
+  uploadKycDoc,
   submitKyc,
   getMyKyc,
   adminListKyc,

@@ -144,6 +144,7 @@ export interface StoredUser {
   subscription_plan: string | null;
   subscription_status: "inactive" | "active" | "expired";
   subscription_expiry: string | null;
+  avatar_url: string | null;
   preferred_currency: string;
   vpt_balance: number;
   bsc_address: string | null;
@@ -193,9 +194,11 @@ export async function registerApi(
 }
 
 export async function getMeApi() {
-  return api<{ user: StoredUser } | ErrorResponse>("/auth/me", {
-    requireAuth: true,
-  });
+  // Do NOT use requireAuth — this is a silent token validation.
+  // The AuthContext handles 401 gracefully without redirect.
+  const token = getToken();
+  if (!token) return { ok: false, status: 401, data: { error: "Not authenticated" } as { user: StoredUser } | ErrorResponse };
+  return api<{ user: StoredUser } | ErrorResponse>("/auth/me");
 }
 
 export async function forgotPasswordApi(email: string) {
@@ -879,7 +882,7 @@ export async function getHomeStatsApi() {
     recent_channels: Channel[];
     promoted_channels: Channel[];
     stats: { total_channels: number; total_members: number };
-  }>("/home/stats", { requireAuth: true });
+  }>("/home/stats");
 }
 
 // ── Notification API methods ───────────────────────────────

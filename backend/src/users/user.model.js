@@ -104,6 +104,8 @@ async function updateProfile(userId, fields) {
   const user = findById(userId);
   if (!user) return null;
   if (fields.name !== undefined) user.name = fields.name;
+  if (fields.email !== undefined) user.email = fields.email;
+  if (fields.avatar_url !== undefined) user.avatar_url = fields.avatar_url;
   if (fields.preferred_currency !== undefined) user.preferred_currency = fields.preferred_currency;
   await persistUser(user);
   return user;
@@ -360,6 +362,7 @@ function toSafeUser(user) {
     id: user.id,
     email: user.email,
     name: user.name,
+    avatar_url: user.avatar_url || null,
     role: user.role,
     is_premium_creator: user.is_premium_creator,
     kyc_status: user.kyc_status,

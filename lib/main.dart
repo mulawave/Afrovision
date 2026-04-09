@@ -35,6 +35,7 @@ import 'features/referral/screens/referral_screen.dart';
 import 'features/auth/screens/pak_login_screen.dart';
 import 'features/ads/screens/advertiser_screen.dart';
 import 'features/broadcast/screens/reminders_screen.dart';
+import 'features/kyc/screens/kyc_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -105,6 +106,7 @@ class AfroVisionApp extends StatelessWidget {
         '/pak-login': (_) => const PakLoginScreen(),
         '/advertiser': (_) => const AdvertiserScreen(),
         '/reminders': (_) => const RemindersScreen(),
+        '/kyc': (_) => const KycScreen(),
       },
     );
   }

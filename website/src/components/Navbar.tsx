@@ -169,6 +169,27 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                           Referrals
                         </Link>
                         <Link
+                          href="/kyc"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-av-white/70 hover:text-av-white hover:bg-av-input-fill/50 transition-colors"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-av-hint">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+                          </svg>
+                          KYC Verification
+                          {user.kyc_status !== "verified" && (
+                            <span className={`ml-auto text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
+                              user.kyc_status === "rejected"
+                                ? "bg-red-500/20 text-red-400"
+                                : user.kyc_status === "pending"
+                                ? "bg-yellow-500/20 text-yellow-400"
+                                : "bg-av-orange/20 text-av-orange"
+                            }`}>
+                              {user.kyc_status === "none" ? "Required" : user.kyc_status}
+                            </span>
+                          )}
+                        </Link>
+                        <Link
                           href="/advertiser"
                           onClick={() => setUserMenuOpen(false)}
                           className="flex items-center gap-3 px-4 py-2.5 text-sm text-av-white/70 hover:text-av-white hover:bg-av-input-fill/50 transition-colors"

@@ -278,9 +278,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: AppColors.inputBorder),
                       image: DecorationImage(
-                        image: NetworkImage(
-                          '${AppConfig.baseUrl}${ch.bannerUrl}',
-                        ),
+                        image: NetworkImage(AppConfig.mediaUrl(ch.bannerUrl!)),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -308,7 +306,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                     image: ch.logoUrl != null
                         ? DecorationImage(
                             image: NetworkImage(
-                              '${AppConfig.baseUrl}${ch.logoUrl}',
+                              AppConfig.mediaUrl(ch.logoUrl!),
                             ),
                             fit: BoxFit.cover,
                           )

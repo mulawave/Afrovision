@@ -273,11 +273,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ? AppColors.orange
                     : null,
               ),
-              _buildInfoCard(
-                icon: Icons.verified_user_rounded,
-                label: 'KYC Status',
-                value: user.kycStatus.toUpperCase(),
-                valueColor: _kycColor(user.kycStatus),
+              GestureDetector(
+                onTap: () => Navigator.pushNamed(context, '/kyc'),
+                child: _buildInfoCard(
+                  icon: Icons.verified_user_rounded,
+                  label: 'KYC Status',
+                  value: user.kycStatus.toUpperCase(),
+                  valueColor: _kycColor(user.kycStatus),
+                ),
               ),
               _buildInfoCard(
                 icon: Icons.calendar_today_rounded,
