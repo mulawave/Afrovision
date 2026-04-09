@@ -84,13 +84,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                 child: _loading
                     ? const Center(
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(AppColors.orange),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.orange,
+                          ),
                         ),
                       )
                     : _user == null
-                        ? _buildError()
-                        : _buildContent(),
+                    ? _buildError()
+                    : _buildContent(),
               ),
             ],
           ),
@@ -113,8 +114,11 @@ class _ProfileScreenState extends State<ProfileScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.white, size: 18),
+              child: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: AppColors.white,
+                size: 18,
+              ),
             ),
           ),
           const SizedBox(width: 16),
@@ -129,8 +133,10 @@ class _ProfileScreenState extends State<ProfileScreen>
           const Spacer(),
           GestureDetector(
             onTap: () async {
-              final result =
-                  await Navigator.pushNamed(context, '/edit-profile');
+              final result = await Navigator.pushNamed(
+                context,
+                '/edit-profile',
+              );
               if (result == true) _loadProfile();
             },
             child: Container(
@@ -140,8 +146,11 @@ class _ProfileScreenState extends State<ProfileScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.edit_rounded,
-                  color: AppColors.orange, size: 18),
+              child: const Icon(
+                Icons.edit_rounded,
+                color: AppColors.orange,
+                size: 18,
+              ),
             ),
           ),
         ],
@@ -154,8 +163,11 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.error_outline_rounded,
-              color: AppColors.errorRed, size: 48),
+          const Icon(
+            Icons.error_outline_rounded,
+            color: AppColors.errorRed,
+            size: 48,
+          ),
           const SizedBox(height: 12),
           const Text(
             'Failed to load profile',
@@ -173,9 +185,13 @@ class _ProfileScreenState extends State<ProfileScreen>
                 gradient: AppColors.buttonGradient,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Text('Retry',
-                  style: TextStyle(
-                      color: AppColors.white, fontWeight: FontWeight.w600)),
+              child: const Text(
+                'Retry',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ),
         ],
@@ -199,272 +215,291 @@ class _ProfileScreenState extends State<ProfileScreen>
             child: Column(
               children: [
                 const SizedBox(height: 16),
-              // Avatar
-              Container(
-                width: 90,
-                height: 90,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [
-                      AppColors.orange.withValues(alpha: 0.3),
-                      AppColors.lightOrange.withValues(alpha: 0.15),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+                // Avatar
+                Container(
+                  width: 90,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.orange.withValues(alpha: 0.3),
+                        AppColors.lightOrange.withValues(alpha: 0.15),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    border: Border.all(
+                      color: AppColors.orange.withValues(alpha: 0.5),
+                      width: 2,
+                    ),
                   ),
-                  border: Border.all(
-                      color: AppColors.orange.withValues(alpha: 0.5), width: 2),
-                ),
-                child: Center(
-                  child: Text(
-                    _avatarInitials(user),
-                    style: const TextStyle(
-                      color: AppColors.orange,
-                      fontSize: 32,
-                      fontWeight: FontWeight.w700,
+                  child: Center(
+                    child: Text(
+                      _avatarInitials(user),
+                      style: const TextStyle(
+                        color: AppColors.orange,
+                        fontSize: 32,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              // Name
-              Text(
-                user.name ?? 'No name set',
-                style: TextStyle(
-                  color: user.name != null
-                      ? AppColors.white
-                      : AppColors.hintText.withValues(alpha: 0.6),
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 16),
+                // Name
+                Text(
+                  user.name ?? 'No name set',
+                  style: TextStyle(
+                    color: user.name != null
+                        ? AppColors.white
+                        : AppColors.hintText.withValues(alpha: 0.6),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                user.email,
-                style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.8),
-                  fontSize: 14,
+                const SizedBox(height: 4),
+                Text(
+                  user.email,
+                  style: TextStyle(
+                    color: AppColors.hintText.withValues(alpha: 0.8),
+                    fontSize: 14,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              RoleBadge(
+                const SizedBox(height: 12),
+                RoleBadge(
                   role: user.role,
                   isPremiumCreator: user.isPremiumCreator,
-                  subscriptionPlan: user.subscriptionPlan),
-              const SizedBox(height: 28),
-
-              // Info cards
-              _buildInfoCard(
-                icon: Icons.email_rounded,
-                label: 'Email',
-                value: user.email,
-              ),
-              _buildInfoCard(
-                icon: Icons.person_rounded,
-                label: 'Name',
-                value: user.name ?? 'Not set',
-              ),
-              _buildInfoCard(
-                icon: Icons.workspace_premium_rounded,
-                label: 'Premium Creator',
-                value: user.isPremiumCreator ? 'Yes' : 'No',
-                valueColor: user.isPremiumCreator
-                    ? AppColors.orange
-                    : null,
-              ),
-              GestureDetector(
-                onTap: () => Navigator.pushNamed(context, '/kyc'),
-                child: _buildInfoCard(
-                  icon: Icons.verified_user_rounded,
-                  label: 'KYC Status',
-                  value: user.kycStatus.toUpperCase(),
-                  valueColor: _kycColor(user.kycStatus),
+                  subscriptionPlan: user.subscriptionPlan,
                 ),
-              ),
-              _buildInfoCard(
-                icon: Icons.calendar_today_rounded,
-                label: 'Member Since',
-                value: _formatDate(user.createdAt),
-              ),
+                const SizedBox(height: 28),
 
-              // Subscription info cards
-              _buildInfoCard(
-                icon: Icons.card_membership_rounded,
-                label: 'Subscription Plan',
-                value: user.subscriptionPlanDisplay,
-                valueColor: user.hasActiveSubscription
-                    ? AppColors.orange
-                    : null,
-              ),
-              _buildInfoCard(
-                icon: Icons.power_settings_new_rounded,
-                label: 'Subscription Status',
-                value: user.subscriptionStatus.toUpperCase(),
-                valueColor: user.hasActiveSubscription
-                    ? const Color(0xFF4CAF50)
-                    : AppColors.hintText,
-              ),
-              if (user.subscriptionExpiry != null)
+                // Info cards
                 _buildInfoCard(
-                  icon: Icons.timer_rounded,
-                  label: 'Expiry Date',
-                  value: _formatDate(user.subscriptionExpiry!),
+                  icon: Icons.email_rounded,
+                  label: 'Email',
+                  value: user.email,
+                ),
+                _buildInfoCard(
+                  icon: Icons.person_rounded,
+                  label: 'Name',
+                  value: user.name ?? 'Not set',
+                ),
+                _buildInfoCard(
+                  icon: Icons.workspace_premium_rounded,
+                  label: 'Premium Creator',
+                  value: user.isPremiumCreator ? 'Yes' : 'No',
+                  valueColor: user.isPremiumCreator ? AppColors.orange : null,
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, '/kyc'),
+                  child: _buildInfoCard(
+                    icon: Icons.verified_user_rounded,
+                    label: 'KYC Status',
+                    value: user.kycStatus.toUpperCase(),
+                    valueColor: _kycColor(user.kycStatus),
+                  ),
+                ),
+                _buildInfoCard(
+                  icon: Icons.calendar_today_rounded,
+                  label: 'Member Since',
+                  value: _formatDate(user.createdAt),
                 ),
 
-              const SizedBox(height: 24),
+                // Subscription info cards
+                _buildInfoCard(
+                  icon: Icons.card_membership_rounded,
+                  label: 'Subscription Plan',
+                  value: user.subscriptionPlanDisplay,
+                  valueColor: user.hasActiveSubscription
+                      ? AppColors.orange
+                      : null,
+                ),
+                _buildInfoCard(
+                  icon: Icons.power_settings_new_rounded,
+                  label: 'Subscription Status',
+                  value: user.subscriptionStatus.toUpperCase(),
+                  valueColor: user.hasActiveSubscription
+                      ? const Color(0xFF4CAF50)
+                      : AppColors.hintText,
+                ),
+                if (user.subscriptionExpiry != null)
+                  _buildInfoCard(
+                    icon: Icons.timer_rounded,
+                    label: 'Expiry Date',
+                    value: _formatDate(user.subscriptionExpiry!),
+                  ),
 
-              // vPT Balance card
-              if (user.isCreator)
-                _buildVptBalanceCard(user),
+                const SizedBox(height: 24),
 
-              // Currency preference
-              if (_currencies.isNotEmpty)
-                _buildCurrencySelector(user),
+                // vPT Balance card
+                if (user.isCreator) _buildVptBalanceCard(user),
 
-              const SizedBox(height: 16),
+                // Currency preference
+                if (_currencies.isNotEmpty) _buildCurrencySelector(user),
 
-              // View Plans button (for viewers or those wanting to change plan)
-              if (user.isViewer || !user.hasActiveSubscription) ...[
-                GestureDetector(
-                  onTap: () async {
-                    final result =
-                        await Navigator.pushNamed(context, '/plans');
-                    if (result == true) _loadProfile();
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    decoration: BoxDecoration(
-                      gradient: AppColors.buttonGradient,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.diamond_rounded,
-                            color: AppColors.white, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'View Plans',
-                          style: TextStyle(
+                const SizedBox(height: 16),
+
+                // View Plans button (for viewers or those wanting to change plan)
+                if (user.isViewer || !user.hasActiveSubscription) ...[
+                  GestureDetector(
+                    onTap: () async {
+                      final result = await Navigator.pushNamed(
+                        context,
+                        '/plans',
+                      );
+                      if (result == true) _loadProfile();
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      decoration: BoxDecoration(
+                        gradient: AppColors.buttonGradient,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.diamond_rounded,
                             color: AppColors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                            size: 20,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ] else ...[
-                GestureDetector(
-                  onTap: () async {
-                    final result =
-                        await Navigator.pushNamed(context, '/plans');
-                    if (result == true) _loadProfile();
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    decoration: BoxDecoration(
-                      color: AppColors.inputFill,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                          color: AppColors.orange.withValues(alpha: 0.3)),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.swap_horiz_rounded,
-                            color: AppColors.orange, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Change Plan',
-                          style: TextStyle(
-                            color: AppColors.orange,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                          SizedBox(width: 8),
+                          Text(
+                            'View Plans',
+                            style: TextStyle(
+                              color: AppColors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-              ],
-
-              // Creator Studio button (for creators)
-              if (user.role == 'creator') ...[
-                GestureDetector(
-                  onTap: () => Navigator.pushNamed(context, '/creator-studio'),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    decoration: BoxDecoration(
-                      color: AppColors.inputFill,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                          color: AppColors.lightOrange.withValues(alpha: 0.3)),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.video_settings_rounded,
-                            color: AppColors.lightOrange, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Creator Studio',
-                          style: TextStyle(
-                            color: AppColors.lightOrange,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-
-              // Logout button
-              GestureDetector(
-                onTap: _logout,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  decoration: BoxDecoration(
-                    color: AppColors.errorRed.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                        color: AppColors.errorRed.withValues(alpha: 0.3)),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.logout_rounded,
-                          color: AppColors.errorRed, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'Logout',
-                        style: TextStyle(
-                          color: AppColors.errorRed,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
+                  const SizedBox(height: 12),
+                ] else ...[
+                  GestureDetector(
+                    onTap: () async {
+                      final result = await Navigator.pushNamed(
+                        context,
+                        '/plans',
+                      );
+                      if (result == true) _loadProfile();
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      decoration: BoxDecoration(
+                        color: AppColors.inputFill,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppColors.orange.withValues(alpha: 0.3),
                         ),
                       ),
-                    ],
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.swap_horiz_rounded,
+                            color: AppColors.orange,
+                            size: 20,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Change Plan',
+                            style: TextStyle(
+                              color: AppColors.orange,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // Creator Studio button (for creators)
+                if (user.role == 'creator') ...[
+                  GestureDetector(
+                    onTap: () =>
+                        Navigator.pushNamed(context, '/creator-studio'),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      decoration: BoxDecoration(
+                        color: AppColors.inputFill,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppColors.lightOrange.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.video_settings_rounded,
+                            color: AppColors.lightOrange,
+                            size: 20,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Creator Studio',
+                            style: TextStyle(
+                              color: AppColors.lightOrange,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // Logout button
+                GestureDetector(
+                  onTap: _logout,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    decoration: BoxDecoration(
+                      color: AppColors.errorRed.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AppColors.errorRed.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.logout_rounded,
+                          color: AppColors.errorRed,
+                          size: 20,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Logout',
+                          style: TextStyle(
+                            color: AppColors.errorRed,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 32),
-            ],
+                const SizedBox(height: 32),
+              ],
+            ),
           ),
         ),
       ),
-    ),
     );
   }
 
@@ -473,83 +508,86 @@ class _ProfileScreenState extends State<ProfileScreen>
     return GestureDetector(
       onTap: () => Navigator.pushNamed(context, '/digital-assets'),
       child: Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.inputFill,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: hasEnough
-              ? const Color(0xFF4CAF50).withValues(alpha: 0.3)
-              : AppColors.orange.withValues(alpha: 0.3),
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.inputFill,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: hasEnough
+                ? const Color(0xFF4CAF50).withValues(alpha: 0.3)
+                : AppColors.orange.withValues(alpha: 0.3),
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.orange.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.account_balance_wallet_rounded,
-                color: AppColors.orange, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'vPT Balance',
-                  style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.7),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_formatVpt(user.vptBalance)} vPT',
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  '≈ ₦${_formatVpt(user.vptBalance * 750)}',
-                  style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.6),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: hasEnough
-                  ? const Color(0xFF4CAF50).withValues(alpha: 0.1)
-                  : AppColors.errorRed.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              hasEnough ? 'Edit Ready' : 'Low',
-              style: TextStyle(
-                color: hasEnough
-                    ? const Color(0xFF4CAF50)
-                    : AppColors.errorRed,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.orange.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.account_balance_wallet_rounded,
+                color: AppColors.orange,
+                size: 22,
               ),
             ),
-          ),
-        ],
-      ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'vPT Balance',
+                    style: TextStyle(
+                      color: AppColors.hintText.withValues(alpha: 0.7),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${_formatVpt(user.vptBalance)} vPT',
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    '≈ ₦${_formatVpt(user.vptBalance * 750)}',
+                    style: TextStyle(
+                      color: AppColors.hintText.withValues(alpha: 0.6),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: hasEnough
+                    ? const Color(0xFF4CAF50).withValues(alpha: 0.1)
+                    : AppColors.errorRed.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                hasEnough ? 'Edit Ready' : 'Low',
+                style: TextStyle(
+                  color: hasEnough
+                      ? const Color(0xFF4CAF50)
+                      : AppColors.errorRed,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -585,8 +623,11 @@ class _ProfileScreenState extends State<ProfileScreen>
               color: AppColors.orange.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.currency_exchange_rounded,
-                color: AppColors.orange, size: 18),
+            child: const Icon(
+              Icons.currency_exchange_rounded,
+              color: AppColors.orange,
+              size: 18,
+            ),
           ),
           const SizedBox(width: 12),
           const Expanded(
@@ -605,14 +646,18 @@ class _ProfileScreenState extends State<ProfileScreen>
               color: AppColors.lightBlue.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                  color: AppColors.orange.withValues(alpha: 0.3)),
+                color: AppColors.orange.withValues(alpha: 0.3),
+              ),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: user.preferredCurrency,
                 dropdownColor: AppColors.lightBlue,
-                icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                    color: AppColors.orange, size: 18),
+                icon: const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: AppColors.orange,
+                  size: 18,
+                ),
                 isDense: true,
                 style: const TextStyle(
                   color: AppColors.orange,
@@ -635,11 +680,13 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(e.toString()),
-                        backgroundColor:
-                            AppColors.errorRed.withValues(alpha: 0.9),
+                        backgroundColor: AppColors.errorRed.withValues(
+                          alpha: 0.9,
+                        ),
                         behavior: SnackBarBehavior.floating,
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     );
                   }
@@ -734,8 +781,18 @@ class _ProfileScreenState extends State<ProfileScreen>
     final date = DateTime.tryParse(isoDate);
     if (date == null) return isoDate;
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }

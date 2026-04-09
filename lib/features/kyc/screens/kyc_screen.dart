@@ -2,8 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/config/app_config.dart';
-import '../../../core/services/api_service.dart';
+import '../../../core/api/api_service.dart';
 
 class KycScreen extends StatefulWidget {
   const KycScreen({super.key});
@@ -73,7 +72,7 @@ class _KycScreenState extends State<KycScreen>
   Future<void> _loadKycStatus() async {
     try {
       final data = await ApiService.get('/kyc/me');
-      if (data is Map<String, dynamic> && data['id'] != null) {
+      if (data['id'] != null) {
         if (mounted) setState(() => _existing = data);
       }
     } catch (_) {
@@ -196,8 +195,9 @@ class _KycScreenState extends State<KycScreen>
                 child: _loading
                     ? const Center(
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(AppColors.orange),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.orange,
+                          ),
                         ),
                       )
                     : FadeTransition(
@@ -229,8 +229,11 @@ class _KycScreenState extends State<KycScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.arrow_back_rounded,
-                  color: AppColors.white, size: 20),
+              child: const Icon(
+                Icons.arrow_back_rounded,
+                color: AppColors.white,
+                size: 20,
+              ),
             ),
           ),
           const SizedBox(width: 14),
@@ -281,8 +284,9 @@ class _KycScreenState extends State<KycScreen>
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: (colors[status] ?? AppColors.orange)
-                    .withValues(alpha: 0.15),
+                color: (colors[status] ?? AppColors.orange).withValues(
+                  alpha: 0.15,
+                ),
               ),
               child: Icon(
                 status == 'verified'
@@ -349,10 +353,7 @@ class _KycScreenState extends State<KycScreen>
                     const SizedBox(height: 4),
                     Text(
                       _existing!['rejection_reason'],
-                      style: TextStyle(
-                        color: Colors.red[300],
-                        fontSize: 11,
-                      ),
+                      style: TextStyle(color: Colors.red[300], fontSize: 11),
                     ),
                   ],
                 ],
@@ -376,39 +377,35 @@ class _KycScreenState extends State<KycScreen>
             ),
             const SizedBox(height: 16),
           ],
-          _sectionCard(
-            'Personal Information',
-            [
-              _field('Full Legal Name *', _nameCtrl, 'As on your ID'),
-              _field('Phone Number', _phoneCtrl, '+234...'),
-              _field('Address', _addressCtrl, 'Residential address'),
-            ],
-          ),
+          _sectionCard('Personal Information', [
+            _field('Full Legal Name *', _nameCtrl, 'As on your ID'),
+            _field('Phone Number', _phoneCtrl, '+234...'),
+            _field('Address', _addressCtrl, 'Residential address'),
+          ]),
           const SizedBox(height: 16),
-          _sectionCard(
-            'Identity Document',
-            [
-              _idTypeSelector(),
-              _field('ID Number *', _idNumberCtrl, 'Your ID number'),
-            ],
-          ),
+          _sectionCard('Identity Document', [
+            _idTypeSelector(),
+            _field('ID Number *', _idNumberCtrl, 'Your ID number'),
+          ]),
           const SizedBox(height: 16),
-          _sectionCard(
-            'Upload Documents',
-            [
-              _uploadBox('ID Front *', 'id_front', _idFrontUrl),
-              _uploadBox('ID Back (optional)', 'id_back', _idBackUrl),
-              _uploadBox('Selfie Photo *', 'selfie', _selfieUrl,
-                  hint: 'Take a clear selfie matching your ID'),
-            ],
-          ),
+          _sectionCard('Upload Documents', [
+            _uploadBox('ID Front *', 'id_front', _idFrontUrl),
+            _uploadBox('ID Back (optional)', 'id_back', _idBackUrl),
+            _uploadBox(
+              'Selfie Photo *',
+              'selfie',
+              _selfieUrl,
+              hint: 'Take a clear selfie matching your ID',
+            ),
+          ]),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
-              onPressed:
-                  _submitting || _uploadingField != null ? null : _submit,
+              onPressed: _submitting || _uploadingField != null
+                  ? null
+                  : _submit,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.orange,
                 foregroundColor: AppColors.darkBlue,
@@ -423,8 +420,9 @@ class _KycScreenState extends State<KycScreen>
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(AppColors.darkBlue),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          AppColors.darkBlue,
+                        ),
                       ),
                     )
                   : const Text(
@@ -468,8 +466,7 @@ class _KycScreenState extends State<KycScreen>
     );
   }
 
-  Widget _field(
-      String label, TextEditingController ctrl, String placeholder) {
+  Widget _field(String label, TextEditingController ctrl, String placeholder) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -496,8 +493,10 @@ class _KycScreenState extends State<KycScreen>
               ),
               filled: true,
               fillColor: AppColors.inputFill.withValues(alpha: 0.5),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: AppColors.inputBorder),
@@ -509,7 +508,8 @@ class _KycScreenState extends State<KycScreen>
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                    color: AppColors.orange.withValues(alpha: 0.5)),
+                  color: AppColors.orange.withValues(alpha: 0.5),
+                ),
               ),
             ),
           ),
@@ -545,14 +545,18 @@ class _KycScreenState extends State<KycScreen>
                 value: _idType,
                 isExpanded: true,
                 dropdownColor: AppColors.darkBlue,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 style: const TextStyle(color: AppColors.white, fontSize: 14),
                 items: _idTypes
-                    .map((t) => DropdownMenuItem(
-                          value: t['value'],
-                          child: Text(t['label']!),
-                        ))
+                    .map(
+                      (t) => DropdownMenuItem(
+                        value: t['value'],
+                        child: Text(t['label']!),
+                      ),
+                    )
                     .toList(),
                 onChanged: (val) {
                   if (val != null) setState(() => _idType = val);
@@ -565,8 +569,12 @@ class _KycScreenState extends State<KycScreen>
     );
   }
 
-  Widget _uploadBox(String label, String fieldName, String? uploadedUrl,
-      {String? hint}) {
+  Widget _uploadBox(
+    String label,
+    String fieldName,
+    String? uploadedUrl, {
+    String? hint,
+  }) {
     final isUploading = _uploadingField == fieldName;
     final isUploaded = uploadedUrl != null;
 
@@ -600,7 +608,8 @@ class _KycScreenState extends State<KycScreen>
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                            AppColors.orange.withValues(alpha: 0.7)),
+                          AppColors.orange.withValues(alpha: 0.7),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -614,52 +623,55 @@ class _KycScreenState extends State<KycScreen>
                   ],
                 )
               : isUploaded
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.check_circle,
-                            color: Color(0xFF4CAF50), size: 16),
-                        const SizedBox(width: 8),
-                        Text(
-                          '$label — Uploaded',
-                          style: const TextStyle(
-                            color: Color(0xFF4CAF50),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        Text(
-                          label,
-                          style: TextStyle(
-                            color: AppColors.white.withValues(alpha: 0.7),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        if (hint != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            hint,
-                            style: TextStyle(
-                              color: AppColors.hintText.withValues(alpha: 0.5),
-                              fontSize: 10,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 2),
-                        Text(
-                          'Tap to select',
-                          style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.4),
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.check_circle,
+                      color: Color(0xFF4CAF50),
+                      size: 16,
                     ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$label — Uploaded',
+                      style: const TextStyle(
+                        color: Color(0xFF4CAF50),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: AppColors.white.withValues(alpha: 0.7),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (hint != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        hint,
+                        style: TextStyle(
+                          color: AppColors.hintText.withValues(alpha: 0.5),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 2),
+                    Text(
+                      'Tap to select',
+                      style: TextStyle(
+                        color: AppColors.hintText.withValues(alpha: 0.4),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );

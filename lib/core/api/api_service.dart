@@ -9,9 +9,7 @@ class ApiService {
 
   static Future<Map<String, String>> _headers() async {
     final token = await AuthStorage.getToken();
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-    };
+    final headers = <String, String>{'Content-Type': 'application/json'};
     if (token != null) {
       headers['Authorization'] = 'Bearer $token';
     }
@@ -19,7 +17,9 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final response = await http.post(
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
@@ -28,7 +28,9 @@ class ApiService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       throw ApiException(
-          data['error'] as String? ?? 'Request failed', response.statusCode);
+        data['error'] as String? ?? 'Request failed',
+        response.statusCode,
+      );
     }
     return data;
   }
@@ -41,13 +43,17 @@ class ApiService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       throw ApiException(
-          data['error'] as String? ?? 'Request failed', response.statusCode);
+        data['error'] as String? ?? 'Request failed',
+        response.statusCode,
+      );
     }
     return data;
   }
 
   static Future<Map<String, dynamic>> put(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final response = await http.put(
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
@@ -56,13 +62,17 @@ class ApiService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       throw ApiException(
-          data['error'] as String? ?? 'Request failed', response.statusCode);
+        data['error'] as String? ?? 'Request failed',
+        response.statusCode,
+      );
     }
     return data;
   }
 
   static Future<Map<String, dynamic>> patch(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
@@ -71,7 +81,9 @@ class ApiService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       throw ApiException(
-          data['error'] as String? ?? 'Request failed', response.statusCode);
+        data['error'] as String? ?? 'Request failed',
+        response.statusCode,
+      );
     }
     return data;
   }
@@ -84,18 +96,20 @@ class ApiService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       throw ApiException(
-          data['error'] as String? ?? 'Request failed', response.statusCode);
+        data['error'] as String? ?? 'Request failed',
+        response.statusCode,
+      );
     }
     return data;
   }
 
   static Future<Map<String, dynamic>> uploadFile(
-      String path, File file, {String fieldName = 'file'}) async {
+    String path,
+    File file, {
+    String fieldName = 'file',
+  }) async {
     final token = await AuthStorage.getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$_baseUrl$path'),
-    );
+    final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl$path'));
     if (token != null) {
       request.headers['Authorization'] = 'Bearer $token';
     }
@@ -105,19 +119,21 @@ class ApiService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       throw ApiException(
-          data['error'] as String? ?? 'Upload failed', response.statusCode);
+        data['error'] as String? ?? 'Upload failed',
+        response.statusCode,
+      );
     }
     return data;
   }
 
   static Future<Map<String, dynamic>> uploadFileWithFields(
-      String path, File file, Map<String, String> fields,
-      {String fieldName = 'file'}) async {
+    String path,
+    File file,
+    Map<String, String> fields, {
+    String fieldName = 'file',
+  }) async {
     final token = await AuthStorage.getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$_baseUrl$path'),
-    );
+    final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl$path'));
     if (token != null) {
       request.headers['Authorization'] = 'Bearer $token';
     }
@@ -128,7 +144,9 @@ class ApiService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       throw ApiException(
-          data['error'] as String? ?? 'Upload failed', response.statusCode);
+        data['error'] as String? ?? 'Upload failed',
+        response.statusCode,
+      );
     }
     return data;
   }
@@ -142,8 +160,9 @@ class ApiService {
     final data = jsonDecode(response.body);
     if (response.statusCode >= 400) {
       throw ApiException(
-          (data is Map ? data['error'] : null) as String? ?? 'Request failed',
-          response.statusCode);
+        (data is Map ? data['error'] : null) as String? ?? 'Request failed',
+        response.statusCode,
+      );
     }
     return data;
   }

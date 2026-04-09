@@ -617,9 +617,7 @@ class _HomeScreenState extends State<HomeScreen>
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           color: AppColors.darkBlue.withValues(alpha: 0.7),
-          border: Border.all(
-            color: AppColors.orange.withValues(alpha: 0.15),
-          ),
+          border: Border.all(color: AppColors.orange.withValues(alpha: 0.15)),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
@@ -691,8 +689,10 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
                   color: isRejected ? Colors.red : AppColors.orange,

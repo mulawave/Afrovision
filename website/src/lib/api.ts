@@ -42,10 +42,7 @@ export async function api<T = unknown>(
   if (token) {
     requestHeaders["Authorization"] = `Bearer ${token}`;
   } else if (requireAuth) {
-    // No token but auth required — redirect to login
-    if (typeof window !== "undefined") {
-      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-    }
+    // No token — return 401 without redirecting. Callers handle this.
     return { ok: false, status: 401, data: { error: "Not authenticated" } as T };
   }
 
@@ -57,11 +54,9 @@ export async function api<T = unknown>(
 
   const data = await res.json().catch(() => ({}));
 
-  // Handle 401 globally — token expired or invalid
-  if (res.status === 401 && requireAuth && typeof window !== "undefined") {
+  // Handle 401 — token expired or invalid. Clear local auth but do NOT redirect.
+  if (res.status === 401 && typeof window !== "undefined") {
     clearAuth();
-    window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}&expired=1`;
-    return { ok: false, status: 401, data: data as T };
   }
 
   return { ok: res.ok, status: res.status, data: data as T };
@@ -78,9 +73,6 @@ export async function apiFormData<T = unknown>(
   if (token) {
     requestHeaders["Authorization"] = `Bearer ${token}`;
   } else if (requireAuth) {
-    if (typeof window !== "undefined") {
-      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-    }
     return { ok: false, status: 401, data: { error: "Not authenticated" } as T };
   }
 
@@ -92,10 +84,8 @@ export async function apiFormData<T = unknown>(
 
   const data = await res.json().catch(() => ({}));
 
-  if (res.status === 401 && requireAuth && typeof window !== "undefined") {
+  if (res.status === 401 && typeof window !== "undefined") {
     clearAuth();
-    window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}&expired=1`;
-    return { ok: false, status: 401, data: data as T };
   }
 
   return { ok: res.ok, status: res.status, data: data as T };
