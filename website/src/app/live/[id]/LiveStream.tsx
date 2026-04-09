@@ -6,6 +6,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { LivePlayer } from "@/components/LivePlayer";
 import { AdBreak } from "@/components/AdBreak";
+import { FlashScreen } from "@/components/FlashScreen";
 import { LiveChat } from "@/components/LiveChat";
 import { GiftPanel } from "@/components/GiftPanel";
 import { Reactions } from "@/components/Reactions";
@@ -76,6 +77,15 @@ export function LiveStream({ id }: { id: string }) {
   const lastMidRoll = useRef<number>(0);
   const MID_ROLL_INTERVAL = 15 * 60 * 1000; // 15 minutes between mid-roll breaks
 
+  // ─── Flash screen state ───
+  const [flashType, setFlashType] = useState<'coming_up' | 'now_playing' | null>(null);
+  const [flashTitle, setFlashTitle] = useState('');
+  const showFlash = useCallback((type: 'coming_up' | 'now_playing', title: string) => {
+    setFlashTitle(title);
+    setFlashType(type);
+  }, []);
+  const hideFlash = useCallback(() => setFlashType(null), []);
+
   // Use real VPT balance if authenticated, otherwise demo balance
   const walletBalance = isAuthenticated && user ? user.vpt_balance : 0;
 
@@ -129,7 +139,8 @@ export function LiveStream({ id }: { id: string }) {
     if (!nowPlaying || !preRollDone) return;
     const programId = nowPlaying.program_id ?? nowPlaying.video_title;
     if (prevProgramId.current && prevProgramId.current !== programId) {
-      // Program changed — check if enough time has passed for a mid-roll
+      // Program changed — show "Now Playing" flash + check mid-roll
+      showFlash('now_playing', nowPlaying.video_title ?? 'Untitled');
       const timeSinceLastAd = Date.now() - lastMidRoll.current;
       if (timeSinceLastAd >= MID_ROLL_INTERVAL) {
         fetchAndShowAds();
@@ -407,6 +418,17 @@ export function LiveStream({ id }: { id: string }) {
                   channelId={id}
                   onImpression={handleAdImpression}
                   onComplete={handleAdBreakComplete}
+                />
+              )}
+
+              {/* ── Flash Screen (Coming Up Next / Now Playing) ── */}
+              {flashType && !showAdBreak && (
+                <FlashScreen
+                  type={flashType}
+                  title={flashTitle}
+                  channelName={channelName}
+                  durationMs={4000}
+                  onComplete={hideFlash}
                 />
               )}
 

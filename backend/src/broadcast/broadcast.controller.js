@@ -8,6 +8,8 @@ const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const NotificationService = require('../notifications/notification.service');
 const { sendReminderEmail } = require('../utils/email');
+const { generateFlashAudio } = require('../utils/tts');
+const SettingsService = require('../admin/settings.service');
 const crypto = require('crypto');
 const path = require('path');
 const { generateSignedUploadUrl } = require('../utils/gcs');
@@ -172,6 +174,20 @@ async function deleteVideo(req, res) {
   }
 }
 
+// ─── AD BREAK BUFFER ─────────────────────────────────────
+
+async function _getAdBufferMs() {
+  try {
+    const enabled = await SettingsService.get('AD_SCHEDULING_ENABLED');
+    if (enabled === 'false' || enabled === false) return 0;
+    const seconds = await SettingsService.get('AD_BREAK_BUFFER_SECONDS');
+    const parsed = parseInt(seconds, 10);
+    return (isNaN(parsed) || parsed <= 0) ? 0 : parsed * 1000;
+  } catch {
+    return 45000; // default 45s
+  }
+}
+
 // ─── SCHEDULING ──────────────────────────────────────────
 
 async function scheduleProgram(req, res) {
@@ -201,7 +217,10 @@ async function scheduleProgram(req, res) {
     if (isNaN(startMs) || startMs <= 0) {
       return res.status(400).json({ error: 'start_time must be a valid positive timestamp' });
     }
-    const endMs = startMs + video.duration * 1000;
+
+    // Account for ad break buffer
+    const adBuffer = await _getAdBufferMs();
+    const endMs = startMs + video.duration * 1000 + adBuffer;
 
     if (Program.hasOverlap(channel_id, startMs, endMs, null)) {
       return res.status(409).json({ error: 'Schedule overlaps with existing program' });
@@ -295,6 +314,9 @@ async function scheduleSequential(req, res) {
     if (isNaN(currentStart) || currentStart <= 0) {
       return res.status(400).json({ error: 'start_time must be a valid positive timestamp' });
     }
+
+    // Get ad break buffer for inter-program gaps
+    const adBuffer = await _getAdBufferMs();
     const created = [];
 
     for (const video of videos) {
@@ -321,7 +343,7 @@ async function scheduleSequential(req, res) {
         video_duration: video.duration,
       });
 
-      currentStart = endMs; // chain
+      currentStart = endMs + adBuffer; // add ad break buffer between programs
     }
 
     res.status(201).json({ programs: created });
@@ -607,6 +629,33 @@ function startReminderTimer() {
   }, 30_000); // check every 30 seconds
 }
 
+// ─── FLASH SCREEN TTS ────────────────────────────────────────────
+
+async function getFlashAudio(req, res) {
+  try {
+    const { type, title, channel_name } = req.query;
+    if (!type || !title) {
+      return res.status(400).json({ error: 'type and title are required' });
+    }
+    if (!['coming_up', 'now_playing'].includes(type)) {
+      return res.status(400).json({ error: 'type must be coming_up or now_playing' });
+    }
+    const audio = await generateFlashAudio(type, title, channel_name);
+    if (!audio) {
+      return res.status(204).end(); // No TTS available
+    }
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': audio.length,
+      'Cache-Control': 'public, max-age=3600',
+    });
+    return res.send(audio);
+  } catch (err) {
+    console.error('[FlashAudio] error:', err);
+    return res.status(500).json({ error: 'TTS generation failed' });
+  }
+}
+
 module.exports = {
   getVideoUploadUrl,
   registerUploadedVideo,
@@ -627,4 +676,5 @@ module.exports = {
   removeReminder,
   getMyReminders,
   startReminderTimer,
+  getFlashAudio,
 };

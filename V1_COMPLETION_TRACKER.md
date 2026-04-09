@@ -1,7 +1,7 @@
 # AfroVision v1 — Final Completion Tracker
 
 > Created: 2025-04-09
-> Status: **Phase 1–8 Complete — Starting Phase 9**
+> Status: **All 14 Phases Complete — v1 Done**
 
 ---
 
@@ -17,12 +17,12 @@
 | 6 | Ad System — Advertiser Portal | Ad submission page, category selection, video upload with duration validation, billing | ✅ Complete | Phase 4 |
 | 7 | Ad System — Billing & Revenue Split | Pricing structure, fund management, 50/30/20 and 70/30 splits, depletion logic | ✅ Complete | Phase 4, 6 |
 | 8 | Ad System — Playback Integration (Website) | Freeze/resume, DSTV-style transitions, ad injection into live player, all 3 categories | ✅ Complete | Phase 4, 7 |
-| 9 | Ad System — Playback Integration (Flutter) | Same as Phase 8 but for Flutter app | ⬜ Not Started | Phase 8 |
-| 10 | Ad System — Banner Ads (Pages) | Banner ad placements on home + other pages (website + Flutter) | ⬜ Not Started | Phase 4, 7 |
-| 11 | Flash Screens & ElevenLabs TTS | "Coming Up Next" / "Now Playing" flash screens with AI voice intros/outros | ⬜ Not Started | Phase 2, 4 |
-| 12 | Ad Analytics — Admin Dashboard | Performance metrics, channel trends, demographics, engagement hours, revenue tracking | ⬜ Not Started | Phase 4, 8 |
-| 13 | Ad Analytics — Advertiser Dashboard | Per-advertiser reporting: plays, channels, views, spend, top-up | ⬜ Not Started | Phase 6, 8 |
-| 14 | Scheduler Integration | Update auto-scheduler and smart scheduler to account for ad injection timing | ⬜ Not Started | Phase 4, 8 |
+| 9 | Ad System — Playback Integration (Flutter) | Same as Phase 8 but for Flutter app | ✅ Complete | Phase 8 |
+| 10 | Ad System — Banner Ads (Pages) | Banner ad placements on home + other pages (website + Flutter) | ✅ Complete | Phase 4, 7 |
+| 11 | Flash Screens & ElevenLabs TTS | "Coming Up Next" / "Now Playing" flash screens with AI voice intros/outros | ✅ Complete | Phase 2, 4 |
+| 12 | Ad Analytics — Admin Dashboard | Performance metrics, channel trends, demographics, engagement hours, revenue tracking | ✅ Complete | Phase 4, 8 |
+| 13 | Ad Analytics — Advertiser Dashboard | Per-advertiser reporting: plays, channels, views, spend, top-up | ✅ Complete | Phase 6, 8 |
+| 14 | Scheduler Integration | Update auto-scheduler and smart scheduler to account for ad injection timing | ✅ Complete | Phase 4, 8 |
 
 ---
 
@@ -191,6 +191,116 @@
 ---
 
 ## Phase 9–14: (Detailed breakdown to be added as we progress)
+
+---
+
+## Phase 9: Ad System — Playback Integration (Flutter) — ✅ COMPLETE
+
+### What Was Done
+- **Flutter AdBreakOverlay widget**: Full DSTV-style ad break with intro/playing/outro phases, ad video playback, progress bar, countdown timer, impression tracking
+- **BroadcastService**: `getInStreamAds(channelId)`, `recordAdImpression()` methods for ad serving
+- **Channel Player Screen**: Pre-roll on first load, mid-roll on program transitions (15-min cooldown), ad state management (`_showAdBreak`, `_adBreakAds`, `_preRollDone`, `_lastMidRollAt`)
+
+### Files Created
+- `lib/features/broadcast/widgets/ad_break_overlay.dart`
+
+### Files Modified
+- `lib/features/broadcast/services/broadcast_service.dart`
+- `lib/features/broadcast/screens/channel_player_screen.dart`
+
+---
+
+## Phase 10: Ad System — Banner Ads (Pages) — ✅ COMPLETE
+
+### What Was Done
+- **Website `BannerAd.tsx`**: Reusable banner ad component with 60s auto-refresh, placement-based serving, video/image/text-only fallback, impression tracking, "Sponsored" label
+- **Website Home**: BannerAd between FeaturedChannels and LiveNowRow (both fallback and dynamic sections)
+- **Website Channels**: BannerAd between search bar and channel grid
+- **Flutter `BannerAdWidget`**: StatefulWidget with 60s refresh timer, image/text fallback, click-through via url_launcher, impression recording
+- **Flutter Home**: BannerAdWidget(placement: 'home') in `_buildAdvertsSection()`
+- **Flutter Channel List**: BannerAdWidget(placement: 'page') between AppBar and content
+
+### Files Created
+- `website/src/components/BannerAd.tsx`
+- `lib/features/broadcast/widgets/banner_ad_widget.dart`
+
+### Files Modified
+- `website/src/app/page.tsx`
+- `website/src/app/channels/page.tsx`
+- `lib/features/broadcast/services/broadcast_service.dart` (added `getBannerAd`)
+- `lib/features/auth/screens/home_screen.dart`
+- `lib/features/channel/screens/channel_list_screen.dart`
+
+---
+
+## Phase 11: Flash Screens & ElevenLabs TTS — ✅ COMPLETE
+
+### What Was Done
+- **Backend TTS Service** (`tts.js`): ElevenLabs HTTP integration, in-memory cache (200 entries), admin-configurable API key + voice ID, graceful fallback when not configured
+- **Backend Flash Audio Endpoint**: `GET /broadcast/flash-audio?type=coming_up|now_playing&title=X&channel_name=Y` — returns MP3 audio buffer, 204 if TTS unavailable
+- **Website `FlashScreen.tsx`**: "Coming Up Next" / "Now Playing" overlay with enter/show/exit animation phases, TTS audio playback, AfroVision branding
+- **Website LiveStream**: Flash triggers on program transitions, hidden during ad breaks
+- **Flutter `FlashScreenOverlay`**: Fade + slide animations, audioplayers TTS playback, auto-dismiss after configurable duration
+- **Flutter Channel Player**: Flash triggers on program change (`_lastProgramId` detection), flash hidden during ad breaks
+- **Admin Settings**: Added `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` settings
+
+### Files Created
+- `backend/src/utils/tts.js`
+- `website/src/components/FlashScreen.tsx`
+- `lib/features/broadcast/widgets/flash_screen_overlay.dart`
+
+### Files Modified
+- `backend/src/broadcast/broadcast.controller.js` (flash audio endpoint)
+- `backend/src/broadcast/broadcast.routes.js` (flash-audio route)
+- `backend/src/admin/settings.model.js` (ElevenLabs settings)
+- `website/src/app/live/[id]/LiveStream.tsx` (flash integration)
+- `lib/features/broadcast/screens/channel_player_screen.dart` (flash state + overlay)
+
+---
+
+## Phase 12: Ad Analytics — Admin Dashboard — ✅ COMPLETE
+
+### What Was Done
+- **Backend Analytics Endpoint**: `GET /ads/analytics` — comprehensive aggregated data: overview stats, 30-day daily time series, category breakdown, top 10 ads by revenue, top 10 channels by revenue, status distribution
+- **Admin Analytics Page** (`/ad-analytics`): Full dashboard with overview cards (revenue, active ads, viewers, budget, avg rev/impression), revenue split visualization (operations/channel/pool with progress bars), 30-day bar chart with metric toggle (revenue/impressions/viewers), category performance bars, status distribution, top ads table, top channels table
+
+### Files Created
+- `admin/src/app/(admin)/ad-analytics/page.jsx`
+
+### Files Modified
+- `backend/src/ads/ad.controller.js` (getAnalytics endpoint)
+- `backend/src/ads/ad.routes.js` (analytics route)
+- `admin/src/components/layout/Sidebar.jsx` (Ad Analytics link)
+- `admin/src/components/layout/Header.jsx` (Ad Analytics title)
+
+---
+
+## Phase 13: Ad Analytics — Advertiser Dashboard — ✅ COMPLETE
+
+### What Was Done
+- **Backend Advertiser Analytics Endpoint**: `GET /ads/my-analytics` — per-advertiser analytics: overview (budget, spent, remaining, impressions, viewers, avg cost), 30-day daily time series, per-ad breakdown (title, category, status, budget, spent, impressions, viewers, channels), category breakdown
+- **Website API**: `getMyAdAnalyticsApi()` + `AdvertiserAnalytics` type
+- **Website Advertiser Page**: New "Analytics" tab with overview cards, 30-day bar chart with metric toggle, category performance bars, per-ad performance table
+
+### Files Modified
+- `backend/src/ads/ad.controller.js` (getMyAnalytics endpoint)
+- `backend/src/ads/ad.routes.js` (my-analytics route)
+- `website/src/lib/api.ts` (AdvertiserAnalytics type + API function)
+- `website/src/app/advertiser/page.tsx` (Analytics tab + AdvertiserAnalyticsTab component)
+
+---
+
+## Phase 14: Scheduler Integration — ✅ COMPLETE
+
+### What Was Done
+- **Admin Settings**: Added `AD_BREAK_BUFFER_SECONDS` (default: 45s) and `AD_SCHEDULING_ENABLED` (default: true) to control ad break buffers in scheduling
+- **Schedule Program**: `scheduleProgram()` now adds ad buffer to program end time, ensuring overlap detection accounts for ad breaks
+- **Sequential Scheduling**: `scheduleSequential()` now inserts ad break buffer between sequential programs (gap = AD_BREAK_BUFFER_SECONDS between each program)
+- **Settings Service Integration**: Scheduler reads admin-configurable buffer duration via SettingsService
+
+### Files Modified
+- `backend/src/admin/settings.model.js` (AD_BREAK_BUFFER_SECONDS, AD_SCHEDULING_ENABLED)
+- `backend/src/broadcast/broadcast.controller.js` (SettingsService import, _getAdBufferMs helper, buffer in scheduleProgram + scheduleSequential)
 
 ---
 

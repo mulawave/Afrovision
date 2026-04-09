@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getChannelByNumberApi, getChannelsApi, type Channel } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import { BannerAd } from "@/components/BannerAd";
 
 export default function ChannelsPage() {
   const router = useRouter();
@@ -118,6 +119,8 @@ export default function ChannelsPage() {
             className="h-11 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none"
           />
         </div>
+
+        <BannerAd placement="page" className="mb-6" />
 
         {loading ? (
           <div className="flex items-center justify-center py-20">

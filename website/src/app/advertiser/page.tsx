@@ -9,8 +9,10 @@ import {
   pauseAdApi,
   getAdUploadUrlApi,
   uploadFileToGCS,
+  getMyAdAnalyticsApi,
   type Advertisement,
   type AdStats,
+  type AdvertiserAnalytics,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -37,7 +39,7 @@ export default function AdvertiserPage() {
   const [ads, setAds] = useState<Advertisement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"list" | "create">("list");
+  const [tab, setTab] = useState<"list" | "create" | "analytics">("list");
   const [selectedAd, setSelectedAd] = useState<Advertisement | null>(null);
   const [stats, setStats] = useState<AdStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -222,6 +224,7 @@ export default function AdvertiserPage() {
         {([
           { key: "list" as const, label: "My Ads" },
           { key: "create" as const, label: "Submit New Ad" },
+          { key: "analytics" as const, label: "Analytics" },
         ]).map((t) => (
           <button
             key={t.key}
@@ -551,6 +554,194 @@ export default function AdvertiserPage() {
           </div>
         </div>
       )}
+
+      {/* Analytics Tab */}
+      {tab === "analytics" && <AdvertiserAnalyticsTab />}
+    </div>
+  );
+}
+
+/* ── Advertiser Analytics Tab ──────────────────────── */
+
+const CATEGORY_LABELS_MAP: Record<string, string> = {
+  banner_home: "Banner — Home",
+  banner_page: "Banner — Page",
+  in_stream_pre: "Pre-Roll",
+  in_stream_mid: "Mid-Roll",
+  in_stream_brief: "Brief (≤15s)",
+};
+
+function fmt(n: number) {
+  return (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtI(n: number) {
+  return (n || 0).toLocaleString();
+}
+
+function AdvertiserAnalyticsTab() {
+  const [data, setData] = useState<AdvertiserAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [chartMetric, setChartMetric] = useState<"cost" | "impressions" | "viewers">("cost");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        const res = await getMyAdAnalyticsApi();
+        if (!res.ok || "error" in res.data) throw new Error("error" in res.data ? String(res.data.error) : "Failed");
+        setData(res.data as AdvertiserAnalytics);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to load analytics");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-white/20 border-t-[#F49617]" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-center text-red-300 text-sm">
+        {error || "No data available"}
+      </div>
+    );
+  }
+
+  const { overview, daily, per_ad, categories } = data;
+  const chartMax = Math.max(...daily.map((d) => d[chartMetric] || 0), 1);
+
+  return (
+    <div className="space-y-5">
+      {/* Overview */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: "Total Spend", value: `₦${fmt(overview.total_spent)}` },
+          { label: "Budget Left", value: `₦${fmt(overview.remaining)}` },
+          { label: "Impressions", value: fmtI(overview.total_impressions) },
+          { label: "Avg Cost/Imp", value: `₦${fmt(overview.avg_cost)}` },
+        ].map((c, i) => (
+          <div key={i} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+            <p className="text-[10px] uppercase tracking-wider text-white/40">{c.label}</p>
+            <p className="mt-1 text-lg font-bold text-white">{c.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* 30-Day Chart */}
+      <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white/80">30-Day Performance</h3>
+          <div className="flex gap-1">
+            {(["cost", "impressions", "viewers"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setChartMetric(m)}
+                className={`rounded-lg px-3 py-1 text-[10px] uppercase tracking-wider transition ${
+                  chartMetric === m
+                    ? "bg-[#F49617]/20 text-[#F49617]"
+                    : "text-white/40 hover:text-white/60"
+                }`}
+              >
+                {m === "cost" ? "spend" : m}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 flex items-end gap-[2px]" style={{ height: 120 }}>
+          {daily.map((d, i) => {
+            const val = d[chartMetric] || 0;
+            const h = chartMax > 0 ? (val / chartMax) * 100 : 0;
+            return (
+              <div key={i} className="group relative flex-1" title={`${d.date}: ${chartMetric === "cost" ? `₦${fmt(val)}` : fmtI(val)}`}>
+                <div
+                  className="w-full rounded-t bg-[#F49617]/50 transition group-hover:bg-[#F49617]/80"
+                  style={{ height: `${Math.max(h, 1)}%` }}
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-1 flex justify-between text-[9px] text-white/25">
+          <span>{daily[0]?.date}</span>
+          <span>{daily[daily.length - 1]?.date}</span>
+        </div>
+      </div>
+
+      {/* Category Breakdown */}
+      {categories.length > 0 && (
+        <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+          <h3 className="text-sm font-semibold text-white/80">By Category</h3>
+          <div className="mt-3 space-y-3">
+            {categories.sort((a, b) => b.cost - a.cost).map((c, i) => {
+              const catMax = Math.max(...categories.map((x) => x.cost), 1);
+              return (
+                <div key={i}>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-white/70">{CATEGORY_LABELS_MAP[c.category] || c.category}</span>
+                    <span className="text-xs font-medium text-white/60">₦{fmt(c.cost)}</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full bg-[#F49617]/50" style={{ width: `${(c.cost / catMax) * 100}%` }} />
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-white/30">{fmtI(c.impressions)} impressions · {fmtI(c.viewers)} viewers</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Per-Ad Table */}
+      <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+        <h3 className="text-sm font-semibold text-white/80">Ad Performance</h3>
+        <div className="mt-3 overflow-x-auto">
+          {per_ad.length === 0 ? (
+            <p className="text-xs text-white/30">No ads yet.</p>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-white/8 text-[10px] uppercase tracking-wider text-white/35">
+                  <th className="py-2 pr-3">Title</th>
+                  <th className="py-2 pr-3">Category</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 pr-3 text-right">Budget</th>
+                  <th className="py-2 pr-3 text-right">Spent</th>
+                  <th className="py-2 pr-3 text-right">Imps</th>
+                  <th className="py-2 pr-3 text-right">Viewers</th>
+                  <th className="py-2 text-right">Channels</th>
+                </tr>
+              </thead>
+              <tbody>
+                {per_ad.map((ad) => (
+                  <tr key={ad.id} className="border-b border-white/5">
+                    <td className="py-2 pr-3 font-medium text-white/80">{ad.title}</td>
+                    <td className="py-2 pr-3 text-white/50">{CATEGORY_LABELS_MAP[ad.category] || ad.category}</td>
+                    <td className="py-2 pr-3">
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] border ${STATUS_COLORS[ad.status] || "bg-white/8 text-white/50 border-white/10"}`}>
+                        {ad.status}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 text-right text-white/60">₦{fmt(ad.budget)}</td>
+                    <td className="py-2 pr-3 text-right font-medium text-[#F49617]">₦{fmt(ad.spent)}</td>
+                    <td className="py-2 pr-3 text-right text-white/60">{fmtI(ad.impressions)}</td>
+                    <td className="py-2 pr-3 text-right text-white/60">{fmtI(ad.viewers)}</td>
+                    <td className="py-2 text-right text-white/60">{ad.unique_channels}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

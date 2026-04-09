@@ -168,6 +168,16 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                           </svg>
                           Referrals
                         </Link>
+                        <Link
+                          href="/advertiser"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-av-white/70 hover:text-av-white hover:bg-av-input-fill/50 transition-colors"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-av-hint">
+                            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4 6h-4v2h4v2h-4v2h4v2H9V7h6v2z" />
+                          </svg>
+                          Advertise
+                        </Link>
                         {(user.role === "creator" || user.role === "admin") && (
                           <>
                             <Link
@@ -324,6 +334,13 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                   className="block px-4 py-3 text-sm font-medium text-av-white/70 hover:text-av-white rounded-lg hover:bg-av-white/5 transition-colors"
                 >
                   Referrals
+                </Link>
+                <Link
+                  href="/advertiser"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-4 py-3 text-sm font-medium text-av-white/70 hover:text-av-white rounded-lg hover:bg-av-white/5 transition-colors"
+                >
+                  Advertise
                 </Link>
                 <Link
                   href="/notifications"

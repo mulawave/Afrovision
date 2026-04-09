@@ -107,6 +107,30 @@ const SETTING_DEFINITIONS = {
     sensitive: true,
     defaultValue: null,
   },
+  AD_BREAK_BUFFER_SECONDS: {
+    category: 'system',
+    description: 'Seconds of buffer added between programs for ad breaks (pre-roll + brief). Set to 0 to disable.',
+    sensitive: false,
+    defaultValue: '45',
+  },
+  AD_SCHEDULING_ENABLED: {
+    category: 'system',
+    description: 'Whether to insert ad break buffers in sequential scheduling (true/false)',
+    sensitive: false,
+    defaultValue: 'true',
+  },
+  ELEVENLABS_API_KEY: {
+    category: 'system',
+    description: 'ElevenLabs API key for TTS flash screen audio generation',
+    sensitive: true,
+    defaultValue: null,
+  },
+  ELEVENLABS_VOICE_ID: {
+    category: 'system',
+    description: 'ElevenLabs voice ID for TTS (default: Sarah = EXAVITQu4vr4xnSDxMaL)',
+    sensitive: false,
+    defaultValue: 'EXAVITQu4vr4xnSDxMaL',
+  },
 };
 
 module.exports = {

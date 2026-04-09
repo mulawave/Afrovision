@@ -5,6 +5,7 @@ import { LiveNowRow } from "@/components/LiveNowRow";
 import { UpcomingShows } from "@/components/UpcomingShows";
 import { ChallengeSection } from "@/components/ChallengeSection";
 import { UpdatesSection } from "@/components/UpdatesSection";
+import { BannerAd } from "@/components/BannerAd";
 import { getHomepageContent, type HomepageSection } from "@/lib/homepage";
 
 function renderSection(section: HomepageSection) {
@@ -96,6 +97,7 @@ async function HomepageContent() {
       <>
         <HeroSlider />
         <FeaturedChannels />
+        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-4"><BannerAd placement="home" /></div>
         <LiveNowRow />
         <UpcomingShows />
         <ChallengeSection />
@@ -104,12 +106,18 @@ async function HomepageContent() {
     );
   }
 
+  const sorted = homepage.sections
+    .filter((section) => section.enabled)
+    .sort((left, right) => left.sort_order - right.sort_order);
+
   return (
     <>
-      {homepage.sections
-        .filter((section) => section.enabled)
-        .sort((left, right) => left.sort_order - right.sort_order)
-        .map((section) => renderSection(section))}
+      {sorted.map((section, i) => (
+        <div key={section.key}>
+          {renderSection(section)}
+          {i === 1 && <div className="max-w-7xl mx-auto px-6 lg:px-8 py-4"><BannerAd placement="home" /></div>}
+        </div>
+      ))}
     </>
   );
 }

@@ -8,6 +8,7 @@ import '../../notifications/services/notification_inbox_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/widgets/role_badge.dart';
+import '../../broadcast/widgets/banner_ad_widget.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -60,8 +61,12 @@ class _HomeScreenState extends State<HomeScreen>
         HomeService.getStats().catchError(
           (_) => HomeStats(
             totalVpt: 0,
+            totalNgn: 0,
             vptRate: 750,
             nairaEquivalent: 0,
+            totalDistributedVpt: 0,
+            totalDistributedNgn: 0,
+            totalBeneficiaries: 0,
             recentChannels: [],
             promotedChannels: [],
             totalChannels: 0,
@@ -902,19 +907,21 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               Expanded(
                 child: _actionCard(
-                  icon: Icons.history_rounded,
-                  label: 'Last\nVisited',
-                  onTap: () {},
+                  icon: Icons.campaign_rounded,
+                  label: 'Advertise',
+                  onTap: () => Navigator.pushNamed(context, '/advertiser'),
                   subtle: true,
+                  accentColor: AppColors.orange,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _actionCard(
-                  icon: Icons.emoji_events_rounded,
-                  label: 'User\nRanking',
-                  onTap: () {},
+                  icon: Icons.notifications_active_rounded,
+                  label: 'My\nReminders',
+                  onTap: () => Navigator.pushNamed(context, '/reminders'),
                   subtle: true,
+                  accentColor: AppColors.lightOrange,
                 ),
               ),
               const SizedBox(width: 12),
@@ -1071,6 +1078,12 @@ class _HomeScreenState extends State<HomeScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _sectionLabel('SPOTLIGHT', Icons.campaign_rounded),
+          const SizedBox(height: 10),
+          // Live banner ad from ad system
+          const Padding(
+            padding: EdgeInsets.zero,
+            child: BannerAdWidget(placement: 'home'),
+          ),
           const SizedBox(height: 10),
           // Premium ad banners
           Container(

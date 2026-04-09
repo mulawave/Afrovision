@@ -1225,3 +1225,36 @@ export async function recordAdImpressionApi(adId: string, channelId?: string, vi
     }
   );
 }
+
+export interface AdvertiserAnalytics {
+  overview: {
+    total_ads: number;
+    active_ads: number;
+    total_budget: number;
+    total_spent: number;
+    remaining: number;
+    total_impressions: number;
+    total_viewers: number;
+    avg_cost: number;
+  };
+  daily: { date: string; impressions: number; cost: number; viewers: number }[];
+  per_ad: {
+    id: string;
+    title: string;
+    category: string;
+    status: string;
+    budget: number;
+    spent: number;
+    impressions: number;
+    viewers: number;
+    cost: number;
+    unique_channels: number;
+  }[];
+  categories: { category: string; impressions: number; cost: number; viewers: number }[];
+}
+
+export async function getMyAdAnalyticsApi() {
+  return api<AdvertiserAnalytics | ErrorResponse>("/ads/my-analytics", {
+    requireAuth: true,
+  });
+}

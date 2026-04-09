@@ -5,6 +5,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../services/broadcast_service.dart';
 import '../widgets/broadcast_player.dart';
+import '../widgets/ad_break_overlay.dart';
+import '../widgets/flash_screen_overlay.dart';
 import '../../interactions/widgets/gift_overlay.dart';
 import '../../interactions/widgets/gift_sheet.dart';
 import '../../interactions/widgets/live_chat_panel.dart';
@@ -47,6 +49,19 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   // Reminders
   final Set<String> _remindedProgramIds = {};
   bool _reminderLoading = false;
+
+  // Ad break state
+  List<Map<String, dynamic>> _adBreakAds = [];
+  bool _showAdBreak = false;
+  bool _preRollDone = false;
+  String? _lastProgramId;
+  int _lastMidRollAt = 0;
+  static const _midRollInterval = 15 * 60 * 1000; // 15 minutes
+
+  // Flash screen state
+  bool _showFlash = false;
+  String _flashType = 'now_playing';
+  String _flashTitle = '';
 
   @override
   void initState() {
@@ -178,6 +193,15 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
           positionSec,
           _isLoop,
         );
+
+        // Trigger pre-roll (first load) or mid-roll (program change)
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_preRollDone) {
+            _checkPreRoll();
+          } else {
+            _checkMidRoll();
+          }
+        });
       } else {
         _isLoop = false;
         _eventTimer?.cancel();
@@ -273,6 +297,60 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         debugPrint('[ChannelPlayer] event poll error: $e');
       }
     });
+  }
+
+  // ─── Ad Break Logic ───
+
+  Future<void> _fetchAndShowAds() async {
+    try {
+      final ads = await BroadcastService.getInStreamAds(_channelId);
+      if (!mounted || ads.isEmpty) return;
+      _player?.pauseForAd();
+      setState(() {
+        _adBreakAds = ads;
+        _showAdBreak = true;
+      });
+    } catch (_) {}
+  }
+
+  void _onAdBreakComplete() {
+    _player?.resumeFromAd();
+    setState(() {
+      _showAdBreak = false;
+      _adBreakAds = [];
+      _lastMidRollAt = DateTime.now().millisecondsSinceEpoch;
+    });
+  }
+
+  void _checkPreRoll() {
+    if (_preRollDone || _nowPlaying == null) return;
+    _preRollDone = true;
+    _lastMidRollAt = DateTime.now().millisecondsSinceEpoch;
+    _fetchAndShowAds();
+  }
+
+  void _checkMidRoll() {
+    if (_nowPlaying == null || !_preRollDone) return;
+    final programId =
+        _nowPlaying!['program_id'] as String? ??
+        _nowPlaying!['video_title'] as String? ??
+        '';
+    if (_lastProgramId != null && _lastProgramId != programId) {
+      // Show "Now Playing" flash for the new program
+      if (mounted) {
+        setState(() {
+          _flashType = 'now_playing';
+          _flashTitle = _nowPlaying!['video_title'] as String? ?? '';
+          _showFlash = true;
+        });
+      }
+      final timeSinceLast =
+          DateTime.now().millisecondsSinceEpoch - _lastMidRollAt;
+      if (timeSinceLast >= _midRollInterval) {
+        _fetchAndShowAds();
+      }
+    }
+    _lastProgramId = programId;
   }
 
   // ─── Build ───
@@ -809,6 +887,28 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                   ),
                 // Gift overlay on top of video
                 GiftOverlay(key: _overlayKey),
+                // Flash screen overlay (behind ad break)
+                if (_showFlash && !_showAdBreak)
+                  Positioned.fill(
+                    child: FlashScreenOverlay(
+                      type: _flashType,
+                      title: _flashTitle,
+                      channelName: _channel?.name ?? 'Channel',
+                      onComplete: () {
+                        if (mounted) setState(() => _showFlash = false);
+                      },
+                    ),
+                  ),
+                // Ad break overlay (covers entire player area)
+                if (_showAdBreak && _adBreakAds.isNotEmpty)
+                  Positioned.fill(
+                    child: AdBreakOverlay(
+                      ads: _adBreakAds,
+                      channelName: _channel?.name ?? 'Channel',
+                      channelId: _channelId,
+                      onComplete: _onAdBreakComplete,
+                    ),
+                  ),
               ],
             ),
           ),

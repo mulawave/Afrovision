@@ -487,6 +487,94 @@ function getBilling(req, res) {
 }
 
 /**
+ * GET /ads/my-analytics — advertiser: own campaign analytics with time series
+ */
+function getMyAnalytics(req, res) {
+  try {
+    const myAds = Ad.getByAdvertiser(req.userId);
+    if (!myAds.length) return res.json({ overview: { total_ads: 0 }, daily: [], per_ad: [], categories: [] });
+
+    const adIds = new Set(myAds.map(a => a.id));
+    const allImpressions = AdImpression.getAll().filter(i => adIds.has(i.ad_id));
+
+    const totalBudget = myAds.reduce((s, a) => s + (a.budget || 0), 0);
+    const totalSpent = myAds.reduce((s, a) => s + (a.spent || 0), 0);
+    const totalImpressions = allImpressions.length;
+    const totalViewers = allImpressions.reduce((s, i) => s + (i.viewer_count || 0), 0);
+
+    // Daily time series (last 30 days)
+    const now = Date.now();
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    const dailyMap = {};
+    for (let d = 0; d < 30; d++) {
+      const date = new Date(now - (29 - d) * 24 * 60 * 60 * 1000);
+      const key = date.toISOString().slice(0, 10);
+      dailyMap[key] = { date: key, impressions: 0, cost: 0, viewers: 0 };
+    }
+    for (const imp of allImpressions) {
+      const ts = imp.played_at?.toDate ? imp.played_at.toDate() : new Date(imp.played_at);
+      if (now - ts.getTime() > thirtyDays) continue;
+      const key = ts.toISOString().slice(0, 10);
+      if (dailyMap[key]) {
+        dailyMap[key].impressions += 1;
+        dailyMap[key].cost += imp.cost || 0;
+        dailyMap[key].viewers += imp.viewer_count || 0;
+      }
+    }
+
+    // Per-ad breakdown
+    const adMap = {};
+    for (const imp of allImpressions) {
+      if (!adMap[imp.ad_id]) adMap[imp.ad_id] = { impressions: 0, cost: 0, viewers: 0, channels: new Set() };
+      adMap[imp.ad_id].impressions += 1;
+      adMap[imp.ad_id].cost += imp.cost || 0;
+      adMap[imp.ad_id].viewers += imp.viewer_count || 0;
+      if (imp.channel_id) adMap[imp.ad_id].channels.add(imp.channel_id);
+    }
+    const perAd = myAds.map(a => ({
+      id: a.id,
+      title: a.title,
+      category: a.category,
+      status: a.status,
+      budget: a.budget,
+      spent: a.spent,
+      impressions: adMap[a.id]?.impressions || 0,
+      viewers: adMap[a.id]?.viewers || 0,
+      cost: adMap[a.id]?.cost || 0,
+      unique_channels: adMap[a.id]?.channels?.size || 0,
+    })).sort((a, b) => b.cost - a.cost);
+
+    // Category breakdown
+    const catMap = {};
+    for (const imp of allImpressions) {
+      const c = imp.category || 'unknown';
+      if (!catMap[c]) catMap[c] = { category: c, impressions: 0, cost: 0, viewers: 0 };
+      catMap[c].impressions += 1;
+      catMap[c].cost += imp.cost || 0;
+      catMap[c].viewers += imp.viewer_count || 0;
+    }
+
+    res.json({
+      overview: {
+        total_ads: myAds.length,
+        active_ads: myAds.filter(a => a.status === 'active').length,
+        total_budget: +totalBudget.toFixed(2),
+        total_spent: +totalSpent.toFixed(2),
+        remaining: +(totalBudget - totalSpent).toFixed(2),
+        total_impressions: totalImpressions,
+        total_viewers: totalViewers,
+        avg_cost: totalImpressions > 0 ? +(totalSpent / totalImpressions).toFixed(4) : 0,
+      },
+      daily: Object.values(dailyMap),
+      per_ad: perAd,
+      categories: Object.values(catMap),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
  * GET /ads/revenue-report — admin: platform revenue report from ads
  */
 function getRevenueReport(req, res) {
@@ -525,6 +613,120 @@ function getRevenueReport(req, res) {
   }
 }
 
+/**
+ * GET /ads/analytics — admin: comprehensive ad analytics dashboard data
+ */
+function getAnalytics(req, res) {
+  try {
+    const user = User.findById(req.userId);
+    if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+    const allAds = Ad.getAll();
+    const allImpressions = AdImpression.getAll();
+
+    // ── Revenue overview ──
+    const totalRevenue = allAds.reduce((s, a) => s + (a.spent || 0), 0);
+    const totalBudget = allAds.reduce((s, a) => s + (a.budget || 0), 0);
+    let opsRev = 0, chanRev = 0, poolRev = 0;
+    for (const imp of allImpressions) {
+      const sp = calculateRevenueSplit(imp.category, imp.cost || 0);
+      opsRev += sp.operations_share;
+      chanRev += sp.channel_share;
+      poolRev += sp.pool_share;
+    }
+
+    // ── Daily time series (last 30 days) ──
+    const now = Date.now();
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    const dailyMap = {};
+    for (let d = 0; d < 30; d++) {
+      const date = new Date(now - (29 - d) * 24 * 60 * 60 * 1000);
+      const key = date.toISOString().slice(0, 10);
+      dailyMap[key] = { date: key, impressions: 0, revenue: 0, viewers: 0 };
+    }
+    for (const imp of allImpressions) {
+      const ts = imp.played_at?.toDate ? imp.played_at.toDate() : new Date(imp.played_at);
+      if (now - ts.getTime() > thirtyDays) continue;
+      const key = ts.toISOString().slice(0, 10);
+      if (dailyMap[key]) {
+        dailyMap[key].impressions += 1;
+        dailyMap[key].revenue += imp.cost || 0;
+        dailyMap[key].viewers += imp.viewer_count || 0;
+      }
+    }
+    const daily = Object.values(dailyMap);
+
+    // ── Category breakdown ──
+    const catMap = {};
+    for (const imp of allImpressions) {
+      const c = imp.category || 'unknown';
+      if (!catMap[c]) catMap[c] = { category: c, impressions: 0, revenue: 0, viewers: 0 };
+      catMap[c].impressions += 1;
+      catMap[c].revenue += imp.cost || 0;
+      catMap[c].viewers += imp.viewer_count || 0;
+    }
+    const categories = Object.values(catMap);
+
+    // ── Top ads by revenue ──
+    const adMap = {};
+    for (const imp of allImpressions) {
+      const aid = imp.ad_id;
+      if (!adMap[aid]) adMap[aid] = { ad_id: aid, impressions: 0, revenue: 0, viewers: 0 };
+      adMap[aid].impressions += 1;
+      adMap[aid].revenue += imp.cost || 0;
+      adMap[aid].viewers += imp.viewer_count || 0;
+    }
+    const topAds = Object.values(adMap).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+    // Enrich with ad title
+    for (const ta of topAds) {
+      const ad = allAds.find(a => a.id === ta.ad_id);
+      ta.title = ad?.title || 'Unknown';
+      ta.category = ad?.category || 'unknown';
+      ta.status = ad?.status || 'unknown';
+    }
+
+    // ── Top channels by revenue ──
+    const chMap = {};
+    for (const imp of allImpressions) {
+      const cid = imp.channel_id || 'direct';
+      if (!chMap[cid]) chMap[cid] = { channel_id: cid, impressions: 0, revenue: 0, viewers: 0 };
+      chMap[cid].impressions += 1;
+      chMap[cid].revenue += imp.cost || 0;
+      chMap[cid].viewers += imp.viewer_count || 0;
+    }
+    const topChannels = Object.values(chMap).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+
+    // ── Status breakdown ──
+    const statusMap = {};
+    for (const ad of allAds) {
+      const s = ad.status || 'unknown';
+      if (!statusMap[s]) statusMap[s] = 0;
+      statusMap[s]++;
+    }
+
+    res.json({
+      overview: {
+        total_ads: allAds.length,
+        active_ads: allAds.filter(a => a.status === 'active').length,
+        total_budget: +totalBudget.toFixed(2),
+        total_revenue: +totalRevenue.toFixed(2),
+        total_impressions: allImpressions.length,
+        total_viewers: allImpressions.reduce((s, i) => s + (i.viewer_count || 0), 0),
+        operations_revenue: +opsRev.toFixed(2),
+        channel_revenue: +chanRev.toFixed(2),
+        pool_revenue: +poolRev.toFixed(2),
+      },
+      daily,
+      categories,
+      top_ads: topAds,
+      top_channels: topChannels,
+      status_breakdown: statusMap,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   // Advertiser
   submitAd,
@@ -533,6 +735,7 @@ module.exports = {
   topUpBudget,
   getAdUploadUrl,
   getBilling,
+  getMyAnalytics,
   // Admin
   getAllAds,
   getPendingAds,
@@ -545,6 +748,7 @@ module.exports = {
   deleteAd,
   getAllImpressions,
   getRevenueReport,
+  getAnalytics,
   // Serving
   serveBanner,
   serveInStream,

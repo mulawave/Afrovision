@@ -3,6 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
+import '../../broadcast/widgets/banner_ad_widget.dart';
 
 class ChannelListScreen extends StatefulWidget {
   const ChannelListScreen({super.key});
@@ -94,6 +95,8 @@ class _ChannelListScreenState extends State<ChannelListScreen>
           child: Column(
             children: [
               _buildAppBar(),
+              const BannerAdWidget(placement: 'page'),
+              const SizedBox(height: 8),
               Expanded(
                 child: _loading
                     ? const Center(

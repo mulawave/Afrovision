@@ -1,8 +1,6 @@
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../../../core/api/api_service.dart';
-import '../../../core/config/app_config.dart';
-import '../../../core/storage/auth_storage.dart';
 import '../models/video_model.dart';
 import '../models/program_model.dart';
 
@@ -209,5 +207,38 @@ class BroadcastService {
 
   static Future<void> removeReminder(String programId) async {
     await ApiService.delete('/broadcast/reminders/$programId');
+  }
+
+  // ─── Ad Serving ────────────────────────────────────────
+
+  /// Fetch in-stream ads for a channel break (pre-roll, mid-roll, brief).
+  static Future<List<Map<String, dynamic>>> getInStreamAds(
+    String? channelId,
+  ) async {
+    final path = channelId != null
+        ? '/ads/serve/stream?channel_id=$channelId'
+        : '/ads/serve/stream';
+    final data = await ApiService.get(path);
+    return List<Map<String, dynamic>>.from(data['ads'] ?? []);
+  }
+
+  /// Fetch a banner ad for a given placement (home or page).
+  static Future<Map<String, dynamic>?> getBannerAd(String placement) async {
+    final data = await ApiService.get('/ads/serve/banner?placement=$placement');
+    final ad = data['ad'];
+    return ad is Map<String, dynamic> ? ad : null;
+  }
+
+  /// Record that an ad was displayed.
+  static Future<Map<String, dynamic>> recordAdImpression({
+    required String adId,
+    String? channelId,
+    int viewerCount = 1,
+  }) async {
+    return ApiService.post('/ads/impression', {
+      'ad_id': adId,
+      if (channelId != null) 'channel_id': channelId,
+      'viewer_count': viewerCount,
+    });
   }
 }

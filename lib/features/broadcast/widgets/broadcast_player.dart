@@ -166,7 +166,7 @@ class BroadcastPlayer extends ChangeNotifier {
     isBuffering = value.isBuffering;
 
     // Buffer recovery: resume playback when buffering ends (no re-seek)
-    if (wasBuffering && !isBuffering && !value.isPlaying) {
+    if (wasBuffering && !isBuffering && !value.isPlaying && !_adPaused) {
       _controller!.play();
     }
 
@@ -230,6 +230,35 @@ class BroadcastPlayer extends ChangeNotifier {
   }
 
   // ─── Controls ───
+
+  bool _adPaused = false;
+  bool get isAdPaused => _adPaused;
+
+  /// Pause playback for an ad break. Stops sync timer.
+  void pauseForAd() {
+    _adPaused = true;
+    _syncTimer?.cancel();
+    _controller?.pause();
+    notifyListeners();
+  }
+
+  /// Resume playback after an ad break. Restarts sync.
+  void resumeFromAd() {
+    _adPaused = false;
+    if (_controller != null && _controller!.value.isInitialized) {
+      // Resync position for live mode
+      if (!isLoop) {
+        final correctedTime = BroadcastService.correctedNow;
+        if (correctedTime < programEndTime) {
+          final expectedMs = correctedTime - programStartTime;
+          _controller!.seekTo(Duration(milliseconds: expectedMs));
+        }
+      }
+      _controller!.play();
+      _startSyncTimer();
+    }
+    notifyListeners();
+  }
 
   void setVolume(double volume) {
     _controller?.setVolume(volume);
