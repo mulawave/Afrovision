@@ -336,6 +336,7 @@ export default function KycPage() {
                     required
                   />
                 </div>
+                {idType !== "nin_slip" && idType !== "national_id" && (
                 <div>
                   <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">ID Expiry Date</label>
                   <input
@@ -345,6 +346,7 @@ export default function KycPage() {
                     className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-3 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
                   />
                 </div>
+                )}
               </div>
             </section>
 

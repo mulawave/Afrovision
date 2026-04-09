@@ -304,22 +304,25 @@ class _ReferralScreenState extends State<ReferralScreen>
   }
 
   Widget _buildStatsRow(ReferralDashboard d) {
-    return Row(
-      children: [
-        _statTile('Invites', '${d.invitedCount}', Icons.people_rounded),
-        const SizedBox(width: 10),
-        _statTile(
-          'NGN Earned',
-          '₦${d.totalEarningsNgn.toStringAsFixed(0)}',
-          Icons.account_balance_wallet_rounded,
-        ),
-        const SizedBox(width: 10),
-        _statTile(
-          'VPT Earned',
-          d.totalEarningsVptUnits.toStringAsFixed(0),
-          Icons.diamond_rounded,
-        ),
-      ],
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _statTile('Invites', '${d.invitedCount}', Icons.people_rounded),
+          const SizedBox(width: 10),
+          _statTile(
+            'NGN Earned',
+            '₦${d.totalEarningsNgn.toStringAsFixed(0)}',
+            Icons.account_balance_wallet_rounded,
+          ),
+          const SizedBox(width: 10),
+          _statTile(
+            'VPT Earned',
+            d.totalEarningsVptUnits.toStringAsFixed(0),
+            Icons.diamond_rounded,
+          ),
+        ],
+      ),
     );
   }
 

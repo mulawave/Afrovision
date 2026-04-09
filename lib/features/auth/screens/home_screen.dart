@@ -10,6 +10,7 @@ import '../../../core/config/app_config.dart';
 import '../../../core/api/api_service.dart';
 import '../../../core/widgets/role_badge.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
+import '../../../core/utils/app_rating.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -98,6 +99,8 @@ class _HomeScreenState extends State<HomeScreen>
       _startPromoAutoScroll();
       _startRecentAutoScroll();
       _loadMarquee();
+      // Check if we should show the rating dialog
+      if (context.mounted) AppRating.checkAndPrompt(context);
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -244,8 +247,6 @@ class _HomeScreenState extends State<HomeScreen>
                                       _user!.kycStatus != 'verified' &&
                                       _user!.kycStatus != 'pending')
                                     _buildKycAlert(),
-                                  const SizedBox(height: 20),
-                                  _buildBranding(),
                                   const SizedBox(height: 22),
                                   if ((_stats?.promotedChannels.length ?? 0) >
                                       0) ...[
@@ -288,10 +289,7 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Text(
                   'Welcome back,',
-                  style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.8),
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: AppColors.lightOrange, fontSize: 13),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -321,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen>
             badgeCount: _unreadNotifications,
           ),
           const SizedBox(width: 8),
-          _topBarBtn(Icons.person_rounded, _goToProfile),
+          _buildAvatarButton(),
           const SizedBox(width: 8),
           _topBarBtn(Icons.logout_rounded, _logout),
         ],
@@ -370,6 +368,38 @@ class _HomeScreenState extends State<HomeScreen>
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildAvatarButton() {
+    final url = _user?.avatarUrl;
+    final initial = (_user?.name ?? _user?.email ?? 'U')[0].toUpperCase();
+    return GestureDetector(
+      onTap: _goToProfile,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.lightOrange, width: 1.5),
+          image: (url != null && url.isNotEmpty)
+              ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
+              : null,
+          color: (url == null || url.isEmpty) ? AppColors.inputFill : null,
+        ),
+        child: (url == null || url.isEmpty)
+            ? Center(
+                child: Text(
+                  initial,
+                  style: const TextStyle(
+                    color: AppColors.lightOrange,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              )
+            : null,
       ),
     );
   }
@@ -494,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen>
                   child: Text(
                     '(${_formatNaira(naira)})',
                     style: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.7),
+                      color: AppColors.white,
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                     ),
@@ -507,18 +537,12 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Text(
                   '1 vPT = ₦${pool?.vptRate ?? 750}',
-                  style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.6),
-                    fontSize: 11,
-                  ),
+                  style: TextStyle(color: AppColors.white, fontSize: 11),
                 ),
                 const Spacer(),
                 Text(
                   '${_stats?.totalMembers ?? 0} members · ${_stats?.totalChannels ?? 0} channels',
-                  style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.5),
-                    fontSize: 10,
-                  ),
+                  style: TextStyle(color: AppColors.white, fontSize: 10),
                 ),
               ],
             ),
@@ -550,7 +574,7 @@ class _HomeScreenState extends State<HomeScreen>
                         Text(
                           '(${_formatNaira(pool?.totalDistributedNgn ?? 0)})',
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            color: AppColors.white,
                             fontSize: 10,
                           ),
                         ),
@@ -558,7 +582,7 @@ class _HomeScreenState extends State<HomeScreen>
                         Text(
                           'Distributed',
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            color: AppColors.white,
                             fontSize: 9,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.3,
@@ -587,7 +611,7 @@ class _HomeScreenState extends State<HomeScreen>
                         Text(
                           'Beneficiaries',
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            color: AppColors.white,
                             fontSize: 9,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.3,
@@ -1135,42 +1159,75 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
           ],
-          // Subscribe button
-          if (_user != null && !_user!.hasActiveSubscription) ...[
+          // Subscribe button (subscription-aware)
+          if (_user != null) ...[
             const SizedBox(height: 18),
-            GestureDetector(
-              onTap: () async {
-                final result = await Navigator.pushNamed(context, '/plans');
-                if (result == true) _loadData();
-              },
-              child: Container(
+            if (_user!.hasActiveSubscription)
+              Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
-                  gradient: AppColors.buttonGradient,
+                  gradient: const LinearGradient(
+                    colors: [AppColors.lightOrange, AppColors.orange],
+                  ),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.diamond_rounded,
-                      color: AppColors.white,
-                      size: 18,
+                    const Icon(
+                      Icons.workspace_premium_rounded,
+                      color: AppColors.darkBlue,
+                      size: 20,
                     ),
-                    SizedBox(width: 8),
+                    const SizedBox(width: 8),
                     Text(
-                      'Subscribe to a Plan',
-                      style: TextStyle(
-                        color: AppColors.white,
+                      (_user!.subscriptionPlan ?? '').toLowerCase() == 'premium'
+                          ? 'Premium Membership'
+                          : 'Upgrade Now',
+                      style: const TextStyle(
+                        color: AppColors.darkBlue,
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
+              )
+            else
+              GestureDetector(
+                onTap: () async {
+                  final result = await Navigator.pushNamed(context, '/plans');
+                  if (result == true) _loadData();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    gradient: AppColors.buttonGradient,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.diamond_rounded,
+                        color: AppColors.white,
+                        size: 18,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Subscribe to a Plan',
+                        style: TextStyle(
+                          color: AppColors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
           ],
         ],
       ),
@@ -1315,7 +1372,7 @@ class _HomeScreenState extends State<HomeScreen>
                         Text(
                           'Promote your content to thousands of viewers across Africa.',
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.7),
+                            color: AppColors.white,
                             fontSize: 11,
                             height: 1.4,
                           ),
@@ -1341,8 +1398,12 @@ class _HomeScreenState extends State<HomeScreen>
                   onTap: () => Navigator.pushNamed(context, '/plans'),
                   child: _adBox(
                     icon: Icons.workspace_premium_rounded,
-                    title: 'Go Premium',
-                    subtitle: 'Unlock exclusive features',
+                    title: (_user?.hasActiveSubscription ?? false)
+                        ? 'Premium Unlocked'
+                        : 'Go Premium',
+                    subtitle: (_user?.hasActiveSubscription ?? false)
+                        ? '${_user!.subscriptionPlanDisplay} plan active'
+                        : 'Unlock exclusive features',
                     color: AppColors.lightOrange,
                   ),
                 ),
@@ -1402,10 +1463,7 @@ class _HomeScreenState extends State<HomeScreen>
           const SizedBox(height: 2),
           Text(
             subtitle,
-            style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.6),
-              fontSize: 10,
-            ),
+            style: TextStyle(color: AppColors.white, fontSize: 10),
           ),
         ],
       ),
@@ -1572,7 +1630,7 @@ class _HomeScreenState extends State<HomeScreen>
               Text(
                 body,
                 style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.6),
+                  color: AppColors.white,
                   fontSize: 9,
                   height: 1.3,
                 ),
@@ -1587,19 +1645,12 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _highlightStat(IconData icon, String label, String value) {
     return Row(
       children: [
-        Icon(
-          icon,
-          color: AppColors.lightOrange.withValues(alpha: 0.7),
-          size: 14,
-        ),
+        Icon(icon, color: AppColors.lightOrange, size: 14),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             label,
-            style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.6),
-              fontSize: 10,
-            ),
+            style: TextStyle(color: AppColors.white, fontSize: 10),
           ),
         ),
         Text(
@@ -1622,8 +1673,8 @@ class _HomeScreenState extends State<HomeScreen>
         const SizedBox(width: 6),
         Text(
           text,
-          style: TextStyle(
-            color: AppColors.hintText.withValues(alpha: 0.6),
+          style: const TextStyle(
+            color: AppColors.lightOrange,
             fontSize: 10,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.2,

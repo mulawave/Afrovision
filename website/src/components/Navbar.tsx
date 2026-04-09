@@ -93,9 +93,13 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
                     className="flex items-center gap-2 group"
                   >
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-sm font-bold text-av-dark-blue transition-transform group-hover:scale-110">
-                      {userInitial}
-                    </div>
+                    {user.avatar_url ? (
+                      <img src={user.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover transition-transform group-hover:scale-110" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-sm font-bold text-av-dark-blue transition-transform group-hover:scale-110">
+                        {userInitial}
+                      </div>
+                    )}
                     <svg
                       width="12"
                       height="12"
@@ -327,9 +331,13 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
             {isAuthenticated && user ? (
               <>
                 <div className="px-4 py-2 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-xs font-bold text-av-dark-blue">
-                    {userInitial}
-                  </div>
+                  {user.avatar_url ? (
+                    <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-xs font-bold text-av-dark-blue">
+                      {userInitial}
+                    </div>
+                  )}
                   <div>
                     <p className="text-sm font-medium text-av-white truncate">{user.name || user.email}</p>
                     <p className="text-[10px] text-av-hint">💎 {user.vpt_balance.toLocaleString()} VPT</p>

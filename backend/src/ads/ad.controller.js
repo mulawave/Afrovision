@@ -73,7 +73,7 @@ async function submitAd(req, res) {
 function getMyAds(req, res) {
   try {
     const ads = Ad.getByAdvertiser(req.userId);
-    res.json(ads);
+    res.json({ ads });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

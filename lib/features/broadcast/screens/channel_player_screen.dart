@@ -467,33 +467,37 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 right: _channel != null ? 12 : 12,
                 bottom: 12,
                 left: 12,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Interactions menu button
-                        _buildFloatingMenuButton(),
-                        // Exit fullscreen
-                        GestureDetector(
-                          onTap: _exitFullscreen,
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.6),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              Icons.fullscreen_exit_rounded,
-                              color: AppColors.white,
-                              size: 26,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {}, // absorb taps so outer GestureDetector doesn't toggle controls
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Interactions menu button
+                          _buildFloatingMenuButton(),
+                          // Exit fullscreen
+                          GestureDetector(
+                            onTap: _exitFullscreen,
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.fullscreen_exit_rounded,
+                                color: AppColors.white,
+                                size: 26,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
           ],
@@ -731,7 +735,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                         ),
                   const SizedBox(width: 6),
                   Text(
-                    _isLoop ? 'Rerun' : 'LIVE',
+                    _isLoop ? 'RERUN' : 'LIVE',
                     style: TextStyle(
                       color: _isLoop
                           ? const Color(0xFFE53935)

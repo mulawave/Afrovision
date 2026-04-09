@@ -221,29 +221,41 @@ class _ProfileScreenState extends State<ProfileScreen>
                   height: 90,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [
-                        AppColors.orange.withValues(alpha: 0.3),
-                        AppColors.lightOrange.withValues(alpha: 0.15),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    gradient:
+                        (user.avatarUrl == null || user.avatarUrl!.isEmpty)
+                        ? LinearGradient(
+                            colors: [
+                              AppColors.orange.withValues(alpha: 0.3),
+                              AppColors.lightOrange.withValues(alpha: 0.15),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : null,
                     border: Border.all(
                       color: AppColors.orange.withValues(alpha: 0.5),
                       width: 2,
                     ),
+                    image:
+                        (user.avatarUrl != null && user.avatarUrl!.isNotEmpty)
+                        ? DecorationImage(
+                            image: NetworkImage(user.avatarUrl!),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
                   ),
-                  child: Center(
-                    child: Text(
-                      _avatarInitials(user),
-                      style: const TextStyle(
-                        color: AppColors.orange,
-                        fontSize: 32,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
+                  child: (user.avatarUrl == null || user.avatarUrl!.isEmpty)
+                      ? Center(
+                          child: Text(
+                            _avatarInitials(user),
+                            style: const TextStyle(
+                              color: AppColors.orange,
+                              fontSize: 32,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        )
+                      : null,
                 ),
                 const SizedBox(height: 16),
                 // Name
@@ -252,7 +264,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   style: TextStyle(
                     color: user.name != null
                         ? AppColors.white
-                        : AppColors.hintText.withValues(alpha: 0.6),
+                        : AppColors.hintText,
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
                   ),
@@ -260,10 +272,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 const SizedBox(height: 4),
                 Text(
                   user.email,
-                  style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.8),
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(color: AppColors.white, fontSize: 14),
                 ),
                 const SizedBox(height: 12),
                 RoleBadge(
@@ -542,7 +551,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   Text(
                     'vPT Balance',
                     style: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.7),
+                      color: AppColors.white,
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                     ),
@@ -559,7 +568,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   Text(
                     '≈ ₦${_formatVpt(user.vptBalance * 750)}',
                     style: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.6),
+                      color: AppColors.white,
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                     ),
@@ -732,7 +741,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 Text(
                   label,
                   style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.7),
+                    color: AppColors.lightOrange,
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
                     letterSpacing: 0.5,
