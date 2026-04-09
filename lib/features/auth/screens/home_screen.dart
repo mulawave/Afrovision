@@ -447,6 +447,83 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ],
             ),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.lightOrange.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppColors.lightOrange.withValues(alpha: 0.12),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          '${_formatNumber(pool?.totalDistributedVpt ?? 0)} vPT',
+                          style: const TextStyle(
+                            color: AppColors.lightOrange,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '(${_formatNaira(pool?.totalDistributedNgn ?? 0)})',
+                          style: TextStyle(
+                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            fontSize: 10,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Distributed',
+                          style: TextStyle(
+                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 36,
+                    color: AppColors.lightOrange.withValues(alpha: 0.15),
+                  ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          '${pool?.totalBeneficiaries ?? 0}',
+                          style: const TextStyle(
+                            color: AppColors.lightOrange,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Beneficiaries',
+                          style: TextStyle(
+                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

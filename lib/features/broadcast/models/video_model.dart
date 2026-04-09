@@ -5,6 +5,7 @@ class VideoModel {
   final String creatorUid;
   final String channelId;
   final String title;
+  final String description;
   final String videoUrl;
   final String? thumbnailUrl;
   final int duration;
@@ -15,6 +16,7 @@ class VideoModel {
     required this.creatorUid,
     required this.channelId,
     required this.title,
+    this.description = '',
     required this.videoUrl,
     this.thumbnailUrl,
     required this.duration,
@@ -35,6 +37,7 @@ class VideoModel {
       creatorUid: json['creator_uid'] as String? ?? '',
       channelId: json['channel_id'] as String? ?? '',
       title: json['title'] as String? ?? '',
+      description: json['description'] as String? ?? '',
       videoUrl: json['video_url'] as String? ?? '',
       thumbnailUrl: json['thumbnail_url'] as String?,
       duration: json['duration'] as int? ?? 0,

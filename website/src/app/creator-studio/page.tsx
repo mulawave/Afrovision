@@ -78,6 +78,7 @@ interface UploadEntry {
   id: string;
   file: File;
   title: string;
+  description: string;
   duration: number;
   detecting: boolean;
   progress: number; // -1 = pending, 0-100 = uploading, 101 = registered
@@ -199,6 +200,7 @@ export default function CreatorStudioPage() {
         id: `${Date.now()}-${i}`,
         file,
         title: titleFromFilename(file.name),
+        description: "",
         duration: 0,
         detecting: true,
         progress: -1,
@@ -291,6 +293,7 @@ export default function CreatorStudioPage() {
         const regRes = await registerUploadedVideoApi({
           channelId: selectedChannelId,
           title: entry.title.trim() || titleFromFilename(entry.file.name),
+          description: entry.description.trim(),
           duration: entry.duration,
           videoUrl: public_url,
         });
@@ -883,6 +886,18 @@ export default function CreatorStudioPage() {
                                   className="w-full bg-transparent text-sm font-semibold text-av-white placeholder:text-av-hint/60 focus:outline-none disabled:opacity-80"
                                   placeholder="Video title"
                                 />
+                                <textarea
+                                  value={entry.description}
+                                  onChange={(e) =>
+                                    updateEntry(entry.id, {
+                                      description: e.target.value,
+                                    })
+                                  }
+                                  disabled={entry.progress > -1}
+                                  rows={2}
+                                  className="mt-1.5 w-full resize-none rounded-lg border border-av-input-border/20 bg-av-input-fill/30 px-2.5 py-1.5 text-xs text-av-white placeholder:text-av-hint/60 focus:border-av-orange/40 focus:outline-none disabled:opacity-80"
+                                  placeholder="Brief description (required)"
+                                />
                                 <div className="mt-1 flex items-center gap-3">
                                   <span className="text-xs text-av-hint">
                                     {entry.detecting ? (
@@ -958,7 +973,7 @@ export default function CreatorStudioPage() {
                           <button
                             type="button"
                             onClick={handleUploadAll}
-                            disabled={uploadingAll || !selectedChannelId}
+                            disabled={uploadingAll || !selectedChannelId || pendingUploads.some((e) => !e.description.trim())}
                             className="mt-3 w-full rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-3 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
                           >
                             {uploadingAll ? (

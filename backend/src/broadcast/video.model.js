@@ -17,7 +17,7 @@ async function init() {
   initialized = true;
 }
 
-async function create({ creatorUid, channelId, title, videoUrl, thumbnailUrl, duration }) {
+async function create({ creatorUid, channelId, title, description, videoUrl, thumbnailUrl, duration }) {
   const db = getFirestore();
   const id = crypto.randomUUID();
   const video = {
@@ -25,6 +25,7 @@ async function create({ creatorUid, channelId, title, videoUrl, thumbnailUrl, du
     creator_uid: creatorUid,
     channel_id: channelId,
     title,
+    description: description || '',
     video_url: videoUrl,
     thumbnail_url: thumbnailUrl || null,
     duration: duration || 0,
@@ -54,7 +55,7 @@ function getByCreator(creatorUid) {
 async function update(id, fields) {
   const video = findById(id);
   if (!video) return null;
-  const allowed = ['title', 'thumbnail_url', 'duration'];
+  const allowed = ['title', 'description', 'thumbnail_url', 'duration'];
   const updates = {};
   for (const key of allowed) {
     if (fields[key] !== undefined) {

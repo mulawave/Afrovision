@@ -23,8 +23,13 @@ router.get('/captcha-key', async (req, res) => {
 });
 
 // GET /home/stats — community pool, recent channels, total counts
-router.get('/stats', authenticateToken, (req, res) => {
-  const vptToNaira = 750; // 1 vPT = ₦750
+router.get('/stats', authenticateToken, async (req, res) => {
+  // Use admin-configurable vPT price; fall back to 750
+  let vptToNaira = 750;
+  try {
+    const stored = await SettingsService.get('VPT_PRICE_NGN');
+    if (stored && Number(stored) > 0) vptToNaira = Number(stored);
+  } catch (_) { /* use default */ }
 
   // Community pool balance = sum of (community_pool - vpt_extraction) from all SPLIT entries
   // i.e., the 70% that stays in the pool, converted to vPT at market rate
@@ -36,6 +41,15 @@ router.get('/stats', authenticateToken, (req, res) => {
     communityPoolNgn += (fullPool - extracted); // 70% remains
   }
   const communityPoolVpt = Math.round((communityPoolNgn / vptToNaira) * 100) / 100;
+
+  // Total distributed from pool (VPT_DISTRIBUTION entries)
+  const distributions = Ledger.getAll().filter((e) => e.type === 'VPT_DISTRIBUTION' && e.status === 'success');
+  const totalDistributedVpt = distributions.reduce((sum, e) => sum + (e.amount_vpt || 0), 0);
+  const totalDistributedNgn = Math.round(totalDistributedVpt * vptToNaira * 100) / 100;
+
+  // Total beneficiaries = unique users who received a distribution
+  const beneficiarySet = new Set(distributions.map((e) => e.uid).filter(Boolean));
+  const totalBeneficiaries = beneficiarySet.size;
 
   // Recent public channels (top 10)
   const recentChannels = Channel.getRecentPublic(10).map((ch) => {
@@ -75,6 +89,9 @@ router.get('/stats', authenticateToken, (req, res) => {
       total_ngn: communityPoolNgn,
       vpt_rate: vptToNaira,
       naira_equivalent: communityPoolNgn,
+      total_distributed_vpt: Math.round(totalDistributedVpt * 100) / 100,
+      total_distributed_ngn: totalDistributedNgn,
+      total_beneficiaries: totalBeneficiaries,
     },
     recent_channels: recentChannels,
     promoted_channels: promoted,

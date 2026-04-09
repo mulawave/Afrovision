@@ -30,19 +30,17 @@ class BroadcastService {
   static Future<VideoModel> uploadVideo({
     required String channelId,
     required String title,
+    required String description,
     required int duration,
     required File videoFile,
   }) async {
-    final data = await ApiService.uploadFileWithFields(
-      '/broadcast/videos',
-      videoFile,
-      {
-        'channel_id': channelId,
-        'title': title,
-        'duration': duration.toString(),
-      },
-      fieldName: 'video',
-    );
+    final data =
+        await ApiService.uploadFileWithFields('/broadcast/videos', videoFile, {
+          'channel_id': channelId,
+          'title': title,
+          'description': description,
+          'duration': duration.toString(),
+        }, fieldName: 'video');
     return VideoModel.fromJson(data['video'] as Map<String, dynamic>);
   }
 
@@ -110,12 +108,14 @@ class BroadcastService {
   static Future<VideoModel> registerUploadedVideo({
     required String channelId,
     required String title,
+    required String description,
     required int duration,
     required String videoUrl,
   }) async {
     final data = await ApiService.post('/broadcast/videos/register', {
       'channel_id': channelId,
       'title': title,
+      'description': description,
       'duration': duration,
       'video_url': videoUrl,
     });

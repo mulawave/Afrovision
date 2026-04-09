@@ -11,6 +11,7 @@ class _VideoEntry {
   final File file;
   final String fileName;
   String title;
+  String description;
   int? durationSec;
   bool detectingDuration;
   String? durationError;
@@ -23,6 +24,7 @@ class _VideoEntry {
 
   _VideoEntry({required this.file, required this.fileName, String? title})
     : title = title ?? _titleFromFileName(fileName),
+      description = '',
       durationSec = null,
       detectingDuration = true,
       durationError = null,
@@ -177,7 +179,10 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
     if (_uploading) return false;
     return _videos.every(
       (v) =>
-          !v.detectingDuration && v.durationSec != null && v.durationSec! > 0,
+          !v.detectingDuration &&
+          v.durationSec != null &&
+          v.durationSec! > 0 &&
+          v.description.trim().isNotEmpty,
     );
   }
 
@@ -228,6 +233,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
         final video = await BroadcastService.registerUploadedVideo(
           channelId: _channelId!,
           title: entry.title,
+          description: entry.description.trim(),
           duration: entry.durationSec!,
           videoUrl: urlData['public_url']!,
         );
@@ -832,6 +838,65 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
               ],
             ),
           ),
+          // Description field
+          if (!_uploading && !_done)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              child: TextField(
+                maxLines: 2,
+                style: const TextStyle(color: AppColors.white, fontSize: 12),
+                decoration: InputDecoration(
+                  hintText: 'Brief description (required)',
+                  hintStyle: TextStyle(
+                    color: AppColors.hintText.withValues(alpha: 0.5),
+                    fontSize: 12,
+                  ),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  filled: true,
+                  fillColor: AppColors.inputFill.withValues(alpha: 0.3),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: entry.description.trim().isEmpty
+                          ? AppColors.orange.withValues(alpha: 0.4)
+                          : AppColors.inputBorder.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: entry.description.trim().isEmpty
+                          ? AppColors.orange.withValues(alpha: 0.4)
+                          : AppColors.inputBorder.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: AppColors.orange.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ),
+                onChanged: (val) => setState(() => entry.description = val),
+              ),
+            )
+          else if (isDone && entry.description.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+              child: Text(
+                entry.description,
+                style: TextStyle(
+                  color: AppColors.hintText.withValues(alpha: 0.6),
+                  fontSize: 11,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           if (isUploading || isDone || isError)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
@@ -988,6 +1053,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                     onChanged: _uploading
                         ? null
                         : (v) => setState(() => _autoSchedule = v),
+                    // ignore: deprecated_member_use
                     activeColor: AppColors.orange,
                     activeTrackColor: AppColors.orange.withValues(alpha: 0.3),
                     inactiveThumbColor: AppColors.hintText,

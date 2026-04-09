@@ -13,6 +13,7 @@ class ProgramModel {
   // Enriched fields from playback/schedule responses
   final String? videoUrl;
   final String? videoTitle;
+  final String? videoDescription;
   final String? thumbnailUrl;
   final int? videoDuration;
   final int? position;
@@ -29,6 +30,7 @@ class ProgramModel {
     required this.createdAt,
     this.videoUrl,
     this.videoTitle,
+    this.videoDescription,
     this.thumbnailUrl,
     this.videoDuration,
     this.position,
@@ -58,6 +60,7 @@ class ProgramModel {
       createdAt: json['created_at'] as int? ?? 0,
       videoUrl: json['video_url'] as String?,
       videoTitle: json['video_title'] as String?,
+      videoDescription: json['video_description'] as String?,
       thumbnailUrl: json['thumbnail_url'] as String?,
       videoDuration: json['video_duration'] as int? ?? json['duration'] as int?,
       position: json['position'] as int?,

@@ -597,6 +597,7 @@ function EpgPanel({
   nowPlayingTitle: string | null;
 }) {
   const now = Date.now();
+  const [selectedProgram, setSelectedProgram] = useState<ScheduleProgram | null>(null);
 
   // Current program: match by ID, or find the one whose time window covers now
   const currentProgram = schedule.find(
@@ -647,7 +648,11 @@ function EpgPanel({
 
       {/* ── Now Playing ── */}
       {(currentProgram || isLoop) && (
-        <div className="mx-4 sm:mx-5 mb-3 rounded-lg bg-gradient-to-r from-av-orange/10 to-av-light-orange/5 border border-av-orange/20 overflow-hidden">
+        <div
+          className="mx-4 sm:mx-5 mb-3 rounded-lg bg-gradient-to-r from-av-orange/10 to-av-light-orange/5 border border-av-orange/20 overflow-hidden cursor-pointer"
+          onClick={() => currentProgram && setSelectedProgram(currentProgram)}
+          title={currentProgram?.video_description ? "Tap to view description" : undefined}
+        >
           {/* Progress bar */}
           {currentProgram && !isLoop && (
             <div className="h-[3px] w-full bg-av-input-fill">
@@ -706,7 +711,9 @@ function EpgPanel({
               return (
                 <div
                   key={program.id}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-av-input-fill/30 group"
+                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-av-input-fill/30 group cursor-pointer"
+                  onClick={() => setSelectedProgram(program)}
+                  title="Tap to view description"
                 >
                   {/* Time column */}
                   <div className="w-[52px] flex-shrink-0 text-right">
@@ -772,6 +779,53 @@ function EpgPanel({
       {!currentProgram && !isLoop && upcomingPrograms.length === 0 && (
         <div className="px-4 sm:px-5 pb-4">
           <p className="text-xs text-av-hint">No programs scheduled.</p>
+        </div>
+      )}
+
+      {/* ── Program Description Modal ── */}
+      {selectedProgram && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
+          onClick={() => setSelectedProgram(null)}
+        >
+          <div
+            className="relative mx-4 w-full max-w-md rounded-2xl border border-av-input-border/30 bg-av-card shadow-2xl shadow-black/50 overflow-hidden animate-fade-in-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-av-orange/10 to-av-light-orange/5 border-b border-av-input-border/20 px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-av-white">
+                    {selectedProgram.video_title}
+                  </p>
+                  <p className="text-[11px] text-av-hint mt-1">
+                    {formatEpgTime(selectedProgram.start_time)} – {formatEpgTime(selectedProgram.end_time)}
+                    <span className="mx-1.5">·</span>
+                    {formatEpgDuration(selectedProgram.video_duration)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedProgram(null)}
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-av-input-fill/50 text-av-hint transition-colors hover:bg-av-input-fill hover:text-av-white"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div className="px-5 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-av-hint mb-2">
+                Description
+              </p>
+              <p className="text-sm leading-relaxed text-av-white/80">
+                {selectedProgram.video_description || "No description available."}
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>

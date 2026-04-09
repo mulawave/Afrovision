@@ -585,6 +585,7 @@ export interface ScheduleProgram {
   start_time: number;
   end_time: number;
   video_title: string;
+  video_description: string;
   video_duration: number;
   video_thumbnail: string | null;
 }
@@ -601,6 +602,7 @@ export interface ChannelVideo {
   creator_uid: string;
   channel_id: string;
   title: string;
+  description: string;
   video_url: string;
   thumbnail_url: string | null;
   duration: number;
@@ -672,6 +674,7 @@ export function uploadFileToGCS(
 export async function registerUploadedVideoApi(input: {
   channelId: string;
   title: string;
+  description: string;
   duration?: number;
   videoUrl: string;
 }) {
@@ -680,6 +683,7 @@ export async function registerUploadedVideoApi(input: {
     body: {
       channel_id: input.channelId,
       title: input.title,
+      description: input.description,
       duration: input.duration || 0,
       video_url: input.videoUrl,
     },
@@ -693,12 +697,14 @@ export async function registerUploadedVideoApi(input: {
 export async function uploadVideoApi(input: {
   channelId: string;
   title: string;
+  description: string;
   duration?: number;
   file: File;
 }) {
   const formData = new FormData();
   formData.append("channel_id", input.channelId);
   formData.append("title", input.title);
+  formData.append("description", input.description);
   if (typeof input.duration === "number") {
     formData.append("duration", String(input.duration));
   }
@@ -866,6 +872,9 @@ export async function getHomeStatsApi() {
       total_ngn: number;
       vpt_rate: number;
       naira_equivalent: number;
+      total_distributed_vpt: number;
+      total_distributed_ngn: number;
+      total_beneficiaries: number;
     };
     recent_channels: Channel[];
     promoted_channels: Channel[];

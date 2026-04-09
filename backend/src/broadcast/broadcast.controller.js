@@ -57,9 +57,10 @@ async function registerUploadedVideo(req, res) {
       return res.status(403).json({ error: 'Only creators can upload videos' });
     }
 
-    const { channel_id, title, duration, video_url } = req.body;
+    const { channel_id, title, description, duration, video_url } = req.body;
     if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
     if (!title) return res.status(400).json({ error: 'title is required' });
+    if (!description || !description.trim()) return res.status(400).json({ error: 'description is required' });
     if (!video_url) return res.status(400).json({ error: 'video_url is required' });
 
     // Validate URL is from our GCS bucket
@@ -78,6 +79,7 @@ async function registerUploadedVideo(req, res) {
       creatorUid: req.userId,
       channelId: channel_id,
       title,
+      description: description.trim(),
       videoUrl: video_url,
       thumbnailUrl: null,
       duration: duration ? parseInt(duration, 10) : 0,
@@ -99,9 +101,10 @@ async function uploadVideo(req, res) {
       return res.status(403).json({ error: 'Only creators can upload videos' });
     }
 
-    const { channel_id, title, duration } = req.body;
+    const { channel_id, title, description, duration } = req.body;
     if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
     if (!title) return res.status(400).json({ error: 'title is required' });
+    if (!description || !description.trim()) return res.status(400).json({ error: 'description is required' });
     if (!req.file) return res.status(400).json({ error: 'No video file uploaded' });
 
     const channel = Channel.findById(channel_id);
@@ -115,6 +118,7 @@ async function uploadVideo(req, res) {
       creatorUid: req.userId,
       channelId: channel_id,
       title,
+      description: description.trim(),
       videoUrl,
       thumbnailUrl: null,
       duration: duration ? parseInt(duration, 10) : 0,
@@ -213,6 +217,7 @@ async function scheduleProgram(req, res) {
       program: {
         ...program,
         video_title: video.title,
+        video_description: video.description || '',
         video_duration: video.duration,
       },
     });
@@ -228,6 +233,7 @@ function getChannelSchedule(req, res) {
     return {
       ...p,
       video_title: video ? video.title : 'Unknown',
+      video_description: video ? (video.description || '') : '',
       video_duration: video ? video.duration : 0,
       video_thumbnail: video ? video.thumbnail_url : null,
     };
@@ -310,6 +316,7 @@ async function scheduleSequential(req, res) {
       created.push({
         ...program,
         video_title: video.title,
+        video_description: video.description || '',
         video_duration: video.duration,
       });
 
@@ -351,6 +358,7 @@ function getNowPlaying(req, res) {
         video_id: video.id,
         video_url: video.video_url,
         video_title: video.title,
+        video_description: video.description || '',
         thumbnail_url: video.thumbnail_url,
         duration: video.duration,
         start_time: program.start_time,
@@ -392,6 +400,7 @@ function getNowPlaying(req, res) {
           video_id: video.id,
           video_url: video.video_url,
           video_title: video.title,
+          video_description: video.description || '',
           thumbnail_url: video.thumbnail_url,
           duration: video.duration,
           start_time: lastEnded.start_time,
@@ -425,6 +434,7 @@ function enrichProgram(program) {
   return {
     program_id: program.id,
     video_title: video ? video.title : 'Unknown',
+    video_description: video ? (video.description || '') : '',
     video_duration: video ? video.duration : 0,
     thumbnail_url: video ? video.thumbnail_url : null,
     start_time: program.start_time,
@@ -499,6 +509,7 @@ function getUpcomingAll(_req, res) {
       channel_name: channel ? channel.name : 'Unknown',
       channel_category: channel ? channel.category : '',
       video_title: video ? video.title : 'Unknown',
+      video_description: video ? (video.description || '') : '',
       video_thumbnail: video ? video.thumbnail_url : null,
       start_time: p.start_time,
       end_time: p.end_time,

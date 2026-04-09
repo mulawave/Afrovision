@@ -2,8 +2,12 @@ import '../../../core/api/api_service.dart';
 
 class HomeStats {
   final double totalVpt;
+  final double totalNgn;
   final int vptRate;
   final double nairaEquivalent;
+  final double totalDistributedVpt;
+  final double totalDistributedNgn;
+  final int totalBeneficiaries;
   final List<RecentChannel> recentChannels;
   final List<PromotedChannel> promotedChannels;
   final int totalChannels;
@@ -11,8 +15,12 @@ class HomeStats {
 
   HomeStats({
     required this.totalVpt,
+    required this.totalNgn,
     required this.vptRate,
     required this.nairaEquivalent,
+    required this.totalDistributedVpt,
+    required this.totalDistributedNgn,
+    required this.totalBeneficiaries,
     required this.recentChannels,
     required this.promotedChannels,
     required this.totalChannels,
@@ -26,8 +34,14 @@ class HomeStats {
     final promoted = (json['promoted_channels'] as List<dynamic>?) ?? [];
     return HomeStats(
       totalVpt: (pool['total_vpt'] as num).toDouble(),
+      totalNgn: (pool['total_ngn'] as num).toDouble(),
       vptRate: (pool['vpt_rate'] as num).toInt(),
       nairaEquivalent: (pool['naira_equivalent'] as num).toDouble(),
+      totalDistributedVpt:
+          (pool['total_distributed_vpt'] as num?)?.toDouble() ?? 0,
+      totalDistributedNgn:
+          (pool['total_distributed_ngn'] as num?)?.toDouble() ?? 0,
+      totalBeneficiaries: (pool['total_beneficiaries'] as num?)?.toInt() ?? 0,
       recentChannels: recent
           .map((e) => RecentChannel.fromJson(e as Map<String, dynamic>))
           .toList(),
