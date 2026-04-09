@@ -27,6 +27,7 @@ const creatorAnalyticsRoutes = require('./analytics/creator_analytics.routes');
 const copyrightRoutes = require('./copyright/copyright.routes');
 const challengeRoutes = require('./challenge/challenge.routes');
 const kycRoutes = require('./kyc/kyc.routes');
+const adRoutes = require('./ads/ad.routes');
 const ChallengeModel = require('./challenge/challenge.model');
 const KycModel = require('./kyc/kyc.model');
 const RenewalWorker = require('./subscriptions/renewal.worker');
@@ -49,6 +50,8 @@ const StreamStatsModel = require('./analytics/stream_stats.model');
 const ChannelModel = require('./channels/channel.model');
 const CategoryModel = require('./channels/category.model');
 const PlanModel = require('./subscriptions/plan.model');
+const AdModel = require('./ads/ad.model');
+const AdImpressionModel = require('./ads/ad_impression.model');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
 const app = express();
@@ -94,6 +97,7 @@ app.use('/analytics/creator', creatorAnalyticsRoutes);
 app.use('/copyright', copyrightRoutes);
 app.use('/challenge', challengeRoutes);
 app.use('/kyc', kycRoutes);
+app.use('/ads', adRoutes);
 
 app.get('/', (req, res) => {
   res.json({ status: 'AfroVision API running' });
@@ -168,6 +172,8 @@ async function startServer() {
     ChannelModel.init(),
     CategoryModel.init(),
     PlanModel.init(),
+    AdModel.init(),
+    AdImpressionModel.init(),
   ]);
 
   // Start the renewal worker AFTER models are initialized

@@ -1,7 +1,7 @@
 # AfroVision v1 — Final Completion Tracker
 
 > Created: 2025-04-09
-> Status: **Phase 1+2 Complete — Deploying**
+> Status: **Phase 1–4 Complete — Starting Phase 5**
 
 ---
 
@@ -11,8 +11,8 @@
 |---|-------|-------|--------|------------|
 | 1 | Community Pool Display | Show live pool balance, total distributed, beneficiaries, amounts on all pages (website + Flutter) | ✅ Complete | — |
 | 2 | Video Description Requirement | Add required description to upload flow, persist, show in EPG, tap-to-reveal popup | ✅ Complete | — |
-| 3 | Program Reminders UI | Wire existing backend reminder system to website + Flutter (push + email 30s before) | ⬜ Not Started | Phase 2 (description in popup) |
-| 4 | Ad System — Data Model & Backend | Ad categories, CRUD, rotation logic, admin endpoints, approval workflow | ⬜ Not Started | — |
+| 3 | Program Reminders UI | Wire existing backend reminder system to website + Flutter (push + email 30s before) | ✅ Complete | Phase 2 (description in popup) |
+| 4 | Ad System — Data Model & Backend | Ad categories, CRUD, rotation logic, admin endpoints, approval workflow | ✅ Complete | — |
 | 5 | Ad System — Admin Dashboard | Ad management UI (all categories, bulk ops, approval, super ads, injection controls) | ⬜ Not Started | Phase 4 |
 | 6 | Ad System — Advertiser Portal | Ad submission page, category selection, video upload with duration validation, billing | ⬜ Not Started | Phase 4 |
 | 7 | Ad System — Billing & Revenue Split | Pricing structure, fund management, 50/30/20 and 70/30 splits, depletion logic | ⬜ Not Started | Phase 4, 6 |
@@ -67,32 +67,42 @@
 
 ---
 
-## Phase 3: Program Reminders UI
+## Phase 3: Program Reminders UI — ✅ COMPLETE
 
-### What Exists
-- Backend: Full reminder system (create, delete, list, auto-send at `send_at` time)
-- Backend sends reminders but no push notification or email integration yet (needs FCM + email service)
+### What Was Done
+- **Backend**: Added SendGrid email service (`backend/src/utils/email.js`) with branded HTML template; wired email sending into existing reminder timer alongside FCM push notifications; graceful fallback when SENDGRID_API_KEY not set
+- **Website EPG**: Reminder bell icon on each upcoming program row (filled=active, outline=inactive); toggle on/off with loading state; loads existing reminders on mount, filtered by current channel
+- **Flutter Channel Player**: Added reminder API methods to BroadcastService (getMyReminders, setReminder, removeReminder); reminder state in channel player; animated bell icon on UP NEXT card with toggle
 
-### What's Needed
-- [ ] Backend: Wire reminder sending to FCM push notifications
-- [ ] Backend: Wire reminder sending to email (need email service — SendGrid? Mailgun?)
-- [ ] Website: Reminder bell icon on EPG schedule items
-- [ ] Website: API wrapper for create/delete reminder
-- [ ] Flutter: Reminder bell on EPG items
-- [ ] Flutter: FCM integration for push notifications
+### Files Modified
+- `backend/package.json` (added @sendgrid/mail)
+- `backend/src/utils/email.js` (NEW)
+- `backend/src/broadcast/broadcast.controller.js` (email import + wired into timer)
+- `website/src/app/live/[id]/LiveStream.tsx` (reminder imports, bell UI, state management)
+- `lib/features/broadcast/services/broadcast_service.dart` (reminder API methods)
+- `lib/features/broadcast/screens/channel_player_screen.dart` (reminder state + bell on UP NEXT)
 
 ---
 
-## Phase 4: Ad System — Data Model & Backend
+## Phase 4: Ad System — Data Model & Backend — ✅ COMPLETE
 
-### What's Needed
-- [ ] Data model: `advertisements` collection (id, advertiser_id, category [banner_home, banner_page, schedule_pre, schedule_mid, schedule_brief], video_url, thumbnail, duration, title, description, status [pending, approved, rejected, active, paused, expired], expiration_date, budget, spent, price_per_run, created_at, updated_at)
-- [ ] Data model: `ad_impressions` collection (ad_id, channel_id, viewer_count, played_at, category)
-- [ ] Data model: `ad_revenue` collection (ad_id, channel_id, total, operations_share, channel_share, pool_share)
-- [ ] Rotation queue logic per category
-- [ ] CRUD routes for ads
-- [ ] Admin routes: approve, reject, ban advertiser, create super ad, adjust durations
-- [ ] Advertiser routes: submit ad, view own ads, top up, view analytics
+### What Was Done
+- **Ad Model** (`ad.model.js`): Firestore + in-memory cache with 5 categories (banner_home, banner_page, in_stream_pre, in_stream_mid, in_stream_brief), 7 statuses (pending→active→depleted), max duration enforcement, CRUD, auto-deplete on budget exhaustion
+- **Impression Model** (`ad_impression.model.js`): Records ad_id, channel_id, channel_owner_id, category, viewer_count, cost; query by ad/channel/advertiser; aggregated stats
+- **Serving Engine** (`ad_serving.js`): Round-robin rotation with lowest-impression-count fairness, super ad priority, channel targeting, banner/in-stream helpers, revenue split calculator (50/30/20 in-stream, 70/30 banner)
+- **Controller** (`ad.controller.js`): 17 endpoints — advertiser (submit, list own, stats, top up budget, upload URL), admin (list all, pending, approve, reject, activate, pause, super ad, update, delete, impressions), serving (banner, in-stream), impression recording with Ledger-based revenue distribution
+- **Routes** (`ad.routes.js`): Express router with auth middleware, public serving endpoints, authenticated CRUD/admin routes
+- **App wiring**: AdModel + AdImpressionModel initialized on boot, routes mounted at `/ads`
+
+### Files Created
+- `backend/src/ads/ad.model.js`
+- `backend/src/ads/ad_impression.model.js`
+- `backend/src/ads/ad_serving.js`
+- `backend/src/ads/ad.controller.js`
+- `backend/src/ads/ad.routes.js`
+
+### Files Modified
+- `backend/src/app.js` (imports, route mount, model init)
 
 ---
 
@@ -118,4 +128,6 @@ See conversation for questions asked before implementation begins.
 
 | Date | Phase | Service | Revision | Notes |
 |------|-------|---------|----------|-------|
-| — | — | — | — | — |
+| 2025-04-09 | 1-2 | Backend + Website | 00111-crr / 00022-xlr | Community pool + video description |
+| 2025-04-09 | 3 | Backend + Website | 00113-hjn / 00024-shq | Program reminders (email + FCM + UI) |
+| 2025-04-10 | 4 | Backend | 00115-fzs | Ad system data model & backend |
