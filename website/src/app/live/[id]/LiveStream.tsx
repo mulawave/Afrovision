@@ -16,6 +16,7 @@ import {
   type Channel,
   type ChannelEvent,
   type ScheduleProgram,
+  type ProgramReminder,
   sendGiftApi,
   sendReactionApi,
   getNowPlayingApi,
@@ -28,6 +29,9 @@ import {
   unfollowCreatorApi,
   getChannelEventsApi,
   getChannelEventsSinceApi,
+  getMyRemindersApi,
+  setReminderApi,
+  removeReminderApi,
 } from "@/lib/api";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
 
@@ -437,6 +441,7 @@ export function LiveStream({ id }: { id: string }) {
               nowPlayingId={nowPlaying?.program_id ?? null}
               isLoop={nowPlaying?.is_loop ?? false}
               nowPlayingTitle={nowPlaying?.video_title ?? null}
+              channelId={id}
             />
 
             <div className="mt-4 rounded-xl bg-av-card border border-av-input-border/20 p-4 sm:p-5">
@@ -590,14 +595,49 @@ function EpgPanel({
   nowPlayingId,
   isLoop,
   nowPlayingTitle,
+  channelId,
 }: {
   schedule: ScheduleProgram[];
   nowPlayingId: string | null;
   isLoop: boolean;
   nowPlayingTitle: string | null;
+  channelId: string;
 }) {
   const now = Date.now();
   const [selectedProgram, setSelectedProgram] = useState<ScheduleProgram | null>(null);
+  const [reminders, setReminders] = useState<Set<string>>(new Set());
+  const [reminderLoading, setReminderLoading] = useState<string | null>(null);
+
+  // Load user's reminders on mount
+  useEffect(() => {
+    getMyRemindersApi().then((res) => {
+      if (res.ok && "reminders" in res.data) {
+        const ids = new Set(res.data.reminders.filter((r) => r.channel_id === channelId).map((r) => r.program_id));
+        setReminders(ids);
+      }
+    });
+  }, [channelId]);
+
+  const toggleReminder = async (e: React.MouseEvent, programId: string) => {
+    e.stopPropagation();
+    if (reminderLoading) return;
+    setReminderLoading(programId);
+    try {
+      if (reminders.has(programId)) {
+        const res = await removeReminderApi(programId);
+        if (res.ok) {
+          setReminders((prev) => { const next = new Set(prev); next.delete(programId); return next; });
+        }
+      } else {
+        const res = await setReminderApi(programId);
+        if (res.ok) {
+          setReminders((prev) => new Set(prev).add(programId));
+        }
+      }
+    } finally {
+      setReminderLoading(null);
+    }
+  };
 
   // Current program: match by ID, or find the one whose time window covers now
   const currentProgram = schedule.find(
@@ -756,18 +796,34 @@ function EpgPanel({
                     </p>
                   </div>
 
-                  {/* Order badge for first 3 */}
-                  {index < 3 && (
-                    <span
-                      className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
-                        index === 0
+                  {/* Reminder bell + Order badge */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={(e) => toggleReminder(e, program.id)}
+                      disabled={reminderLoading === program.id}
+                      className={`flex h-6 w-6 items-center justify-center rounded-full transition-all ${
+                        reminders.has(program.id)
                           ? "bg-av-orange/20 text-av-orange"
-                          : "bg-av-input-fill text-av-hint"
-                      }`}
+                          : "bg-transparent text-av-hint/40 hover:text-av-orange/70 hover:bg-av-orange/10"
+                      } ${reminderLoading === program.id ? "opacity-50 animate-pulse" : ""}`}
+                      title={reminders.has(program.id) ? "Remove reminder" : "Set reminder"}
                     >
-                      {index + 1}
-                    </span>
-                  )}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill={reminders.has(program.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    </button>
+                    {index < 3 && (
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold ${
+                          index === 0
+                            ? "bg-av-orange/20 text-av-orange"
+                            : "bg-av-input-fill text-av-hint"
+                        }`}
+                      >
+                        {index + 1}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}

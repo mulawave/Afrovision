@@ -44,6 +44,10 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   int _duration = 0;
   String _videoTitle = '';
 
+  // Reminders
+  final Set<String> _remindedProgramIds = {};
+  bool _reminderLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -63,7 +67,10 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     super.didChangeDependencies();
     if (_channelId == null) {
       _channelId = ModalRoute.of(context)?.settings.arguments as String?;
-      if (_channelId != null) _fetchNowPlaying();
+      if (_channelId != null) {
+        _fetchNowPlaying();
+        _loadReminders();
+      }
     }
   }
 
@@ -83,6 +90,38 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     if (state == AppLifecycleState.resumed) {
       _player?.onAppResumed();
     }
+  }
+
+  // ─── Reminders ───
+
+  Future<void> _loadReminders() async {
+    try {
+      final list = await BroadcastService.getMyReminders();
+      if (!mounted) return;
+      setState(() {
+        _remindedProgramIds.clear();
+        for (final r in list) {
+          if (r['channel_id'] == _channelId) {
+            _remindedProgramIds.add(r['program_id'] as String);
+          }
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _toggleReminder(String programId) async {
+    if (_reminderLoading) return;
+    setState(() => _reminderLoading = true);
+    try {
+      if (_remindedProgramIds.contains(programId)) {
+        await BroadcastService.removeReminder(programId);
+        if (mounted) setState(() => _remindedProgramIds.remove(programId));
+      } else {
+        await BroadcastService.setReminder(programId);
+        if (mounted) setState(() => _remindedProgramIds.add(programId));
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _reminderLoading = false);
   }
 
   // ─── Core: fetch what's playing ───
@@ -1072,10 +1111,13 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   Widget _buildUpNextCard() {
     final title = _nextProgram!['video_title'] as String? ?? 'Unknown';
     final description = _nextProgram!['video_description'] as String? ?? '';
+    final programId = _nextProgram!['program_id'] as String? ?? '';
     final startMs = _nextProgram!['start_time'] as int? ?? 0;
     final dt = DateTime.fromMillisecondsSinceEpoch(startMs);
     final timeStr =
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final hasReminder =
+        programId.isNotEmpty && _remindedProgramIds.contains(programId);
 
     return GestureDetector(
       onTap: () => _showDescriptionPopup(title, description, timeStr: timeStr),
@@ -1147,6 +1189,40 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 fontWeight: FontWeight.w500,
               ),
             ),
+            if (programId.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _toggleReminder(programId),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: hasReminder
+                        ? AppColors.orange.withValues(alpha: 0.15)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _reminderLoading
+                      ? const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.orange,
+                          ),
+                        )
+                      : Icon(
+                          hasReminder
+                              ? Icons.notifications_active
+                              : Icons.notifications_none,
+                          color: hasReminder
+                              ? AppColors.orange
+                              : AppColors.hintText.withValues(alpha: 0.5),
+                          size: 18,
+                        ),
+                ),
+              ),
+            ],
             const SizedBox(width: 8),
             Icon(
               Icons.info_outline,

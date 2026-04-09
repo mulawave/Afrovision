@@ -7,6 +7,7 @@ const LiveTrigger = require('../channels/live_trigger');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const NotificationService = require('../notifications/notification.service');
+const { sendReminderEmail } = require('../utils/email');
 const crypto = require('crypto');
 const path = require('path');
 const { generateSignedUploadUrl } = require('../utils/gcs');
@@ -588,6 +589,16 @@ function startReminderTimer() {
             channel_id: reminder.channel_id,
           },
         });
+        // Also send email reminder
+        const user = User.findById(reminder.user_id);
+        if (user && user.email && !user.email.endsWith('@afrovision.invalid')) {
+          sendReminderEmail({
+            to: user.email,
+            programTitle: reminder.program_title,
+            channelName: reminder.channel_name,
+            channelId: reminder.channel_id,
+          }).catch((err) => console.error('[Reminder] Email error:', err.message));
+        }
         await Reminder.markSent(reminder.id);
       }
     } catch (err) {

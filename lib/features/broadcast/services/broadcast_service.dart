@@ -195,4 +195,19 @@ class BroadcastService {
     final data = await ApiService.get('/broadcast/time');
     return data['server_time'] as int;
   }
+
+  // ─── Reminders ────────────────────────────────────────
+
+  static Future<List<Map<String, dynamic>>> getMyReminders() async {
+    final data = await ApiService.get('/broadcast/reminders/me');
+    return List<Map<String, dynamic>>.from(data['reminders'] ?? []);
+  }
+
+  static Future<Map<String, dynamic>> setReminder(String programId) async {
+    return ApiService.post('/broadcast/reminders', {'program_id': programId});
+  }
+
+  static Future<void> removeReminder(String programId) async {
+    await ApiService.delete('/broadcast/reminders/$programId');
+  }
 }
