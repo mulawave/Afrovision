@@ -459,6 +459,72 @@ async function recordImpression(req, res) {
   }
 }
 
+/**
+ * GET /ads/billing — advertiser billing summary
+ */
+function getBilling(req, res) {
+  try {
+    const myAds = Ad.getByAdvertiser(req.userId);
+    const totalBudget = myAds.reduce((s, a) => s + (a.budget || 0), 0);
+    const totalSpent = myAds.reduce((s, a) => s + (a.spent || 0), 0);
+    const totalImpressions = myAds.reduce((s, a) => s + (a.impression_count || 0), 0);
+    const activeAds = myAds.filter((a) => a.status === 'active').length;
+    const depletedAds = myAds.filter((a) => a.status === 'depleted').length;
+
+    res.json({
+      total_ads: myAds.length,
+      active_ads: activeAds,
+      depleted_ads: depletedAds,
+      total_budget: totalBudget,
+      total_spent: totalSpent,
+      remaining_budget: totalBudget - totalSpent,
+      total_impressions: totalImpressions,
+      avg_cost_per_impression: totalImpressions > 0 ? +(totalSpent / totalImpressions).toFixed(4) : 0,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /ads/revenue-report — admin: platform revenue report from ads
+ */
+function getRevenueReport(req, res) {
+  try {
+    const user = User.findById(req.userId);
+    if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+    const allAds = Ad.getAll();
+    const allImpressions = AdImpression.getAll();
+
+    const totalRevenue = allAds.reduce((s, a) => s + (a.spent || 0), 0);
+    const totalImpressions = allImpressions.length;
+    const totalViewers = allImpressions.reduce((s, i) => s + (i.viewer_count || 0), 0);
+
+    // Compute aggregate splits
+    let totalOps = 0, totalChannel = 0, totalPool = 0;
+    for (const imp of allImpressions) {
+      const split = calculateRevenueSplit(imp.category, imp.cost || 0);
+      totalOps += split.operations_share;
+      totalChannel += split.channel_share;
+      totalPool += split.pool_share;
+    }
+
+    res.json({
+      total_revenue: +totalRevenue.toFixed(2),
+      total_impressions: totalImpressions,
+      total_viewers: totalViewers,
+      operations_revenue: +totalOps.toFixed(2),
+      channel_revenue: +totalChannel.toFixed(2),
+      pool_revenue: +totalPool.toFixed(2),
+      active_ads: allAds.filter((a) => a.status === 'active').length,
+      total_ads: allAds.length,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   // Advertiser
   submitAd,
@@ -466,6 +532,7 @@ module.exports = {
   getAdStats,
   topUpBudget,
   getAdUploadUrl,
+  getBilling,
   // Admin
   getAllAds,
   getPendingAds,
@@ -477,6 +544,7 @@ module.exports = {
   updateAd,
   deleteAd,
   getAllImpressions,
+  getRevenueReport,
   // Serving
   serveBanner,
   serveInStream,

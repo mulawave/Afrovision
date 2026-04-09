@@ -14,6 +14,7 @@ router.post('/impression', authenticateToken, ctrl.recordImpression);
 // ─── ADVERTISER (authenticated) ───────────────────────────
 router.post('/', authenticateToken, ctrl.submitAd);
 router.get('/me', authenticateToken, ctrl.getMyAds);
+router.get('/billing', authenticateToken, ctrl.getBilling);
 router.post('/upload-url', authenticateToken, ctrl.getAdUploadUrl);
 router.get('/:id/stats', authenticateToken, ctrl.getAdStats);
 router.patch('/:id/budget', authenticateToken, ctrl.topUpBudget);
@@ -23,6 +24,7 @@ router.patch('/:id/pause', authenticateToken, ctrl.pauseAd);
 router.get('/all', authenticateToken, ctrl.getAllAds);
 router.get('/pending', authenticateToken, ctrl.getPendingAds);
 router.get('/impressions', authenticateToken, ctrl.getAllImpressions);
+router.get('/revenue-report', authenticateToken, ctrl.getRevenueReport);
 router.post('/super', authenticateToken, ctrl.createSuperAd);
 router.patch('/:id/approve', authenticateToken, ctrl.approveAd);
 router.patch('/:id/reject', authenticateToken, ctrl.rejectAd);

@@ -1,7 +1,7 @@
 # AfroVision v1 — Final Completion Tracker
 
 > Created: 2025-04-09
-> Status: **Phase 1–6 Complete — Starting Phase 7**
+> Status: **Phase 1–7 Complete — Starting Phase 8**
 
 ---
 
@@ -15,7 +15,7 @@
 | 4 | Ad System — Data Model & Backend | Ad categories, CRUD, rotation logic, admin endpoints, approval workflow | ✅ Complete | — |
 | 5 | Ad System — Admin Dashboard | Ad management UI (all categories, bulk ops, approval, super ads, injection controls) | ✅ Complete | Phase 4 |
 | 6 | Ad System — Advertiser Portal | Ad submission page, category selection, video upload with duration validation, billing | ✅ Complete | Phase 4 |
-| 7 | Ad System — Billing & Revenue Split | Pricing structure, fund management, 50/30/20 and 70/30 splits, depletion logic | ⬜ Not Started | Phase 4, 6 |
+| 7 | Ad System — Billing & Revenue Split | Pricing structure, fund management, 50/30/20 and 70/30 splits, depletion logic | ✅ Complete | Phase 4, 6 |
 | 8 | Ad System — Playback Integration (Website) | Freeze/resume, DSTV-style transitions, ad injection into live player, all 3 categories | ⬜ Not Started | Phase 4, 7 |
 | 9 | Ad System — Playback Integration (Flutter) | Same as Phase 8 but for Flutter app | ⬜ Not Started | Phase 8 |
 | 10 | Ad System — Banner Ads (Pages) | Banner ad placements on home + other pages (website + Flutter) | ⬜ Not Started | Phase 4, 7 |
@@ -146,7 +146,22 @@
 
 ---
 
-## Phase 7–14: (Detailed breakdown to be added as we progress)
+## Phase 7: Ad System — Billing & Revenue Split — ✅ COMPLETE
+
+### What Was Done
+- **Revenue split logic** already in `ad_serving.js`: 50/30/20 (operations/channel/pool) for in-stream, 70/30 (operations/pool) for banners
+- **Depletion logic** already in `ad.model.js`: Auto-sets status to ‘depleted’ when spent >= budget
+- **Impression billing** already in `ad.controller.js`: Per-impression cost calculation, Ledger entries for channel revenue + community pool
+- **Billing report endpoint** (NEW): `GET /ads/billing` — advertiser’s spending summary (total budget, spent, remaining, impressions, avg cost)
+- **Revenue report endpoint** (NEW): `GET /ads/revenue-report` — admin platform revenue aggregates with split breakdown (operations/channel/pool)
+
+### Files Modified
+- `backend/src/ads/ad.controller.js` (added getBilling + getRevenueReport)
+- `backend/src/ads/ad.routes.js` (wired billing + revenue-report routes)
+
+---
+
+## Phase 8–14: (Detailed breakdown to be added as we progress)
 
 ---
 
@@ -172,3 +187,4 @@ See conversation for questions asked before implementation begins.
 | 2025-04-09 | 3 | Backend + Website | 00113-hjn / 00024-shq | Program reminders (email + FCM + UI) |
 | 2025-04-10 | 4 | Backend | 00115-fzs | Ad system data model & backend |
 | 2025-04-10 | 5 | Admin | 00006-gb9 | Ad management dashboard |\n| 2025-04-10 | 6 | Website | 00026-xwv | Advertiser portal + ad API wrappers |
+| 2025-04-10 | 7 | Backend | 00117-pbj | Billing report + revenue report endpoints |
