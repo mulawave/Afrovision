@@ -134,7 +134,8 @@ async function adminGetKyc(req, res) {
 
 async function adminReviewKyc(req, res) {
   try {
-    const { status, review_notes, rejection_reason } = req.body;
+    const { decision, status: rawStatus, review_notes, rejection_reason } = req.body;
+    const status = decision || rawStatus;
     if (!status || !['verified', 'rejected'].includes(status)) {
       return res.status(400).json({ error: 'Status must be "verified" or "rejected"' });
     }

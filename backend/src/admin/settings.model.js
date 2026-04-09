@@ -65,6 +65,18 @@ const SETTING_DEFINITIONS = {
     sensitive: false,
     defaultValue: '30',
   },
+  VIEWER_REWARD_PERCENT: {
+    category: 'rates',
+    description: 'Percentage of community pool distributed to viewers per reward cycle',
+    sensitive: false,
+    defaultValue: '10',
+  },
+  VIEWER_REWARD_INTERVAL_HOURS: {
+    category: 'rates',
+    description: 'Hours between automatic viewer reward distributions (e.g. 24 = daily)',
+    sensitive: false,
+    defaultValue: '24',
+  },
   VPT_PRICE_NGN: {
     category: 'rates',
     description: 'Reference price of 1 vPT in Naira for display and financial calculations',

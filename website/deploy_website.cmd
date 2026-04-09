@@ -1,7 +1,7 @@
 @echo off
 echo === Starting Website Deploy ===
 echo %date% %time%
-cd /d c:\Users\HomePC\Documents\AfroVision_web\Afrovision\website
+cd /d %~dp0
 
 echo.
 echo === Deploying Website to Cloud Run ===

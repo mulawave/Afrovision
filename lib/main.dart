@@ -58,11 +58,18 @@ void main() async {
 class AfroVisionApp extends StatelessWidget {
   const AfroVisionApp({super.key});
 
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
+    // Wire the navigator key so notification taps can navigate
+    NotificationService.navigatorKey = navigatorKey;
+
     return MaterialApp(
       title: 'AfroVision',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: AppColors.darkBlue,

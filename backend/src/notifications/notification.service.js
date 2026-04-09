@@ -29,6 +29,9 @@ async function notifyUser(
     createdBy,
   });
 
+  // Get the current unread count so the device can update its app icon badge
+  const unreadCount = Notification.countUnread(userId);
+
   try {
     const pushResult = await fcm.sendToUser(userId, {
       title,
@@ -38,7 +41,9 @@ async function notifyUser(
         notification_id: notification.id,
         link: link || '',
         type,
+        unread_count: String(unreadCount),
       },
+      badge: unreadCount,
     });
 
     return {

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../api/api_service.dart';
 import '../storage/auth_storage.dart';
 import '../theme/app_colors.dart';
@@ -11,7 +12,16 @@ import '../theme/app_colors.dart';
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Firebase is already initialized by the time this is called on Android 12+.
-  // Add any background data-processing here if needed.
+  // Update the app icon badge when a background message arrives.
+  try {
+    final dataCount = message.data['unread_count'];
+    if (dataCount != null) {
+      final count = int.tryParse(dataCount.toString()) ?? 0;
+      if (count > 0) {
+        FlutterAppBadger.updateBadgeCount(count);
+      }
+    }
+  } catch (_) {}
 }
 
 // ── Notification channel (Android) ───────────────────────────────────────────
@@ -22,6 +32,14 @@ const _kChannelDesc =
 
 class NotificationService {
   static final _localNotifications = FlutterLocalNotificationsPlugin();
+
+  /// Global navigator key — set this from MaterialApp to enable deep navigation
+  /// from notification taps.
+  static GlobalKey<NavigatorState>? navigatorKey;
+
+  /// Callback invoked whenever the in-app unread count changes so the home
+  /// screen (or any listener) can refresh its badge. Set by the HomeScreen.
+  static VoidCallback? onUnreadCountChanged;
 
   // ── Initialization ──────────────────────────────────────────────────────────
 
@@ -53,7 +71,7 @@ class NotificationService {
           ),
         );
 
-    // Initialize flutter_local_notifications
+    // Initialize flutter_local_notifications with tap callback
     await _localNotifications.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -63,10 +81,36 @@ class NotificationService {
           requestSoundPermission: false,
         ),
       ),
+      onDidReceiveNotificationResponse: _onNotificationTap,
     );
 
     // Show heads-up notification when app is in the foreground
     FirebaseMessaging.onMessage.listen(_onForegroundMessage);
+
+    // Handle notification tap when app was in the background (not terminated)
+    FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
+
+    // Handle notification tap that launched the app from terminated state
+    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      // Delay slightly so the navigator is ready
+      Future.delayed(const Duration(milliseconds: 800), () {
+        _navigateFromMessage(initialMessage);
+      });
+    }
+  }
+
+  // ── App icon badge ──────────────────────────────────────────────────────────
+
+  /// Update the app launcher icon badge count. Pass 0 to clear.
+  static Future<void> updateAppBadge(int count) async {
+    try {
+      if (count <= 0) {
+        FlutterAppBadger.removeBadge();
+      } else {
+        FlutterAppBadger.updateBadgeCount(count);
+      }
+    } catch (_) {}
   }
 
   // ── Permission ──────────────────────────────────────────────────────────────
@@ -148,6 +192,16 @@ class NotificationService {
   static void _onForegroundMessage(RemoteMessage message) {
     final notification = message.notification;
     if (notification == null) return;
+
+    // Update app icon badge from data payload
+    _updateBadgeFromData(message.data);
+
+    // Notify listeners (e.g. HomeScreen) to refresh unread count
+    onUnreadCountChanged?.call();
+
+    // Store the notification_id in the payload so the tap handler can use it
+    final payload = message.data['notification_id'] ?? '';
+
     _localNotifications.show(
       notification.hashCode,
       notification.title,
@@ -163,7 +217,45 @@ class NotificationService {
         ),
         iOS: DarwinNotificationDetails(),
       ),
+      payload: payload,
     );
+  }
+
+  /// Called when user taps a local notification (foreground heads-up).
+  static void _onNotificationTap(NotificationResponse response) {
+    _navigateToNotifications();
+  }
+
+  /// Called when user taps FCM notification while the app was in background.
+  static void _onMessageOpenedApp(RemoteMessage message) {
+    _navigateFromMessage(message);
+  }
+
+  /// Route to the correct screen based on the FCM data payload.
+  static void _navigateFromMessage(RemoteMessage message) {
+    // Update badge from data
+    _updateBadgeFromData(message.data);
+    // Always navigate to the notifications screen
+    _navigateToNotifications();
+  }
+
+  /// Navigate to /notifications using the global navigator key.
+  static void _navigateToNotifications() {
+    final nav = navigatorKey?.currentState;
+    if (nav != null) {
+      nav.pushNamed('/notifications');
+    }
+  }
+
+  /// Extract unread_count from data payload and update the app icon badge.
+  static void _updateBadgeFromData(Map<String, dynamic> data) {
+    try {
+      final raw = data['unread_count'];
+      if (raw != null) {
+        final count = int.tryParse(raw.toString()) ?? 0;
+        updateAppBadge(count);
+      }
+    } catch (_) {}
   }
 
   static Future<bool> _showRationaleDialog(BuildContext context) async {

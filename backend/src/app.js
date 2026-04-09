@@ -44,6 +44,7 @@ const DistributionModel = require('./vpt/distribution.model');
 const BatchModel = require('./vpt/batch.model');
 const VptModel = require('./vpt/vpt.model');
 const SwapService = require('./vpt/swap.service');
+const PoolService = require('./vpt/pool.service');
 const GiftModel = require('./interactions/gift.model');
 const GiftWalletModel = require('./interactions/gift-wallet.model');
 const StreamStatsModel = require('./analytics/stream_stats.model');
@@ -101,6 +102,11 @@ app.use('/ads', adRoutes);
 
 app.get('/', (req, res) => {
   res.json({ status: 'AfroVision API running' });
+});
+
+// 404 handler — returns JSON instead of Express default HTML
+app.use((req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
 });
 
 // Global error handler — must be after all routes; returns JSON instead of HTML
@@ -172,12 +178,16 @@ async function startServer() {
     ChannelModel.init(),
     CategoryModel.init(),
     PlanModel.init(),
+    PoolService.init(),
     AdModel.init(),
     AdImpressionModel.init(),
   ]);
 
   // Start the renewal worker AFTER models are initialized
   RenewalWorker.start();
+
+  // Start viewer reward distribution cron
+  PoolService.startCron();
 
   // Start reminder notification timer
   const BroadcastCtrl = require('./broadcast/broadcast.controller');

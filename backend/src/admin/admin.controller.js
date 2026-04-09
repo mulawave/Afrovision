@@ -63,7 +63,8 @@ async function setKyc(req, res) {
 
 function listPlans(req, res) {
   if (!requireAdmin(req, res)) return;
-  const plans = Plan.getAll();
+  const type = req.query.type;
+  const plans = type ? Plan.getAllByType(type) : Plan.getAll();
   res.json({ plans });
 }
 
@@ -102,6 +103,67 @@ async function removeFeatureFromPlan(req, res) {
   if (!requireAdmin(req, res)) return;
   const plan = await Plan.removeFeature(req.params.id, req.params.feature);
   if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  res.json({ plan });
+}
+
+// --- Viewer Plan Management ---
+
+function listViewerPlans(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const includeInactive = req.query.all === 'true';
+  const plans = includeInactive ? Plan.getAllByType('viewer') : Plan.getByType('viewer');
+  res.json({ plans });
+}
+
+async function createViewerPlan(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const { name, price, yearly_price, currency, features, display_labels, badge, reward_multiplier } = req.body;
+  if (!name) return res.status(400).json({ error: 'Plan name is required' });
+  if (price === undefined || price === null) return res.status(400).json({ error: 'Monthly price is required' });
+  const plan = await Plan.create({
+    name,
+    type: 'viewer',
+    price: Number(price),
+    yearly_price: yearly_price != null ? Number(yearly_price) : null,
+    currency: currency || 'NGN',
+    features: features || [],
+    display_labels: display_labels || {},
+    badge: badge || null,
+    reward_multiplier: reward_multiplier != null ? Number(reward_multiplier) : null,
+  });
+  res.status(201).json({ plan });
+}
+
+async function updateViewerPlan(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const existing = Plan.findById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Plan not found' });
+  if (existing.type !== 'viewer') return res.status(400).json({ error: 'This endpoint only manages viewer plans' });
+  const fields = { ...req.body };
+  if (fields.price !== undefined) fields.price = Number(fields.price);
+  if (fields.yearly_price !== undefined) fields.yearly_price = fields.yearly_price != null ? Number(fields.yearly_price) : null;
+  if (fields.reward_multiplier !== undefined) fields.reward_multiplier = fields.reward_multiplier != null ? Number(fields.reward_multiplier) : null;
+  delete fields.type; // Prevent type change
+  const plan = await Plan.update(req.params.id, fields);
+  res.json({ plan });
+}
+
+async function deleteViewerPlan(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const existing = Plan.findById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Plan not found' });
+  if (existing.type !== 'viewer') return res.status(400).json({ error: 'This endpoint only manages viewer plans' });
+  const removed = await Plan.remove(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'Plan not found' });
+  res.json({ message: 'Viewer plan deleted' });
+}
+
+async function toggleViewerPlanActive(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const existing = Plan.findById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Plan not found' });
+  if (existing.type !== 'viewer') return res.status(400).json({ error: 'This endpoint only manages viewer plans' });
+  const plan = await Plan.update(req.params.id, { is_active: !existing.is_active });
   res.json({ plan });
 }
 
@@ -1473,4 +1535,9 @@ module.exports = {
   updateMarqueeTopic,
   deleteMarqueeTopic,
   getActiveMarqueeTopics,
+  listViewerPlans,
+  createViewerPlan,
+  updateViewerPlan,
+  deleteViewerPlan,
+  toggleViewerPlanActive,
 };

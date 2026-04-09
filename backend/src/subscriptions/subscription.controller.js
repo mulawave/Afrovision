@@ -3,6 +3,7 @@ const User = require('../users/user.model');
 const Vpt = require('../vpt/vpt.model');
 const Ledger = require('../vpt/ledger.model');
 const Distribution = require('../vpt/distribution.service');
+const PoolService = require('../vpt/pool.service');
 const WalletService = require('../wallet/wallet.service');
 const SettingsService = require('../admin/settings.service');
 
@@ -102,6 +103,13 @@ async function subscribe(req, res) {
       vpt_extraction_rate: vptExtractionRate,
     },
     description: `Split: ₦${plan.price} → ${communityPoolRate * 100}% pool (₦${communityPool}) → 30% vPT (₦${vptPortion})`,
+  });
+
+  // 3b. Credit community pool balance (Firestore pools/community doc)
+  await PoolService.creditPool(communityPool, 'subscription', {
+    plan_id: plan.id,
+    plan_name: plan.name,
+    user_id: req.userId,
   });
 
   // 4. Queue vPT conversion

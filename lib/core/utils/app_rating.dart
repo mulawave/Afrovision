@@ -80,10 +80,7 @@ class AppRating {
                     const Text(
                       'Rate your experience to help us improve!',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 13,
-                      ),
+                      style: TextStyle(color: AppColors.white, fontSize: 13),
                     ),
                     const SizedBox(height: 20),
                     // Star rating row
@@ -95,8 +92,7 @@ class AppRating {
                           onTap: () =>
                               setDialogState(() => selectedStars = starNum),
                           child: Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
                             child: Icon(
                               starNum <= selectedStars
                                   ? Icons.star_rounded
@@ -124,9 +120,7 @@ class AppRating {
                           gradient: selectedStars > 0
                               ? AppColors.buttonGradient
                               : null,
-                          color: selectedStars > 0
-                              ? null
-                              : AppColors.inputFill,
+                          color: selectedStars > 0 ? null : AppColors.inputFill,
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Text(

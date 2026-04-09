@@ -469,7 +469,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 left: 12,
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  onTap: () {}, // absorb taps so outer GestureDetector doesn't toggle controls
+                  onTap:
+                      () {}, // absorb taps so outer GestureDetector doesn't toggle controls
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [

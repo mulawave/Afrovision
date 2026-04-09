@@ -8,6 +8,7 @@ class PlanModel {
   final List<String> features;
   final Map<String, String> displayLabels;
   final String? badge;
+  final double? rewardMultiplier;
   final bool isActive;
 
   PlanModel({
@@ -20,6 +21,7 @@ class PlanModel {
     required this.features,
     this.displayLabels = const {},
     this.badge,
+    this.rewardMultiplier,
     required this.isActive,
   });
 
@@ -48,6 +50,7 @@ class PlanModel {
           .toList(),
       displayLabels: rawLabels.map((k, v) => MapEntry(k, v.toString())),
       badge: json['badge'] as String?,
+      rewardMultiplier: (json['reward_multiplier'] as num?)?.toDouble(),
       isActive: json['is_active'] as bool? ?? true,
     );
   }

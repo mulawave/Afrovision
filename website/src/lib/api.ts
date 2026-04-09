@@ -223,6 +223,24 @@ export interface GiftWallet {
   ngn_balance: number;
 }
 
+export interface Plan {
+  id: string;
+  name: string;
+  type: "creator" | "viewer";
+  price: number;
+  yearly_price?: number | null;
+  currency: string;
+  features: string[];
+  display_labels: Record<string, string>;
+  badge: string | null;
+  reward_multiplier?: number | null;
+  is_active: boolean;
+}
+
+export async function getPlansApi() {
+  return api<{ plans: Plan[] }>("/subscriptions/plans");
+}
+
 export async function getGiftsApi() {
   return api<{ gifts: GiftItem[] }>("/interactions/gifts", {
     requireAuth: true,

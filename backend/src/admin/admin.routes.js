@@ -21,6 +21,13 @@ router.delete('/plans/:id', authenticateToken, ctrl.deletePlan);
 router.post('/plans/:id/features', authenticateToken, ctrl.addFeatureToPlan);
 router.delete('/plans/:id/features/:feature', authenticateToken, ctrl.removeFeatureFromPlan);
 
+// Viewer plan management
+router.get('/viewer-plans', authenticateToken, ctrl.listViewerPlans);
+router.post('/viewer-plans', authenticateToken, ctrl.createViewerPlan);
+router.patch('/viewer-plans/:id', authenticateToken, ctrl.updateViewerPlan);
+router.delete('/viewer-plans/:id', authenticateToken, ctrl.deleteViewerPlan);
+router.post('/viewer-plans/:id/toggle-active', authenticateToken, ctrl.toggleViewerPlanActive);
+
 // Category management
 router.get('/categories', authenticateToken, ctrl.getCategories);
 router.post('/categories', authenticateToken, ctrl.createCategory);

@@ -76,18 +76,19 @@ const DEFAULTS = [
     currency: 'NGN',
     features: [
       'public_channels',
-      '0x_multiplier',
+      'ads_viewing',
     ],
     display_labels: {
-      public_channels: 'Public Channels Only',
-      '0x_multiplier': '0.0x vPT Multiplier',
+      public_channels: 'Public Channels',
+      ads_viewing: 'Ads Viewing',
     },
     badge: null,
+    reward_multiplier: 0,
     is_active: true,
   },
   {
-    id: 'plan_viewer_pro',
-    name: 'pro_viewer',
+    id: 'plan_viewer_basic',
+    name: 'basic_viewer',
     type: 'viewer',
     price: 500,
     yearly_price: 5100,
@@ -95,34 +96,65 @@ const DEFAULTS = [
     features: [
       'public_channels',
       'private_channels',
-      '1x_multiplier',
+      'ad_free',
     ],
     display_labels: {
       public_channels: 'Public Channels',
-      private_channels: 'Private Channel Access',
-      '1x_multiplier': '1.0x vPT Multiplier',
+      private_channels: 'Private Channels',
+      ad_free: 'Ad-Free Viewing',
     },
-    badge: 'Pro',
+    badge: 'Dull Blue',
+    reward_multiplier: 0.5,
+    is_active: true,
+  },
+  {
+    id: 'plan_viewer_pro',
+    name: 'pro_viewer',
+    type: 'viewer',
+    price: 1000,
+    yearly_price: 9600,
+    currency: 'NGN',
+    features: [
+      'public_channels',
+      'private_channels',
+      'premium_channels',
+      'ad_free',
+      'priority_support',
+    ],
+    display_labels: {
+      public_channels: 'Public Channels',
+      private_channels: 'Private Channels',
+      premium_channels: 'Premium Channels',
+      ad_free: 'Ad-Free Viewing',
+      priority_support: 'Priority Support',
+    },
+    badge: 'Royal Purple',
+    reward_multiplier: 1.5,
     is_active: true,
   },
   {
     id: 'plan_viewer_premium',
     name: 'premium_viewer',
     type: 'viewer',
-    price: 2000,
-    yearly_price: 16800,
+    price: 3000,
+    yearly_price: 30000,
     currency: 'NGN',
     features: [
       'all_channels',
+      'ad_free',
+      'priority_support',
+      'early_access',
       'exclusive_deals',
-      '3_5x_multiplier',
     ],
     display_labels: {
-      all_channels: 'All Channels Access',
-      exclusive_deals: 'Exclusive Deals & Perks',
-      '3_5x_multiplier': '3.5x vPT Multiplier',
+      all_channels: 'All Channels',
+      ad_free: 'Ad-Free Viewing',
+      priority_support: 'Priority Support',
+      early_access: 'Early Access',
+      exclusive_deals: 'Exclusive Deals',
     },
-    badge: 'Premium',
+    badge: 'Premium Gold',
+    reward_multiplier: 3.5,
     is_active: true,
   },
 ];
@@ -162,16 +194,19 @@ function findByName(name) {
   return plans.find((p) => p.name === name);
 }
 
-async function create({ name, price, currency, features, display_labels, badge }) {
+async function create({ name, type, price, yearly_price, currency, features, display_labels, badge, reward_multiplier }) {
   const db = getFirestore();
   const plan = {
     id: `plan_${crypto.randomUUID().slice(0, 8)}`,
     name,
+    type: type || 'creator',
     price: price || 0,
+    yearly_price: yearly_price ?? null,
     currency: currency || 'NGN',
     features: features || [],
     display_labels: display_labels || {},
     badge: badge || null,
+    reward_multiplier: reward_multiplier ?? null,
     is_active: true,
   };
   await db.collection(COLLECTION).doc(plan.id).set(plan);
@@ -179,16 +214,27 @@ async function create({ name, price, currency, features, display_labels, badge }
   return plan;
 }
 
+function getByType(type) {
+  return plans.filter((p) => p.type === type && p.is_active);
+}
+
+function getAllByType(type) {
+  return plans.filter((p) => p.type === type);
+}
+
 async function update(id, fields) {
   const plan = findById(id);
   if (!plan) return null;
   const updates = {};
   if (fields.name !== undefined) { plan.name = fields.name; updates.name = fields.name; }
+  if (fields.type !== undefined) { plan.type = fields.type; updates.type = fields.type; }
   if (fields.price !== undefined) { plan.price = fields.price; updates.price = fields.price; }
+  if (fields.yearly_price !== undefined) { plan.yearly_price = fields.yearly_price; updates.yearly_price = fields.yearly_price; }
   if (fields.currency !== undefined) { plan.currency = fields.currency; updates.currency = fields.currency; }
   if (fields.features !== undefined) { plan.features = fields.features; updates.features = fields.features; }
   if (fields.display_labels !== undefined) { plan.display_labels = fields.display_labels; updates.display_labels = fields.display_labels; }
   if (fields.badge !== undefined) { plan.badge = fields.badge; updates.badge = fields.badge; }
+  if (fields.reward_multiplier !== undefined) { plan.reward_multiplier = fields.reward_multiplier; updates.reward_multiplier = fields.reward_multiplier; }
   if (fields.is_active !== undefined) { plan.is_active = fields.is_active; updates.is_active = fields.is_active; }
   if (Object.keys(updates).length > 0) {
     const db = getFirestore();
@@ -228,4 +274,4 @@ async function remove(id) {
   return true;
 }
 
-module.exports = { init, getAll, findById, findByName, create, update, addFeature, removeFeature, remove };
+module.exports = { init, getAll, getByType, getAllByType, findById, findByName, create, update, addFeature, removeFeature, remove };

@@ -7,8 +7,8 @@
  *         GET    /kyc/admin/expiring — expiring soon
  *         GET    /kyc/admin/expired  — already expired
  *         GET    /kyc/admin/:id      — single record
- *         PATCH  /kyc/admin/:id      — approve/reject
- *         DELETE /kyc/admin/:id      — delete
+ *         PATCH  /kyc/admin/:id/review — approve/reject
+ *         DELETE /kyc/admin/:id          — delete
  */
 const { Router } = require('express');
 const { authenticateToken } = require('../utils/jwt');
@@ -27,7 +27,7 @@ router.get('/admin/list', authenticateToken, ctrl.adminListKyc);
 router.get('/admin/expiring', authenticateToken, ctrl.adminGetExpiring);
 router.get('/admin/expired', authenticateToken, ctrl.adminGetExpired);
 router.get('/admin/:id', authenticateToken, ctrl.adminGetKyc);
-router.patch('/admin/:id', authenticateToken, ctrl.adminReviewKyc);
+router.patch('/admin/:id/review', authenticateToken, ctrl.adminReviewKyc);
 router.delete('/admin/:id', authenticateToken, ctrl.adminDeleteKyc);
 
 module.exports = router;

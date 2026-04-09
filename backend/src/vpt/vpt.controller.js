@@ -2,6 +2,7 @@ const User = require('../users/user.model');
 const Vpt = require('./vpt.model');
 const Ledger = require('./ledger.model');
 const Distribution = require('./distribution.service');
+const PoolService = require('./pool.service');
 const SwapService = require('./swap.service');
 
 function getBalance(req, res) {
@@ -120,6 +121,44 @@ async function getBlockchainPreflight(req, res) {
   }
 }
 
+// ─── COMMUNITY POOL ENDPOINTS ───────────────────────────
+
+async function getPoolStats(req, res) {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const stats = await PoolService.getPoolStats();
+    res.json({ stats });
+  } catch (err) {
+    console.error('[VPT] Pool stats error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch pool stats' });
+  }
+}
+
+async function triggerViewerRewards(req, res) {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const result = await PoolService.distributeViewerRewards();
+    res.json({ result });
+  } catch (err) {
+    console.error('[VPT] Viewer reward distribution error:', err.message);
+    res.status(500).json({ error: 'Viewer reward distribution failed' });
+  }
+}
+
+function getPoolDistributions(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const limit = parseInt(req.query.limit) || 20;
+  const history = PoolService.getDistributionHistory(limit);
+  res.json({ distributions: history });
+}
+
+function getPoolDistribution(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const dist = PoolService.getDistributionById(req.params.id);
+  if (!dist) return res.status(404).json({ error: 'Distribution not found' });
+  res.json({ distribution: dist });
+}
+
 module.exports = {
   getBalance,
   getTransactions,
@@ -134,4 +173,8 @@ module.exports = {
   retryBatch,
   getTreasuryBalance,
   getBlockchainPreflight,
+  getPoolStats,
+  triggerViewerRewards,
+  getPoolDistributions,
+  getPoolDistribution,
 };

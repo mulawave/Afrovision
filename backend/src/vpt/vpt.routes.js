@@ -21,4 +21,10 @@ router.post('/admin/process-batch', authenticateToken, ctrl.triggerBatchProcess)
 router.post('/admin/batches/:batchId/retry', authenticateToken, ctrl.retryBatch);
 router.get('/admin/treasury', authenticateToken, ctrl.getTreasuryBalance);
 
+// Community Pool endpoints
+router.get('/admin/pool/stats', authenticateToken, ctrl.getPoolStats);
+router.get('/admin/pool/distributions', authenticateToken, ctrl.getPoolDistributions);
+router.get('/admin/pool/distributions/:id', authenticateToken, ctrl.getPoolDistribution);
+router.post('/admin/pool/distribute', authenticateToken, ctrl.triggerViewerRewards);
+
 module.exports = router;

@@ -51,7 +51,7 @@ gcloud run deploy $BACKEND_SERVICE `
   --min-instances 0 `
   --max-instances 5 `
   --timeout 60 `
-  --set-env-vars "FIREBASE_PROJECT_ID=$PROJECT_ID" `
+  --set-env-vars "FIREBASE_PROJECT_ID=$PROJECT_ID,GCS_BUCKET=afrovision-media,ENVIRONMENT=production,ADMIN_PASSWORD=AfroVision@Admin2026!" `
   --quiet
 Pop-Location
 
@@ -113,7 +113,7 @@ Write-Host "  ✅ CORS updated" -ForegroundColor Green
 # ── 6. Firebase Login Check ──────────────────────────────────────────
 Write-Host ""
 Write-Host "→ [6/8] Checking Firebase authentication..." -ForegroundColor Yellow
-$fbCheck = firebase projects:list --project $PROJECT_ID 2>&1
+$null = firebase projects:list --project $PROJECT_ID 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Firebase not logged in. Running firebase login..." -ForegroundColor Yellow
     firebase login

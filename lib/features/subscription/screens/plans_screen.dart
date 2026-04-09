@@ -255,30 +255,36 @@ class _PlansScreenState extends State<PlansScreen>
     final plans = _creatorPlans;
     return FadeTransition(
       opacity: _fadeAnim,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          children: [
-            const SizedBox(height: 16),
-            Text(
-              'Unlock creator features & start broadcasting',
-              style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.8),
-                fontSize: 14,
-              ),
-            ),
-            if (_currencies.length > 1) ...[
+      child: RefreshIndicator(
+        onRefresh: _loadData,
+        color: AppColors.orange,
+        backgroundColor: AppColors.cardBg,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            children: [
               const SizedBox(height: 16),
-              _buildCurrencyPicker(),
+              Text(
+                'Unlock creator features & start broadcasting',
+                style: TextStyle(
+                  color: AppColors.hintText.withValues(alpha: 0.8),
+                  fontSize: 14,
+                ),
+              ),
+              if (_currencies.length > 1) ...[
+                const SizedBox(height: 16),
+                _buildCurrencyPicker(),
+              ],
+              if (_isRenewal) ...[
+                const SizedBox(height: 12),
+                _buildPaymentToggle(),
+              ],
+              const SizedBox(height: 24),
+              ...plans.map((plan) => _buildPlanCard(plan)),
+              const SizedBox(height: 24),
             ],
-            if (_isRenewal) ...[
-              const SizedBox(height: 12),
-              _buildPaymentToggle(),
-            ],
-            const SizedBox(height: 24),
-            ...plans.map((plan) => _buildPlanCard(plan)),
-            const SizedBox(height: 24),
-          ],
+          ),
         ),
       ),
     );
@@ -288,32 +294,38 @@ class _PlansScreenState extends State<PlansScreen>
     final plans = _viewerPlans;
     return FadeTransition(
       opacity: _fadeAnim,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          children: [
-            const SizedBox(height: 16),
-            Text(
-              'Watch more, earn more vPT rewards',
-              style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.8),
-                fontSize: 14,
+      child: RefreshIndicator(
+        onRefresh: _loadData,
+        color: AppColors.orange,
+        backgroundColor: AppColors.cardBg,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              Text(
+                'Watch more, earn more vPT rewards',
+                style: TextStyle(
+                  color: AppColors.hintText.withValues(alpha: 0.8),
+                  fontSize: 14,
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            _buildBillingToggle(),
-            if (_currencies.length > 1) ...[
-              const SizedBox(height: 12),
-              _buildCurrencyPicker(),
+              const SizedBox(height: 16),
+              _buildBillingToggle(),
+              if (_currencies.length > 1) ...[
+                const SizedBox(height: 12),
+                _buildCurrencyPicker(),
+              ],
+              if (_isRenewal) ...[
+                const SizedBox(height: 12),
+                _buildPaymentToggle(),
+              ],
+              const SizedBox(height: 24),
+              ...plans.map((plan) => _buildViewerPlanCard(plan)),
+              const SizedBox(height: 24),
             ],
-            if (_isRenewal) ...[
-              const SizedBox(height: 12),
-              _buildPaymentToggle(),
-            ],
-            const SizedBox(height: 24),
-            ...plans.map((plan) => _buildViewerPlanCard(plan)),
-            const SizedBox(height: 24),
-          ],
+          ),
         ),
       ),
     );
@@ -692,12 +704,28 @@ class _PlansScreenState extends State<PlansScreen>
     final isFree = plan.price == 0;
     final isPremium = plan.name == 'premium_viewer';
     final isPro = plan.name == 'pro_viewer';
+    final isBasic = plan.name == 'basic_viewer';
     final isHighlighted = isPremium;
     final isSubscribing = _subscribingPlanId == plan.id;
     final price = _yearlyBilling && plan.yearlyPrice != null
         ? plan.yearlyPrice!
         : plan.price;
     final period = _yearlyBilling ? '/year' : '/month';
+    final multiplier = plan.rewardMultiplier;
+
+    // Plan display name
+    final displayName = isFree
+        ? 'FREE'
+        : plan.name.replaceAll('_', ' ').toUpperCase();
+
+    // Badge color per tier
+    final Color tierColor = isPremium
+        ? AppColors.orange
+        : isPro
+        ? const Color(0xFF9C27B0) // Royal Purple
+        : isBasic
+        ? const Color(0xFF5C6BC0) // Dull Blue
+        : AppColors.hintText;
 
     // Savings badge for yearly
     String? savingsText;
@@ -719,7 +747,9 @@ class _PlansScreenState extends State<PlansScreen>
           color: isPremium
               ? AppColors.orange.withValues(alpha: 0.6)
               : isPro
-              ? const Color(0xFF4CAF50).withValues(alpha: 0.5)
+              ? const Color(0xFF9C27B0).withValues(alpha: 0.5)
+              : isBasic
+              ? const Color(0xFF5C6BC0).withValues(alpha: 0.4)
               : AppColors.inputBorder,
           width: isHighlighted ? 1.5 : 1,
         ),
@@ -748,21 +778,17 @@ class _PlansScreenState extends State<PlansScreen>
                       ? AppColors.orange.withValues(alpha: 0.15)
                       : isFree
                       ? AppColors.lightBlue.withValues(alpha: 0.3)
-                      : AppColors.lightOrange.withValues(alpha: 0.1),
+                      : tierColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  isFree
-                      ? 'FREE'
-                      : isPro
-                      ? 'PRO VIEWER'
-                      : 'PREMIUM VIEWER',
+                  displayName,
                   style: TextStyle(
                     color: isPremium
                         ? AppColors.orange
                         : isFree
                         ? AppColors.hintText
-                        : AppColors.lightOrange,
+                        : tierColor,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1,
@@ -775,6 +801,28 @@ class _PlansScreenState extends State<PlansScreen>
                   Icons.workspace_premium_rounded,
                   color: AppColors.orange.withValues(alpha: 0.8),
                   size: 18,
+                ),
+              ],
+              if (multiplier != null && multiplier > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tierColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: tierColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    '${multiplier}x vPT',
+                    style: TextStyle(
+                      color: tierColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ],
               const Spacer(),
@@ -834,11 +882,7 @@ class _PlansScreenState extends State<PlansScreen>
                 children: [
                   Icon(
                     Icons.check_circle_rounded,
-                    color: isPremium
-                        ? AppColors.orange
-                        : isFree
-                        ? AppColors.hintText
-                        : const Color(0xFF4CAF50),
+                    color: isFree ? AppColors.hintText : tierColor,
                     size: 16,
                   ),
                   const SizedBox(width: 8),
@@ -855,6 +899,42 @@ class _PlansScreenState extends State<PlansScreen>
               ),
             ),
           ),
+          // Reward multiplier info row
+          if (multiplier != null) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: tierColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: tierColor.withValues(alpha: 0.15)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    multiplier > 0
+                        ? Icons.rocket_launch_rounded
+                        : Icons.block_rounded,
+                    color: tierColor,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      multiplier > 0
+                          ? '${multiplier}x Community Pool Reward Multiplier'
+                          : 'No vPT Rewards',
+                      style: TextStyle(
+                        color: multiplier > 0 ? tierColor : AppColors.hintText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           if (!isFree)
             GestureDetector(
@@ -889,7 +969,11 @@ class _PlansScreenState extends State<PlansScreen>
                           ),
                         )
                       : Text(
-                          isPremium ? 'Go Premium' : 'Subscribe',
+                          isPremium
+                              ? 'Go Premium'
+                              : isPro
+                              ? 'Go Pro'
+                              : 'Subscribe',
                           style: TextStyle(
                             color: isPremium
                                 ? AppColors.white

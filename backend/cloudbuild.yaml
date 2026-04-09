@@ -36,7 +36,7 @@ steps:
       - '--port'
       - '8080'
       - '--set-env-vars'
-      - 'FIREBASE_PROJECT_ID=raven-ai-6ff76,GCS_BUCKET=afrovision-media,ADMIN_PASSWORD=AfroVision@Admin2026!'
+      - '^;^FIREBASE_PROJECT_ID=raven-ai-6ff76;GCS_BUCKET=afrovision-media;ENVIRONMENT=production;ADMIN_PASSWORD=AfroVision@Admin2026!;ALLOWED_ORIGINS=https://afrovision-website-134538542038.us-central1.run.app,https://afrovision-admin-134538542038.us-central1.run.app,https://afrovision.online,https://admin.afrovision.online'
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/afrovision-backend'

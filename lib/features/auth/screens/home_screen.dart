@@ -11,6 +11,7 @@ import '../../../core/api/api_service.dart';
 import '../../../core/widgets/role_badge.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
 import '../../../core/utils/app_rating.dart';
+import '../../../core/services/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -53,10 +54,15 @@ class _HomeScreenState extends State<HomeScreen>
     ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
     _promoPageController = PageController(viewportFraction: 0.88);
     _loadData();
+    _requestNotificationPermission();
+
+    // Listen for foreground push messages to auto-refresh unread count
+    NotificationService.onUnreadCountChanged = _refreshUnreadCount;
   }
 
   @override
   void dispose() {
+    NotificationService.onUnreadCountChanged = null;
     _animController.dispose();
     _promoPageController.dispose();
     _promoTimer?.cancel();
@@ -65,6 +71,29 @@ class _HomeScreenState extends State<HomeScreen>
     _marqueeTimer?.cancel();
     _marqueeController.dispose();
     super.dispose();
+  }
+
+  /// Request notification permission on first visit, with rationale dialog.
+  Future<void> _requestNotificationPermission() async {
+    final alreadyGranted = await NotificationService.isPermissionGranted();
+    if (alreadyGranted) return;
+    final notDetermined = await NotificationService.isPermissionNotDetermined();
+    if (!notDetermined) return; // Already denied — don't prompt again
+    if (!mounted) return;
+    // Small delay so the home screen settles before showing the dialog
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+    await NotificationService.requestPermission(context);
+  }
+
+  /// Refresh just the unread count + app icon badge (called from FCM listener).
+  Future<void> _refreshUnreadCount() async {
+    try {
+      final count = await NotificationInboxService.getUnreadCount();
+      if (!mounted) return;
+      setState(() => _unreadNotifications = count);
+      NotificationService.updateAppBadge(count);
+    } catch (_) {}
   }
 
   Future<void> _loadData() async {
@@ -95,6 +124,8 @@ class _HomeScreenState extends State<HomeScreen>
         _unreadNotifications = results[2] as int;
         _loading = false;
       });
+      // Sync app icon badge with current unread count
+      NotificationService.updateAppBadge(_unreadNotifications);
       _animController.forward();
       _startPromoAutoScroll();
       _startRecentAutoScroll();
@@ -733,60 +764,6 @@ class _HomeScreenState extends State<HomeScreen>
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  // ───────── BRANDING ─────────
-  Widget _buildBranding() {
-    return Center(
-      child: Column(
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.orange.withValues(alpha: 0.2),
-                  AppColors.lightOrange.withValues(alpha: 0.1),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.orange.withValues(alpha: 0.15),
-                  blurRadius: 20,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.play_circle_outline_rounded,
-              color: AppColors.orange,
-              size: 34,
-            ),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'AfroVision',
-            style: TextStyle(
-              color: AppColors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            "Africa's Digital Playground",
-            style: TextStyle(
-              color: AppColors.lightOrange,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
       ),
     );
   }

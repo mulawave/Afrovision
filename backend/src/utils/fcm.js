@@ -12,6 +12,8 @@ const User = require('../users/user.model');
 async function sendToTokens(tokens, payload, userId = null) {
   if (!tokens || tokens.length === 0) return { successCount: 0, failureCount: 0 };
 
+  const badgeCount = payload.badge || 1;
+
   const message = {
     tokens,
     notification: {
@@ -30,7 +32,7 @@ async function sendToTokens(tokens, payload, userId = null) {
       payload: {
         aps: {
           sound: 'default',
-          badge: 1,
+          badge: badgeCount,
         },
       },
     },
