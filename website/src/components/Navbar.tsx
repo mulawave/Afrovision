@@ -10,6 +10,7 @@ const NAV_LINKS = [
   { label: "Live", href: "/live" },
   { label: "Channels", href: "/channels" },
   { label: "Challenge", href: "/challenge" },
+  { label: "Advertise", href: "/advertiser" },
   { label: "Updates", href: "/updates" },
 ];
 

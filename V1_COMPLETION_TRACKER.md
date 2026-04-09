@@ -1,7 +1,7 @@
 # AfroVision v1 — Final Completion Tracker
 
 > Created: 2025-04-09
-> Status: **Phase 1–5 Complete — Starting Phase 6**
+> Status: **Phase 1–6 Complete — Starting Phase 7**
 
 ---
 
@@ -14,7 +14,7 @@
 | 3 | Program Reminders UI | Wire existing backend reminder system to website + Flutter (push + email 30s before) | ✅ Complete | Phase 2 (description in popup) |
 | 4 | Ad System — Data Model & Backend | Ad categories, CRUD, rotation logic, admin endpoints, approval workflow | ✅ Complete | — |
 | 5 | Ad System — Admin Dashboard | Ad management UI (all categories, bulk ops, approval, super ads, injection controls) | ✅ Complete | Phase 4 |
-| 6 | Ad System — Advertiser Portal | Ad submission page, category selection, video upload with duration validation, billing | ⬜ Not Started | Phase 4 |
+| 6 | Ad System — Advertiser Portal | Ad submission page, category selection, video upload with duration validation, billing | ✅ Complete | Phase 4 |
 | 7 | Ad System — Billing & Revenue Split | Pricing structure, fund management, 50/30/20 and 70/30 splits, depletion logic | ⬜ Not Started | Phase 4, 6 |
 | 8 | Ad System — Playback Integration (Website) | Freeze/resume, DSTV-style transitions, ad injection into live player, all 3 categories | ⬜ Not Started | Phase 4, 7 |
 | 9 | Ad System — Playback Integration (Flutter) | Same as Phase 8 but for Flutter app | ⬜ Not Started | Phase 8 |
@@ -127,7 +127,26 @@
 
 ---
 
-## Phase 6–14: (Detailed breakdown to be added as we progress)
+## Phase 6: Ad System — Advertiser Portal — ✅ COMPLETE
+
+### What Was Done
+- **Website API wrappers** (`api.ts`): Added 10 ad API functions — submitAdApi, getMyAdsApi, getAdStatsApi, topUpAdBudgetApi, pauseAdApi, getAdUploadUrlApi, serveBannerAdApi, serveInStreamAdsApi, recordAdImpressionApi + types (Advertisement, AdImpression, AdStats)
+- **Advertiser Portal page** (`/advertiser`): Full advertiser-facing page with 2 tabs (My Ads, Submit New Ad)
+- **Submit form**: Category selection grid (5 categories), title/description/click URL fields, file upload with GCS signed URL flow, video duration detection, budget/pricing inputs, date range, progress states
+- **My Ads list**: Summary stats (total ads, active, budget, spent), expandable ad cards with status/category badges, budget usage bars, inline stats (impressions, viewers, cost, channels reached)
+- **Actions**: Pause active ads, Top Up budget modal, expandable per-ad performance stats
+- **Navigation**: "Advertise" link added to website navbar
+
+### Files Created
+- `website/src/app/advertiser/page.tsx`
+
+### Files Modified
+- `website/src/lib/api.ts` (ad API types + 10 wrapper functions)
+- `website/src/components/Navbar.tsx` (added Advertise nav link)
+
+---
+
+## Phase 7–14: (Detailed breakdown to be added as we progress)
 
 ---
 
@@ -152,4 +171,4 @@ See conversation for questions asked before implementation begins.
 | 2025-04-09 | 1-2 | Backend + Website | 00111-crr / 00022-xlr | Community pool + video description |
 | 2025-04-09 | 3 | Backend + Website | 00113-hjn / 00024-shq | Program reminders (email + FCM + UI) |
 | 2025-04-10 | 4 | Backend | 00115-fzs | Ad system data model & backend |
-| 2025-04-10 | 5 | Admin | 00006-gb9 | Ad management dashboard |
+| 2025-04-10 | 5 | Admin | 00006-gb9 | Ad management dashboard |\n| 2025-04-10 | 6 | Website | 00026-xwv | Advertiser portal + ad API wrappers |

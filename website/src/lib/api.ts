@@ -1101,3 +1101,127 @@ export async function enableAdminChannelApi(channelId: string) {
     requireAuth: true,
   });
 }
+
+// ── Ad API methods ─────────────────────────────────────────
+
+export interface Advertisement {
+  id: string;
+  advertiser_id: string;
+  category: string;
+  title: string;
+  description: string;
+  media_url: string;
+  thumbnail_url: string;
+  click_url: string;
+  duration: number;
+  budget: number;
+  spent: number;
+  price_per_impression: number;
+  target_channels: string[];
+  start_date: number | null;
+  end_date: number | null;
+  status: string;
+  is_super_ad: boolean;
+  impression_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AdImpression {
+  id: string;
+  ad_id: string;
+  channel_id: string | null;
+  category: string;
+  viewer_count: number;
+  cost: number;
+  played_at: number;
+}
+
+export interface AdStats {
+  total_impressions: number;
+  total_viewers: number;
+  total_cost: number;
+  unique_channels: number;
+}
+
+export async function submitAdApi(data: {
+  category: string;
+  title: string;
+  description?: string;
+  media_url: string;
+  thumbnail_url?: string;
+  click_url?: string;
+  duration?: number;
+  budget: number;
+  price_per_impression: number;
+  target_channels?: string[];
+  start_date?: string;
+  end_date?: string;
+}) {
+  return api<Advertisement | ErrorResponse>("/ads", {
+    method: "POST",
+    body: data,
+    requireAuth: true,
+  });
+}
+
+export async function getMyAdsApi() {
+  return api<Advertisement[] | ErrorResponse>("/ads/me", {
+    requireAuth: true,
+  });
+}
+
+export async function getAdStatsApi(adId: string) {
+  return api<{ ad: Advertisement; stats: AdStats } | ErrorResponse>(`/ads/${adId}/stats`, {
+    requireAuth: true,
+  });
+}
+
+export async function topUpAdBudgetApi(adId: string, amount: number) {
+  return api<Advertisement | ErrorResponse>(`/ads/${adId}/budget`, {
+    method: "PATCH",
+    body: { amount },
+    requireAuth: true,
+  });
+}
+
+export async function pauseAdApi(adId: string) {
+  return api<Advertisement | ErrorResponse>(`/ads/${adId}/pause`, {
+    method: "PATCH",
+    body: {},
+    requireAuth: true,
+  });
+}
+
+export async function getAdUploadUrlApi(contentType: string, fileName: string) {
+  return api<{ signed_url: string; public_url: string; filename: string } | ErrorResponse>(
+    "/ads/upload-url",
+    {
+      method: "POST",
+      body: { content_type: contentType, file_name: fileName },
+      requireAuth: true,
+    }
+  );
+}
+
+export async function serveBannerAdApi(placement: string, channelId?: string) {
+  const params = new URLSearchParams({ placement });
+  if (channelId) params.set("channel_id", channelId);
+  return api<{ ad: Advertisement | null } | ErrorResponse>(`/ads/serve/banner?${params}`);
+}
+
+export async function serveInStreamAdsApi(channelId?: string) {
+  const params = channelId ? `?channel_id=${channelId}` : "";
+  return api<{ ads: Advertisement[] } | ErrorResponse>(`/ads/serve/stream${params}`);
+}
+
+export async function recordAdImpressionApi(adId: string, channelId?: string, viewerCount?: number) {
+  return api<{ impression_id: string; cost: number; revenue_split: Record<string, number> } | ErrorResponse>(
+    "/ads/impression",
+    {
+      method: "POST",
+      body: { ad_id: adId, channel_id: channelId, viewer_count: viewerCount },
+      requireAuth: true,
+    }
+  );
+}
