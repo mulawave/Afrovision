@@ -1,7 +1,7 @@
 # AfroVision v1 — Final Completion Tracker
 
 > Created: 2025-04-09
-> Status: **Phase 1–4 Complete — Starting Phase 5**
+> Status: **Phase 1–5 Complete — Starting Phase 6**
 
 ---
 
@@ -13,7 +13,7 @@
 | 2 | Video Description Requirement | Add required description to upload flow, persist, show in EPG, tap-to-reveal popup | ✅ Complete | — |
 | 3 | Program Reminders UI | Wire existing backend reminder system to website + Flutter (push + email 30s before) | ✅ Complete | Phase 2 (description in popup) |
 | 4 | Ad System — Data Model & Backend | Ad categories, CRUD, rotation logic, admin endpoints, approval workflow | ✅ Complete | — |
-| 5 | Ad System — Admin Dashboard | Ad management UI (all categories, bulk ops, approval, super ads, injection controls) | ⬜ Not Started | Phase 4 |
+| 5 | Ad System — Admin Dashboard | Ad management UI (all categories, bulk ops, approval, super ads, injection controls) | ✅ Complete | Phase 4 |
 | 6 | Ad System — Advertiser Portal | Ad submission page, category selection, video upload with duration validation, billing | ⬜ Not Started | Phase 4 |
 | 7 | Ad System — Billing & Revenue Split | Pricing structure, fund management, 50/30/20 and 70/30 splits, depletion logic | ⬜ Not Started | Phase 4, 6 |
 | 8 | Ad System — Playback Integration (Website) | Freeze/resume, DSTV-style transitions, ad injection into live player, all 3 categories | ⬜ Not Started | Phase 4, 7 |
@@ -106,7 +106,28 @@
 
 ---
 
-## Phase 5–14: (Detailed breakdown to be added as we progress)
+## Phase 5: Ad System — Admin Dashboard — ✅ COMPLETE
+
+### What Was Done
+- **Advertisements page** (`/advertisements`): Full admin ad management dashboard with 3 tabs (All Ads, Pending Review, Impressions)
+- **Status & category filters**: Filter by any of 7 statuses + 5 ad categories with pill-style toggles
+- **Ad list view**: Title, status badge, category badge, super ad indicator, budget/spent/impressions metrics, created date
+- **Detail panel**: Expandable panel with all ad fields, budget usage bar, media/click URLs as links
+- **Admin actions**: Approve, Reject, Activate, Pause, Delete — with confirmation dialogs, contextual visibility (approve only for pending, pause only for active, etc.)
+- **Impressions table**: Tabular view of all impression records with ad ID, channel, category, viewers, cost, timestamp
+- **Sidebar**: Added "Advertisements" link under Monetization tone
+- **Header**: Added "Ad Management" title for the route
+
+### Files Created
+- `admin/src/app/(admin)/advertisements/page.jsx`
+
+### Files Modified
+- `admin/src/components/layout/Sidebar.jsx` (added nav link)
+- `admin/src/components/layout/Header.jsx` (added title)
+
+---
+
+## Phase 6–14: (Detailed breakdown to be added as we progress)
 
 ---
 
@@ -131,3 +152,4 @@ See conversation for questions asked before implementation begins.
 | 2025-04-09 | 1-2 | Backend + Website | 00111-crr / 00022-xlr | Community pool + video description |
 | 2025-04-09 | 3 | Backend + Website | 00113-hjn / 00024-shq | Program reminders (email + FCM + UI) |
 | 2025-04-10 | 4 | Backend | 00115-fzs | Ad system data model & backend |
+| 2025-04-10 | 5 | Admin | 00006-gb9 | Ad management dashboard |
