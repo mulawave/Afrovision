@@ -14,6 +14,7 @@ interface LivePlayerProps {
   duration?: number;
   isLoop?: boolean;
   onProgramEnd?: () => void;
+  adPlaying?: boolean;
 }
 
 function formatViewers(n: number): string {
@@ -39,6 +40,7 @@ export function LivePlayer({
   duration,
   isLoop,
   onProgramEnd,
+  adPlaying,
 }: LivePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -119,18 +121,31 @@ export function LivePlayer({
   };
 
   // Ensure video stays playing (TV behavior — no user pause control)
+  // Skip auto-resume when an ad break is active
   useEffect(() => {
     if (!videoRef.current || !streamUrl) return;
     const vid = videoRef.current;
 
     const handlePause = () => {
+      if (adPlaying) return; // Don't auto-resume during ad break
       // Auto-resume if paused unexpectedly (TV mode: always playing)
       vid.play().catch(() => {});
     };
 
     vid.addEventListener("pause", handlePause);
     return () => vid.removeEventListener("pause", handlePause);
-  }, [streamUrl]);
+  }, [streamUrl, adPlaying]);
+
+  // Pause/resume video when ad break starts/ends
+  useEffect(() => {
+    if (!videoRef.current || !streamUrl) return;
+    const vid = videoRef.current;
+    if (adPlaying) {
+      vid.pause();
+    } else {
+      vid.play().catch(() => {});
+    }
+  }, [adPlaying, streamUrl]);
 
   return (
     <div

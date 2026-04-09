@@ -5,6 +5,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { LivePlayer } from "@/components/LivePlayer";
+import { AdBreak } from "@/components/AdBreak";
 import { LiveChat } from "@/components/LiveChat";
 import { GiftPanel } from "@/components/GiftPanel";
 import { Reactions } from "@/components/Reactions";
@@ -17,6 +18,7 @@ import {
   type ChannelEvent,
   type ScheduleProgram,
   type ProgramReminder,
+  type Advertisement,
   sendGiftApi,
   sendReactionApi,
   getNowPlayingApi,
@@ -32,6 +34,8 @@ import {
   getMyRemindersApi,
   setReminderApi,
   removeReminderApi,
+  serveInStreamAdsApi,
+  recordAdImpressionApi,
 } from "@/lib/api";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
 
@@ -65,6 +69,13 @@ export function LiveStream({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const programEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ─── Ad break state ───
+  const [adBreakAds, setAdBreakAds] = useState<Advertisement[]>([]);
+  const [showAdBreak, setShowAdBreak] = useState(false);
+  const [preRollDone, setPreRollDone] = useState(false);
+  const lastMidRoll = useRef<number>(0);
+  const MID_ROLL_INTERVAL = 15 * 60 * 1000; // 15 minutes between mid-roll breaks
+
   // Use real VPT balance if authenticated, otherwise demo balance
   const walletBalance = isAuthenticated && user ? user.vpt_balance : 0;
 
@@ -81,6 +92,51 @@ export function LiveStream({ id }: { id: string }) {
       setSchedule(schedRes.data.schedule);
     }
   }, [id]);
+
+  // Fetch in-stream ads and trigger a break
+  const fetchAndShowAds = useCallback(async () => {
+    const res = await serveInStreamAdsApi(id);
+    if (res.ok && "ads" in res.data && res.data.ads.length > 0) {
+      setAdBreakAds(res.data.ads);
+      setShowAdBreak(true);
+      return true;
+    }
+    return false;
+  }, [id]);
+
+  // Record an impression when an ad plays
+  const handleAdImpression = useCallback((ad: Advertisement) => {
+    recordAdImpressionApi(ad.id, id).catch(() => {});
+  }, [id]);
+
+  // Ad break completed — resume stream
+  const handleAdBreakComplete = useCallback(() => {
+    setShowAdBreak(false);
+    setAdBreakAds([]);
+    lastMidRoll.current = Date.now();
+  }, []);
+
+  // Pre-roll: trigger once when stream first loads with a now-playing program
+  useEffect(() => {
+    if (preRollDone || !nowPlaying || loading) return;
+    setPreRollDone(true);
+    fetchAndShowAds();
+  }, [preRollDone, nowPlaying, loading, fetchAndShowAds]);
+
+  // Mid-roll: trigger on program transitions (when nowPlaying changes to a new program)
+  const prevProgramId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!nowPlaying || !preRollDone) return;
+    const programId = nowPlaying.program_id ?? nowPlaying.video_title;
+    if (prevProgramId.current && prevProgramId.current !== programId) {
+      // Program changed — check if enough time has passed for a mid-roll
+      const timeSinceLastAd = Date.now() - lastMidRoll.current;
+      if (timeSinceLastAd >= MID_ROLL_INTERVAL) {
+        fetchAndShowAds();
+      }
+    }
+    prevProgramId.current = programId;
+  }, [nowPlaying, preRollDone, fetchAndShowAds, MID_ROLL_INTERVAL]);
 
   // Fetch channel + now-playing + access check
   useEffect(() => {
@@ -340,7 +396,19 @@ export function LiveStream({ id }: { id: string }) {
                 duration={nowPlaying?.duration}
                 isLoop={nowPlaying?.is_loop}
                 onProgramEnd={refreshNowPlaying}
+                adPlaying={showAdBreak}
               />
+
+              {/* ── DSTV-style Ad Break Overlay ── */}
+              {showAdBreak && adBreakAds.length > 0 && (
+                <AdBreak
+                  ads={adBreakAds}
+                  channelName={channelName}
+                  channelId={id}
+                  onImpression={handleAdImpression}
+                  onComplete={handleAdBreakComplete}
+                />
+              )}
 
               {/* Gift overlay animation */}
               {giftOverlay && (

@@ -1,7 +1,7 @@
 # AfroVision v1 — Final Completion Tracker
 
 > Created: 2025-04-09
-> Status: **Phase 1–7 Complete — Starting Phase 8**
+> Status: **Phase 1–8 Complete — Starting Phase 9**
 
 ---
 
@@ -16,7 +16,7 @@
 | 5 | Ad System — Admin Dashboard | Ad management UI (all categories, bulk ops, approval, super ads, injection controls) | ✅ Complete | Phase 4 |
 | 6 | Ad System — Advertiser Portal | Ad submission page, category selection, video upload with duration validation, billing | ✅ Complete | Phase 4 |
 | 7 | Ad System — Billing & Revenue Split | Pricing structure, fund management, 50/30/20 and 70/30 splits, depletion logic | ✅ Complete | Phase 4, 6 |
-| 8 | Ad System — Playback Integration (Website) | Freeze/resume, DSTV-style transitions, ad injection into live player, all 3 categories | ⬜ Not Started | Phase 4, 7 |
+| 8 | Ad System — Playback Integration (Website) | Freeze/resume, DSTV-style transitions, ad injection into live player, all 3 categories | ✅ Complete | Phase 4, 7 |
 | 9 | Ad System — Playback Integration (Flutter) | Same as Phase 8 but for Flutter app | ⬜ Not Started | Phase 8 |
 | 10 | Ad System — Banner Ads (Pages) | Banner ad placements on home + other pages (website + Flutter) | ⬜ Not Started | Phase 4, 7 |
 | 11 | Flash Screens & ElevenLabs TTS | "Coming Up Next" / "Now Playing" flash screens with AI voice intros/outros | ⬜ Not Started | Phase 2, 4 |
@@ -161,7 +161,36 @@
 
 ---
 
-## Phase 8–14: (Detailed breakdown to be added as we progress)
+## Phase 8: Ad System — Playback Integration (Website) — ✅ COMPLETE
+
+### What Was Done
+- **AdBreak component** (`website/src/components/AdBreak.tsx`): Full DSTV-style ad break overlay with 3 phases:
+  - **Intro**: AfroVision-branded "Ad Break" screen with gradient, animated lines, spinner
+  - **Playing**: Ad video playback with progress bar, "Ad X of Y" counter, countdown timer, category label, click-through "Learn More" button
+  - **Outro**: "Returning to [Channel]" screen with play icon and spinner
+  - Plays all ads sequentially (pre-roll, mid-roll, brief)
+  - Records impressions via `recordAdImpressionApi` as each ad plays
+  - Fallback timeout skips after ad duration + 3s grace period
+- **LivePlayer modifications** (`website/src/components/LivePlayer.tsx`):
+  - Added `adPlaying` prop — pauses stream during ad break, suppresses TV-mode auto-resume
+  - Stream video pauses when ad break starts, resumes when it ends
+- **LiveStream integration** (`website/src/app/live/[id]/LiveStream.tsx`):
+  - Fetches in-stream ads via `serveInStreamAdsApi(channelId)`
+  - **Pre-roll**: Triggers ad break once when stream first loads with content
+  - **Mid-roll**: Triggers on program transitions (with 15-minute cooldown between breaks)
+  - Passes all 3 ad categories (pre-roll, mid-roll, brief) to AdBreak component
+  - Manages ad break state (showAdBreak, adBreakAds, preRollDone, lastMidRoll)
+
+### Files Created
+- `website/src/components/AdBreak.tsx` (NEW)
+
+### Files Modified
+- `website/src/components/LivePlayer.tsx` (adPlaying prop + pause/resume logic)
+- `website/src/app/live/[id]/LiveStream.tsx` (ad imports, state, fetch, triggers, overlay)
+
+---
+
+## Phase 9–14: (Detailed breakdown to be added as we progress)
 
 ---
 
@@ -188,3 +217,4 @@ See conversation for questions asked before implementation begins.
 | 2025-04-10 | 4 | Backend | 00115-fzs | Ad system data model & backend |
 | 2025-04-10 | 5 | Admin | 00006-gb9 | Ad management dashboard |\n| 2025-04-10 | 6 | Website | 00026-xwv | Advertiser portal + ad API wrappers |
 | 2025-04-10 | 7 | Backend | 00117-pbj | Billing report + revenue report endpoints |
+| 2025-04-10 | 8 | Website | 00028-9l8 | Ad playback: DSTV-style breaks, freeze/resume, impression tracking |
