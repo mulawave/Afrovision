@@ -6,8 +6,7 @@ const { upload, uploadSingleToGCS } = require('../utils/upload');
 
 const router = Router();
 
-// Server time (public — no auth needed for sync)\nrouter.get('/time', ctrl.getServerTime);\n\n// Flash screen TTS audio (public)\nrouter.get('/flash-audio', ctrl.getFlashAudio);\n\n// Upcoming shows across all channels (public)\nrouter.get('/upcoming', ctrl.getUpcomingAll);", "oldString": "// Server time (public — no auth needed for sync)\nrouter.get('/time', ctrl.getServerTime);\n\n// Upcoming shows across all channels (public)\nrouter.get('/upcoming', ctrl.getUpcomingAll);">
-<parameter name="newString">// Server time (public — no auth needed for sync)
+// Server time (public — no auth needed for sync)
 router.get('/time', ctrl.getServerTime);
 
 // Flash screen TTS audio (public)
