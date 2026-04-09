@@ -78,15 +78,15 @@ export async function Footer({ logoUrl }: { logoUrl?: string | null }) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 lg:gap-12">
           {/* Brand column */}
           <div className="col-span-2 md:col-span-1">
-            <Link href="/" className="flex items-center gap-2 mb-4">
+            <Link href="/" className="flex items-center gap-2.5 mb-4">
               {logoUrl ? (
-                <img src={logoUrl} alt="AfroVision" className="h-8 w-8 rounded-lg object-contain" />
+                <img src={logoUrl} alt="AfroVision" className="h-12 w-12 rounded-lg object-contain" />
               ) : (
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center font-bold text-av-dark-blue text-sm">
+                <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center font-bold text-av-dark-blue text-lg">
                   A
                 </div>
               )}
-              <span className="text-lg font-bold tracking-wide">
+              <span className="text-xl font-bold tracking-wide">
                 <span className="text-av-white">Afro</span>
                 <span className="text-av-orange">Vision</span>
               </span>

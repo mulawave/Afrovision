@@ -5,11 +5,15 @@ const User = require('../users/user.model');
 const Ledger = require('../vpt/ledger.model');
 const designCtrl = require('../design/homepage-design.controller');
 const SettingsService = require('../admin/settings.service');
+const adminCtrl = require('../admin/admin.controller');
 
 const router = Router();
 
 // GET /home/content — public homepage design/content payload for website rendering
 router.get('/content', designCtrl.getHomepageContent);
+
+// GET /home/marquee — public, returns active marquee/ticker topics
+router.get('/marquee', adminCtrl.getActiveMarqueeTopics);
 
 // GET /home/captcha-key — public, returns reCAPTCHA site key for client-side use
 router.get('/captcha-key', async (req, res) => {

@@ -4,6 +4,7 @@ import "./globals.css";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { CommunityPoolBar } from "@/components/CommunityPoolBar";
+import { MarqueeTicker } from "@/components/MarqueeTicker";
 import { AuthProvider } from "@/lib/AuthContext";
 import { getBranding } from "@/lib/homepage";
 
@@ -53,6 +54,8 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col">
         <AuthProvider>
           <Navbar logoUrl={branding.logo_url} />
+          <div className="h-16 lg:h-20" />
+          <MarqueeTicker />
           <CommunityPoolBar />
           <main className="flex-1">{children}</main>
           <Footer logoUrl={branding.logo_url} />

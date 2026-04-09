@@ -1341,6 +1341,91 @@ async function pitrRestore(req, res) {
   });
 }
 
+// ──────────────────────────────────────────────────────────
+//  MARQUEE / LIVE WIRE TOPICS
+// ──────────────────────────────────────────────────────────
+const MARQUEE_COLLECTION = 'live_wire_topics';
+
+async function getMarqueeTopics(req, res) {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const db = getFirestore();
+    const snap = await db.collection(MARQUEE_COLLECTION).get();
+    const topics = [];
+    snap.forEach((doc) => topics.push({ id: doc.id, ...doc.data() }));
+    topics.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+    res.json(topics);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function createMarqueeTopic(req, res) {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const { text, priority, active } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: 'text is required' });
+    const db = getFirestore();
+    const ref = db.collection(MARQUEE_COLLECTION).doc();
+    const topic = {
+      text: text.trim(),
+      priority: priority ?? 1,
+      active: active !== false,
+      updatedAt: new Date(),
+    };
+    await ref.set(topic);
+    res.json({ id: ref.id, ...topic });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function updateMarqueeTopic(req, res) {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const { id } = req.params;
+    const { text, priority, active } = req.body;
+    const db = getFirestore();
+    const ref = db.collection(MARQUEE_COLLECTION).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Topic not found' });
+    const updates = { updatedAt: new Date() };
+    if (text !== undefined) updates.text = text.trim();
+    if (priority !== undefined) updates.priority = priority;
+    if (active !== undefined) updates.active = active;
+    await ref.update(updates);
+    res.json({ id, ...doc.data(), ...updates });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function deleteMarqueeTopic(req, res) {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const { id } = req.params;
+    const db = getFirestore();
+    await db.collection(MARQUEE_COLLECTION).doc(id).delete();
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// Public endpoint — no auth required (website reads this)
+async function getActiveMarqueeTopics(req, res) {
+  try {
+    const db = getFirestore();
+    const snap = await db.collection(MARQUEE_COLLECTION).where('active', '==', true).get();
+    const topics = [];
+    snap.forEach((doc) => topics.push({ id: doc.id, ...doc.data() }));
+    topics.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+    res.json(topics);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   setRole,
   setPremium,
@@ -1383,4 +1468,9 @@ module.exports = {
   recoverFromEmailIndex,
   repairUserDocument,
   pitrRestore,
+  getMarqueeTopics,
+  createMarqueeTopic,
+  updateMarqueeTopic,
+  deleteMarqueeTopic,
+  getActiveMarqueeTopics,
 };

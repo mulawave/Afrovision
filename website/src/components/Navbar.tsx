@@ -53,15 +53,15 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 lg:h-20">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 group">
+          <Link href="/" className="flex items-center gap-2.5 group">
             {logoUrl ? (
-              <img src={logoUrl} alt="AfroVision" className="h-9 w-9 rounded-lg object-contain transition-transform group-hover:scale-110" />
+              <img src={logoUrl} alt="AfroVision" className="h-11 w-11 rounded-lg object-contain transition-transform group-hover:scale-110" />
             ) : (
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center font-bold text-av-dark-blue text-lg transition-transform group-hover:scale-110">
+              <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center font-bold text-av-dark-blue text-xl transition-transform group-hover:scale-110">
                 A
               </div>
             )}
-            <span className="text-xl font-bold tracking-wide">
+            <span className="text-2xl font-bold tracking-wide">
               <span className="text-av-white">Afro</span>
               <span className="text-av-orange">Vision</span>
             </span>

@@ -84,4 +84,10 @@ router.get('/analytics/creators/:uid/stats', authenticateToken, creatorAnalytics
 // Audit logs
 router.get('/audit', authenticateToken, ctrl.getAuditLogs);
 
+// Marquee / Live Wire Topics
+router.get('/marquee', authenticateToken, ctrl.getMarqueeTopics);
+router.post('/marquee', authenticateToken, ctrl.createMarqueeTopic);
+router.patch('/marquee/:id', authenticateToken, ctrl.updateMarqueeTopic);
+router.delete('/marquee/:id', authenticateToken, ctrl.deleteMarqueeTopic);
+
 module.exports = router;
