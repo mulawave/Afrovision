@@ -18,6 +18,23 @@ subprojects {
         if (projectRoot == buildRoot) {
             project.layout.buildDirectory.value(newSubprojectBuildDir)
         }
+        // Inject namespace for legacy plugins that only declare it in AndroidManifest
+        project.plugins.withId("com.android.library") {
+            val android = project.extensions.getByType(com.android.build.gradle.LibraryExtension::class.java)
+            if (android.namespace.isNullOrEmpty()) {
+                val manifest = project.file("src/main/AndroidManifest.xml")
+                if (manifest.exists()) {
+                    val pkg = Regex("""package\s*=\s*"([^"]+)"""").find(manifest.readText())?.groupValues?.get(1)
+                    if (!pkg.isNullOrEmpty()) {
+                        android.namespace = pkg
+                    }
+                }
+            }
+            // Force minimum compileSdk 34 so legacy plugins pick up android:attr/lStar etc.
+            if (android.compileSdk != null && android.compileSdk!! < 34) {
+                android.compileSdk = 34
+            }
+        }
     }
 }
 subprojects {
