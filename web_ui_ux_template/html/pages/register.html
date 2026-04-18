@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Register — Premium Template</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../theme.css" />
+</head>
+<body>
+  <div class="av-bg-orb av-bg-orb--orange" style="top: -200px; right: -250px;"></div>
+  <div class="av-bg-orb av-bg-orb--blue" style="bottom: -150px; left: -200px;"></div>
+
+  <div class="av-auth-wrapper">
+    <div class="av-auth-card">
+      <!-- Logo -->
+      <div style="text-align: center; margin-bottom: 2rem;">
+        <div style="display: inline-flex; align-items: center; gap: 0.5rem;">
+          <div style="width: 36px; height: 36px; border-radius: var(--av-radius-sm); background: var(--av-gradient-cta); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; color: var(--av-dark-blue);">A</div>
+          <span style="font-size: 1.25rem; font-weight: 700;"><span style="color: var(--av-white);">Afro</span><span style="color: var(--av-orange);">Vision</span></span>
+        </div>
+      </div>
+
+      <h1 class="av-heading-md" style="text-align: center;">Create an account</h1>
+      <p class="av-body av-mt-1" style="text-align: center;">Join the premium experience</p>
+
+      <div id="regBanner" class="av-banner av-banner--error av-mt-4" style="display: none;"></div>
+
+      <form id="regForm" style="margin-top: 1.5rem;" onsubmit="return handleRegister(event)">
+        <!-- Email -->
+        <div class="av-input-group av-mb-4">
+          <label for="email">Email</label>
+          <input type="email" id="email" class="av-input" placeholder="you@example.com" required />
+        </div>
+
+        <!-- Password -->
+        <div class="av-input-group av-mb-2">
+          <label for="password">Password</label>
+          <div style="position: relative;">
+            <input type="password" id="password" class="av-input" placeholder="Create a strong password" required oninput="checkStrength()" />
+            <button type="button" class="av-password-toggle" onclick="togglePassword('password')">👁</button>
+          </div>
+          <!-- Strength indicator -->
+          <div style="margin-top: 0.5rem;">
+            <div class="av-strength-bar-group">
+              <div class="av-strength-bar" id="bar1"></div>
+              <div class="av-strength-bar" id="bar2"></div>
+              <div class="av-strength-bar" id="bar3"></div>
+            </div>
+            <p class="av-body-sm av-mt-1" id="strengthLabel" style="font-size: 0.6875rem;"></p>
+          </div>
+        </div>
+
+        <!-- Confirm Password -->
+        <div class="av-input-group av-mb-4">
+          <label for="confirmPassword">Confirm Password</label>
+          <div style="position: relative;">
+            <input type="password" id="confirmPassword" class="av-input" placeholder="Repeat your password" required />
+            <button type="button" class="av-password-toggle" onclick="togglePassword('confirmPassword')">👁</button>
+          </div>
+          <p class="av-input-error-text" id="mismatchError" style="display: none;">Passwords do not match</p>
+        </div>
+
+        <!-- Referral Code -->
+        <div class="av-input-group av-mb-4">
+          <label for="referral">Referral Code <span style="color: var(--av-hint);">(optional)</span></label>
+          <input type="text" id="referral" class="av-input" placeholder="Enter referral code" />
+        </div>
+
+        <!-- Terms -->
+        <div class="av-checkbox-row av-mb-6">
+          <input type="checkbox" class="av-checkbox" id="terms" required />
+          <label for="terms" class="av-body-sm">I agree to the <a href="#" style="color: var(--av-orange);">Terms of Service</a> and <a href="#" style="color: var(--av-orange);">Privacy Policy</a></label>
+        </div>
+
+        <!-- Submit -->
+        <button type="submit" class="av-btn av-w-full" id="regBtn">Create Account</button>
+      </form>
+
+      <!-- Footer -->
+      <p class="av-body-sm av-mt-6" style="text-align: center;">
+        Already have an account? <a href="login.html" style="color: var(--av-orange); font-weight: 600;">Sign In</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="../theme.js"></script>
+  <script>
+    function togglePassword(id) {
+      var el = document.getElementById(id);
+      el.type = el.type === 'password' ? 'text' : 'password';
+    }
+
+    function checkStrength() {
+      var pw = document.getElementById('password').value;
+      var bar1 = document.getElementById('bar1');
+      var bar2 = document.getElementById('bar2');
+      var bar3 = document.getElementById('bar3');
+      var label = document.getElementById('strengthLabel');
+      var score = 0;
+      if (pw.length >= 6) score++;
+      if (/[A-Z]/.test(pw) && /[0-9]/.test(pw)) score++;
+      if (pw.length >= 10 && /[^A-Za-z0-9]/.test(pw)) score++;
+
+      bar1.className = 'av-strength-bar';
+      bar2.className = 'av-strength-bar';
+      bar3.className = 'av-strength-bar';
+
+      if (score >= 1) bar1.classList.add('av-strength-bar--weak');
+      if (score >= 2) { bar1.classList.replace('av-strength-bar--weak', 'av-strength-bar--good'); bar2.classList.add('av-strength-bar--good'); }
+      if (score >= 3) { bar1.classList.replace('av-strength-bar--good', 'av-strength-bar--strong'); bar2.classList.replace('av-strength-bar--good', 'av-strength-bar--strong'); bar3.classList.add('av-strength-bar--strong'); }
+
+      var labels = ['', 'Weak', 'Good', 'Strong'];
+      var colors = ['', 'var(--av-error)', 'var(--av-orange)', 'var(--av-success)'];
+      label.textContent = labels[score] || '';
+      label.style.color = colors[score] || '';
+    }
+
+    function handleRegister(e) {
+      e.preventDefault();
+      var btn = document.getElementById('regBtn');
+      var banner = document.getElementById('regBanner');
+      var mismatch = document.getElementById('mismatchError');
+      var pw = document.getElementById('password').value;
+      var cpw = document.getElementById('confirmPassword').value;
+
+      banner.style.display = 'none';
+      mismatch.style.display = 'none';
+
+      if (pw !== cpw) {
+        mismatch.style.display = 'block';
+        document.getElementById('confirmPassword').classList.add('av-input--error');
+        return false;
+      }
+      document.getElementById('confirmPassword').classList.remove('av-input--error');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="av-spinner av-spinner--sm"></span> Creating…';
+
+      setTimeout(function() {
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+        banner.className = 'av-banner av-banner--success av-mt-4';
+        banner.textContent = '✓ Account created! Redirecting to login…';
+        banner.style.display = 'block';
+      }, 1500);
+
+      return false;
+    }
+  </script>
+</body>
+</html>

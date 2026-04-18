@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard — Premium Template</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../theme.css" />
+</head>
+<body class="av-grid-overlay">
+  <!-- Admin background (radial) -->
+  <div style="position: fixed; inset: 0; background: radial-gradient(ellipse at 20% 50%, rgba(23,58,109,0.3), transparent 60%); pointer-events: none; z-index: 0;"></div>
+
+  <!-- Sidebar -->
+  <nav class="av-sidebar">
+    <!-- Brand -->
+    <div style="display: flex; align-items: center; gap: 0.625rem; margin-bottom: 2rem;">
+      <div style="width: 32px; height: 32px; border-radius: var(--av-radius-sm); background: var(--av-gradient-cta); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.875rem; color: var(--av-dark-blue);">A</div>
+      <span style="font-size: 1rem; font-weight: 700;"><span style="color: var(--av-white);">Afro</span><span style="color: var(--av-orange);">Vision</span></span>
+    </div>
+
+    <!-- Links -->
+    <div style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1;">
+      <a href="#" class="av-sidebar-link av-sidebar-link--active">
+        Dashboard
+        <small>Overview</small>
+      </a>
+      <a href="#" class="av-sidebar-link">
+        Users
+        <small>Management</small>
+      </a>
+      <a href="#" class="av-sidebar-link">
+        Content
+        <small>Videos &amp; Media</small>
+      </a>
+      <a href="#" class="av-sidebar-link">
+        Analytics
+        <small>Reports</small>
+      </a>
+      <a href="#" class="av-sidebar-link">
+        Payouts
+        <small>Finance</small>
+      </a>
+      <a href="#" class="av-sidebar-link">
+        Settings
+        <small>Configuration</small>
+      </a>
+    </div>
+
+    <!-- User area -->
+    <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 1rem; display: flex; align-items: center; gap: 0.75rem;">
+      <div class="av-avatar av-avatar--sm">AD</div>
+      <div>
+        <p style="font-size: 0.8125rem; font-weight: 600; color: var(--av-white);">Admin User</p>
+        <p style="font-size: 0.6875rem; color: var(--av-light-orange);">admin@example.com</p>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main style="margin-left: 304px; padding: 1.5rem 2rem; min-height: 100vh; position: relative; z-index: 1;">
+    <!-- Page header -->
+    <div style="margin-bottom: 2rem;">
+      <p class="av-label">Overview</p>
+      <h1 class="av-heading-lg av-mt-2">Dashboard</h1>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="av-stagger av-grid-4" style="margin-bottom: 2rem;">
+      <div class="av-stat-card av-stat-card--blue">
+        <p class="av-stat-title">Total Users</p>
+        <p class="av-stat-value">12,487</p>
+        <p class="av-stat-hint">↑ 12% this month</p>
+      </div>
+      <div class="av-stat-card av-stat-card--green">
+        <p class="av-stat-title">Revenue</p>
+        <p class="av-stat-value">₦4.2M</p>
+        <p class="av-stat-hint">↑ 8% vs last week</p>
+      </div>
+      <div class="av-stat-card av-stat-card--purple">
+        <p class="av-stat-title">Active Streams</p>
+        <p class="av-stat-value">342</p>
+      </div>
+      <div class="av-stat-card av-stat-card--amber">
+        <p class="av-stat-title">Pending Payouts</p>
+        <p class="av-stat-value">₦1.1M</p>
+        <p class="av-stat-hint">16 requests</p>
+      </div>
+    </div>
+
+    <!-- Data table section -->
+    <div class="av-card-surface" style="padding: 0; overflow: hidden;">
+      <div style="padding: 1.25rem 1.5rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.06);">
+        <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--av-white);">Recent Users</h2>
+        <button class="av-btn-text" style="font-size: 0.75rem;">View All →</button>
+      </div>
+      <table class="av-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Joined</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="color: var(--av-white); font-weight: 600;">Alice Johnson</td>
+            <td>alice@example.com</td>
+            <td>Creator</td>
+            <td><span class="av-badge av-badge--success">Active</span></td>
+            <td>Jan 15, 2025</td>
+          </tr>
+          <tr>
+            <td style="color: var(--av-white); font-weight: 600;">Bob Smith</td>
+            <td>bob@example.com</td>
+            <td>Viewer</td>
+            <td><span class="av-badge av-badge--success">Active</span></td>
+            <td>Jan 12, 2025</td>
+          </tr>
+          <tr>
+            <td style="color: var(--av-white); font-weight: 600;">Carol Doe</td>
+            <td>carol@example.com</td>
+            <td>Creator</td>
+            <td><span class="av-badge av-badge--warning">Pending</span></td>
+            <td>Jan 10, 2025</td>
+          </tr>
+          <tr>
+            <td style="color: var(--av-white); font-weight: 600;">Dan Lee</td>
+            <td>dan@example.com</td>
+            <td>Viewer</td>
+            <td><span class="av-badge av-badge--error">Suspended</span></td>
+            <td>Dec 28, 2024</td>
+          </tr>
+          <tr>
+            <td style="color: var(--av-white); font-weight: 600;">Emma Wilson</td>
+            <td>emma@example.com</td>
+            <td>Admin</td>
+            <td><span class="av-badge av-badge--info">Review</span></td>
+            <td>Dec 20, 2024</td>
+          </tr>
+        </tbody>
+      </table>
+      <!-- Pagination -->
+      <div style="padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.06);">
+        <p class="av-body-sm">Showing 1–5 of 487</p>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="av-btn-outline" style="height: 32px; padding: 0 0.75rem; font-size: 0.75rem;" disabled>Previous</button>
+          <button class="av-btn-outline" style="height: 32px; padding: 0 0.75rem; font-size: 0.75rem;">Next</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="../theme.js"></script>
+</body>
+</html>

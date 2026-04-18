@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wallet — Premium Template</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../theme.css" />
+</head>
+<body>
+  <!-- Decorative orbs -->
+  <div class="av-bg-orb av-bg-orb--orange" style="top: -150px; right: -200px;"></div>
+  <div class="av-bg-orb av-bg-orb--blue" style="bottom: -100px; left: -150px;"></div>
+
+  <!-- Navbar -->
+  <nav class="av-navbar">
+    <div class="av-navbar-brand">
+      <div style="width: 32px; height: 32px; border-radius: var(--av-radius-sm); background: var(--av-gradient-cta); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.875rem; color: var(--av-dark-blue);">A</div>
+      <span style="font-size: 1rem; font-weight: 700;"><span style="color: var(--av-white);">Afro</span><span style="color: var(--av-orange);">Vision</span></span>
+    </div>
+    <div class="av-navbar-links">
+      <a href="#">Home</a>
+      <a href="#">Browse</a>
+      <a href="#" class="active">Wallet</a>
+      <a href="#">Profile</a>
+    </div>
+    <div class="av-navbar-actions">
+      <div class="av-avatar av-avatar--sm">JD</div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main style="min-height: 100vh; padding-top: 5rem; padding-bottom: 4rem; position: relative; z-index: 1;">
+    <div class="av-container">
+      <!-- Header -->
+      <div style="margin-bottom: 2rem;" class="av-animate-fade-in-up">
+        <p class="av-label">Finance</p>
+        <h1 class="av-heading-lg av-mt-2">Wallet</h1>
+        <p class="av-body av-mt-2">Track your balances, recent activity, and manage your funds.</p>
+      </div>
+
+      <!-- Wallet stat cards -->
+      <div class="av-grid-4 av-stagger" style="margin-bottom: 1.5rem;">
+        <div class="av-wallet-stat">
+          <p class="av-body-sm">Total Balance</p>
+          <p class="av-heading-md av-mt-1">₦125,400</p>
+        </div>
+        <div class="av-wallet-stat av-wallet-stat--highlight">
+          <p class="av-body-sm">Earnings</p>
+          <p class="av-heading-md av-mt-1" style="color: var(--av-orange);">₦98,200</p>
+        </div>
+        <div class="av-wallet-stat">
+          <p class="av-body-sm">Pending</p>
+          <p class="av-heading-md av-mt-1">₦12,000</p>
+        </div>
+        <div class="av-wallet-stat">
+          <p class="av-body-sm">Withdrawn</p>
+          <p class="av-heading-md av-mt-1">₦15,200</p>
+        </div>
+      </div>
+
+      <!-- Balance + Actions Hero -->
+      <section style="border-radius: var(--av-radius-lg); border: 1px solid rgba(244,150,23,0.3); background: linear-gradient(to right, var(--av-dark-blue), var(--av-card-bg)); padding: 1.5rem; margin-bottom: 1.5rem;">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;">
+          <div>
+            <p class="av-label" style="margin-bottom: 0.25rem;">Available for Withdrawal</p>
+            <p style="font-size: 1.875rem; font-weight: 800; color: var(--av-white);">
+              ₦86,200
+              <span style="margin-left: 0.5rem; font-size: 0.875rem; font-weight: 400; color: var(--av-light-orange);">NGN</span>
+            </p>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
+            <button class="av-btn-pill av-btn-pill--orange">+ Top Up</button>
+            <button class="av-btn-pill av-btn-pill--purple">↔ Convert</button>
+            <button class="av-btn">Request Withdrawal</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Recent ledger -->
+      <div class="av-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+          <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--av-white);">Recent Ledger</h2>
+          <a href="#" class="av-btn-text" style="font-size: 0.6875rem;">View All →</a>
+        </div>
+        <div class="av-stack av-gap-sm">
+          <div style="border-radius: var(--av-radius-md); border: 1px solid rgba(30,42,90,0.2); background: rgba(13,20,66,0.3); padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <p style="font-size: 0.875rem; font-weight: 600; color: var(--av-white);">Subscription Earning</p>
+              <p class="av-body-sm av-mt-1">Jan 15, 2025</p>
+            </div>
+            <p style="font-size: 0.875rem; font-weight: 600; color: var(--av-success);">+₦5,000</p>
+          </div>
+          <div style="border-radius: var(--av-radius-md); border: 1px solid rgba(30,42,90,0.2); background: rgba(13,20,66,0.3); padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <p style="font-size: 0.875rem; font-weight: 600; color: var(--av-white);">Withdrawal</p>
+              <p class="av-body-sm av-mt-1">Jan 12, 2025</p>
+            </div>
+            <p style="font-size: 0.875rem; font-weight: 600; color: var(--av-error);">-₦15,200</p>
+          </div>
+          <div style="border-radius: var(--av-radius-md); border: 1px solid rgba(30,42,90,0.2); background: rgba(13,20,66,0.3); padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <p style="font-size: 0.875rem; font-weight: 600; color: var(--av-white);">Ad Revenue</p>
+              <p class="av-body-sm av-mt-1">Jan 10, 2025</p>
+            </div>
+            <p style="font-size: 0.875rem; font-weight: 600; color: var(--av-success);">+₦3,200</p>
+          </div>
+          <div style="border-radius: var(--av-radius-md); border: 1px solid rgba(30,42,90,0.2); background: rgba(13,20,66,0.3); padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <p style="font-size: 0.875rem; font-weight: 600; color: var(--av-white);">Top Up</p>
+              <p class="av-body-sm av-mt-1">Jan 8, 2025</p>
+            </div>
+            <p style="font-size: 0.875rem; font-weight: 600; color: var(--av-orange);">+₦10,000</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="av-footer">
+    <div class="av-footer-grid">
+      <div class="av-footer-col">
+        <p class="av-heading-sm" style="margin-bottom: 0.75rem;">AfroVision</p>
+        <p class="av-body-sm">Africa's premium entertainment platform.</p>
+      </div>
+      <div class="av-footer-col">
+        <h4>Platform</h4>
+        <a href="#">Browse</a>
+        <a href="#">Pricing</a>
+      </div>
+      <div class="av-footer-col">
+        <h4>Company</h4>
+        <a href="#">About</a>
+        <a href="#">Careers</a>
+      </div>
+      <div class="av-footer-col">
+        <h4>Legal</h4>
+        <a href="#">Terms</a>
+        <a href="#">Privacy</a>
+      </div>
+    </div>
+    <p class="av-footer-copyright">&copy; 2025 AfroVision. All rights reserved.</p>
+  </footer>
+
+  <script src="../theme.js"></script>
+</body>
+</html>

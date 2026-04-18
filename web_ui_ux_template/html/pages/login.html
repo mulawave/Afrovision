@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — Premium Template</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../theme.css" />
+</head>
+<body>
+  <!-- Decorative orbs -->
+  <div class="av-bg-orb av-bg-orb--orange" style="top: -200px; right: -250px;"></div>
+  <div class="av-bg-orb av-bg-orb--blue" style="bottom: -150px; left: -200px;"></div>
+
+  <div class="av-auth-wrapper">
+    <div class="av-auth-card">
+      <!-- Logo -->
+      <div style="text-align: center; margin-bottom: 2rem;">
+        <div style="display: inline-flex; align-items: center; gap: 0.5rem;">
+          <div style="width: 36px; height: 36px; border-radius: var(--av-radius-sm); background: var(--av-gradient-cta); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; color: var(--av-dark-blue);">A</div>
+          <span style="font-size: 1.25rem; font-weight: 700;"><span style="color: var(--av-white);">Afro</span><span style="color: var(--av-orange);">Vision</span></span>
+        </div>
+      </div>
+
+      <h1 class="av-heading-md" style="text-align: center;">Welcome back</h1>
+      <p class="av-body av-mt-1" style="text-align: center;">Sign in to your account</p>
+
+      <!-- Banner (hidden by default) -->
+      <div id="loginBanner" class="av-banner av-banner--error av-mt-4" style="display: none;"></div>
+
+      <form id="loginForm" style="margin-top: 1.5rem;" onsubmit="return handleLogin(event)">
+        <!-- Email -->
+        <div class="av-input-group av-mb-4">
+          <label for="email">Email</label>
+          <input type="email" id="email" class="av-input" placeholder="you@example.com" required />
+        </div>
+
+        <!-- Password -->
+        <div class="av-input-group av-mb-2">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label for="password">Password</label>
+            <a href="forgot-password.html" class="av-btn-text" style="font-size: 0.75rem;">Forgot password?</a>
+          </div>
+          <div style="position: relative;">
+            <input type="password" id="password" class="av-input" placeholder="••••••••" required />
+            <button type="button" class="av-password-toggle" onclick="togglePassword('password')">👁</button>
+          </div>
+        </div>
+
+        <!-- Terms -->
+        <div class="av-checkbox-row av-mb-6">
+          <input type="checkbox" class="av-checkbox" id="terms" />
+          <label for="terms" class="av-body-sm">I agree to the <a href="#" style="color: var(--av-orange);">Terms of Service</a></label>
+        </div>
+
+        <!-- Submit -->
+        <button type="submit" class="av-btn av-w-full" id="loginBtn">Sign In</button>
+
+        <!-- Divider -->
+        <div class="av-divider"><span>or</span></div>
+
+        <!-- Alternative login -->
+        <button type="button" class="av-btn-outline av-w-full">Continue with Google</button>
+      </form>
+
+      <!-- Footer -->
+      <p class="av-body-sm av-mt-6" style="text-align: center;">
+        Don't have an account? <a href="register.html" style="color: var(--av-orange); font-weight: 600;">Register</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="../theme.js"></script>
+  <script>
+    function togglePassword(id) {
+      var el = document.getElementById(id);
+      el.type = el.type === 'password' ? 'text' : 'password';
+    }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      var btn = document.getElementById('loginBtn');
+      var banner = document.getElementById('loginBanner');
+      var email = document.getElementById('email').value;
+      var password = document.getElementById('password').value;
+
+      // Reset
+      banner.style.display = 'none';
+
+      if (!email || !password) {
+        banner.textContent = 'Please fill in all fields.';
+        banner.style.display = 'block';
+        return false;
+      }
+
+      // Loading state
+      btn.disabled = true;
+      btn.innerHTML = '<span class="av-spinner av-spinner--sm"></span> Signing in…';
+
+      // Simulate API call
+      setTimeout(function() {
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+        // Replace with actual login logic
+        banner.className = 'av-banner av-banner--success av-mt-4';
+        banner.textContent = '✓ Login successful! Redirecting…';
+        banner.style.display = 'block';
+      }, 1500);
+
+      return false;
+    }
+  </script>
+</body>
+</html>

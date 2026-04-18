@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Premium UI/UX Template — Component Showcase</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="theme.css" />
+  <style>
+    /* Showcase-specific */
+    .showcase-section { margin-bottom: 3rem; }
+    .showcase-section h2 { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.3em; color: var(--av-light-orange); margin-bottom: 1.25rem; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(30,42,90,0.3); }
+    .showcase-grid { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+    .preset-btn { padding: 0.5rem 1rem; border-radius: var(--av-radius-full); border: 1px solid rgba(245,193,108,0.3); background: transparent; color: var(--av-light-orange); font-size: 0.8125rem; font-weight: 500; cursor: pointer; transition: all 0.3s; font-family: inherit; }
+    .preset-btn:hover, .preset-btn.active { background: rgba(245,193,108,0.1); border-color: var(--av-orange); color: var(--av-orange); }
+  </style>
+</head>
+<body>
+  <!-- Decorative orbs -->
+  <div class="av-bg-orb av-bg-orb--orange" style="top: -150px; right: -200px;"></div>
+  <div class="av-bg-orb av-bg-orb--blue" style="bottom: -100px; left: -150px;"></div>
+
+  <div class="av-container" style="padding-top: 3rem; padding-bottom: 4rem; position: relative; z-index: 1;">
+    <!-- Header -->
+    <div class="av-animate-fade-in-up" style="margin-bottom: 3rem;">
+      <p class="av-label">Premium Template Kit</p>
+      <h1 class="av-heading-xl av-mt-2">Component Showcase</h1>
+      <p class="av-body av-mt-2" style="max-width: 500px;">
+        All components from the premium design system. Change the theme with presets below or edit <code>theme.css</code>.
+      </p>
+    </div>
+
+    <!-- ══ Theme Presets ══ -->
+    <div class="showcase-section">
+      <h2>Theme Presets</h2>
+      <div class="showcase-grid" id="presetBar">
+        <button class="preset-btn active" onclick="switchPreset('midnight')">Midnight (Default)</button>
+        <button class="preset-btn" onclick="switchPreset('crimson')">Crimson</button>
+        <button class="preset-btn" onclick="switchPreset('emerald')">Emerald</button>
+        <button class="preset-btn" onclick="switchPreset('royal')">Royal</button>
+        <button class="preset-btn" onclick="switchPreset('sunset')">Sunset</button>
+        <button class="preset-btn" onclick="switchPreset('arctic')">Arctic</button>
+        <button class="preset-btn" onclick="switchPreset('midnight')" style="border-color: var(--av-error); color: var(--av-error);">Reset</button>
+      </div>
+    </div>
+
+    <!-- ══ Buttons ══ -->
+    <div class="showcase-section">
+      <h2>Buttons</h2>
+      <div class="showcase-grid">
+        <button class="av-btn">Primary CTA</button>
+        <button class="av-btn" disabled>Disabled</button>
+        <button class="av-btn-outline">Outline</button>
+        <button class="av-btn-text">Text Button →</button>
+        <button class="av-btn-pill av-btn-pill--orange">+ Top Up</button>
+        <button class="av-btn-pill av-btn-pill--purple">↔ Convert</button>
+        <button class="av-btn-pill av-btn-pill--success">✓ Done</button>
+      </div>
+    </div>
+
+    <!-- ══ Inputs ══ -->
+    <div class="showcase-section">
+      <h2>Text Fields</h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; max-width: 640px;">
+        <div class="av-input-group">
+          <label>Email</label>
+          <input type="email" class="av-input" placeholder="you@example.com" />
+        </div>
+        <div class="av-input-group">
+          <label>Password</label>
+          <div style="position: relative;">
+            <input type="password" class="av-input" placeholder="••••••••" id="demoPass" />
+            <button class="av-password-toggle" onclick="togglePass()" type="button">👁</button>
+          </div>
+        </div>
+        <div class="av-input-group">
+          <label>Error state</label>
+          <input type="text" class="av-input av-input--error" value="bad input" />
+          <p class="av-input-error-text">This field is invalid</p>
+        </div>
+        <div class="av-input-group">
+          <label>Disabled</label>
+          <input type="text" class="av-input" disabled value="Not editable" />
+        </div>
+      </div>
+      <div style="margin-top: 1rem; max-width: 320px;">
+        <p class="av-body-sm av-mb-1">Password Strength</p>
+        <div class="av-strength-bar-group">
+          <div class="av-strength-bar av-strength-bar--weak"></div>
+          <div class="av-strength-bar av-strength-bar--good"></div>
+          <div class="av-strength-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Cards ══ -->
+    <div class="showcase-section">
+      <h2>Cards</h2>
+      <div class="showcase-grid">
+        <div class="av-card" style="width: 260px;">
+          <p class="av-body-sm">Standard Card</p>
+          <p class="av-heading-sm av-mt-2">Content here</p>
+        </div>
+        <div class="av-card-hero" style="width: 260px;">
+          <p class="av-body-sm">Hero Card</p>
+          <p class="av-heading-sm av-mt-2">Highlighted content</p>
+        </div>
+        <div class="av-card-surface" style="width: 260px;">
+          <p class="av-body-sm">Surface Card (Admin)</p>
+          <p class="av-heading-sm av-mt-2">Glass effect</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Stat Cards ══ -->
+    <div class="showcase-section">
+      <h2>Stat Cards</h2>
+      <div class="av-stagger av-grid-4">
+        <div class="av-stat-card av-stat-card--blue">
+          <p class="av-stat-title">Total Users</p>
+          <p class="av-stat-value">12,487</p>
+          <p class="av-stat-hint">↑ 12% this month</p>
+        </div>
+        <div class="av-stat-card av-stat-card--green">
+          <p class="av-stat-title">Revenue</p>
+          <p class="av-stat-value">₦4.2M</p>
+          <p class="av-stat-hint">↑ 8% vs last week</p>
+        </div>
+        <div class="av-stat-card av-stat-card--purple">
+          <p class="av-stat-title">Active Streams</p>
+          <p class="av-stat-value">342</p>
+        </div>
+        <div class="av-stat-card av-stat-card--amber">
+          <p class="av-stat-title">Pending</p>
+          <p class="av-stat-value">16</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Badges ══ -->
+    <div class="showcase-section">
+      <h2>Badges &amp; Status</h2>
+      <div class="showcase-grid" style="gap: 0.5rem;">
+        <span class="av-badge av-badge--success">Active</span>
+        <span class="av-badge av-badge--error">Rejected</span>
+        <span class="av-badge av-badge--warning">Pending</span>
+        <span class="av-badge av-badge--info">Processing</span>
+        <span class="av-badge av-badge--neutral">Draft</span>
+        <span class="av-badge av-badge--gold">Premium</span>
+        <span class="av-badge-counter">3</span>
+        <span class="av-badge-counter">99+</span>
+      </div>
+    </div>
+
+    <!-- ══ Banners ══ -->
+    <div class="showcase-section">
+      <h2>Banners</h2>
+      <div class="av-stack av-gap-sm" style="max-width: 520px;">
+        <div class="av-banner av-banner--error">⚠ Your session has expired. Please log in again.</div>
+        <div class="av-banner av-banner--success">✓ Account created successfully!</div>
+        <div class="av-banner av-banner--warning">⏳ Maintenance scheduled for tonight.</div>
+        <div class="av-banner av-banner--info">ℹ New features are available.</div>
+      </div>
+    </div>
+
+    <!-- ══ Divider ══ -->
+    <div class="showcase-section">
+      <h2>Divider</h2>
+      <div style="max-width: 400px;">
+        <div class="av-divider"><span>or continue with</span></div>
+      </div>
+    </div>
+
+    <!-- ══ Spinners ══ -->
+    <div class="showcase-section">
+      <h2>Spinners</h2>
+      <div class="showcase-grid" style="gap: 1.5rem;">
+        <div class="av-spinner av-spinner--sm"></div>
+        <div class="av-spinner"></div>
+        <div class="av-spinner av-spinner--lg"></div>
+      </div>
+    </div>
+
+    <!-- ══ Avatars ══ -->
+    <div class="showcase-section">
+      <h2>Avatars</h2>
+      <div class="showcase-grid" style="gap: 1rem;">
+        <div class="av-avatar av-avatar--sm">A</div>
+        <div class="av-avatar av-avatar--md">BV</div>
+        <div class="av-avatar av-avatar--lg">CW</div>
+      </div>
+    </div>
+
+    <!-- ══ Table ══ -->
+    <div class="showcase-section">
+      <h2>Data Table</h2>
+      <div class="av-card-surface" style="max-width: 700px; padding: 0; overflow: hidden;">
+        <table class="av-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="color: var(--av-white); font-weight: 600;">Alice Johnson</td>
+              <td>alice@example.com</td>
+              <td><span class="av-badge av-badge--success">Active</span></td>
+              <td style="color: var(--av-orange); font-weight: 600;">₦12,500</td>
+            </tr>
+            <tr>
+              <td style="color: var(--av-white); font-weight: 600;">Bob Smith</td>
+              <td>bob@example.com</td>
+              <td><span class="av-badge av-badge--warning">Pending</span></td>
+              <td style="color: var(--av-orange); font-weight: 600;">₦8,200</td>
+            </tr>
+            <tr>
+              <td style="color: var(--av-white); font-weight: 600;">Carol Doe</td>
+              <td>carol@example.com</td>
+              <td><span class="av-badge av-badge--error">Rejected</span></td>
+              <td style="color: var(--av-orange); font-weight: 600;">₦0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══ Plan Cards ══ -->
+    <div class="showcase-section">
+      <h2>Plan / Pricing Cards</h2>
+      <div class="av-grid-3 av-stagger" style="max-width: 900px;">
+        <div class="av-plan-card">
+          <p class="av-plan-name">Free</p>
+          <p class="av-plan-price">₦0<span class="av-plan-period">/month</span></p>
+          <ul class="av-plan-features">
+            <li>Basic streaming</li>
+            <li>480p quality</li>
+            <li>Community access</li>
+          </ul>
+          <button class="av-btn-outline av-w-full av-mt-6">Get Started</button>
+        </div>
+        <div class="av-plan-card av-plan-card--popular">
+          <span class="av-popular-tag">Popular</span>
+          <p class="av-plan-name">Pro</p>
+          <p class="av-plan-price">₦2,500<span class="av-plan-period">/month</span></p>
+          <ul class="av-plan-features">
+            <li>HD streaming</li>
+            <li>1080p quality</li>
+            <li>Priority support</li>
+            <li>Analytics dashboard</li>
+          </ul>
+          <button class="av-btn av-w-full av-mt-6">Subscribe</button>
+        </div>
+        <div class="av-plan-card">
+          <p class="av-plan-name">Enterprise</p>
+          <p class="av-plan-price">₦9,000<span class="av-plan-period">/month</span></p>
+          <ul class="av-plan-features">
+            <li>4K streaming</li>
+            <li>Dedicated support</li>
+            <li>Custom branding</li>
+            <li>API access</li>
+            <li>Unlimited storage</li>
+          </ul>
+          <button class="av-btn-outline av-w-full av-mt-6">Contact Sales</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Checkbox ══ -->
+    <div class="showcase-section">
+      <h2>Checkbox</h2>
+      <div class="av-checkbox-row">
+        <input type="checkbox" class="av-checkbox" id="chk1" />
+        <label for="chk1" class="av-body-sm">I agree to the Terms of Service</label>
+      </div>
+    </div>
+
+    <!-- ══ Empty State ══ -->
+    <div class="showcase-section">
+      <h2>Empty State</h2>
+      <div class="av-card" style="max-width: 400px;">
+        <div class="av-empty-state">
+          <div class="av-empty-state-icon">📭</div>
+          <p class="av-empty-state-title">No results found</p>
+          <p class="av-empty-state-text">Try adjusting your filters or search terms.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Footer ══ -->
+    <div class="showcase-section">
+      <h2>Footer</h2>
+    </div>
+  </div>
+
+  <!-- Sample footer -->
+  <footer class="av-footer">
+    <div class="av-footer-grid">
+      <div class="av-footer-col">
+        <p class="av-heading-sm" style="margin-bottom: 0.75rem;">AfroVision</p>
+        <p class="av-body-sm">Africa's premium entertainment platform. Stream, create, earn.</p>
+      </div>
+      <div class="av-footer-col">
+        <h4>Platform</h4>
+        <a href="#">Browse</a>
+        <a href="#">Pricing</a>
+        <a href="#">Creators</a>
+      </div>
+      <div class="av-footer-col">
+        <h4>Company</h4>
+        <a href="#">About</a>
+        <a href="#">Careers</a>
+        <a href="#">Press</a>
+      </div>
+      <div class="av-footer-col">
+        <h4>Legal</h4>
+        <a href="#">Terms</a>
+        <a href="#">Privacy</a>
+        <a href="#">Cookies</a>
+      </div>
+    </div>
+    <p class="av-footer-copyright">&copy; 2025 AfroVision. All rights reserved.</p>
+  </footer>
+
+  <script src="theme.js"></script>
+  <script>
+    function switchPreset(name) {
+      PremiumTheme.applyPreset(name);
+      document.querySelectorAll('#presetBar .preset-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.textContent.toLowerCase().indexOf(name) !== -1);
+      });
+    }
+    function togglePass() {
+      var el = document.getElementById('demoPass');
+      el.type = el.type === 'password' ? 'text' : 'password';
+    }
+  </script>
+</body>
+</html>
