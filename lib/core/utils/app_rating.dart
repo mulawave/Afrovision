@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_colors.dart';
 
 class AppRating {
   static const _launchCountKey = 'app_launch_count';
   static const _hasRatedKey = 'app_has_rated';
   static const _launchInterval = 3;
+  static const _playStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.afrovision.afrovision';
 
   /// Call on every app launch. Shows the rating dialog every 3rd launch
   /// until the user has rated.
@@ -30,6 +33,32 @@ class AppRating {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
+            // Dynamic copy based on star selection
+            String headline;
+            String subtitle;
+            String buttonLabel;
+            if (selectedStars == 0) {
+              headline = 'You\'re Part of\nSomething Special';
+              subtitle =
+                  'AfroVision was built for people like you — dreamers, creators, and culture lovers who believe Africa\'s voice deserves a global stage.\n\nHow does the experience feel so far?';
+              buttonLabel = 'Tap a Star';
+            } else if (selectedStars <= 2) {
+              headline = 'We Hear You';
+              subtitle =
+                  'Your honesty means everything. We\'re working hard to make this the home you deserve. Every update gets us closer.';
+              buttonLabel = 'Send Feedback';
+            } else if (selectedStars == 3) {
+              headline = 'We\'re Getting There';
+              subtitle =
+                  'Good — but not great yet. Your rating helps us understand what to build next so AfroVision feels exactly right for you.';
+              buttonLabel = 'Submit & Help Us Grow';
+            } else {
+              headline = 'You Made Our Day ✨';
+              subtitle =
+                  'People like you are why we wake up and build. A quick review on the Play Store helps more Africans discover what you\'ve found.';
+              buttonLabel = 'Leave a Review';
+            }
+
             return Dialog(
               backgroundColor: Colors.transparent,
               child: Container(
@@ -62,47 +91,62 @@ class AppRating {
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
-                        Icons.star_rounded,
+                        Icons.favorite_rounded,
                         color: AppColors.white,
                         size: 36,
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const Text(
-                      'Enjoying AfroVision?',
-                      style: TextStyle(
+                    Text(
+                      headline,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
                         color: AppColors.white,
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
+                        height: 1.3,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Rate your experience to help us improve!',
+                    const SizedBox(height: 12),
+                    Text(
+                      subtitle,
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.white, fontSize: 13),
+                      style: TextStyle(
+                        color: AppColors.white.withValues(alpha: 0.8),
+                        fontSize: 13,
+                        height: 1.5,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     // Star rating row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(5, (i) {
-                        final starNum = i + 1;
-                        return GestureDetector(
-                          onTap: () =>
-                              setDialogState(() => selectedStars = starNum),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: Icon(
-                              starNum <= selectedStars
-                                  ? Icons.star_rounded
-                                  : Icons.star_outline_rounded,
-                              color: AppColors.lightOrange,
-                              size: 40,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(5, (i) {
+                          final starNum = i + 1;
+                          return GestureDetector(
+                            onTap: () =>
+                                setDialogState(() => selectedStars = starNum),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              child: AnimatedScale(
+                                scale: starNum <= selectedStars ? 1.15 : 1.0,
+                                duration: const Duration(milliseconds: 200),
+                                child: Icon(
+                                  starNum <= selectedStars
+                                      ? Icons.star_rounded
+                                      : Icons.star_outline_rounded,
+                                  color: AppColors.lightOrange,
+                                  size: 40,
+                                ),
+                              ),
                             ),
-                          ),
-                        );
-                      }),
+                          );
+                        }),
+                      ),
                     ),
                     const SizedBox(height: 24),
                     // Submit button
@@ -111,6 +155,14 @@ class AppRating {
                           ? () async {
                               await prefs.setBool(_hasRatedKey, true);
                               if (ctx.mounted) Navigator.of(ctx).pop();
+                              // 4-5 stars → open Play Store for review
+                              if (selectedStars >= 4) {
+                                final uri = Uri.parse(_playStoreUrl);
+                                launchUrl(
+                                  uri,
+                                  mode: LaunchMode.externalApplication,
+                                );
+                              }
                             }
                           : null,
                       child: Container(
@@ -124,7 +176,7 @@ class AppRating {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Text(
-                          selectedStars > 0 ? 'Submit Rating' : 'Tap a Star',
+                          buttonLabel,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: selectedStars > 0
@@ -140,7 +192,7 @@ class AppRating {
                     GestureDetector(
                       onTap: () => Navigator.of(ctx).pop(),
                       child: const Text(
-                        'Maybe Later',
+                        'Not Now',
                         style: TextStyle(
                           color: AppColors.hintText,
                           fontSize: 13,

@@ -129,4 +129,8 @@ class ChannelService {
     final data = await ApiService.delete('/users/follows/$creatorId');
     return FollowStatusModel.fromJson(data);
   }
+
+  static Future<void> recordView(String channelId) async {
+    await ApiService.post('/channels/$channelId/view', {});
+  }
 }

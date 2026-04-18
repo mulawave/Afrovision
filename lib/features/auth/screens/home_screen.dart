@@ -11,7 +11,9 @@ import '../../../core/api/api_service.dart';
 import '../../../core/widgets/role_badge.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
 import '../../../core/utils/app_rating.dart';
+import '../../../core/utils/kyc_gender_checker.dart';
 import '../../../core/services/notification_service.dart';
+import '../../promo/widgets/promo_modal_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -77,12 +79,11 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _requestNotificationPermission() async {
     final alreadyGranted = await NotificationService.isPermissionGranted();
     if (alreadyGranted) return;
-    final notDetermined = await NotificationService.isPermissionNotDetermined();
-    if (!notDetermined) return; // Already denied — don't prompt again
     if (!mounted) return;
     // Small delay so the home screen settles before showing the dialog
     await Future.delayed(const Duration(milliseconds: 1200));
     if (!mounted) return;
+    // requestPermission() calls registerToken() internally on grant
     await NotificationService.requestPermission(context);
   }
 
@@ -132,6 +133,10 @@ class _HomeScreenState extends State<HomeScreen>
       _loadMarquee();
       // Check if we should show the rating dialog
       if (context.mounted) AppRating.checkAndPrompt(context);
+      // Check if user has missing KYC gender to prompt for completion
+      if (context.mounted) KycGenderChecker.checkAndPrompt(context);
+      // Show promo modal if available (once per session)
+      if (context.mounted) PromoModalDialog.checkAndShow(context);
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -536,7 +541,7 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
             const SizedBox(height: 16),
-            // VPT amount
+            // vPT amount
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -935,7 +940,7 @@ class _HomeScreenState extends State<HomeScreen>
                 decoration: BoxDecoration(
                   color: i == _promoPage
                       ? AppColors.orange
-                      : AppColors.hintText.withValues(alpha: 0.3),
+                      : AppColors.goldText,
                   borderRadius: BorderRadius.circular(3),
                 ),
               );
@@ -1250,9 +1255,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               child: Icon(
                 icon,
-                color: locked
-                    ? AppColors.hintText.withValues(alpha: 0.4)
-                    : color,
+                color: locked ? AppColors.goldText : color,
                 size: 22,
               ),
             ),
@@ -1261,9 +1264,7 @@ class _HomeScreenState extends State<HomeScreen>
               label,
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: locked
-                    ? AppColors.hintText.withValues(alpha: 0.4)
-                    : AppColors.white,
+                color: locked ? AppColors.goldText : AppColors.white,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
                 height: 1.3,
@@ -1271,11 +1272,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             if (locked) ...[
               const SizedBox(height: 4),
-              Icon(
-                Icons.lock_rounded,
-                color: AppColors.hintText.withValues(alpha: 0.3),
-                size: 12,
-              ),
+              Icon(Icons.lock_rounded, color: AppColors.goldText, size: 12),
             ],
           ],
         ),

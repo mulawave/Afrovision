@@ -315,7 +315,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           Text(
             'Unread notifications: $_unreadCount',
             style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.9),
+              color: AppColors.goldText,
               fontSize: 13,
             ),
           ),
@@ -584,7 +584,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                     Text(
                       item.body,
                       style: TextStyle(
-                        color: AppColors.hintText.withValues(alpha: 0.88),
+                        color: AppColors.goldText,
                         fontSize: 14,
                         height: 1.5,
                       ),

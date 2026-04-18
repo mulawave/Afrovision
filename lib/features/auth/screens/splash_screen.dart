@@ -60,13 +60,14 @@ class _SplashScreenState extends State<SplashScreen>
       // Register FCM token silently (permission may already be granted).
       await NotificationService.registerToken();
 
-      // On first launch (or after OS permission is reset), show the
-      // in-app rationale then trigger the Android 13+ system prompt.
-      final notDetermined =
-          await NotificationService.isPermissionNotDetermined();
-      if (notDetermined && mounted) {
+      // Request notification permission if not yet granted.
+      // We do NOT gate on notDetermined — on Android 12 and below the status
+      // is never notDetermined (permission is implicit), so gating on it would
+      // mean the dialog is never shown.  We simply skip if already authorized.
+      final alreadyGranted = await NotificationService.isPermissionGranted();
+      if (!alreadyGranted && mounted) {
         await NotificationService.requestPermission(context);
-        if (mounted) await NotificationService.registerToken();
+        // registerToken() is called inside requestPermission on grant
       }
 
       if (!mounted) return;

@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const { getFirestore } = require('./utils/firestore');
 const authRoutes = require('./auth/auth.routes');
 const userRoutes = require('./users/user.routes');
 const UserModel = require('./users/user.model');
@@ -19,6 +20,7 @@ const walletRoutes = require('./wallet/wallet.routes');
 const broadcastRoutes = require('./broadcast/broadcast.routes');
 const interactionsRoutes = require('./interactions/interactions.routes');
 const withdrawalRoutes = require('./wallet/withdrawal.routes');
+const paymentRoutes = require('./payments/payment.routes');
 const notificationRoutes = require('./notifications/notification.routes');
 const NotificationModel = require('./notifications/notification.model');
 const creatorSubscriptionRoutes = require('./subscriptions/creator_subscription.routes');
@@ -53,23 +55,34 @@ const CategoryModel = require('./channels/category.model');
 const PlanModel = require('./subscriptions/plan.model');
 const AdModel = require('./ads/ad.model');
 const AdImpressionModel = require('./ads/ad_impression.model');
+const PaymentModel = require('./payments/payment.model');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
+// Trust the first proxy (Cloud Run, nginx, etc.) so req.ip reflects the real client IP
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false }));
+
+if (!process.env.ALLOWED_ORIGINS) {
+  console.error('[FATAL] ALLOWED_ORIGINS environment variable is required. Set it to a comma-separated list of allowed origins.');
+  process.exit(1);
+}
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',')
-    : '*', // staging: allow all; production: set ALLOWED_ORIGINS
+  origin: process.env.ALLOWED_ORIGINS.split(','),
 }));
 app.use(express.json({ limit: '1mb' }));
 
 // Legacy /uploads route — redirects to GCS for migrated files, serves local as fallback
-const GCS_BUCKET = process.env.GCS_BUCKET || 'afrovision-media';
+const GCS_BUCKET = process.env.GCS_BUCKET;
+if (!GCS_BUCKET) {
+  console.error('[FATAL] GCS_BUCKET environment variable is required.');
+  process.exit(1);
+}
 app.use('/uploads', (req, res, next) => {
   const filename = req.path.replace(/^\//, '');
   if (!filename) return next();
@@ -91,6 +104,7 @@ app.use('/wallet', walletRoutes);
 app.use('/broadcast', broadcastRoutes);
 app.use('/interactions', interactionsRoutes);
 app.use('/withdrawals', withdrawalRoutes);
+app.use('/payments', paymentRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/subscriptions', creatorSubscriptionRoutes);
 app.use('/referrals', referralRoutes);
@@ -99,6 +113,26 @@ app.use('/copyright', copyrightRoutes);
 app.use('/challenge', challengeRoutes);
 app.use('/kyc', kycRoutes);
 app.use('/ads', adRoutes);
+
+// Promo modal — public endpoint (no auth required)
+const promoModalCtrl = require('./promo/promo-modal.controller');
+app.get('/promo-modal', promoModalCtrl.getPromoModal);
+
+// One-time admin recalculation endpoint — protected by ADMIN_PASSWORD env var
+app.post('/ops/recalculate-payouts', async (req, res) => {
+  const { secret } = req.body;
+  const adminPw = process.env.ADMIN_PASSWORD;
+  if (!adminPw || secret !== adminPw) {
+    return res.status(403).json({ error: 'Invalid secret' });
+  }
+  const referralCtrl = require('./referrals/referral.controller');
+  // Set admin userId and bypass role check by setting req._opsAuth
+  const adminUser = UserModel.findByEmail('richardobroh@gmail.com');
+  if (!adminUser) return res.status(500).json({ error: 'Admin user not found' });
+  req.userId = adminUser.id;
+  req._opsAuth = true; // Signal to bypass role check
+  return referralCtrl.adminRecalculatePayouts(req, res);
+});
 
 app.get('/', (req, res) => {
   res.json({ status: 'AfroVision API running' });
@@ -113,7 +147,13 @@ app.use((req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error('[Unhandled Error]', err.message || err);
-  res.status(500).json({ error: 'Internal server error' });
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File too large. Maximum size is 10 MB per file.' });
+  }
+  if (err.name === 'MulterError') {
+    return res.status(400).json({ error: err.message });
+  }
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
 async function ensureAdminSeed() {
@@ -146,10 +186,33 @@ async function ensureAdminSeed() {
   await UserModel.setRole(admin.id, 'admin');
   console.log('[Seed] ✓ Default admin created');
   console.log(`[Seed]   Email   : ${adminEmail}`);
-  if (isGeneratedPassword) {
-    console.log('[Seed]   Password: (auto-generated — check Cloud Run env or set ADMIN_PASSWORD)');
-  } else {
-    console.log('[Seed]   Password: (from ADMIN_PASSWORD env var)');
+  console.log('[Seed]   Password: (set via ADMIN_PASSWORD env var or auto-generated)');
+}
+
+async function validateRuntimeConfiguration() {
+  const missing = [];
+
+  // Admin panel is the source of truth for SMTP settings.
+  const [smtpHost, smtpUser, smtpPassword, smtpFromEmail, elevenLabsSetting] = await Promise.all([
+    SettingsService.get('SMTP_HOST'),
+    SettingsService.get('SMTP_USERNAME'),
+    SettingsService.get('SMTP_PASSWORD'),
+    SettingsService.get('SMTP_FROM_EMAIL'),
+    SettingsService.get('ELEVENLABS_API_KEY'),
+  ]);
+
+  if (!smtpHost) missing.push('SMTP_HOST (admin setting)');
+  if (!smtpUser) missing.push('SMTP_USERNAME (admin setting)');
+  if (!smtpPassword) missing.push('SMTP_PASSWORD (admin setting)');
+  if (!smtpFromEmail) missing.push('SMTP_FROM_EMAIL (admin setting)');
+
+  // TTS can come from admin settings first, then env var as fallback.
+  if (!elevenLabsSetting && !process.env.ELEVENLABS_API_KEY) {
+    console.warn('[Config] ELEVENLABS_API_KEY not set — TTS features will be unavailable');
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required runtime configuration: ${missing.join(', ')}`);
   }
 }
 
@@ -169,6 +232,7 @@ async function startServer() {
     GiftWalletModel.init(),
     StreamStatsModel.init(),
     WithdrawalModel.init(),
+    PaymentModel.init(),
     NotificationModel.init(),
     ChannelAccessModel.init(),
     CreatorSubscriptionModel.init(),
@@ -196,8 +260,49 @@ async function startServer() {
   // Seed default admin user (skipped if one already exists)
   await ensureAdminSeed();
 
+  // ── One-time Migration: gift_wallets → users ───────────────
+  try {
+    const migDb = getFirestore();
+    const migFlag = migDb.doc('ops_migrations/gift_wallets_to_users_v1');
+    const migSnap = await migFlag.get();
+    if (!migSnap.exists) {
+      const gwSnap = await migDb.collection('gift_wallets').get();
+      let merged = 0;
+      let batch = migDb.batch();
+      let batchCount = 0;
+      for (const doc of gwSnap.docs) {
+        const data = doc.data();
+        const uid = doc.id;
+        const vpt = data.vpt_units || 0;
+        const cash = data.ngn_balance || 0;
+        if (vpt === 0 && cash === 0) continue;
+        const userRef = migDb.collection('users').doc(uid);
+        const userSnap = await userRef.get();
+        if (!userSnap.exists) continue;
+        const u = userSnap.data();
+        const newVpt = parseFloat(((u.vpt || 0) + vpt).toFixed(4));
+        const newCash = parseFloat(((u.cash || 0) + cash).toFixed(2));
+        batch.update(userRef, { vpt: newVpt, cash: newCash });
+        // Also sync in-memory cache
+        const inMem = UserModel.findById(uid);
+        if (inMem) { inMem.vpt = newVpt; inMem.cash = newCash; }
+        merged++;
+        batchCount++;
+        if (batchCount >= 450) { await batch.commit(); batch = migDb.batch(); batchCount = 0; }
+      }
+      if (batchCount > 0) await batch.commit();
+      await migFlag.set({ completed_at: Date.now(), merged });
+      console.log(`[Migration] gift_wallets → users: merged ${merged} wallets`);
+    }
+  } catch (migErr) {
+    console.error('[Migration] gift_wallets → users failed (non-fatal):', migErr.message);
+  }
+
   // Auto-generate secrets for staging (no-op in production)
   await SettingsService.ensureStagingSecrets();
+
+  // Fail fast on missing critical configuration (admin-first)
+  await validateRuntimeConfiguration();
 
   // Blockchain readiness diagnostic
   try {

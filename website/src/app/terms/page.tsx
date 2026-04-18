@@ -12,7 +12,7 @@ export default function TermsPage() {
         <div className="mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Legal</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Terms of Service</h1>
-          <p className="mt-2 text-xs text-av-hint">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
+          <p className="mt-2 text-xs text-av-light-orange">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
         </div>
 
         <article className="prose-av space-y-8">
@@ -41,7 +41,7 @@ export default function TermsPage() {
               <li>Provide accurate, current, and complete registration information.</li>
               <li>Maintain the security and confidentiality of your login credentials.</li>
               <li>Accept responsibility for all activities that occur under your account.</li>
-              <li>Notify us immediately at <a href="mailto:security@afrovision.tv" className="text-av-orange hover:underline">security@afrovision.tv</a> if you suspect unauthorised access.</li>
+              <li>Notify us immediately at <a href="mailto:security@afrovision.online" className="text-av-orange hover:underline">security@afrovision.online</a> if you suspect unauthorised access.</li>
               <li>Not share, transfer, or sell your account to any other person.</li>
             </ul>
             <p className="mt-2">We reserve the right to suspend or disable accounts that we reasonably believe have been compromised or are being used in violation of these Terms.</p>
@@ -114,7 +114,7 @@ export default function TermsPage() {
 
           <Section title="11. Suspension and Termination">
             <p><strong className="text-av-white">11.1 By AfroVision.</strong> We may suspend, restrict, or permanently terminate your account if you violate these Terms, engage in conduct harmful to the Platform or its community, or as required by law. Where possible, we will provide notice and an opportunity to cure the violation before termination.</p>
-            <p className="mt-2"><strong className="text-av-white">11.2 By You.</strong> You may close your account at any time by contacting <a href="mailto:support@afrovision.tv" className="text-av-orange hover:underline">support@afrovision.tv</a>. Account closure does not automatically entitle you to a refund of any paid subscription fees.</p>
+            <p className="mt-2"><strong className="text-av-white">11.2 By You.</strong> You may close your account at any time by contacting <a href="mailto:support@afrovision.online" className="text-av-orange hover:underline">support@afrovision.online</a>. Account closure does not automatically entitle you to a refund of any paid subscription fees.</p>
             <p className="mt-2"><strong className="text-av-white">11.3 Effect of Termination.</strong> Upon termination, your license to use the Platform ceases immediately. We may retain data as required by law or for legitimate business purposes, subject to our Privacy Policy.</p>
           </Section>
 
@@ -154,9 +154,9 @@ export default function TermsPage() {
           <Section title="20. Contact Us">
             <p>If you have questions, concerns, or feedback about these Terms, please contact us:</p>
             <ul className="list-none space-y-1 mt-2">
-              <li><strong className="text-av-white">General Legal:</strong>{" "}<a href="mailto:legal@afrovision.tv" className="text-av-orange hover:underline">legal@afrovision.tv</a></li>
-              <li><strong className="text-av-white">Support:</strong>{" "}<a href="mailto:support@afrovision.tv" className="text-av-orange hover:underline">support@afrovision.tv</a></li>
-              <li><strong className="text-av-white">Privacy Enquiries:</strong>{" "}<a href="mailto:privacy@afrovision.tv" className="text-av-orange hover:underline">privacy@afrovision.tv</a></li>
+              <li><strong className="text-av-white">General Legal:</strong>{" "}<a href="mailto:legal@afrovision.online" className="text-av-orange hover:underline">legal@afrovision.online</a></li>
+              <li><strong className="text-av-white">Support:</strong>{" "}<a href="mailto:support@afrovision.online" className="text-av-orange hover:underline">support@afrovision.online</a></li>
+              <li><strong className="text-av-white">Privacy Enquiries:</strong>{" "}<a href="mailto:privacy@afrovision.online" className="text-av-orange hover:underline">privacy@afrovision.online</a></li>
             </ul>
           </Section>
         </article>
@@ -169,7 +169,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
       <h2 className="text-base font-semibold text-av-white mb-3">{title}</h2>
-      <div className="text-sm text-av-hint leading-relaxed">{children}</div>
+      <div className="text-sm text-av-light-orange leading-relaxed">{children}</div>
     </section>
   );
 }

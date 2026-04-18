@@ -12,7 +12,7 @@ export default function CookiesPage() {
         <div className="mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Legal</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Cookie Policy</h1>
-          <p className="mt-2 text-xs text-av-hint">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
+          <p className="mt-2 text-xs text-av-light-orange">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
         </div>
 
         <article className="space-y-8">
@@ -110,8 +110,8 @@ export default function CookiesPage() {
           <Section title="9. Contact Us">
             <p>If you have questions about our use of cookies or this Cookie Policy, please contact us at:</p>
             <ul className="list-none space-y-1 mt-2">
-              <li><strong className="text-av-white">Privacy Officer:</strong>{" "}<a href="mailto:privacy@afrovision.tv" className="text-av-orange hover:underline">privacy@afrovision.tv</a></li>
-              <li><strong className="text-av-white">General Support:</strong>{" "}<a href="mailto:support@afrovision.tv" className="text-av-orange hover:underline">support@afrovision.tv</a></li>
+              <li><strong className="text-av-white">Privacy Officer:</strong>{" "}<a href="mailto:privacy@afrovision.online" className="text-av-orange hover:underline">privacy@afrovision.online</a></li>
+              <li><strong className="text-av-white">General Support:</strong>{" "}<a href="mailto:support@afrovision.online" className="text-av-orange hover:underline">support@afrovision.online</a></li>
             </ul>
           </Section>
         </article>
@@ -124,7 +124,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
       <h2 className="text-base font-semibold text-av-white mb-3">{title}</h2>
-      <div className="text-sm text-av-hint leading-relaxed">{children}</div>
+      <div className="text-sm text-av-light-orange leading-relaxed">{children}</div>
     </section>
   );
 }

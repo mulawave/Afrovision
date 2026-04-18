@@ -6,6 +6,7 @@ const WalletService = require('../wallet/wallet.service');
 const WalletModel = require('../wallet/wallet.model');
 const User = require('../users/user.model');
 const Vpt = require('./vpt.model');
+const NotificationService = require('../notifications/notification.service');
 
 /**
  * Distribution Engine — the core economic pipeline.
@@ -227,6 +228,20 @@ async function distribute(batch) {
 
       distributed++;
       results.push({ id: item.id, uid: item.creator_uid, vptAmount, vptAmountWei: vptAmountWeiString, status: 'completed', txHash: tx.txHash });
+
+      // Notify creator about vPT distribution
+      NotificationService.notifyUser(item.creator_uid, {
+        title: '🚀 vPT Distributed!',
+        body: `${vptAmount} vPT (₦${item.ngn_value}) has been sent to your wallet`,
+        type: 'vpt_distributed',
+        link: '/wallet',
+        data: {
+          batch_id: batch.id,
+          amount_vpt: String(vptAmount),
+          amount_ngn: String(item.ngn_value),
+          tx_hash: tx.txHash,
+        },
+      }).catch((err) => console.error('[Distribution] notification error:', err.message));
 
     } catch (err) {
       // Isolate failure — don't block other distributions

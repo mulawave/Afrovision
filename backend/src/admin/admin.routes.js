@@ -5,6 +5,8 @@ const premiumCtrl = require('../channels/premium_stream.controller');
 const creatorSubCtrl = require('../subscriptions/creator_subscription.controller');
 const creatorAnalyticsCtrl = require('../analytics/creator_analytics.controller');
 const designCtrl = require('../design/homepage-design.controller');
+const referralCtrl = require('../referrals/referral.controller');
+const promoModalCtrl = require('../promo/promo-modal.controller');
 const { upload, uploadSingleToGCS } = require('../utils/upload');
 
 const router = Router();
@@ -37,6 +39,7 @@ router.delete('/categories/:id', authenticateToken, ctrl.deleteCategory);
 // Settings management
 router.get('/settings', authenticateToken, ctrl.getSettings);
 router.patch('/settings/bulk', authenticateToken, ctrl.bulkUpdateSettings);
+router.post('/settings/smtp/test', authenticateToken, ctrl.testSmtpSettings);
 router.get('/settings/:key', authenticateToken, ctrl.getSetting);
 router.patch('/settings/:key', authenticateToken, ctrl.updateSetting);
 router.post('/settings/:key/reset', authenticateToken, ctrl.resetSetting);
@@ -96,5 +99,15 @@ router.get('/marquee', authenticateToken, ctrl.getMarqueeTopics);
 router.post('/marquee', authenticateToken, ctrl.createMarqueeTopic);
 router.patch('/marquee/:id', authenticateToken, ctrl.updateMarqueeTopic);
 router.delete('/marquee/:id', authenticateToken, ctrl.deleteMarqueeTopic);
+
+// Referral management
+router.get('/referrals', authenticateToken, referralCtrl.adminListReferrals);
+router.post('/referrals/assign-upline', authenticateToken, referralCtrl.adminAssignUpline);
+router.post('/referrals/recalculate', authenticateToken, referralCtrl.adminRecalculatePayouts);
+
+// Promo modal management
+router.get('/promo-modal', authenticateToken, promoModalCtrl.adminGetPromoModal);
+router.patch('/promo-modal', authenticateToken, promoModalCtrl.adminUpdatePromoModal);
+router.post('/promo-modal/image', authenticateToken, upload.single('file'), uploadSingleToGCS, promoModalCtrl.adminUploadPromoImage);
 
 module.exports = router;

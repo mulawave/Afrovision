@@ -46,6 +46,7 @@ async function submit(data) {
 
     // Personal info
     full_name: data.full_name,
+    gender: data.gender || null,
     date_of_birth: data.date_of_birth || null,
     nationality: data.nationality || 'NG',
     phone: data.phone || null,
@@ -84,7 +85,7 @@ async function update(id, fields) {
   const rec = records.find((r) => r.id === id);
   if (!rec) return null;
   const allowed = [
-    'status', 'full_name', 'date_of_birth', 'nationality', 'phone', 'address',
+    'status', 'full_name', 'gender', 'date_of_birth', 'nationality', 'phone', 'address',
     'id_type', 'id_number', 'id_front_url', 'id_back_url', 'id_expiry_date',
     'selfie_url', 'biometric_hash',
     'reviewer_id', 'review_notes', 'reviewed_at', 'rejection_reason',
@@ -93,6 +94,18 @@ async function update(id, fields) {
   for (const key of allowed) {
     if (fields[key] !== undefined) rec[key] = fields[key];
   }
+  rec.updated_at = new Date().toISOString();
+  await persist(rec);
+  return rec;
+}
+
+/**
+ * Update only the gender field on an existing KYC record.
+ */
+async function updateGender(userId, gender) {
+  const rec = findByUserId(userId);
+  if (!rec) return null;
+  rec.gender = gender;
   rec.updated_at = new Date().toISOString();
   await persist(rec);
   return rec;
@@ -150,6 +163,7 @@ module.exports = {
   init,
   submit,
   update,
+  updateGender,
   findByUserId,
   findById,
   list,

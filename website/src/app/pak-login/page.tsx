@@ -75,7 +75,7 @@ function PakLoginContent() {
             </span>
           </Link>
           <h1 className="text-2xl font-bold text-av-white mt-6">Login with PAK</h1>
-          <p className="text-sm text-av-hint mt-1">Enter your Personal Access Key to sign in</p>
+          <p className="text-sm text-av-light-orange mt-1">Enter your Personal Access Key to sign in</p>
         </div>
 
         {/* Card */}
@@ -90,7 +90,7 @@ function PakLoginContent() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* PAK */}
             <div>
-              <label htmlFor="pak" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+              <label htmlFor="pak" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                 PAK (Personal Access Key)
               </label>
               <div className="relative">
@@ -103,12 +103,12 @@ function PakLoginContent() {
                   autoComplete="off"
                   required
                   disabled={isSubmitting}
-                  className="w-full h-11 px-4 pr-11 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                  className="w-full h-11 px-4 pr-11 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPak(!showPak)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-av-hint hover:text-av-white transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-av-light-orange hover:text-av-white transition-colors"
                   aria-label={showPak ? "Hide PAK" : "Show PAK"}
                 >
                   {showPak ? (
@@ -144,12 +144,12 @@ function PakLoginContent() {
           {/* Divider */}
           <div className="flex items-center gap-3 my-6">
             <div className="flex-1 h-px bg-av-input-border/30" />
-            <span className="text-[10px] text-av-hint uppercase tracking-widest">or</span>
+            <span className="text-[10px] text-av-light-orange uppercase tracking-widest">or</span>
             <div className="flex-1 h-px bg-av-input-border/30" />
           </div>
 
           {/* Email login link */}
-          <p className="text-center text-sm text-av-hint">
+          <p className="text-center text-sm text-av-light-orange">
             Use email instead?{" "}
             <Link
               href={`/login${redirect !== "/" ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
@@ -162,10 +162,22 @@ function PakLoginContent() {
 
         {/* Back to home */}
         <p className="text-center mt-6">
-          <Link href="/" className="text-xs text-av-hint hover:text-av-white transition-colors">
-            ← Back to AfroVision
+          <Link href="/" className="text-xs text-av-light-orange hover:text-av-white transition-colors">
+            ? Back to AfroVision
           </Link>
         </p>
+
+        {/* Content Ratings */}
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="PEGI 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#C62828"/><text x="16" y="10" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="6" fill="#FFF">PEGI</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="16" fill="#FFF">18</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="IARC 18+"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#C62828"/><text x="16" y="10" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="5" fill="#FFF">IARC</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="14" fill="#FFF">18+</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="ESRB Mature"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#1A1A1A"/><text x="16" y="14" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="7" fill="#FFF">RATED</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="12" fill="#FFF">M</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="USK 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><circle cx="16" cy="16" r="14" fill="#E65100" stroke="#C62828" strokeWidth="2"/><text x="16" y="14" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="5" fill="#FFF">USK</text><text x="16" y="24" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="12" fill="#FFF">18</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="GRAC 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><circle cx="16" cy="16" r="14" fill="none" stroke="#1A1A1A" strokeWidth="2"/><text x="16" y="22" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="16" fill="#1A1A1A">18</text></svg></span>
+          </div>
+          <p className="text-[9px] text-av-light-orange/50">Rated by IARC</p>
+        </div>
       </div>
     </main>
   );

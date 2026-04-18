@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_logo.dart';
+import '../../../core/widgets/content_ratings_bar.dart';
 
 class PakLoginScreen extends StatefulWidget {
   const PakLoginScreen({super.key});
@@ -110,10 +111,7 @@ class _PakLoginScreenState extends State<PakLoginScreen>
                     const SizedBox(height: 6),
                     Text(
                       'Enter your Personal Access Key',
-                      style: TextStyle(
-                        color: AppColors.hintText.withValues(alpha: 0.8),
-                        fontSize: 13,
-                      ),
+                      style: TextStyle(color: AppColors.goldText, fontSize: 13),
                     ),
                     const SizedBox(height: 36),
 
@@ -187,7 +185,7 @@ class _PakLoginScreenState extends State<PakLoginScreen>
                           child: Text(
                             'OR',
                             style: TextStyle(
-                              color: AppColors.hintText.withValues(alpha: 0.7),
+                              color: AppColors.goldText,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               letterSpacing: 1.5,
@@ -229,6 +227,8 @@ class _PakLoginScreenState extends State<PakLoginScreen>
                         ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+                    const ContentRatingsBar(),
                     const SizedBox(height: 24),
                   ],
                 ),

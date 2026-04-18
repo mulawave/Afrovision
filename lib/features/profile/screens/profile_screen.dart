@@ -469,6 +469,42 @@ class _ProfileScreenState extends State<ProfileScreen>
                   const SizedBox(height: 12),
                 ],
 
+                // Delete Account button
+                GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, '/delete-account'),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    decoration: BoxDecoration(
+                      color: AppColors.errorRed.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AppColors.errorRed.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.delete_forever_rounded,
+                          color: AppColors.errorRed,
+                          size: 20,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Delete Account',
+                          style: TextStyle(
+                            color: AppColors.errorRed,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
                 // Logout button
                 GestureDetector(
                   onTap: _logout,
@@ -688,7 +724,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(e.toString()),
+                        content: Text(
+                          e.toString(),
+                          style: const TextStyle(color: AppColors.white),
+                        ),
                         backgroundColor: AppColors.errorRed.withValues(
                           alpha: 0.9,
                         ),

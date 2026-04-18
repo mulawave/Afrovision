@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { NavLink } from "@/components/NavLink";
@@ -86,15 +86,15 @@ function ShowCard({
           <h3 className="text-sm font-semibold text-av-white truncate group-hover:text-av-orange transition-colors">
             {show.video_title}
           </h3>
-          <p className="text-xs text-av-hint truncate">{show.channel_name}</p>
+          <p className="text-xs text-av-light-orange truncate">{show.channel_name}</p>
         </div>
       </div>
 
       <div className="flex items-center gap-2 mb-3">
-        <span className="px-2 py-0.5 rounded-full bg-av-light-blue/30 border border-av-input-border/30 text-[10px] font-medium text-av-white/70">
+        <span className="px-2 py-0.5 rounded-full bg-av-light-blue/30 border border-av-input-border/30 text-[10px] font-medium text-av-light-orange">
           {show.channel_category || "General"}
         </span>
-        <span className="text-[10px] text-av-hint" suppressHydrationWarning>
+        <span className="text-[10px] text-av-light-orange" suppressHydrationWarning>
           {time.toLocaleDateString("en-US", {
             weekday: "short",
             month: "short",
@@ -110,7 +110,7 @@ function ShowCard({
 
       {/* Countdown */}
       <div className="px-3 py-2 rounded-lg bg-av-dark-blue/80 border border-av-input-border/20 mb-4">
-        <p className="text-[10px] uppercase tracking-wider text-av-hint mb-0.5">
+        <p className="text-[10px] uppercase tracking-wider text-av-light-orange mb-0.5">
           Starts in
         </p>
         <p className="text-sm font-bold font-mono text-av-light-orange tabular-nums" suppressHydrationWarning>
@@ -125,7 +125,7 @@ function ShowCard({
         className={`mt-auto w-full py-2.5 rounded-xl text-xs font-semibold transition-all ${
           reminded
             ? "bg-av-orange/15 text-av-orange border border-av-orange/30"
-            : "bg-av-input-fill border border-av-input-border/40 text-av-white/70 hover:text-av-white hover:border-av-orange/40"
+            : "bg-av-input-fill border border-av-input-border/40 text-av-light-orange hover:text-av-white hover:border-av-orange/40"
         } ${loading ? "opacity-50 cursor-wait" : ""}`}
       >
         {loading ? "..." : reminded ? "✓ Reminder Set" : "🔔 Set Reminder"}
@@ -226,7 +226,7 @@ export function UpcomingShows({ section }: { section?: HomepageUpcomingSection }
             <h2 className="text-2xl lg:text-3xl font-bold text-av-white tracking-tight">
               {section?.title || "📅 Upcoming Shows"}
             </h2>
-            <p className="text-sm text-av-hint mt-1">
+            <p className="text-sm text-av-light-orange mt-1">
               {section?.subtitle || "Don\u0027t miss these live events \u2014 set a reminder"}
             </p>
           </div>
@@ -254,7 +254,7 @@ export function UpcomingShows({ section }: { section?: HomepageUpcomingSection }
         {isEmpty && (
           <div className="text-center py-16 rounded-2xl bg-av-card/50 border border-av-input-border/20">
             <p className="text-4xl mb-3">🗓️</p>
-            <p className="text-av-hint text-sm">
+            <p className="text-av-light-orange text-sm">
               No upcoming shows scheduled. Check back later!
             </p>
           </div>

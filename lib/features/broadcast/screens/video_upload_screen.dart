@@ -403,7 +403,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
               child: Icon(
                 Icons.arrow_back_ios_new,
                 color: _uploading
-                    ? AppColors.hintText.withValues(alpha: 0.4)
+                    ? AppColors.goldText
                     : AppColors.white,
                 size: 18,
               ),
@@ -544,7 +544,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                     Text(
                       'Select multiple videos at once\nMP4, MOV, AVI, MKV, WEBM',
                       style: TextStyle(
-                        color: AppColors.hintText.withValues(alpha: 0.7),
+                        color: AppColors.goldText,
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
@@ -712,9 +712,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                               ),
                               Icon(
                                 Icons.edit,
-                                color: AppColors.hintText.withValues(
-                                  alpha: 0.5,
-                                ),
+                                color: AppColors.goldText,
                                 size: 14,
                               ),
                             ],
@@ -749,9 +747,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                             Text(
                               'Detecting duration...',
                               style: TextStyle(
-                                color: AppColors.hintText.withValues(
-                                  alpha: 0.6,
-                                ),
+                                color: AppColors.goldText,
                                 fontSize: 11,
                               ),
                             ),
@@ -774,16 +770,14 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                           ] else ...[
                             Icon(
                               Icons.timer_outlined,
-                              color: AppColors.hintText.withValues(alpha: 0.5),
+                              color: AppColors.goldText,
                               size: 12,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               _formatDuration(entry.durationSec ?? 0),
                               style: TextStyle(
-                                color: AppColors.hintText.withValues(
-                                  alpha: 0.7,
-                                ),
+                                color: AppColors.goldText,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -794,9 +788,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                             child: Text(
                               entry.fileName,
                               style: TextStyle(
-                                color: AppColors.hintText.withValues(
-                                  alpha: 0.4,
-                                ),
+                                color: AppColors.goldText,
                                 fontSize: 10,
                               ),
                               maxLines: 1,
@@ -813,7 +805,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                     onPressed: () => _removeVideo(index),
                     icon: Icon(
                       Icons.close_rounded,
-                      color: AppColors.hintText.withValues(alpha: 0.5),
+                      color: AppColors.goldText,
                       size: 18,
                     ),
                     splashRadius: 18,
@@ -830,7 +822,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                       padding: const EdgeInsets.all(8),
                       child: Icon(
                         Icons.drag_handle,
-                        color: AppColors.hintText.withValues(alpha: 0.4),
+                        color: AppColors.goldText,
                         size: 20,
                       ),
                     ),
@@ -848,7 +840,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                 decoration: InputDecoration(
                   hintText: 'Brief description (required)',
                   hintStyle: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.5),
+                    color: AppColors.goldText,
                     fontSize: 12,
                   ),
                   isDense: true,
@@ -890,7 +882,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
               child: Text(
                 entry.description,
                 style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.6),
+                  color: AppColors.goldText,
                   fontSize: 11,
                 ),
                 maxLines: 2,
@@ -978,7 +970,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
     }
     return Icon(
       Icons.videocam_outlined,
-      color: AppColors.hintText.withValues(alpha: 0.5),
+      color: AppColors.goldText,
       size: 22,
     );
   }
@@ -1041,7 +1033,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                         Text(
                           'Play back-to-back like a TV channel',
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.6),
+                            color: AppColors.goldText,
                             fontSize: 11,
                           ),
                         ),
@@ -1101,7 +1093,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                     const Spacer(),
                     Icon(
                       Icons.edit_calendar,
-                      color: AppColors.hintText.withValues(alpha: 0.5),
+                      color: AppColors.goldText,
                       size: 16,
                     ),
                   ],
@@ -1181,7 +1173,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
             Text(
               '$_uploadedCount of ${_videos.length} videos uploaded',
               style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.8),
+                color: AppColors.goldText,
                 fontSize: 14,
               ),
             ),
@@ -1199,7 +1191,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
               Text(
                 'Starting ${_formatDateTime(_scheduleStart)}',
                 style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.6),
+                  color: AppColors.goldText,
                   fontSize: 12,
                 ),
               ),
@@ -1277,7 +1269,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
             fillColor: AppColors.inputFill,
             hintText: 'Video title',
             hintStyle: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.5),
+              color: AppColors.goldText,
             ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
@@ -1304,7 +1296,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
             child: Text(
               'Cancel',
               style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.7),
+                color: AppColors.goldText,
               ),
             ),
           ),

@@ -185,7 +185,7 @@ class _CriteriaItem extends StatelessWidget {
               : Icon(
                   Icons.radio_button_unchecked,
                   key: const ValueKey('uncheck'),
-                  color: AppColors.hintText.withValues(alpha: 0.5),
+                  color: AppColors.goldText,
                   size: 18,
                 ),
         ),

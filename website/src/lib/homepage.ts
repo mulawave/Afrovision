@@ -169,6 +169,21 @@ export interface HomepageContent {
   branding?: HomepageBranding;
 }
 
+export interface AppLinkConfig {
+  android: {
+    enabled: boolean;
+    package_name: string;
+    sha256_cert_fingerprints: string[];
+    play_store_url: string;
+  };
+  ios: {
+    enabled: boolean;
+    team_id: string;
+    bundle_id: string;
+  };
+  paths: string[];
+}
+
 export async function getHomepageContent(): Promise<HomepageContent | null> {
   try {
     const controller = new AbortController();
@@ -205,6 +220,41 @@ export async function getBranding(): Promise<HomepageBranding> {
     // fall through
   }
   return { logo_url: null, favicon_url: null };
+}
+
+export async function getAppLinkConfig(): Promise<AppLinkConfig> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
+    const response = await fetch(`${API_BASE}/home/app-links`, {
+      next: { revalidate: 60 },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch app-link config: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch {
+    return {
+      android: {
+        enabled: false,
+        package_name: 'com.afrovision.afrovision',
+        sha256_cert_fingerprints: [],
+        play_store_url: '',
+      },
+      ios: {
+        enabled: false,
+        team_id: '',
+        bundle_id: 'com.afrovision.afrovision',
+      },
+      paths: ['/reset-password*'],
+    };
+  }
 }
 
 function resolveAssetUrl(path: string): string {

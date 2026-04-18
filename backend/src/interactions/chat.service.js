@@ -96,12 +96,15 @@ function ensureChatAccess(uid, channelId) {
   };
 }
 
-function buildMessagePayload(record, requesterUid) {
+function buildMessagePayload(record, requesterUid, channel) {
+  const isPrivate = channel?.type === 'private';
   return {
     id: record.id,
     channel_id: record.channel_id,
-    sender_name: record.sender_name,
-    badge: record.badge || null,
+    sender_name: isPrivate
+      ? record.sender_alias || getSenderDisplayName(record.sender_uid, channel)
+      : record.sender_name,
+    badge: isPrivate ? null : record.badge || null,
     text: record.text,
     created_at: record.created_at,
     is_own: requesterUid ? requesterUid === record.sender_uid : false,
@@ -121,7 +124,7 @@ async function listMessages({ uid, channelId, limit = DEFAULT_LIMIT }) {
   const messages = snapshot.docs
     .map((doc) => doc.data())
     .reverse()
-    .map((record) => buildMessagePayload(record, uid));
+    .map((record) => buildMessagePayload(record, uid, access.channel));
 
   return {
     ok: true,
@@ -167,6 +170,10 @@ async function createMessage({ uid, channelId, text }) {
     channel_id: channelId,
     sender_uid: uid,
     sender_name: getSenderDisplayName(uid, access.channel),
+    sender_alias:
+      access.channel.type === 'private'
+        ? getSenderDisplayName(uid, access.channel)
+        : null,
     badge: getSenderBadge(uid, access.channel),
     text: sanitizedText,
     created_at: Date.now(),
@@ -177,7 +184,7 @@ async function createMessage({ uid, channelId, text }) {
   return {
     ok: true,
     channel: access.channel,
-    message: buildMessagePayload(record, uid),
+    message: buildMessagePayload(record, uid, access.channel),
   };
 }
 

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
@@ -108,12 +108,12 @@ export default function ChallengePage() {
             </span>
           </h1>
 
-          <p className="text-lg lg:text-xl text-av-white/80 leading-relaxed max-w-3xl mx-auto mb-4">
+          <p className="text-lg lg:text-xl text-av-light-orange leading-relaxed max-w-3xl mx-auto mb-4">
             A high-stakes entrepreneurial reality competition where Nigeria&apos;s most promising
             individuals are transformed into <strong className="text-av-orange">business leaders</strong> under
             intense pressure, real funding conditions, and national visibility.
           </p>
-          <p className="text-sm text-av-hint max-w-2xl mx-auto mb-10">
+          <p className="text-sm text-av-light-orange max-w-2xl mx-auto mb-10">
             This is not theory. This is not classroom learning. This is real-world business creation under fire.
           </p>
 
@@ -127,7 +127,7 @@ export default function ChallengePage() {
             ].map((s) => (
               <div key={s.label} className="text-center">
                 <p className="text-3xl lg:text-4xl font-extrabold text-av-orange">{s.value}</p>
-                <p className="text-[10px] uppercase tracking-[0.15em] text-av-hint font-semibold mt-1">{s.label}</p>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-av-light-orange font-semibold mt-1">{s.label}</p>
               </div>
             ))}
           </div>
@@ -155,7 +155,7 @@ export default function ChallengePage() {
             <h2 className="text-3xl lg:text-4xl font-extrabold text-av-white mb-4">
               &ldquo;Amazons&rdquo;
             </h2>
-            <p className="text-sm text-av-white/70 max-w-2xl mx-auto mb-8">
+            <p className="text-sm text-av-light-orange max-w-2xl mx-auto mb-8">
               This isn&apos;t just a name — it&apos;s branding gold. Core themes of female strength, economic independence,
               leadership under pressure, and collaboration. Earth tones + gold accents. Strong African cultural aesthetics. Minimal glam, maximum authority.
             </p>
@@ -163,7 +163,7 @@ export default function ChallengePage() {
               {THEMES.map((t) => (
                 <div
                   key={t.label}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-av-dark-blue/60 border border-av-input-border/40 text-xs font-semibold text-av-white/80"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-av-dark-blue/60 border border-av-input-border/40 text-xs font-semibold text-av-light-orange"
                 >
                   <span>{t.icon}</span>
                   <span>{t.label}</span>
@@ -176,7 +176,7 @@ export default function ChallengePage() {
         {/* ── Challenge Lifecycle ──────────────────────────── */}
         <section className="mb-20">
           <h2 className="text-2xl lg:text-3xl font-bold text-av-white mb-2 text-center">Challenge Lifecycle</h2>
-          <p className="text-sm text-av-hint text-center mb-8">Each challenge progresses through four distinct phases</p>
+          <p className="text-sm text-av-light-orange text-center mb-8">Each challenge progresses through four distinct phases</p>
           <div className="grid md:grid-cols-2 gap-5">
             {PHASES.map((p, i) => (
               <div
@@ -202,7 +202,7 @@ export default function ChallengePage() {
                     </div>
                     <h3 className="text-base font-bold text-av-white mb-0.5">{p.phase}</h3>
                     <p className="text-xs text-av-light-orange font-medium mb-2">{p.subtitle}</p>
-                    <p className="text-xs text-av-hint leading-relaxed">{p.desc}</p>
+                    <p className="text-xs text-av-light-orange leading-relaxed">{p.desc}</p>
                   </div>
                 </div>
               </div>
@@ -213,7 +213,7 @@ export default function ChallengePage() {
         {/* ── What Makes It Addictive ─────────────────────── */}
         <section className="mb-20">
           <h2 className="text-2xl lg:text-3xl font-bold text-av-white mb-2 text-center">What Makes It Unstoppable</h2>
-          <p className="text-sm text-av-hint text-center mb-8">No other African show is doing this</p>
+          <p className="text-sm text-av-light-orange text-center mb-8">No other African show is doing this</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {WHAT_MAKES_IT.map((item) => (
               <div
@@ -222,7 +222,7 @@ export default function ChallengePage() {
               >
                 <span className="text-3xl block mb-3">{item.icon}</span>
                 <h3 className="text-sm font-bold text-av-white mb-2">{item.title}</h3>
-                <p className="text-xs text-av-hint leading-relaxed">{item.desc}</p>
+                <p className="text-xs text-av-light-orange leading-relaxed">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -231,7 +231,7 @@ export default function ChallengePage() {
         {/* ── Show Structure ──────────────────────────────── */}
         <section className="mb-20">
           <h2 className="text-2xl lg:text-3xl font-bold text-av-white mb-2 text-center">Show Structure</h2>
-          <p className="text-sm text-av-hint text-center mb-8">How the season unfolds across 12+ episodes</p>
+          <p className="text-sm text-av-light-orange text-center mb-8">How the season unfolds across 12+ episodes</p>
           <div className="space-y-4">
             {SHOW_PHASES.map((sp, i) => (
               <div
@@ -246,7 +246,7 @@ export default function ChallengePage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-av-white mb-1">{sp.title}</h3>
-                  <p className="text-xs text-av-hint leading-relaxed">{sp.desc}</p>
+                  <p className="text-xs text-av-light-orange leading-relaxed">{sp.desc}</p>
                 </div>
               </div>
             ))}
@@ -256,7 +256,7 @@ export default function ChallengePage() {
         {/* ── Prizes ─────────────────────────────────────── */}
         <section className="mb-20">
           <h2 className="text-2xl lg:text-3xl font-bold text-av-white mb-2 text-center">Prizes &amp; Rewards</h2>
-          <p className="text-sm text-av-hint text-center mb-8">On this show, even losing is winning</p>
+          <p className="text-sm text-av-light-orange text-center mb-8">On this show, even losing is winning</p>
           <div className="space-y-4">
             {PRIZES_DATA.map((p) => (
               <div
@@ -270,7 +270,7 @@ export default function ChallengePage() {
                       <h3 className="text-sm font-bold text-av-white">{p.place}</h3>
                       <span className="text-lg font-extrabold text-av-orange">{p.amount}</span>
                     </div>
-                    <p className="text-xs text-av-hint">{p.desc}</p>
+                    <p className="text-xs text-av-light-orange">{p.desc}</p>
                   </div>
                 </div>
               </div>
@@ -281,7 +281,7 @@ export default function ChallengePage() {
         {/* ── How To Join ────────────────────────────────── */}
         <section className="mb-20">
           <h2 className="text-2xl lg:text-3xl font-bold text-av-white mb-2 text-center">How To Join</h2>
-          <p className="text-sm text-av-hint text-center mb-8">Four simple steps to enter the competition</p>
+          <p className="text-sm text-av-light-orange text-center mb-8">Four simple steps to enter the competition</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {[
               { step: "1", title: "Register", desc: "Create your AfroVision account and verify your email address." },
@@ -297,7 +297,7 @@ export default function ChallengePage() {
                   {s.step}
                 </div>
                 <h3 className="text-sm font-bold text-av-white mb-2">{s.title}</h3>
-                <p className="text-xs text-av-hint">{s.desc}</p>
+                <p className="text-xs text-av-light-orange">{s.desc}</p>
               </div>
             ))}
           </div>
@@ -309,7 +309,7 @@ export default function ChallengePage() {
             <div className="text-center mb-8">
               <p className="text-xs uppercase tracking-[0.2em] text-av-light-orange font-bold mb-2">Platform Integration</p>
               <h2 className="text-2xl font-bold text-av-white mb-3">More Than A Show</h2>
-              <p className="text-sm text-av-hint max-w-2xl mx-auto">
+              <p className="text-sm text-av-light-orange max-w-2xl mx-auto">
                 AfroVision Challenge quietly integrates the entire platform ecosystem — turning AfroVision into
                 <strong className="text-av-white"> Netflix + Shark Tank + LinkedIn + Startup Incubator</strong>, all in one.
               </p>
@@ -324,7 +324,7 @@ export default function ChallengePage() {
                 <div key={f.title} className="rounded-xl bg-av-dark-blue/50 border border-av-input-border/20 p-5 text-center">
                   <span className="text-2xl block mb-2">{f.icon}</span>
                   <h3 className="text-xs font-bold text-av-white mb-1">{f.title}</h3>
-                  <p className="text-[11px] text-av-hint">{f.desc}</p>
+                  <p className="text-[11px] text-av-light-orange">{f.desc}</p>
                 </div>
               ))}
             </div>
@@ -334,7 +334,7 @@ export default function ChallengePage() {
         {/* ── FAQ ────────────────────────────────────────── */}
         <section className="mb-20">
           <h2 className="text-2xl lg:text-3xl font-bold text-av-white mb-2 text-center">Frequently Asked Questions</h2>
-          <p className="text-sm text-av-hint text-center mb-8">Everything you need to know</p>
+          <p className="text-sm text-av-light-orange text-center mb-8">Everything you need to know</p>
           <div className="space-y-4 max-w-3xl mx-auto">
             {FAQS.map((f) => (
               <div
@@ -342,7 +342,7 @@ export default function ChallengePage() {
                 className="rounded-2xl bg-av-card border border-av-input-border/30 p-5"
               >
                 <h3 className="text-sm font-semibold text-av-white mb-2">{f.q}</h3>
-                <p className="text-xs text-av-hint leading-relaxed">{f.a}</p>
+                <p className="text-xs text-av-light-orange leading-relaxed">{f.a}</p>
               </div>
             ))}
           </div>
@@ -354,7 +354,7 @@ export default function ChallengePage() {
             <h2 className="text-3xl lg:text-4xl font-extrabold text-av-white mb-4">
               Ready to Build Your Empire?
             </h2>
-            <p className="text-sm text-av-white/70 max-w-xl mx-auto mb-8">
+            <p className="text-sm text-av-light-orange max-w-xl mx-auto mb-8">
               The stage is set. Real funding. Real pressure. Real results.
               Create your account and submit your pitch when registration opens.
             </p>

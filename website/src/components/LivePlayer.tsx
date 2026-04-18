@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getServerTimeApi } from "@/lib/api";
@@ -206,17 +206,17 @@ export function LivePlayer({
             </div>
           )}
 
-          <p className="text-sm font-semibold text-white/70 mb-1.5 tracking-wide uppercase">
+          <p className="text-sm font-semibold text-av-light-orange mb-1.5 tracking-wide uppercase">
             {channelName}
           </p>
-          <p className="text-sm text-white/40 max-w-xs text-center leading-relaxed">
+          <p className="text-sm text-av-light-orange max-w-xs text-center leading-relaxed">
             This channel is currently not transmitting any show now, check back later.
           </p>
 
           {/* Pulsing dot */}
           <div className="mt-6 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-white/20 animate-pulse" />
-            <span className="text-[11px] text-white/25 uppercase tracking-widest font-medium">standby</span>
+            <span className="text-[11px] text-av-light-orange uppercase tracking-widest font-medium">standby</span>
           </div>
 
           {/* Color bars at bottom */}
@@ -242,11 +242,11 @@ export function LivePlayer({
                 LIVE
               </span>
             )}
-            <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[11px] font-medium text-av-white/80">
+            <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[11px] font-medium text-av-light-orange">
               👁 {formatViewers(viewers)} watching
             </span>
             {elapsed > 0 && (
-              <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[11px] font-mono text-av-white/60">
+              <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[11px] font-mono text-av-light-orange">
                 ⏱ {formatDuration(elapsed)}
               </span>
             )}
@@ -286,12 +286,12 @@ export function LivePlayer({
                 )}
               </button>
 
-              <span className="text-xs text-av-white/50 font-medium">{title}</span>
+              <span className="text-xs text-av-light-orange font-medium">{title}</span>
             </div>
 
             <div className="flex items-center gap-2">
               {/* Quality indicator */}
-              <span className="px-2 py-0.5 rounded bg-white/10 text-[10px] font-bold text-av-white/60">
+              <span className="px-2 py-0.5 rounded bg-white/10 text-[10px] font-bold text-av-light-orange">
                 HD
               </span>
 

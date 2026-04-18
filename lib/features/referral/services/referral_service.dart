@@ -34,6 +34,7 @@ class ReferralEarning {
   final double amountVptUnits;
   final String? sourceEmail;
   final String? sourceName;
+  final String status; // pending_ledger or credited
   final int createdAt;
 
   const ReferralEarning({
@@ -43,8 +44,12 @@ class ReferralEarning {
     required this.amountVptUnits,
     this.sourceEmail,
     this.sourceName,
+    required this.status,
     required this.createdAt,
   });
+
+  bool get isPending => status == 'pending_ledger';
+  bool get isCredited => status == 'credited';
 
   factory ReferralEarning.fromJson(Map<String, dynamic> json) {
     return ReferralEarning(
@@ -54,7 +59,34 @@ class ReferralEarning {
       amountVptUnits: (json['amount_vpt_units'] as num?)?.toDouble() ?? 0,
       sourceEmail: json['source_email'] as String?,
       sourceName: json['source_name'] as String?,
+      status: json['status'] as String? ?? 'pending_ledger',
       createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class ReferralLedgerSummary {
+  final double pendingNgn;
+  final double pendingVptUnits;
+  final double creditedNgn;
+  final double creditedVptUnits;
+
+  const ReferralLedgerSummary({
+    required this.pendingNgn,
+    required this.pendingVptUnits,
+    required this.creditedNgn,
+    required this.creditedVptUnits,
+  });
+
+  double get totalNgn => pendingNgn + creditedNgn;
+  double get totalVptUnits => pendingVptUnits + creditedVptUnits;
+
+  factory ReferralLedgerSummary.fromJson(Map<String, dynamic> json) {
+    return ReferralLedgerSummary(
+      pendingNgn: (json['pending_ngn'] as num?)?.toDouble() ?? 0,
+      pendingVptUnits: (json['pending_vpt_units'] as num?)?.toDouble() ?? 0,
+      creditedNgn: (json['credited_ngn'] as num?)?.toDouble() ?? 0,
+      creditedVptUnits: (json['credited_vpt_units'] as num?)?.toDouble() ?? 0,
     );
   }
 }
@@ -75,11 +107,18 @@ class ReferralPerson {
   });
 
   factory ReferralPerson.fromJson(Map<String, dynamic> json) {
+    int? joinedAt;
+    final rawJoined = json['joined_at'];
+    if (rawJoined is num) {
+      joinedAt = rawJoined.toInt();
+    } else if (rawJoined is String) {
+      joinedAt = DateTime.tryParse(rawJoined)?.millisecondsSinceEpoch;
+    }
     return ReferralPerson(
       uid: json['uid'] as String? ?? '',
       name: json['name'] as String?,
       email: json['email'] as String?,
-      joinedAt: (json['joined_at'] as num?)?.toInt(),
+      joinedAt: joinedAt,
       level: (json['level'] as num?)?.toInt(),
     );
   }
@@ -104,6 +143,7 @@ class ReferralDashboard {
   final int invitedCount;
   final double totalEarningsNgn;
   final double totalEarningsVptUnits;
+  final ReferralLedgerSummary ledgerSummary;
   final List<ReferralEarning> earnings;
   final List<ReferralPerson> upline;
   final List<ReferralPerson> directReferrals;
@@ -114,6 +154,7 @@ class ReferralDashboard {
     required this.invitedCount,
     required this.totalEarningsNgn,
     required this.totalEarningsVptUnits,
+    required this.ledgerSummary,
     required this.earnings,
     required this.upline,
     required this.directReferrals,
@@ -127,6 +168,9 @@ class ReferralDashboard {
       totalEarningsNgn: (json['total_earnings_ngn'] as num?)?.toDouble() ?? 0,
       totalEarningsVptUnits:
           (json['total_earnings_vpt_units'] as num?)?.toDouble() ?? 0,
+      ledgerSummary: ReferralLedgerSummary.fromJson(
+        json['ledger_summary'] as Map<String, dynamic>? ?? {},
+      ),
       earnings:
           (json['earnings'] as List<dynamic>?)
               ?.map((e) => ReferralEarning.fromJson(e as Map<String, dynamic>))

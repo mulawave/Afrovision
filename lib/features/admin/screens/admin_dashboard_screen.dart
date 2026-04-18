@@ -283,7 +283,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               Expanded(
                 child: _heroCard(
                   icon: Icons.account_balance_wallet_rounded,
-                  label: 'VPT Distributed',
+                  label: 'vPT Distributed',
                   value: _formatNum(
                     (financial['total_vpt_distributed'] ?? 0).toDouble(),
                   ),
@@ -361,7 +361,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           Text(
             label,
             style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.8),
+              color: AppColors.goldText,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -371,7 +371,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             Text(
               sub,
               style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.5),
+                color: AppColors.goldText,
                 fontSize: 10,
                 fontWeight: FontWeight.w500,
               ),
@@ -478,7 +478,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           const SizedBox(height: 10),
           _statRow('Gift Wallets', '${financial['gift_wallets'] ?? 0}'),
           _statRow(
-            'Gift VPT Pool',
+            'Gift vPT Pool',
             _formatNum((financial['total_gift_vpt'] ?? 0).toDouble()),
           ),
           _statRow(
@@ -557,7 +557,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       Text(
                         u['email'] as String? ?? '',
                         style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.7),
+                          color: AppColors.goldText,
                           fontSize: 11,
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -655,7 +655,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       Text(
                         '#${ch['channel_number'] ?? '—'} · ${ch['type'] ?? 'public'}',
                         style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.7),
+                          color: AppColors.goldText,
                           fontSize: 11,
                         ),
                       ),
@@ -884,7 +884,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           decoration: InputDecoration(
             hintText: 'flag_key',
             hintStyle: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.5),
+              color: AppColors.goldText,
             ),
             enabledBorder: UnderlineInputBorder(
               borderSide: BorderSide(
@@ -983,14 +983,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         Text(
                           'Target: ${log['target_id']}',
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.6),
+                            color: AppColors.goldText,
                             fontSize: 10,
                           ),
                         ),
                       Text(
                         '${date.day}/${date.month}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
                         style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.4),
+                          color: AppColors.goldText,
                           fontSize: 10,
                         ),
                       ),
@@ -1010,7 +1010,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return Text(
       text,
       style: TextStyle(
-        color: AppColors.hintText.withValues(alpha: 0.6),
+        color: AppColors.goldText,
         fontSize: 11,
         fontWeight: FontWeight.w700,
         letterSpacing: 1.2,
@@ -1027,7 +1027,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           Text(
             label,
             style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.7),
+              color: AppColors.goldText,
               fontSize: 13,
             ),
           ),

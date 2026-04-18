@@ -23,6 +23,7 @@ class _KycScreenState extends State<KycScreen>
   final _addressCtrl = TextEditingController();
 
   String _idType = 'national_id';
+  String? _gender;
   bool _loading = true;
   bool _submitting = false;
   String? _error;
@@ -73,7 +74,14 @@ class _KycScreenState extends State<KycScreen>
     try {
       final data = await ApiService.get('/kyc/me');
       if (data['id'] != null) {
-        if (mounted) setState(() => _existing = data);
+        if (mounted) {
+          setState(() {
+            _existing = data;
+            // Pre-fill gender if available
+            final g = data['gender'] as String?;
+            if (g != null && g.isNotEmpty) _gender = g;
+          });
+        }
       }
     } catch (_) {
       // No existing KYC — show the form
@@ -82,6 +90,13 @@ class _KycScreenState extends State<KycScreen>
       setState(() => _loading = false);
       _animCtrl.forward();
     }
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _loading = true);
+    _animCtrl.reset();
+    _existing = null;
+    await _loadKycStatus();
   }
 
   Future<void> _uploadFile(String fieldName) async {
@@ -128,6 +143,10 @@ class _KycScreenState extends State<KycScreen>
       setState(() => _error = 'Full name is required');
       return;
     }
+    if (_gender == null) {
+      setState(() => _error = 'Please select your gender');
+      return;
+    }
     if (idNum.isEmpty) {
       setState(() => _error = 'ID number is required');
       return;
@@ -153,6 +172,7 @@ class _KycScreenState extends State<KycScreen>
         'id_number': idNum,
         'id_front_url': _idFrontUrl,
         'selfie_url': _selfieUrl,
+        'gender': _gender,
       };
       if (_phoneCtrl.text.trim().isNotEmpty) {
         body['phone'] = _phoneCtrl.text.trim();
@@ -165,9 +185,16 @@ class _KycScreenState extends State<KycScreen>
       await ApiService.post('/kyc/submit', body);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('KYC submitted successfully!'),
-          backgroundColor: Color(0xFF4CAF50),
+        SnackBar(
+          content: const Text(
+            'KYC submitted successfully!',
+            style: TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       Navigator.pop(context);
@@ -253,13 +280,25 @@ class _KycScreenState extends State<KycScreen>
   }
 
   Widget _buildContent() {
-    // Already submitted and pending/verified
     final status = _existing?['status'] as String?;
     if (status != null &&
         ['pending', 'under_review', 'verified'].contains(status)) {
-      return _buildStatusView(status);
+      return RefreshIndicator(
+        onRefresh: _refresh,
+        color: AppColors.orange,
+        backgroundColor: AppColors.inputFill,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: _buildStatusView(status),
+        ),
+      );
     }
-    return _buildForm();
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: AppColors.orange,
+      backgroundColor: AppColors.inputFill,
+      child: _buildForm(),
+    );
   }
 
   Widget _buildStatusView(String status) {
@@ -312,7 +351,7 @@ class _KycScreenState extends State<KycScreen>
                   : 'Your documents are under review.\nThis usually takes 1-2 business days.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.7),
+                color: AppColors.goldText,
                 fontSize: 13,
                 height: 1.5,
               ),
@@ -379,6 +418,7 @@ class _KycScreenState extends State<KycScreen>
           ],
           _sectionCard('Personal Information', [
             _field('Full Legal Name *', _nameCtrl, 'As on your ID'),
+            _genderSelector(),
             _field('Phone Number', _phoneCtrl, '+234...'),
             _field('Address', _addressCtrl, 'Residential address'),
           ]),
@@ -475,7 +515,7 @@ class _KycScreenState extends State<KycScreen>
           Text(
             label,
             style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.7),
+              color: AppColors.goldText,
               fontSize: 10,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.3,
@@ -487,10 +527,7 @@ class _KycScreenState extends State<KycScreen>
             style: const TextStyle(color: AppColors.white, fontSize: 14),
             decoration: InputDecoration(
               hintText: placeholder,
-              hintStyle: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.4),
-                fontSize: 13,
-              ),
+              hintStyle: TextStyle(color: AppColors.goldText, fontSize: 13),
               filled: true,
               fillColor: AppColors.inputFill.withValues(alpha: 0.5),
               contentPadding: const EdgeInsets.symmetric(
@@ -527,7 +564,7 @@ class _KycScreenState extends State<KycScreen>
           Text(
             'ID Type *',
             style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.7),
+              color: AppColors.goldText,
               fontSize: 10,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.3,
@@ -561,6 +598,66 @@ class _KycScreenState extends State<KycScreen>
                 onChanged: (val) {
                   if (val != null) setState(() => _idType = val);
                 },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _genderSelector() {
+    const genderOptions = [
+      {'value': 'male', 'label': 'Male'},
+      {'value': 'female', 'label': 'Female'},
+      {'value': 'non_binary', 'label': 'Non-binary'},
+      {'value': 'prefer_not_to_say', 'label': 'Prefer not to say'},
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Gender *',
+            style: TextStyle(
+              color: AppColors.goldText,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.inputFill.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _gender,
+                hint: Text(
+                  'Select gender',
+                  style: TextStyle(color: AppColors.goldText, fontSize: 13),
+                ),
+                isExpanded: true,
+                dropdownColor: AppColors.darkBlue,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
+                style: const TextStyle(color: AppColors.white, fontSize: 14),
+                items: genderOptions
+                    .map(
+                      (g) => DropdownMenuItem(
+                        value: g['value'],
+                        child: Text(g['label']!),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (val) => setState(() => _gender = val),
               ),
             ),
           ),
@@ -615,10 +712,7 @@ class _KycScreenState extends State<KycScreen>
                     const SizedBox(width: 10),
                     Text(
                       'Uploading...',
-                      style: TextStyle(
-                        color: AppColors.hintText.withValues(alpha: 0.6),
-                        fontSize: 11,
-                      ),
+                      style: TextStyle(color: AppColors.goldText, fontSize: 11),
                     ),
                   ],
                 )
@@ -657,7 +751,7 @@ class _KycScreenState extends State<KycScreen>
                       Text(
                         hint,
                         style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.5),
+                          color: AppColors.goldText,
                           fontSize: 10,
                         ),
                       ),
@@ -665,10 +759,7 @@ class _KycScreenState extends State<KycScreen>
                     const SizedBox(height: 2),
                     Text(
                       'Tap to select',
-                      style: TextStyle(
-                        color: AppColors.hintText.withValues(alpha: 0.4),
-                        fontSize: 10,
-                      ),
+                      style: TextStyle(color: AppColors.goldText, fontSize: 10),
                     ),
                   ],
                 ),

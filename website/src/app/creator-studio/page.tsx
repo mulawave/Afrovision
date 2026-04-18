@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -596,7 +596,7 @@ export default function CreatorStudioPage() {
     return (
       <main className="flex min-h-screen items-center justify-center px-6 pt-24">
         <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-          <p className="text-sm text-av-hint">
+          <p className="text-sm text-av-light-orange">
             Sign in to access Creator Studio.
           </p>
           <Link
@@ -620,7 +620,7 @@ export default function CreatorStudioPage() {
           <h1 className="mt-3 text-3xl font-bold text-av-white">
             Creator access required
           </h1>
-          <p className="mt-4 text-sm text-av-hint">
+          <p className="mt-4 text-sm text-av-light-orange">
             Creator Studio is available to creator and admin accounts. Upgrade
             first, then come back here to publish channels and schedule
             broadcasts.
@@ -628,7 +628,7 @@ export default function CreatorStudioPage() {
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Link
               href="/profile"
-              className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-white/80 hover:border-av-orange/40 hover:text-av-white"
+              className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
             >
               Open profile
             </Link>
@@ -659,7 +659,7 @@ export default function CreatorStudioPage() {
               <h1 className="mt-2 text-3xl font-bold text-av-white">
                 Broadcast Operations
               </h1>
-              <p className="mt-2 max-w-2xl text-sm text-av-hint">
+              <p className="mt-2 max-w-2xl text-sm text-av-light-orange">
                 Manage channels, upload playback videos, and assemble the next
                 scheduled stream block from one workspace.
               </p>
@@ -673,7 +673,7 @@ export default function CreatorStudioPage() {
               </Link>
               <Link
                 href="/channels"
-                className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-white/80 hover:border-av-orange/40 hover:text-av-white"
+                className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
               >
                 Discovery
               </Link>
@@ -695,7 +695,7 @@ export default function CreatorStudioPage() {
               <h2 className="text-2xl font-semibold text-av-white">
                 No channels yet
               </h2>
-              <p className="mt-3 text-sm text-av-hint">
+              <p className="mt-3 text-sm text-av-light-orange">
                 Start by creating your first channel, then return here to upload
                 content and schedule programs.
               </p>
@@ -755,7 +755,7 @@ export default function CreatorStudioPage() {
                               <p className="text-base font-semibold text-av-white">
                                 {channel.name}
                               </p>
-                              <p className="mt-1 text-xs text-av-hint">
+                              <p className="mt-1 text-xs text-av-light-orange">
                                 #{channel.channel_number} · {channel.type} ·{" "}
                                 {channel.category}
                               </p>
@@ -763,7 +763,7 @@ export default function CreatorStudioPage() {
                             <div className="flex gap-2">
                               <Link
                                 href={`/channel/${channel.id}`}
-                                className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white/80"
+                                className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange"
                               >
                                 Channel
                               </Link>
@@ -772,6 +772,12 @@ export default function CreatorStudioPage() {
                                 className="rounded-full border border-av-orange/30 bg-av-orange/10 px-3 py-1.5 text-xs font-semibold text-av-orange"
                               >
                                 Live page
+                              </Link>
+                              <Link
+                                href={`/channel-analytics?channel_id=${channel.id}`}
+                                className="rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-xs font-semibold text-green-400"
+                              >
+                                Analytics
                               </Link>
                             </div>
                           </div>
@@ -787,7 +793,7 @@ export default function CreatorStudioPage() {
                         Upload videos
                       </h2>
                       {uploadEntries.length > 0 && (
-                        <span className="text-xs text-av-hint">
+                        <span className="text-xs text-av-light-orange">
                           {uploadEntries.length} file
                           {uploadEntries.length > 1 ? "s" : ""} ·{" "}
                           {formatDuration(totalUploadDuration)}
@@ -811,7 +817,7 @@ export default function CreatorStudioPage() {
                       className="w-full rounded-2xl border-2 border-dashed border-av-input-border/40 bg-av-input-fill/20 py-8 text-center transition-all hover:border-av-orange/40 hover:bg-av-input-fill/30 disabled:opacity-50"
                     >
                       <svg
-                        className="mx-auto mb-2 h-8 w-8 text-av-hint"
+                        className="mx-auto mb-2 h-8 w-8 text-av-light-orange"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -826,7 +832,7 @@ export default function CreatorStudioPage() {
                       <p className="text-sm font-semibold text-av-white">
                         Select video files
                       </p>
-                      <p className="mt-1 text-xs text-av-hint">
+                      <p className="mt-1 text-xs text-av-light-orange">
                         Choose multiple files at once · Duration auto-detected
                       </p>
                     </button>
@@ -852,7 +858,7 @@ export default function CreatorStudioPage() {
                           >
                             <div className="flex items-start gap-3">
                               {/* Drag handle */}
-                              <div className="flex-shrink-0 pt-1 text-av-hint/40">
+                              <div className="flex-shrink-0 pt-1 text-av-light-orange">
                                 <svg
                                   width="12"
                                   height="12"
@@ -883,7 +889,7 @@ export default function CreatorStudioPage() {
                                     })
                                   }
                                   disabled={entry.progress > -1}
-                                  className="w-full bg-transparent text-sm font-semibold text-av-white placeholder:text-av-hint/60 focus:outline-none disabled:opacity-80"
+                                  className="w-full bg-transparent text-sm font-semibold text-av-white placeholder:text-av-light-orange focus:outline-none disabled:opacity-80"
                                   placeholder="Video title"
                                 />
                                 <textarea
@@ -895,11 +901,11 @@ export default function CreatorStudioPage() {
                                   }
                                   disabled={entry.progress > -1}
                                   rows={2}
-                                  className="mt-1.5 w-full resize-none rounded-lg border border-av-input-border/20 bg-av-input-fill/30 px-2.5 py-1.5 text-xs text-av-white placeholder:text-av-hint/60 focus:border-av-orange/40 focus:outline-none disabled:opacity-80"
+                                  className="mt-1.5 w-full resize-none rounded-lg border border-av-input-border/20 bg-av-input-fill/30 px-2.5 py-1.5 text-xs text-av-white placeholder:text-av-light-orange focus:border-av-orange/40 focus:outline-none disabled:opacity-80"
                                   placeholder="Brief description (required)"
                                 />
                                 <div className="mt-1 flex items-center gap-3">
-                                  <span className="text-xs text-av-hint">
+                                  <span className="text-xs text-av-light-orange">
                                     {entry.detecting ? (
                                       <span className="animate-pulse">
                                         Detecting duration...
@@ -908,7 +914,7 @@ export default function CreatorStudioPage() {
                                       formatDuration(entry.duration)
                                     )}
                                   </span>
-                                  <span className="text-xs text-av-hint/50">
+                                  <span className="text-xs text-av-light-orange">
                                     {(
                                       entry.file.size /
                                       (1024 * 1024)
@@ -939,7 +945,7 @@ export default function CreatorStudioPage() {
                                           }}
                                         />
                                       </div>
-                                      <p className="mt-1 text-[10px] text-av-hint">
+                                      <p className="mt-1 text-[10px] text-av-light-orange">
                                         {entry.progress < 100
                                           ? `Uploading ${entry.progress}%`
                                           : "Registering..."}
@@ -1011,7 +1017,7 @@ export default function CreatorStudioPage() {
                             <h3 className="mb-1 text-sm font-semibold text-av-white">
                               Auto-schedule uploads
                             </h3>
-                            <p className="mb-4 text-xs text-av-hint">
+                            <p className="mb-4 text-xs text-av-light-orange">
                               Schedule all {completedUploads.length} uploaded
                               video
                               {completedUploads.length > 1
@@ -1055,7 +1061,7 @@ export default function CreatorStudioPage() {
                                 setShowAutoSchedule(false);
                                 setUploadEntries([]);
                               }}
-                              className="mt-2 text-xs text-av-hint transition-colors hover:text-av-white"
+                              className="mt-2 text-xs text-av-light-orange transition-colors hover:text-av-white"
                             >
                               Skip — I&apos;ll schedule manually
                             </button>
@@ -1081,7 +1087,7 @@ export default function CreatorStudioPage() {
                           <h2 className="text-lg font-semibold text-av-white">
                             Broadcast Schedule
                           </h2>
-                          <p className="text-xs text-av-hint">
+                          <p className="text-xs text-av-light-orange">
                             {schedule.length} scheduled slot{schedule.length !== 1 ? "s" : ""}
                           </p>
                         </div>
@@ -1093,7 +1099,7 @@ export default function CreatorStudioPage() {
                       onSubmit={handleSchedule}
                       className="border-b border-av-input-border/10 px-6 py-4"
                     >
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-av-hint">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-av-light-orange">
                         Add to schedule
                       </p>
                       <div className="space-y-2">
@@ -1135,7 +1141,7 @@ export default function CreatorStudioPage() {
                     {/* Management Toolbar */}
                     {schedule.length > 0 && (
                       <div className="flex flex-wrap items-center gap-2 border-b border-av-input-border/10 px-6 py-3">
-                        <label className="flex cursor-pointer items-center gap-2 text-xs text-av-hint transition-colors hover:text-av-white">
+                        <label className="flex cursor-pointer items-center gap-2 text-xs text-av-light-orange transition-colors hover:text-av-white">
                           <input
                             type="checkbox"
                             checked={selectedProgramIds.size === schedule.length && schedule.length > 0}
@@ -1172,7 +1178,7 @@ export default function CreatorStudioPage() {
                     {/* Schedule list */}
                     <div className="flex-1 px-6 py-4">
                       {schedule.length === 0 ? (
-                        <p className="py-6 text-center text-sm text-av-hint">
+                        <p className="py-6 text-center text-sm text-av-light-orange">
                           No programs scheduled for this channel yet.
                         </p>
                       ) : (
@@ -1202,7 +1208,7 @@ export default function CreatorStudioPage() {
                                   <p className="truncate text-sm font-semibold text-av-white">
                                     {item.video_title}
                                   </p>
-                                  <p className="mt-0.5 text-[11px] text-av-hint">
+                                  <p className="mt-0.5 text-[11px] text-av-light-orange">
                                     {formatTimestamp(item.start_time)} →{" "}
                                     {formatTimestamp(item.end_time)}
                                   </p>
@@ -1238,7 +1244,7 @@ export default function CreatorStudioPage() {
                       <h2 className="text-lg font-semibold text-av-white">
                         Content Library
                       </h2>
-                      <p className="text-xs text-av-hint">
+                      <p className="text-xs text-av-light-orange">
                         {selectedChannelVideos.length} video{selectedChannelVideos.length !== 1 ? "s" : ""} for this channel
                       </p>
                     </div>
@@ -1247,7 +1253,7 @@ export default function CreatorStudioPage() {
                   {/* Auto-schedule library trigger */}
                   {selectedChannelVideos.length >= 2 && (
                     <div className="flex items-center gap-3">
-                      <p className="hidden text-xs text-av-hint sm:block">
+                      <p className="hidden text-xs text-av-light-orange sm:block">
                         {selectedChannelVideos.length} videos ·{" "}
                         {formatDuration(
                           selectedChannelVideos.reduce(
@@ -1280,7 +1286,7 @@ export default function CreatorStudioPage() {
                 {/* Management Toolbar */}
                 {selectedChannelVideos.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 border-b border-av-input-border/10 px-6 py-3">
-                    <label className="flex cursor-pointer items-center gap-2 text-xs text-av-hint transition-colors hover:text-av-white">
+                    <label className="flex cursor-pointer items-center gap-2 text-xs text-av-light-orange transition-colors hover:text-av-white">
                       <input
                         type="checkbox"
                         checked={selectedVideoIds.size === selectedChannelVideos.length && selectedChannelVideos.length > 0}
@@ -1317,7 +1323,7 @@ export default function CreatorStudioPage() {
                 {/* Video grid — full width */}
                 <div className="px-6 py-4">
                   {selectedChannelVideos.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-av-hint">
+                    <p className="py-6 text-center text-sm text-av-light-orange">
                       Upload a video to start building this channel&apos;s
                       broadcast library.
                     </p>
@@ -1343,7 +1349,7 @@ export default function CreatorStudioPage() {
                               <p className="truncate text-sm font-semibold text-av-white">
                                 {video.title}
                               </p>
-                              <p className="mt-0.5 text-xs text-av-hint">
+                              <p className="mt-0.5 text-xs text-av-light-orange">
                                 {formatDuration(video.duration)} · Added{" "}
                                 {formatTimestamp(video.created_at)}
                               </p>
@@ -1373,7 +1379,7 @@ export default function CreatorStudioPage() {
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-av-input-border/30 bg-av-card p-5">
-      <p className="text-[11px] uppercase tracking-wider text-av-hint">
+      <p className="text-[11px] uppercase tracking-wider text-av-light-orange">
         {label}
       </p>
       <p className="mt-2 text-2xl font-semibold text-av-white">{value}</p>

@@ -105,7 +105,7 @@ class _GiftSheetState extends State<GiftSheet> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: AppColors.hintText.withValues(alpha: 0.4),
+              color: AppColors.goldText,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -165,7 +165,7 @@ class _GiftSheetState extends State<GiftSheet> {
               child: Text(
                 'No gifts available',
                 style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.7),
+                  color: AppColors.goldText,
                   fontSize: 14,
                 ),
               ),
@@ -240,7 +240,7 @@ class _GiftSheetState extends State<GiftSheet> {
             Text(
               gift.priceLabel,
               style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.8),
+                color: AppColors.goldText,
                 fontSize: 10,
                 fontWeight: FontWeight.w500,
               ),

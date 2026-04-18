@@ -6,6 +6,7 @@ import { UpcomingShows } from "@/components/UpcomingShows";
 import { ChallengeSection } from "@/components/ChallengeSection";
 import { UpdatesSection } from "@/components/UpdatesSection";
 import { BannerAd } from "@/components/BannerAd";
+import { PromoModal } from "@/components/PromoModal";
 import { getHomepageContent, type HomepageSection } from "@/lib/homepage";
 
 function renderSection(section: HomepageSection) {
@@ -124,8 +125,11 @@ async function HomepageContent() {
 
 export default function Home() {
   return (
-    <Suspense fallback={<HomepageSkeleton />}>
-      <HomepageContent />
-    </Suspense>
+    <>
+      <PromoModal />
+      <Suspense fallback={<HomepageSkeleton />}>
+        <HomepageContent />
+      </Suspense>
+    </>
   );
 }

@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Notification icon for AfroVision — "ADtv"
+    Rectangular viewport (48×24) — wider than tall so the text reads naturally
+    with balanced letter spacing. Android scales the drawable into the status
+    bar slot; a wider canvas keeps the glyphs legible instead of squished.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="24dp"
+    android:viewportWidth="48"
+    android:viewportHeight="24">
+
+    <!-- A (capital, bold) — x 1..8, apex at x=4.5 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M1,22 L4.5,2 L8,22"/>
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M2.4,14 L6.6,14"/>
+
+    <!-- D (capital, bold) — stem x=11, bowl to x=20 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M11,2 L11,22 C16,22 20,18.5 20,12 C20,5.5 16,2 11,2"/>
+
+    <!-- t (lowercase, regular) — stem x=26, crossbar 23.5..28.5 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M26,2 L26,20.5 C26,22 27.2,22.5 28.5,22"/>
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M23.5,10 L28.5,10"/>
+
+    <!-- v (lowercase, regular) — x 32..40 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32,9 L36,22 L40,9"/>
+
+</vector>

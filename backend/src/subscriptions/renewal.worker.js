@@ -12,6 +12,8 @@ const CreatorSub = require('./creator_subscription.model');
 const GiftWallet = require('../interactions/gift-wallet.model');
 const Ledger = require('../vpt/ledger.model');
 const User = require('../users/user.model');
+const ReferralModel = require('../referrals/referral.model');
+const { distributeReferralEarnings } = require('../referrals/referral.controller');
 
 const RENEWAL_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -24,25 +26,59 @@ async function processRenewals() {
   for (const sub of due) {
     try {
       const wallet = await GiftWallet.ensureWallet(sub.subscriber_uid);
+      const amount = sub.amount || 0;
 
       if (sub.currency === 'vpt') {
-        if (wallet.vpt_units < sub.amount) {
+        if (wallet.vpt_units < amount) {
           await CreatorSub.markCancelledOnFailure(sub.id, 'insufficient_vpt');
           console.log(`[RenewalWorker] Cancelled ${sub.id} — insufficient vPT`);
           continue;
         }
-        const creatorShare = Math.floor(sub.amount * 0.7);
-        await GiftWallet.adjustVptUnits(sub.subscriber_uid, -sub.amount);
-        await GiftWallet.adjustVptUnits(sub.creator_uid, creatorShare);
+        await GiftWallet.adjustVptUnits(sub.subscriber_uid, -amount);
       } else {
-        if (wallet.ngn_balance < sub.amount) {
+        if (wallet.ngn_balance < amount) {
           await CreatorSub.markCancelledOnFailure(sub.id, 'insufficient_ngn');
           console.log(`[RenewalWorker] Cancelled ${sub.id} — insufficient NGN`);
           continue;
         }
-        const creatorShare = Math.floor(sub.amount * 0.7);
-        await GiftWallet.adjustNgnBalance(sub.subscriber_uid, -sub.amount);
-        await GiftWallet.adjustNgnBalance(sub.creator_uid, creatorShare);
+        await GiftWallet.adjustNgnBalance(sub.subscriber_uid, -amount);
+      }
+
+      // Correct payout split: 50% ops, 15% subscriber vPT, 15% referral, 20% community
+      const subscriberVptNgn = Math.floor(amount * 0.15);
+      const subscriberVptUnits = parseFloat(
+        (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),
+      );
+      const referralPool = Math.floor(amount * 0.15);
+
+      // Credit subscriber vPT reward
+      if (subscriberVptUnits > 0) {
+        await Ledger.create({
+          uid: sub.subscriber_uid,
+          type: 'SUBSCRIBER_VPT_REWARD',
+          direction: 'credit',
+          currency: 'vpt',
+          amount_vpt_units: subscriberVptUnits,
+          status: 'pending_distribution',
+          meta: {
+            creator_uid: sub.creator_uid,
+            subscription_id: sub.id,
+            renewal: true,
+            reward_value_ngn: subscriberVptNgn,
+            vpt_price: ReferralModel.VPT_PRICE_NGN,
+          },
+          description: `Subscriber vPT reward — ${subscriberVptUnits} vPT (₦${subscriberVptNgn}) — renewal`,
+        });
+      }
+
+      // Distribute referral rewards (async, non-blocking)
+      if (referralPool > 0) {
+        distributeReferralEarnings({
+          subscriberUid: sub.subscriber_uid,
+          referralPoolAmount: referralPool,
+          subscriptionId: sub.id,
+          creatorUid: sub.creator_uid,
+        }).catch((err) => console.error('[RenewalWorker] referral distribution error:', err.message));
       }
 
       await CreatorSub.markRenewed(sub.id);

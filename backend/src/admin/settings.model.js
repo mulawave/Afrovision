@@ -4,13 +4,84 @@
  */
 
 const SETTING_CATEGORIES = {
+  payments: 'Payment Gateways',
+  smtp: 'Email & SMTP',
   blockchain: 'Blockchain & Smart Contracts',
   rates: 'Conversion Rates',
+  economy: 'Economy & Exchange',
+  app_links: 'App Linking & Store',
+  ads: 'Ads & Monetization',
   system: 'System Configuration',
 };
 
 // Setting definitions with Firestore-backed defaults.
 const SETTING_DEFINITIONS = {
+  PAYSTACK_SECRET_KEY: {
+    category: 'payments',
+    description: 'Paystack secret key (sk_live_... or sk_test_...) — used server-side for bank list and account verification',
+    sensitive: true,
+    defaultValue: null,
+  },
+  PAYSTACK_PUBLIC_KEY: {
+    category: 'payments',
+    description: 'Paystack public key (pk_live_... or pk_test_...) — safe to expose to clients',
+    sensitive: false,
+    defaultValue: null,
+  },
+  FLUTTERWAVE_SECRET_KEY: {
+    category: 'payments',
+    description: 'Flutterwave secret key (FLWSECK_...) — used server-side for payment processing',
+    sensitive: true,
+    defaultValue: null,
+  },
+  FLUTTERWAVE_PUBLIC_KEY: {
+    category: 'payments',
+    description: 'Flutterwave public key (FLWPUBK_...) — safe to expose to clients',
+    sensitive: false,
+    defaultValue: null,
+  },
+  SMTP_HOST: {
+    category: 'smtp',
+    description: 'SMTP server hostname for outbound transactional email',
+    sensitive: false,
+    defaultValue: '',
+  },
+  SMTP_PORT: {
+    category: 'smtp',
+    description: 'SMTP server port (usually 587 for STARTTLS or 465 for SSL)',
+    sensitive: false,
+    defaultValue: '587',
+  },
+  SMTP_SECURE: {
+    category: 'smtp',
+    description: 'Use implicit TLS for SMTP (true for port 465, false for STARTTLS on 587)',
+    sensitive: false,
+    defaultValue: 'false',
+  },
+  SMTP_USERNAME: {
+    category: 'smtp',
+    description: 'SMTP account username',
+    sensitive: false,
+    defaultValue: '',
+  },
+  SMTP_PASSWORD: {
+    category: 'smtp',
+    description: 'SMTP account password or app password',
+    sensitive: true,
+    defaultValue: null,
+  },
+  SMTP_FROM_EMAIL: {
+    category: 'smtp',
+    description: 'Default sender email address for platform notifications',
+    sensitive: false,
+    defaultValue: '',
+  },
+  SMTP_FROM_NAME: {
+    category: 'smtp',
+    description: 'Default sender display name for platform notifications',
+    sensitive: false,
+    defaultValue: 'AfroVision',
+  },
   WALLET_SECRET: {
     category: 'blockchain',
     description: 'AES-256-CBC wallet encryption secret',
@@ -82,6 +153,66 @@ const SETTING_DEFINITIONS = {
     description: 'Reference price of 1 vPT in Naira for display and financial calculations',
     sensitive: false,
     defaultValue: '750',
+  },
+  RAVEN_NGN_RATE: {
+    category: 'economy',
+    description: 'How many Naira 1 Raven represents (display only — Ravens cannot convert to NGN)',
+    sensitive: false,
+    defaultValue: '10',
+  },
+  VPT_RAVEN_RATE: {
+    category: 'economy',
+    description: 'How many Ravens equal 1 off-chain vPT (bidirectional conversion)',
+    sensitive: false,
+    defaultValue: '75',
+  },
+  ANDROID_APP_LINKS_ENABLED: {
+    category: 'app_links',
+    description: 'Enable Android App Links statement generation (true/false)',
+    sensitive: false,
+    defaultValue: 'false',
+  },
+  ANDROID_APP_PACKAGE: {
+    category: 'app_links',
+    description: 'Android app package name (e.g. com.afrovision.afrovision)',
+    sensitive: false,
+    defaultValue: 'com.afrovision.afrovision',
+  },
+  ANDROID_APP_SHA256_FINGERPRINTS: {
+    category: 'app_links',
+    description: 'Comma-separated SHA-256 signing certificate fingerprints for Digital Asset Links',
+    sensitive: false,
+    defaultValue: '',
+  },
+  ANDROID_PLAY_STORE_URL: {
+    category: 'app_links',
+    description: 'Play Store listing URL to save after app is approved and published',
+    sensitive: false,
+    defaultValue: '',
+  },
+  IOS_UNIVERSAL_LINKS_ENABLED: {
+    category: 'app_links',
+    description: 'Enable iOS Universal Links association output (true/false)',
+    sensitive: false,
+    defaultValue: 'false',
+  },
+  IOS_TEAM_ID: {
+    category: 'app_links',
+    description: 'Apple Developer Team ID for Universal Links (leave blank until iOS app is planned)',
+    sensitive: false,
+    defaultValue: '',
+  },
+  IOS_BUNDLE_ID: {
+    category: 'app_links',
+    description: 'iOS bundle identifier for Universal Links',
+    sensitive: false,
+    defaultValue: 'com.afrovision.afrovision',
+  },
+  APP_LINK_PATHS: {
+    category: 'app_links',
+    description: 'Comma-separated deep-link paths allowed for app linking (e.g. /reset-password*)',
+    sensitive: false,
+    defaultValue: '/reset-password*',
   },
   BATCH_SIZE: {
     category: 'system',

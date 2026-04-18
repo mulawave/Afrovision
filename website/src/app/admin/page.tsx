@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -146,7 +146,7 @@ export default function AdminPage() {
     return (
       <main className="flex min-h-screen items-center justify-center px-6 pt-24">
         <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-          <p className="text-sm text-av-hint">Sign in with an admin account to access this dashboard.</p>
+          <p className="text-sm text-av-light-orange">Sign in with an admin account to access this dashboard.</p>
           <Link href="/login?redirect=/admin" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
             Sign in →
           </Link>
@@ -161,7 +161,7 @@ export default function AdminPage() {
         <div className="mx-auto max-w-3xl rounded-3xl border border-av-input-border/30 bg-av-card p-8 text-center">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Admin only</p>
           <h1 className="mt-3 text-3xl font-bold text-av-white">This area is restricted</h1>
-          <p className="mt-4 text-sm text-av-hint">Your account does not have administrator privileges.</p>
+          <p className="mt-4 text-sm text-av-light-orange">Your account does not have administrator privileges.</p>
         </div>
       </main>
     );
@@ -176,15 +176,15 @@ export default function AdminPage() {
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Administration</p>
             <h1 className="mt-2 text-3xl font-bold text-av-white">Control Room</h1>
-            <p className="mt-2 max-w-2xl text-sm text-av-hint">Review platform health, moderate channels, flip operational flags, and send inbox notifications from one admin surface.</p>
+            <p className="mt-2 max-w-2xl text-sm text-av-light-orange">Review platform health, moderate channels, flip operational flags, and send inbox notifications from one admin surface.</p>
           </div>
-          <Link href="/notifications" className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-white/80 hover:border-av-orange/40 hover:text-av-white">
+          <Link href="/notifications" className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white">
             Open notification inbox
           </Link>
         </div>
 
         {error ? <div className="mb-6 rounded-2xl border border-av-error/30 bg-av-error/5 p-4 text-sm text-av-error">{error}</div> : null}
-        {noticeSuccess ? <div className="mb-6 rounded-2xl border border-av-orange/30 bg-av-orange/10 p-4 text-sm text-av-white/80">{noticeSuccess}</div> : null}
+        {noticeSuccess ? <div className="mb-6 rounded-2xl border border-av-orange/30 bg-av-orange/10 p-4 text-sm text-av-light-orange">{noticeSuccess}</div> : null}
 
         {loading || !dashboard ? (
           <div className="flex items-center justify-center py-20">
@@ -206,10 +206,10 @@ export default function AdminPage() {
                 <form onSubmit={handleSendNotice} className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
                   <h2 className="text-lg font-semibold text-av-white">Send platform notification</h2>
                   <div className="mt-4 grid gap-4">
-                    <input value={noticeTarget} onChange={(event) => setNoticeTarget(event.target.value)} placeholder="Optional user ID for direct message" className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none" />
-                    <input value={noticeTitle} onChange={(event) => setNoticeTitle(event.target.value)} placeholder="Title" className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none" />
-                    <textarea value={noticeBody} onChange={(event) => setNoticeBody(event.target.value)} rows={4} placeholder="Message body" className="rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 py-3 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none" />
-                    <input value={noticeLink} onChange={(event) => setNoticeLink(event.target.value)} placeholder="Optional in-app path, for example /wallet" className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none" />
+                    <input value={noticeTarget} onChange={(event) => setNoticeTarget(event.target.value)} placeholder="Optional user ID for direct message" className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none" />
+                    <input value={noticeTitle} onChange={(event) => setNoticeTitle(event.target.value)} placeholder="Title" className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none" />
+                    <textarea value={noticeBody} onChange={(event) => setNoticeBody(event.target.value)} rows={4} placeholder="Message body" className="rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 py-3 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none" />
+                    <input value={noticeLink} onChange={(event) => setNoticeLink(event.target.value)} placeholder="Optional in-app path, for example /wallet" className="h-12 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none" />
                     <button type="submit" disabled={busy} className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-3 text-sm font-semibold text-av-dark-blue disabled:opacity-60">
                       {busy ? "Sending..." : noticeTarget.trim() ? "Send to user" : "Broadcast to all"}
                     </button>
@@ -219,17 +219,17 @@ export default function AdminPage() {
                 <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
                   <div className="flex items-center justify-between gap-3">
                     <h2 className="text-lg font-semibold text-av-white">Feature flags</h2>
-                    <span className="text-xs text-av-hint">{flags.length} flags</span>
+                    <span className="text-xs text-av-light-orange">{flags.length} flags</span>
                   </div>
                   {flags.length === 0 ? (
-                    <p className="mt-4 text-sm text-av-hint">No feature flags stored yet.</p>
+                    <p className="mt-4 text-sm text-av-light-orange">No feature flags stored yet.</p>
                   ) : (
                     <div className="mt-4 space-y-3">
                       {flags.map((flag) => (
                         <div key={flag.key} className="flex items-center justify-between gap-3 rounded-2xl border border-av-input-border/20 bg-av-input-fill/30 p-4">
                           <div>
                             <p className="text-sm font-semibold text-av-white">{flag.key}</p>
-                            <p className="mt-1 text-xs text-av-hint">{flag.enabled ? "Enabled" : "Disabled"}</p>
+                            <p className="mt-1 text-xs text-av-light-orange">{flag.enabled ? "Enabled" : "Disabled"}</p>
                           </div>
                           <button onClick={() => handleFeatureToggle(flag)} disabled={busy} className={`rounded-full px-4 py-2 text-xs font-semibold ${flag.enabled ? "border border-av-error/30 bg-av-error/5 text-av-error" : "border border-av-orange/30 bg-av-orange/10 text-av-orange"}`}>
                             {flag.enabled ? "Disable" : "Enable"}
@@ -245,14 +245,14 @@ export default function AdminPage() {
                 <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
                   <div className="flex items-center justify-between gap-3">
                     <h2 className="text-lg font-semibold text-av-white">Channel moderation</h2>
-                    <span className="text-xs text-av-hint">{channels.length} channels</span>
+                    <span className="text-xs text-av-light-orange">{channels.length} channels</span>
                   </div>
                   <div className="mt-4 space-y-3">
                     {channels.slice(0, 12).map((channel) => (
                       <div key={channel.id} className="flex flex-col gap-3 rounded-2xl border border-av-input-border/20 bg-av-input-fill/30 p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="text-sm font-semibold text-av-white">{channel.name}</p>
-                          <p className="mt-1 text-xs text-av-hint">{channel.owner_name} · {channel.type} · {channel.is_active ? "active" : "disabled"}</p>
+                          <p className="mt-1 text-xs text-av-light-orange">{channel.owner_name} · {channel.type} · {channel.is_active ? "active" : "disabled"}</p>
                         </div>
                         <button onClick={() => handleChannelToggle(channel)} disabled={busy} className={`rounded-full px-4 py-2 text-xs font-semibold ${channel.is_active ? "border border-av-error/30 bg-av-error/5 text-av-error" : "border border-av-orange/30 bg-av-orange/10 text-av-orange"}`}>
                           {channel.is_active ? "Disable" : "Enable"}
@@ -266,13 +266,13 @@ export default function AdminPage() {
                   <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
                     <div className="flex items-center justify-between gap-3">
                       <h2 className="text-lg font-semibold text-av-white">Recent users</h2>
-                      <span className="text-xs text-av-hint">{users.length} total</span>
+                      <span className="text-xs text-av-light-orange">{users.length} total</span>
                     </div>
                     <div className="mt-4 space-y-3">
                       {users.slice(0, 8).map((member) => (
                         <div key={member.id} className="rounded-2xl border border-av-input-border/20 bg-av-input-fill/30 p-4">
                           <p className="text-sm font-semibold text-av-white">{member.name || member.email}</p>
-                          <p className="mt-1 text-xs text-av-hint">{member.email} · {member.role}</p>
+                          <p className="mt-1 text-xs text-av-light-orange">{member.email} · {member.role}</p>
                         </div>
                       ))}
                     </div>
@@ -281,14 +281,14 @@ export default function AdminPage() {
                   <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
                     <div className="flex items-center justify-between gap-3">
                       <h2 className="text-lg font-semibold text-av-white">Audit trail</h2>
-                      <span className="text-xs text-av-hint">{logs.length} recent</span>
+                      <span className="text-xs text-av-light-orange">{logs.length} recent</span>
                     </div>
                     <div className="mt-4 space-y-3">
                       {logs.map((log) => (
                         <div key={log.id} className="rounded-2xl border border-av-input-border/20 bg-av-input-fill/30 p-4">
                           <p className="text-sm font-semibold text-av-white">{log.action.replace(/_/g, " ")}</p>
-                          <p className="mt-1 text-xs text-av-hint">Actor: {log.actor_id}</p>
-                          <p className="mt-1 text-xs text-av-hint">{formatTimestamp(log.created_at)}</p>
+                          <p className="mt-1 text-xs text-av-light-orange">Actor: {log.actor_id}</p>
+                          <p className="mt-1 text-xs text-av-light-orange">{formatTimestamp(log.created_at)}</p>
                         </div>
                       ))}
                     </div>
@@ -307,7 +307,7 @@ export default function AdminPage() {
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-av-input-border/30 bg-av-card p-5">
-      <p className="text-[11px] uppercase tracking-wider text-av-hint">{label}</p>
+      <p className="text-[11px] uppercase tracking-wider text-av-light-orange">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-av-white">{value}</p>
     </div>
   );

@@ -129,6 +129,13 @@ function getByCreator(creatorUid, limit = 10) {
     .slice(0, limit);
 }
 
+function getByChannel(channelId, limit = 50) {
+  return streams
+    .filter((s) => s.channel_id === channelId)
+    .sort((a, b) => b.start_time - a.start_time)
+    .slice(0, limit);
+}
+
 module.exports = {
   init,
   startStream,
@@ -140,4 +147,5 @@ module.exports = {
   addSubscriber,
   incrementViewer,
   getByCreator,
+  getByChannel,
 };

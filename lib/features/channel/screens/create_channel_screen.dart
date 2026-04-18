@@ -83,6 +83,10 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
     _animController.forward();
   }
 
+  Future<void> _refresh() async {
+    await _loadData();
+  }
+
   bool get _needsSubscription {
     if (_user == null) return false;
     return _user!.isViewer;
@@ -147,8 +151,11 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
       }
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/channel-view',
-          arguments: channel.id);
+      Navigator.pushReplacementNamed(
+        context,
+        '/channel-view',
+        arguments: channel.id,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -173,27 +180,28 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 child: _loadingUser
                     ? const Center(
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(AppColors.orange),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.orange,
+                          ),
                         ),
                       )
                     : _needsSubscription
-                        ? _buildSubscriptionOverlay(
-                            icon: Icons.lock_rounded,
-                            title: "Creator's Subscription Required",
-                            message:
-                                'You need an active creator subscription to create channels and start broadcasting.',
-                            buttonLabel: 'Get Started With a Plan',
-                          )
-                        : _subscriptionExpired
-                            ? _buildSubscriptionOverlay(
-                                icon: Icons.timer_off_rounded,
-                                title: 'Your Subscription Has Expired!',
-                                message:
-                                    'Renew your plan to continue creating and managing channels.',
-                                buttonLabel: 'Renew Plan',
-                              )
-                            : _buildForm(),
+                    ? _buildSubscriptionOverlay(
+                        icon: Icons.lock_rounded,
+                        title: "Creator's Subscription Required",
+                        message:
+                            'You need an active creator subscription to create channels and start broadcasting.',
+                        buttonLabel: 'Get Started With a Plan',
+                      )
+                    : _subscriptionExpired
+                    ? _buildSubscriptionOverlay(
+                        icon: Icons.timer_off_rounded,
+                        title: 'Your Subscription Has Expired!',
+                        message:
+                            'Renew your plan to continue creating and managing channels.',
+                        buttonLabel: 'Renew Plan',
+                      )
+                    : _buildForm(),
               ),
             ],
           ),
@@ -216,8 +224,11 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.inputBorder),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.white, size: 18),
+              child: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: AppColors.white,
+                size: 18,
+              ),
             ),
           ),
           const SizedBox(width: 16),
@@ -252,7 +263,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
               color: AppColors.inputFill,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                  color: AppColors.orange.withValues(alpha: 0.25)),
+                color: AppColors.orange.withValues(alpha: 0.25),
+              ),
               boxShadow: [
                 BoxShadow(
                   color: AppColors.orange.withValues(alpha: 0.08),
@@ -278,8 +290,9 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                       end: Alignment.bottomRight,
                     ),
                     border: Border.all(
-                        color: AppColors.orange.withValues(alpha: 0.3),
-                        width: 2),
+                      color: AppColors.orange.withValues(alpha: 0.3),
+                      width: 2,
+                    ),
                   ),
                   child: Icon(icon, color: AppColors.orange, size: 34),
                 ),
@@ -298,7 +311,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 Text(
                   message,
                   style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.8),
+                    color: AppColors.goldText,
                     fontSize: 14,
                     height: 1.5,
                   ),
@@ -329,8 +342,11 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.rocket_launch_rounded,
-                            color: AppColors.white, size: 18),
+                        const Icon(
+                          Icons.rocket_launch_rounded,
+                          color: AppColors.white,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           buttonLabel,
@@ -359,138 +375,146 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
       opacity: _fadeAnim,
       child: SlideTransition(
         position: _slideAnim,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 16),
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          color: AppColors.orange,
+          backgroundColor: AppColors.inputFill,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 16),
 
-              // Banner upload
-              _buildMediaTile(
-                label: 'CHANNEL BANNER',
-                hint: 'Tap to upload banner image',
-                icon: Icons.panorama_rounded,
-                file: _bannerFile,
-                height: 140,
-                borderRadius: 16,
-                onTap: () => _pickImage(false),
-              ),
-              const SizedBox(height: 16),
-
-              // Logo upload
-              Center(
-                child: _buildLogoTile(),
-              ),
-              const SizedBox(height: 24),
-
-              AppTextField(
-                controller: _nameController,
-                label: 'CHANNEL NAME',
-                hint: 'Enter channel name',
-                prefixIcon: Icons.live_tv_rounded,
-                onChanged: (_) {
-                  if (_error != null) setState(() => _error = null);
-                },
-              ),
-              const SizedBox(height: 16),
-              AppTextField(
-                controller: _descController,
-                label: 'DESCRIPTION',
-                hint: 'Describe your channel',
-                prefixIcon: Icons.description_rounded,
-              ),
-              const SizedBox(height: 16),
-
-              // Category dropdown
-              _buildCategoryDropdown(),
-              const SizedBox(height: 24),
-
-              // Type selector
-              Text(
-                'CHANNEL TYPE',
-                style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.7),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
+                // Banner upload
+                _buildMediaTile(
+                  label: 'CHANNEL BANNER',
+                  hint: 'Tap to upload banner image',
+                  icon: Icons.panorama_rounded,
+                  file: _bannerFile,
+                  height: 140,
+                  borderRadius: 16,
+                  onTap: () => _pickImage(false),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildTypeOption(
-                      label: 'Public',
-                      icon: Icons.public_rounded,
-                      selected: _type == 'public',
-                      onTap: () => setState(() => _type = 'public'),
-                      enabled: true,
-                    ),
+                const SizedBox(height: 16),
+
+                // Logo upload
+                Center(child: _buildLogoTile()),
+                const SizedBox(height: 24),
+
+                AppTextField(
+                  controller: _nameController,
+                  label: 'CHANNEL NAME',
+                  hint: 'Enter channel name',
+                  prefixIcon: Icons.live_tv_rounded,
+                  onChanged: (_) {
+                    if (_error != null) setState(() => _error = null);
+                  },
+                ),
+                const SizedBox(height: 16),
+                AppTextField(
+                  controller: _descController,
+                  label: 'DESCRIPTION',
+                  hint: 'Describe your channel',
+                  prefixIcon: Icons.description_rounded,
+                ),
+                const SizedBox(height: 16),
+
+                // Category dropdown
+                _buildCategoryDropdown(),
+                const SizedBox(height: 24),
+
+                // Type selector
+                Text(
+                  'CHANNEL TYPE',
+                  style: TextStyle(
+                    color: AppColors.goldText,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildTypeOption(
-                      label: 'Private',
-                      icon: canPrivate
-                          ? Icons.lock_rounded
-                          : Icons.lock_outline_rounded,
-                      selected: _type == 'private',
-                      onTap: canPrivate
-                          ? () => setState(() => _type = 'private')
-                          : null,
-                      enabled: canPrivate,
-                    ),
-                  ),
-                ],
-              ),
-              if (!canPrivate)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline_rounded,
-                          color: AppColors.hintText.withValues(alpha: 0.5),
-                          size: 14),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Premium subscription required for private channels',
-                        style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.5),
-                          fontSize: 11,
-                        ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildTypeOption(
+                        label: 'Public',
+                        icon: Icons.public_rounded,
+                        selected: _type == 'public',
+                        onTap: () => setState(() => _type = 'public'),
+                        enabled: true,
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildTypeOption(
+                        label: 'Private',
+                        icon: canPrivate
+                            ? Icons.lock_rounded
+                            : Icons.lock_outline_rounded,
+                        selected: _type == 'private',
+                        onTap: canPrivate
+                            ? () => setState(() => _type = 'private')
+                            : null,
+                        enabled: canPrivate,
+                      ),
+                    ),
+                  ],
                 ),
-              const SizedBox(height: 16),
+                if (!canPrivate)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          color: AppColors.goldText,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Premium subscription required for private channels',
+                          style: TextStyle(
+                            color: AppColors.goldText,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 16),
 
-              if (_error != null)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: AppColors.errorRed.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: AppColors.errorRed.withValues(alpha: 0.3)),
+                if (_error != null)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: AppColors.errorRed.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppColors.errorRed.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(
+                        color: AppColors.errorRed,
+                        fontSize: 13,
+                      ),
+                    ),
                   ),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(
-                        color: AppColors.errorRed, fontSize: 13),
-                  ),
+
+                AppButton(
+                  label: 'Create Channel',
+                  onPressed: _create,
+                  loading: _creating,
+                  enabled: !_creating,
                 ),
-
-              AppButton(
-                label: 'Create Channel',
-                onPressed: _create,
-                loading: _creating,
-                enabled: !_creating,
-              ),
-              const SizedBox(height: 32),
-            ],
+                const SizedBox(height: 32),
+              ],
+            ),
           ),
         ),
       ),
@@ -512,7 +536,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         Text(
           label,
           style: TextStyle(
-            color: AppColors.hintText.withValues(alpha: 0.7),
+            color: AppColors.goldText,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.2,
@@ -533,24 +557,23 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                     : AppColors.inputBorder,
               ),
               image: file != null
-                  ? DecorationImage(
-                      image: FileImage(file),
-                      fit: BoxFit.cover,
-                    )
+                  ? DecorationImage(image: FileImage(file), fit: BoxFit.cover)
                   : null,
             ),
             child: file == null
                 ? Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(icon,
-                          color: AppColors.hintText.withValues(alpha: 0.4),
-                          size: 32),
+                      Icon(
+                        icon,
+                        color: AppColors.goldText,
+                        size: 32,
+                      ),
                       const SizedBox(height: 8),
                       Text(
                         hint,
                         style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.5),
+                          color: AppColors.goldText,
                           fontSize: 12,
                         ),
                       ),
@@ -565,8 +588,11 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                         color: AppColors.darkBlue.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(Icons.edit_rounded,
-                          color: AppColors.orange, size: 16),
+                      child: const Icon(
+                        Icons.edit_rounded,
+                        color: AppColors.orange,
+                        size: 16,
+                      ),
                     ),
                   ),
           ),
@@ -581,7 +607,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         Text(
           'CHANNEL LOGO',
           style: TextStyle(
-            color: AppColors.hintText.withValues(alpha: 0.7),
+            color: AppColors.goldText,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.2,
@@ -610,8 +636,11 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                   : null,
             ),
             child: _logoFile == null
-                ? Icon(Icons.add_a_photo_rounded,
-                    color: AppColors.hintText.withValues(alpha: 0.4), size: 28)
+                ? Icon(
+                    Icons.add_a_photo_rounded,
+                    color: AppColors.goldText,
+                    size: 28,
+                  )
                 : Align(
                     alignment: Alignment.bottomRight,
                     child: Container(
@@ -621,8 +650,11 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                         shape: BoxShape.circle,
                         border: Border.all(color: AppColors.darkBlue, width: 2),
                       ),
-                      child: const Icon(Icons.edit_rounded,
-                          color: AppColors.white, size: 12),
+                      child: const Icon(
+                        Icons.edit_rounded,
+                        color: AppColors.white,
+                        size: 12,
+                      ),
                     ),
                   ),
           ),
@@ -638,7 +670,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         Text(
           'CATEGORY',
           style: TextStyle(
-            color: AppColors.hintText.withValues(alpha: 0.7),
+            color: AppColors.goldText,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.2,
@@ -668,13 +700,16 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 color: AppColors.inputFill,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                    color: AppColors.errorRed.withValues(alpha: 0.3)),
+                  color: AppColors.errorRed.withValues(alpha: 0.3),
+                ),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.error_outline_rounded,
-                      color: AppColors.errorRed.withValues(alpha: 0.7),
-                      size: 20),
+                  Icon(
+                    Icons.error_outline_rounded,
+                    color: AppColors.errorRed.withValues(alpha: 0.7),
+                    size: 20,
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
@@ -685,59 +720,69 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                       ),
                     ),
                   ),
-                  const Icon(Icons.refresh_rounded,
-                      color: AppColors.orange, size: 20),
+                  const Icon(
+                    Icons.refresh_rounded,
+                    color: AppColors.orange,
+                    size: 20,
+                  ),
                 ],
               ),
             ),
           )
         else
           Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppColors.inputFill,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.inputBorder),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.category_rounded,
-                  color: AppColors.hintText.withValues(alpha: 0.5), size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedCategory,
-                    hint: Text(
-                      'Select a category',
-                      style: TextStyle(
-                        color: AppColors.hintText.withValues(alpha: 0.5),
-                        fontSize: 14,
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.category_rounded,
+                  color: AppColors.goldText,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selectedCategory,
+                      hint: Text(
+                        'Select a category',
+                        style: TextStyle(
+                          color: AppColors.goldText,
+                          fontSize: 14,
+                        ),
                       ),
+                      dropdownColor: AppColors.lightBlue,
+                      icon: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: AppColors.orange,
+                        size: 20,
+                      ),
+                      isExpanded: true,
+                      style: const TextStyle(
+                        color: AppColors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      items: _categories.map((cat) {
+                        return DropdownMenuItem(
+                          value: cat.name,
+                          child: Text(cat.name),
+                        );
+                      }).toList(),
+                      onChanged: (val) =>
+                          setState(() => _selectedCategory = val),
                     ),
-                    dropdownColor: AppColors.lightBlue,
-                    icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                        color: AppColors.orange, size: 20),
-                    isExpanded: true,
-                    style: const TextStyle(
-                      color: AppColors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    items: _categories.map((cat) {
-                      return DropdownMenuItem(
-                        value: cat.name,
-                        child: Text(cat.name),
-                      );
-                    }).toList(),
-                    onChanged: (val) => setState(() => _selectedCategory = val),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
@@ -763,8 +808,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
             color: selected
                 ? AppColors.orange.withValues(alpha: 0.5)
                 : enabled
-                    ? AppColors.inputBorder
-                    : AppColors.inputBorder.withValues(alpha: 0.4),
+                ? AppColors.inputBorder
+                : AppColors.inputBorder.withValues(alpha: 0.4),
           ),
         ),
         child: Column(
@@ -774,8 +819,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
               color: selected
                   ? AppColors.orange
                   : enabled
-                      ? AppColors.hintText
-                      : AppColors.hintText.withValues(alpha: 0.3),
+                  ? AppColors.hintText
+                  : AppColors.goldText,
               size: 24,
             ),
             const SizedBox(height: 6),
@@ -785,8 +830,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 color: selected
                     ? AppColors.orange
                     : enabled
-                        ? AppColors.white
-                        : AppColors.hintText.withValues(alpha: 0.3),
+                    ? AppColors.white
+                    : AppColors.goldText,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),

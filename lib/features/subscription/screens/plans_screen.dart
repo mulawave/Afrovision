@@ -24,6 +24,7 @@ class _PlansScreenState extends State<PlansScreen>
   Map<String, double> _displayPrices = {};
   bool _isRenewal = false;
   double _vptBalance = 0;
+  String _accountRole = 'viewer';
   String _paymentMethod = 'fiat';
   bool _yearlyBilling = false;
   late AnimationController _animController;
@@ -52,6 +53,8 @@ class _PlansScreenState extends State<PlansScreen>
   List<PlanModel> get _creatorPlans =>
       _plans.where((p) => p.isCreator).toList();
   List<PlanModel> get _viewerPlans => _plans.where((p) => p.isViewer).toList();
+  bool get _isCreatorAccount =>
+      _accountRole == 'creator' || _accountRole == 'admin';
 
   Future<void> _loadData() async {
     try {
@@ -59,6 +62,7 @@ class _PlansScreenState extends State<PlansScreen>
       _selectedCurrency = profile.preferredCurrency;
       _isRenewal = profile.firstSubscriptionAt != null;
       _vptBalance = profile.vptBalance;
+      _accountRole = profile.role;
 
       final results = await Future.wait([
         CurrencyService.getCurrencies(),
@@ -107,16 +111,64 @@ class _PlansScreenState extends State<PlansScreen>
 
   Future<void> _subscribe(PlanModel plan) async {
     if (plan.price == 0) return; // Free plan
-    setState(() => _subscribingPlanId = plan.id);
-    try {
-      await SubscriptionService.subscribe(
-        plan.id,
-        paymentMethod: _paymentMethod,
-      );
-      if (!mounted) return;
+    if (plan.isViewer && _isCreatorAccount) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Subscribed to ${plan.name.toUpperCase()} plan!'),
+          content: const Text(
+            'Creator accounts do not use viewer plans. You can still access public and private channels without one, while exclusive premium channels stay pay-per-access.',
+            style: TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _subscribingPlanId = plan.id);
+    try {
+      if (_paymentMethod == 'vpt') {
+        await SubscriptionService.subscribe(
+          plan.id,
+          paymentMethod: _paymentMethod,
+        );
+      } else {
+        final billingCycle = _yearlyBilling && plan.isViewer
+            ? 'yearly'
+            : 'monthly';
+        final checkoutResult = await Navigator.pushNamed(
+          context,
+          '/checkout',
+          arguments: {
+            'purpose': 'platform_plan',
+            'title': 'Plan Checkout',
+            'planId': plan.id,
+            'planName': plan.name.toUpperCase(),
+            'billingCycle': billingCycle,
+            'amountNgn': billingCycle == 'yearly'
+                ? (plan.yearlyPrice ?? plan.price)
+                : plan.price,
+          },
+        );
+
+        if (checkoutResult == null) {
+          if (!mounted) return;
+          setState(() => _subscribingPlanId = null);
+          return;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() => _subscribingPlanId = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Subscribed to ${plan.name.toUpperCase()} plan!',
+            style: const TextStyle(color: AppColors.white),
+          ),
           backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -130,7 +182,10 @@ class _PlansScreenState extends State<PlansScreen>
       setState(() => _subscribingPlanId = null);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(
+            e.toString(),
+            style: const TextStyle(color: AppColors.white),
+          ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -265,12 +320,17 @@ class _PlansScreenState extends State<PlansScreen>
           child: Column(
             children: [
               const SizedBox(height: 16),
+              if (!_isCreatorAccount)
+                _buildInfoBanner(
+                  title: 'Viewer to Creator Upgrade',
+                  message:
+                      'Switching to a creator plan replaces viewer-plan perks. After upgrading, you can still access public and private channels without buying a viewer plan again. Only exclusive premium channels remain pay-per-access.',
+                  color: AppColors.lightOrange,
+                ),
+              if (!_isCreatorAccount) const SizedBox(height: 16),
               Text(
                 'Unlock creator features & start broadcasting',
-                style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.8),
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: AppColors.goldText, fontSize: 14),
               ),
               if (_currencies.length > 1) ...[
                 const SizedBox(height: 16),
@@ -304,12 +364,17 @@ class _PlansScreenState extends State<PlansScreen>
           child: Column(
             children: [
               const SizedBox(height: 16),
+              if (_isCreatorAccount)
+                _buildInfoBanner(
+                  title: 'Viewer Plans Disabled',
+                  message:
+                      'Your account is already operating as a creator. Viewer plans are no longer needed for standard channel access on creator accounts.',
+                  color: AppColors.orange,
+                ),
+              if (_isCreatorAccount) const SizedBox(height: 16),
               Text(
                 'Watch more, earn more vPT rewards',
-                style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.8),
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: AppColors.goldText, fontSize: 14),
               ),
               const SizedBox(height: 16),
               _buildBillingToggle(),
@@ -317,7 +382,7 @@ class _PlansScreenState extends State<PlansScreen>
                 const SizedBox(height: 12),
                 _buildCurrencyPicker(),
               ],
-              if (_isRenewal) ...[
+              if (_isRenewal && !_isCreatorAccount) ...[
                 const SizedBox(height: 12),
                 _buildPaymentToggle(),
               ],
@@ -611,10 +676,7 @@ class _PlansScreenState extends State<PlansScreen>
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
                   '/month',
-                  style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.7),
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: AppColors.goldText, fontSize: 13),
                 ),
               ),
             ],
@@ -712,6 +774,7 @@ class _PlansScreenState extends State<PlansScreen>
         : plan.price;
     final period = _yearlyBilling ? '/year' : '/month';
     final multiplier = plan.rewardMultiplier;
+    final isLockedForCreator = _isCreatorAccount && !isFree;
 
     // Plan display name
     final displayName = isFree
@@ -866,10 +929,7 @@ class _PlansScreenState extends State<PlansScreen>
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
                   isFree ? '' : period,
-                  style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.7),
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: AppColors.goldText, fontSize: 13),
                 ),
               ),
             ],
@@ -938,19 +998,29 @@ class _PlansScreenState extends State<PlansScreen>
           const SizedBox(height: 16),
           if (!isFree)
             GestureDetector(
-              onTap: isSubscribing ? null : () => _subscribe(plan),
+              onTap: isSubscribing || isLockedForCreator
+                  ? null
+                  : () => _subscribe(plan),
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
                   gradient: isSubscribing
                       ? AppColors.buttonDisabledGradient
+                      : isLockedForCreator
+                      ? null
                       : isHighlighted
                       ? AppColors.buttonGradient
                       : null,
-                  color: isHighlighted ? null : AppColors.lightBlue,
+                  color: isLockedForCreator
+                      ? AppColors.lightBlue.withValues(alpha: 0.25)
+                      : isHighlighted
+                      ? null
+                      : AppColors.lightBlue,
                   borderRadius: BorderRadius.circular(12),
-                  border: isHighlighted
+                  border: isLockedForCreator
+                      ? Border.all(color: AppColors.inputBorder)
+                      : isHighlighted
                       ? null
                       : Border.all(
                           color: AppColors.lightOrange.withValues(alpha: 0.3),
@@ -969,13 +1039,17 @@ class _PlansScreenState extends State<PlansScreen>
                           ),
                         )
                       : Text(
-                          isPremium
+                          isLockedForCreator
+                              ? 'Creator Account Active'
+                              : isPremium
                               ? 'Go Premium'
                               : isPro
                               ? 'Go Pro'
                               : 'Subscribe',
                           style: TextStyle(
-                            color: isPremium
+                            color: isLockedForCreator
+                                ? AppColors.hintText
+                                : isPremium
                                 ? AppColors.white
                                 : AppColors.lightOrange,
                             fontSize: 15,
@@ -1020,5 +1094,43 @@ class _PlansScreenState extends State<PlansScreen>
       return buffer.toString();
     }
     return price.toStringAsFixed(0);
+  }
+
+  Widget _buildInfoBanner({
+    required String title,
+    required String message,
+    required Color color,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            style: const TextStyle(
+              color: AppColors.white,
+              fontSize: 13,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

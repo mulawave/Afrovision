@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, useCallback } from 'react';
 import { serveBannerAdApi, recordAdImpressionApi, type Advertisement } from '@/lib/api';
@@ -39,7 +39,7 @@ export function BannerAd({ placement, channelId, className = '' }: BannerAdProps
     <div className={`relative overflow-hidden rounded-xl border border-white/5 ${className}`}>
       {/* Ad label */}
       <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm">
-        <span className="text-[9px] font-semibold text-white/50 tracking-wider uppercase">Sponsored</span>
+        <span className="text-[9px] font-semibold text-av-light-orange tracking-wider uppercase">Sponsored</span>
       </div>
 
       {/* Ad media */}
@@ -68,9 +68,9 @@ export function BannerAd({ placement, channelId, className = '' }: BannerAdProps
           /* Text-only fallback */
           <div className="w-full px-6 py-8 bg-gradient-to-r from-av-light-blue/30 to-av-dark-blue/50 flex items-center justify-center">
             <div className="text-center">
-              <p className="text-sm font-semibold text-white/80">{ad.title}</p>
+              <p className="text-sm font-semibold text-av-light-orange">{ad.title}</p>
               {ad.description && (
-                <p className="text-xs text-white/50 mt-1">{ad.description}</p>
+                <p className="text-xs text-av-light-orange mt-1">{ad.description}</p>
               )}
             </div>
           </div>

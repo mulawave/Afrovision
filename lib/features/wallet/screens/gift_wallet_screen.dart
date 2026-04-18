@@ -77,8 +77,16 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
     }
   }
 
-  double get _vptUnits => (_wallet['vpt_units'] as num?)?.toDouble() ?? 0;
-  double get _ngnBalance => (_wallet['ngn_balance'] as num?)?.toDouble() ?? 0;
+  static double _safeDouble(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  double get _vptUnits => _safeDouble(_wallet['vpt']);
+  double get _ngnBalance => _safeDouble(_wallet['cash']);
+  double get _ravensBalance => _safeDouble(_wallet['coins']);
 
   List<LedgerEntryModel> get _filteredLedger {
     switch (_filter) {
@@ -289,7 +297,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                       Text(
                         'NGN BALANCE',
                         style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.7),
+                          color: AppColors.goldText,
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 1,
@@ -298,6 +306,57 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                       const SizedBox(height: 2),
                       Text(
                         '₦${_formatAmount(_ngnBalance)}',
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // ── Ravens Balance Row ──
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.darkBlue.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.lightOrange.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.flutter_dash_rounded,
+                    color: AppColors.lightOrange,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'RAVENS',
+                        style: TextStyle(
+                          color: AppColors.lightOrange,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${_formatAmount(_ravensBalance)} Ravens',
                         style: const TextStyle(
                           color: AppColors.white,
                           fontSize: 20,
@@ -320,6 +379,72 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
   Widget _buildActionRow() {
     return Row(
       children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: () async {
+              final result = await Navigator.pushNamed(
+                context,
+                '/checkout',
+                arguments: {
+                  'purpose': 'wallet_topup',
+                  'title': 'Wallet Top-Up',
+                  'balanceType': 'ngn',
+                },
+              );
+
+              if (result != null && mounted) {
+                await _loadData();
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      'Wallet top-up verified successfully.',
+                      style: TextStyle(color: AppColors.white),
+                    ),
+                    backgroundColor: const Color(
+                      0xFF4CAF50,
+                    ).withValues(alpha: 0.9),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                );
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.inputFill,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: AppColors.orange.withValues(alpha: 0.28),
+                ),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.add_card_rounded,
+                    color: AppColors.orange,
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'Top Up',
+                    style: TextStyle(
+                      color: AppColors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
         Expanded(
           child: GestureDetector(
             onTap: () => Navigator.pushNamed(context, '/withdrawals'),
@@ -429,14 +554,14 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
           children: [
             Icon(
               Icons.card_giftcard_rounded,
-              color: AppColors.hintText.withValues(alpha: 0.3),
+              color: AppColors.goldText,
               size: 48,
             ),
             const SizedBox(height: 12),
             Text(
               'No gift transactions yet',
               style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.6),
+                color: AppColors.goldText,
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
@@ -505,7 +630,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                   Text(
                     entry.description!,
                     style: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.7),
+                      color: AppColors.goldText,
                       fontSize: 11,
                       fontWeight: FontWeight.w400,
                     ),
@@ -551,7 +676,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                   Text(
                     entry.timeAgo,
                     style: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.6),
+                      color: AppColors.goldText,
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
                     ),
@@ -620,20 +745,14 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
             const SizedBox(height: 16),
             Text(
               'Failed to load wallet',
-              style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.7),
-                fontSize: 14,
-              ),
+              style: TextStyle(color: AppColors.goldText, fontSize: 14),
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.4),
-                  fontSize: 11,
-                ),
+                style: TextStyle(color: AppColors.goldText, fontSize: 11),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),

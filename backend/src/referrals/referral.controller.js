@@ -2,6 +2,8 @@ const ReferralModel = require('./referral.model');
 const GiftWallet = require('../interactions/gift-wallet.model');
 const Ledger = require('../vpt/ledger.model');
 const User = require('../users/user.model');
+const PoolService = require('../vpt/pool.service');
+const NotificationService = require('../notifications/notification.service');
 
 /**
  * GET /referrals/my-code
@@ -71,11 +73,16 @@ async function getDashboard(req, res) {
     // Resolve names for direct referrals
     const referralUsers = directReferrals.map((uid) => {
       const u = User.findById(uid);
+      let joinedAt = null;
+      if (u?.created_at) {
+        joinedAt = typeof u.created_at === 'number' ? u.created_at : new Date(u.created_at).getTime();
+        if (isNaN(joinedAt)) joinedAt = null;
+      }
       return {
         uid,
         name: u?.name || null,
         email: u ? _maskEmail(u.email) : null,
-        joined_at: u?.created_at || null,
+        joined_at: joinedAt,
       };
     });
 
@@ -95,21 +102,26 @@ async function getDashboard(req, res) {
       currentUid = rec.referred_by;
     }
 
-    // Enrich earnings with names
+    // Enrich earnings with names and status
     const enrichedEarnings = earnings.map((e) => {
       const source = User.findById(e.source_uid);
       return {
         ...e,
+        status: e.status || 'pending_ledger',
         source_name: source?.name || null,
         source_email: source ? _maskEmail(source.email) : null,
       };
     });
+
+    // Get ledger balance summary
+    const ledgerSummary = ReferralModel.getLedgerSummary(req.userId);
 
     res.json({
       referral_code: referral.referral_code,
       invited_count: referral.invited_count,
       total_earnings_ngn: referral.total_earnings_ngn || 0,
       total_earnings_vpt_units: referral.total_earnings_vpt_units || 0,
+      ledger_summary: ledgerSummary,
       direct_referrals: referralUsers,
       upline,
       earnings: enrichedEarnings,
@@ -125,90 +137,133 @@ async function getDashboard(req, res) {
 }
 
 /**
- * Distribute referral earnings from a creator subscription.
- * Called internally from the creator subscription controller.
+ * Distribute referral earnings from a subscription.
+ * Called internally from subscription controllers.
+ *
+ * The referral pool is exactly 15% of the subscription amount (NGN).
+ * Each level's payout is split 50% cash (NGN) / 50% vPT.
+ * vPT portion is CONVERTED: cashHalf / 750 = vPT units.
+ * Empty levels (no referrer) → funds go to RBD Pool.
  *
  * @param {string} subscriberUid - Who made the subscription
- * @param {number} communityPoolAmount - The 30% community pool amount (in same currency)
- * @param {string} currency - 'ngn' or 'vpt'
+ * @param {number} referralPoolAmount - The 15% referral pool amount (NGN)
  * @param {string} subscriptionId - Subscription record ID
- * @param {string} creatorUid - Creator who received the subscription
+ * @param {string|null} creatorUid - Creator who received the subscription (null for plan subs)
  */
 async function distributeReferralEarnings({
   subscriberUid,
-  communityPoolAmount,
-  currency,
+  referralPoolAmount,
   subscriptionId,
   creatorUid,
 }) {
   try {
-    // 1/3 of community pool goes to referral tree
-    const referralPool = Math.floor(communityPoolAmount * ReferralModel.REFERRAL_POOL_FRACTION);
-    if (referralPool <= 0) return;
+    if (referralPoolAmount <= 0) return;
 
-    // Resolve the 5-level tree
+    const VPT_PRICE = ReferralModel.VPT_PRICE_NGN; // 750
     const tree = ReferralModel.resolveTree(subscriberUid);
 
     for (let i = 0; i < 5; i++) {
       const recipientUid = tree[i];
-      if (!recipientUid) continue; // Skip if no base account exists yet
-
-      const levelAmount = Math.floor(referralPool * ReferralModel.LEVEL_DISTRIBUTION[i]);
+      const levelAmount = Math.floor(referralPoolAmount * ReferralModel.LEVEL_DISTRIBUTION[i]);
       if (levelAmount <= 0) continue;
 
-      // Split earning 50/50: cash wallet + vPT wallet
+      // 50/50 split
       const cashAmount = Math.floor(levelAmount / 2);
-      const vptAmount = levelAmount - cashAmount;
+      const vptNgnHalf = levelAmount - cashAmount;
+      const vptUnits = parseFloat((vptNgnHalf / VPT_PRICE).toFixed(4));
 
-      // Credit cash wallet (NGN portion)
-      if (currency === 'ngn') {
+      if (!recipientUid) {
+        // Empty level → credit RBD Pool
+        await PoolService.creditRbdPool(cashAmount, vptUnits, {
+          reason: `empty_L${i + 1}`,
+          subscriber_uid: subscriberUid,
+          subscription_id: subscriptionId,
+        });
+        continue;
+      }
+
+      // Credit cash wallet instantly
+      if (cashAmount > 0) {
         await GiftWallet.adjustNgnBalance(recipientUid, cashAmount);
-      } else {
-        await GiftWallet.adjustVptUnits(recipientUid, cashAmount);
       }
 
-      // Credit vPT wallet (converted portion — same units for now, conversion happens at batch)
-      if (currency === 'ngn') {
-        await GiftWallet.adjustVptUnits(recipientUid, vptAmount);
-      } else {
-        await GiftWallet.adjustVptUnits(recipientUid, vptAmount);
-      }
-
-      // Record earning
+      // Record earning (cash is instant, vPT is ledger balance)
       await ReferralModel.recordEarning({
         recipientUid,
         sourceUid: subscriberUid,
         level: i + 1,
-        amountNgn: currency === 'ngn' ? levelAmount : 0,
-        amountVptUnits: currency === 'vpt' ? levelAmount : 0,
+        amountNgn: cashAmount,
+        amountVptUnits: vptUnits,
         subscriptionId,
         creatorUid,
       });
 
-      // Ledger entry
-      await Ledger.create({
-        uid: recipientUid,
-        type: 'REFERRAL_EARNING',
-        direction: 'credit',
-        currency,
-        amount_ngn: currency === 'ngn' ? levelAmount : 0,
-        amount_vpt_units: currency === 'vpt' ? levelAmount : 0,
-        status: 'success',
-        meta: {
-          level: i + 1,
+      // Ledger entry for cash (instant credit)
+      if (cashAmount > 0) {
+        await Ledger.create({
+          uid: recipientUid,
+          type: 'REFERRAL_EARNING',
+          direction: 'credit',
+          currency: 'ngn',
+          amount_ngn: cashAmount,
+          amount_vpt_units: 0,
+          status: 'success',
+          meta: {
+            level: i + 1,
+            source_uid: subscriberUid,
+            subscription_id: subscriptionId,
+            creator_uid: creatorUid,
+            split: 'cash_50pct',
+            referral_pool: referralPoolAmount,
+          },
+          description: `Referral L${i + 1} cash earning — subscription by ${subscriberUid.slice(0, 8)}`,
+        });
+      }
+
+      // Ledger entry for vPT (ledger balance — awaiting blockchain distribution)
+      if (vptUnits > 0) {
+        await Ledger.create({
+          uid: recipientUid,
+          type: 'REFERRAL_EARNING',
+          direction: 'credit',
+          currency: 'vpt',
+          amount_ngn: 0,
+          amount_vpt_units: vptUnits,
+          status: 'pending_distribution',
+          meta: {
+            level: i + 1,
+            source_uid: subscriberUid,
+            subscription_id: subscriptionId,
+            creator_uid: creatorUid,
+            split: 'vpt_50pct',
+            vpt_ngn_value: vptNgnHalf,
+            vpt_price: VPT_PRICE,
+            referral_pool: referralPoolAmount,
+          },
+          description: `Referral L${i + 1} vPT ledger — ${vptUnits} vPT (₦${vptNgnHalf}) — subscription by ${subscriberUid.slice(0, 8)}`,
+        });
+      }
+
+      // Notify referral earning recipient
+      const totalEarned = [];
+      if (cashAmount > 0) totalEarned.push(`₦${cashAmount}`);
+      if (vptUnits > 0) totalEarned.push(`${vptUnits} vPT`);
+      NotificationService.notifyUser(recipientUid, {
+        title: '💰 Referral Reward Earned!',
+        body: `Level ${i + 1} reward: ${totalEarned.join(' + ')} from a new subscription`,
+        type: 'referral_earning',
+        link: '/wallet',
+        data: {
+          level: String(i + 1),
+          cash_amount: String(cashAmount),
+          vpt_units: String(vptUnits),
           source_uid: subscriberUid,
           subscription_id: subscriptionId,
-          creator_uid: creatorUid,
-          cash_portion: cashAmount,
-          vpt_portion: vptAmount,
-          referral_pool: referralPool,
         },
-        description: `Referral L${i + 1} earning — subscription by ${subscriberUid.slice(0, 8)}`,
-      });
+      }).catch((err) => console.error('[Referral] notification error:', err.message));
     }
   } catch (err) {
     console.error('[Referral] distributeReferralEarnings error:', err.message);
-    // Non-fatal: subscription still succeeds even if referral distribution fails
   }
 }
 
@@ -219,4 +274,534 @@ function _maskEmail(email) {
   return `${local[0]}***@${domain}`;
 }
 
-module.exports = { getMyCode, applyReferral, getDashboard, distributeReferralEarnings };
+// ─── Admin endpoints ──────────────────────────────────────────
+
+/**
+ * GET /admin/referrals
+ * Lists all referral records with user info, earnings summary, and upline status.
+ */
+async function adminListReferrals(req, res) {
+  try {
+    const allReferrals = ReferralModel.getAll();
+    const enriched = allReferrals.map((r) => {
+      const u = User.findById(r.uid);
+      const referrer = r.referred_by ? User.findById(r.referred_by) : null;
+      const summary = ReferralModel.getLedgerSummary(r.uid);
+      return {
+        uid: r.uid,
+        email: u?.email || null,
+        name: u?.name || null,
+        referral_code: r.referral_code,
+        referred_by: r.referred_by || null,
+        referred_by_email: referrer?.email || null,
+        referred_by_name: referrer?.name || null,
+        invited_count: r.invited_count || 0,
+        total_earnings_ngn: r.total_earnings_ngn || 0,
+        total_earnings_vpt_units: r.total_earnings_vpt_units || 0,
+        ledger_summary: summary,
+        has_upline: !!r.referred_by,
+        created_at: r.created_at,
+      };
+    });
+
+    const stats = {
+      total: enriched.length,
+      with_upline: enriched.filter((r) => r.has_upline).length,
+      without_upline: enriched.filter((r) => !r.has_upline).length,
+      total_earnings_ngn: enriched.reduce((s, r) => s + r.total_earnings_ngn, 0),
+      total_pending_ngn: enriched.reduce((s, r) => s + r.ledger_summary.pending_ngn, 0),
+    };
+
+    res.json({ referrals: enriched, stats });
+  } catch (err) {
+    console.error('[Referral] adminListReferrals:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /admin/referrals/assign-upline
+ * Body: { uid, referrer_uid }
+ * Assigns an upline to a user and retroactively creates earnings for existing subscriptions.
+ */
+async function adminAssignUpline(req, res) {
+  try {
+    const { uid, referrer_uid } = req.body;
+    if (!uid || !referrer_uid) {
+      return res.status(400).json({ error: 'uid and referrer_uid are required' });
+    }
+    if (uid === referrer_uid) {
+      return res.status(400).json({ error: 'Cannot assign user as their own upline' });
+    }
+
+    // Ensure both users have referral records
+    await ReferralModel.ensureReferral(uid);
+    await ReferralModel.ensureReferral(referrer_uid);
+
+    // Check user doesn't already have an upline
+    const existing = ReferralModel.findByUid(uid);
+    if (existing?.referred_by) {
+      return res.status(400).json({ error: 'User already has an upline assigned' });
+    }
+
+    // Assign upline
+    await ReferralModel.assignUpline(uid, referrer_uid);
+
+    // Retroactively generate earnings for this user's existing subscriptions
+    const CreatorSubscription = require('../subscriptions/creator_subscription.model');
+    const subs = CreatorSubscription.getBySubscriber ? CreatorSubscription.getBySubscriber(uid) : [];
+    let earningsCreated = 0;
+
+    for (const sub of subs) {
+      if (sub.status !== 'active') continue;
+      const amount = sub.amount || sub.price || 0;
+      if (amount <= 0) continue;
+
+      // 15% of subscription amount goes to referral pool
+      const referralPool = Math.floor(amount * 0.15);
+      if (referralPool <= 0) continue;
+
+      const tree = ReferralModel.resolveTree(uid);
+
+      for (let i = 0; i < 5; i++) {
+        const recipientUid = tree[i];
+        if (!recipientUid) continue;
+
+        const levelAmount = Math.floor(referralPool * ReferralModel.LEVEL_DISTRIBUTION[i]);
+        if (levelAmount <= 0) continue;
+
+        // Split 50/50: cash (NGN) + vPT
+        const cashAmount = Math.floor(levelAmount / 2);
+        const vptAmount = levelAmount - cashAmount;
+
+        await ReferralModel.recordEarning({
+          recipientUid,
+          sourceUid: uid,
+          level: i + 1,
+          amountNgn: cashAmount,
+          amountVptUnits: vptAmount,
+          subscriptionId: sub.id || null,
+          creatorUid: sub.creator_uid || null,
+        });
+
+        // Ledger entry for NGN credit
+        await Ledger.create({
+          uid: recipientUid,
+          type: 'REFERRAL_EARNING',
+          direction: 'credit',
+          currency: 'ngn',
+          amount_ngn: cashAmount,
+          amount_vpt_units: 0,
+          status: 'pending',
+          meta: {
+            level: i + 1,
+            source_uid: uid,
+            subscription_id: sub.id || null,
+            creator_uid: sub.creator_uid || null,
+            retroactive: true,
+            split: 'cash_50pct',
+          },
+          description: `Retroactive referral L${i + 1} cash earning — upline assignment`,
+        });
+
+        // Ledger entry for vPT credit
+        await Ledger.create({
+          uid: recipientUid,
+          type: 'REFERRAL_EARNING',
+          direction: 'credit',
+          currency: 'vpt',
+          amount_ngn: 0,
+          amount_vpt_units: vptAmount,
+          status: 'pending',
+          meta: {
+            level: i + 1,
+            source_uid: uid,
+            subscription_id: sub.id || null,
+            creator_uid: sub.creator_uid || null,
+            retroactive: true,
+            split: 'vpt_50pct',
+          },
+          description: `Retroactive referral L${i + 1} vPT earning — upline assignment`,
+        });
+
+        earningsCreated++;
+      }
+    }
+
+    const updated = ReferralModel.findByUid(uid);
+    const referrerUser = User.findById(referrer_uid);
+
+    res.json({
+      success: true,
+      uid,
+      referred_by: referrer_uid,
+      referred_by_email: referrerUser?.email || null,
+      earnings_created: earningsCreated,
+      message: `Upline assigned. ${earningsCreated} earnings records created retroactively.`,
+    });
+  } catch (err) {
+    console.error('[Referral] adminAssignUpline:', err.message);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+}
+
+/**
+ * POST /admin/referrals/recalculate
+ * Recalculate ALL subscription payouts using the correct structure:
+ *   50% operations pool (platform keeps)
+ *   15% subscriber vPT reward
+ *   15% 5-level referral reward (50% cash / 50% vPT)
+ *   20% community pool (platform keeps)
+ *
+ * Steps:
+ * 1. Reverse all old REFERRAL_EARNING entries from wallets + referral totals
+ * 2. Reverse all old SUBSCRIBER_VPT_REWARD entries (if any)
+ * 3. Reverse old creator 70% share from creator wallets
+ * 4. Re-apply correct 15% subscriber vPT reward
+ * 5. Re-distribute 15% referral pool across 5 levels (50/50 cash+vPT)
+ * 6. Rebuild referral earnings data from scratch
+ */
+async function adminRecalculatePayouts(req, res) {
+  try {
+    if (!req._opsAuth) {
+      const caller = User.findById(req.userId);
+      if (!caller || caller.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+    }
+
+    const CreatorSubscription = require('../subscriptions/creator_subscription.model');
+    const Plan = require('../subscriptions/plan.model');
+    const allCreatorSubs = CreatorSubscription.getAll ? CreatorSubscription.getAll() : [];
+    const allUsers = User.getAll();
+    const usersWithPlans = allUsers.filter((u) =>
+      u.subscription_plan && u.subscription_plan !== 'free' && u.subscription_status === 'active'
+    );
+    const db = require('../utils/firestore').getFirestore();
+    const VPT_PRICE = ReferralModel.VPT_PRICE_NGN; // 750
+    const legacySubscriberRewardCleanupRef = db.doc('ops_migrations/subscriber_reward_wallet_cleanup_v1');
+    const legacySubscriberRewardCleanupSnap = await legacySubscriberRewardCleanupRef.get();
+    const shouldRunLegacySubscriberRewardCleanup = !legacySubscriberRewardCleanupSnap.exists;
+
+    const report = {
+      plan_subscriptions_found: usersWithPlans.length,
+      creator_subscriptions_found: allCreatorSubs.length,
+      subscriptions_processed: 0,
+      old_referral_earnings_reversed: 0,
+      old_subscriber_rewards_reversed: 0,
+      legacy_subscriber_wallet_vpt_reversed: 0,
+      new_subscriber_vpt_rewards: 0,
+      new_referral_earnings_created: 0,
+      rbd_pool_dumps: 0,
+      wallet_adjustments: 0,
+      ledger_entries_created: 0,
+      errors: [],
+    };
+
+    // ── Phase 1: Reverse ALL old referral earnings from wallets ──────
+    const allOldEarnings = ReferralModel.getAllEarnings();
+    for (const earning of allOldEarnings) {
+      try {
+        const ngnAmount = earning.amount_ngn || 0;
+        const vptAmount = earning.amount_vpt_units || 0;
+
+        if (ngnAmount > 0) {
+          await GiftWallet.adjustNgnBalance(earning.recipient_uid, -ngnAmount);
+          report.wallet_adjustments++;
+        }
+        // Only reverse vPT from wallet if it was credited there (old logic)
+        if (vptAmount > 0) {
+          await GiftWallet.adjustVptUnits(earning.recipient_uid, -vptAmount);
+          report.wallet_adjustments++;
+        }
+
+        const refRec = ReferralModel.findByUid(earning.recipient_uid);
+        if (refRec) {
+          refRec.total_earnings_ngn = Math.max(0, (refRec.total_earnings_ngn || 0) - ngnAmount);
+          refRec.total_earnings_vpt_units = Math.max(0, (refRec.total_earnings_vpt_units || 0) - vptAmount);
+        }
+
+        report.old_referral_earnings_reversed++;
+      } catch (err) {
+        report.errors.push(`Reverse earning ${earning.id}: ${err.message}`);
+      }
+    }
+
+    // Explicitly zero ALL referral records' earnings totals
+    // (individual subtraction may leave stale values if old data was inconsistent)
+    for (const refRec of ReferralModel.getAll()) {
+      refRec.total_earnings_ngn = 0;
+      refRec.total_earnings_vpt_units = 0;
+    }
+
+    // Delete all old earnings from Firestore
+    const earningsSnap = await db.collection(ReferralModel.EARNINGS_COLLECTION).get();
+    const batch1 = db.batch();
+    let batchCount = 0;
+    for (const doc of earningsSnap.docs) {
+      batch1.delete(doc.ref);
+      batchCount++;
+      if (batchCount >= 450) { await batch1.commit(); batchCount = 0; }
+    }
+    if (batchCount > 0) await batch1.commit();
+
+    // Delete old REFERRAL_EARNING and SUBSCRIBER_VPT_REWARD ledger entries
+    const allLedger = Ledger.getAll();
+    const oldSubscriberRewards = allLedger.filter(
+      (entry) => entry.type === 'SUBSCRIBER_VPT_REWARD' && entry.status === 'success',
+    );
+
+    for (const entry of oldSubscriberRewards) {
+      try {
+        const vptUnits = entry.amount_vpt_units || entry.amount_vpt || 0;
+        if (vptUnits > 0 && entry.uid) {
+          await GiftWallet.adjustVptUnits(entry.uid, -vptUnits);
+          report.wallet_adjustments++;
+          report.old_subscriber_rewards_reversed++;
+        }
+      } catch (err) {
+        report.errors.push(`Reverse subscriber reward ${entry.id}: ${err.message}`);
+      }
+    }
+
+    const toDeleteIds = allLedger
+      .filter((e) => e.type === 'REFERRAL_EARNING' || e.type === 'SUBSCRIBER_VPT_REWARD')
+      .map((e) => e.id);
+
+    const batch2 = db.batch();
+    let batch2Count = 0;
+    for (const id of toDeleteIds) {
+      batch2.delete(db.collection('ledger').doc(id));
+      batch2Count++;
+      if (batch2Count >= 450) { await batch2.commit(); batch2Count = 0; }
+    }
+    if (batch2Count > 0) await batch2.commit();
+    for (const id of toDeleteIds) Ledger.removeFromCache(id);
+    ReferralModel.clearEarningsCache();
+
+    // Reset RBD Pool
+    await db.doc('pools/rbd').set({
+      balance_ngn: 0, balance_vpt: 0,
+      total_credited_ngn: 0, total_credited_vpt: 0,
+      updated_at: Date.now(),
+    });
+
+    if (shouldRunLegacySubscriberRewardCleanup) {
+      for (const user of usersWithPlans) {
+        try {
+          const plan = Plan.findByName(user.subscription_plan);
+          if (!plan || plan.price <= 0) continue;
+          const legacyRewardUnits = Math.floor(plan.price * 0.15);
+          if (legacyRewardUnits <= 0) continue;
+          await GiftWallet.adjustVptUnits(user.id, -legacyRewardUnits);
+          report.wallet_adjustments++;
+          report.legacy_subscriber_wallet_vpt_reversed += legacyRewardUnits;
+        } catch (err) {
+          report.errors.push(`Legacy subscriber reward cleanup for user ${user.id}: ${err.message}`);
+        }
+      }
+
+      for (const sub of allCreatorSubs) {
+        try {
+          const legacyRewardUnits = Math.floor((sub.amount || 0) * 0.15);
+          if (legacyRewardUnits <= 0) continue;
+          await GiftWallet.adjustVptUnits(sub.subscriber_uid, -legacyRewardUnits);
+          report.wallet_adjustments++;
+          report.legacy_subscriber_wallet_vpt_reversed += legacyRewardUnits;
+        } catch (err) {
+          report.errors.push(`Legacy subscriber reward cleanup for creator sub ${sub.id}: ${err.message}`);
+        }
+      }
+
+      await legacySubscriberRewardCleanupRef.set({
+        applied_at: Date.now(),
+        note: 'One-time reversal of legacy subscriber vPT rewards that were incorrectly credited to gift wallets.',
+      });
+    }
+
+    // ── Explicit zero: set ALL gift wallet vpt_units to 0 ────────────
+    // Guarantees a clean slate regardless of any stale or inconsistent
+    // delta-based adjustments above. vPT lives in the ledger now, not wallets.
+    {
+      const allUsers = User.getAll();
+      const zeroSnap = await db.collection('users').get();
+      let zeroBatch = db.batch();
+      let zeroBatchCount = 0;
+      for (const doc of zeroSnap.docs) {
+        zeroBatch.update(doc.ref, { vpt: 0 });
+        zeroBatchCount++;
+        if (zeroBatchCount >= 450) { await zeroBatch.commit(); zeroBatch = db.batch(); zeroBatchCount = 0; }
+      }
+      if (zeroBatchCount > 0) await zeroBatch.commit();
+      // Sync in-memory cache
+      for (const u of allUsers) u.vpt = 0;
+      report.wallet_adjustments += zeroSnap.size;
+    }
+
+    // ── Helper: distribute referral rewards for one subscription ─────
+    async function _distributeForSub(subscriberUid, amount, subscriptionId, creatorUid, source) {
+      const referralPool = Math.floor(amount * 0.15);
+      if (referralPool <= 0) return;
+
+      const tree = ReferralModel.resolveTree(subscriberUid);
+      for (let i = 0; i < 5; i++) {
+        const recipientUid = tree[i];
+        const levelAmount = Math.floor(referralPool * ReferralModel.LEVEL_DISTRIBUTION[i]);
+        if (levelAmount <= 0) continue;
+
+        const cashAmount = Math.floor(levelAmount / 2);
+        const vptNgnHalf = levelAmount - cashAmount;
+        const vptUnits = parseFloat((vptNgnHalf / VPT_PRICE).toFixed(4));
+
+        if (!recipientUid) {
+          // Empty level → RBD Pool
+          await PoolService.creditRbdPool(cashAmount, vptUnits, {
+            reason: `recalc_empty_L${i + 1}`,
+            subscriber_uid: subscriberUid,
+            subscription_id: subscriptionId,
+          });
+          report.rbd_pool_dumps++;
+          continue;
+        }
+
+        // Cash → instant wallet credit
+        if (cashAmount > 0) {
+          await GiftWallet.adjustNgnBalance(recipientUid, cashAmount);
+          report.wallet_adjustments++;
+        }
+
+        // Record earning (vPT stays as ledger balance, NOT credited to wallet)
+        await ReferralModel.recordEarning({
+          recipientUid,
+          sourceUid: subscriberUid,
+          level: i + 1,
+          amountNgn: cashAmount,
+          amountVptUnits: vptUnits,
+          subscriptionId,
+          creatorUid,
+        });
+        report.new_referral_earnings_created++;
+
+        if (cashAmount > 0) {
+          await Ledger.create({
+            uid: recipientUid,
+            type: 'REFERRAL_EARNING',
+            direction: 'credit',
+            currency: 'ngn',
+            amount_ngn: cashAmount,
+            status: 'success',
+            meta: { level: i + 1, source_uid: subscriberUid, subscription_id: subscriptionId, creator_uid: creatorUid, split: 'cash_50pct', referral_pool: referralPool, recalculated: true, source },
+            description: `Referral L${i + 1} cash — ${source} — recalculated`,
+          });
+          report.ledger_entries_created++;
+        }
+
+        if (vptUnits > 0) {
+          await Ledger.create({
+            uid: recipientUid,
+            type: 'REFERRAL_EARNING',
+            direction: 'credit',
+            currency: 'vpt',
+            amount_vpt_units: vptUnits,
+            status: 'pending_distribution',
+            meta: { level: i + 1, source_uid: subscriberUid, subscription_id: subscriptionId, creator_uid: creatorUid, split: 'vpt_50pct', vpt_ngn_value: vptNgnHalf, vpt_price: VPT_PRICE, referral_pool: referralPool, recalculated: true, source },
+            description: `Referral L${i + 1} vPT ledger — ${vptUnits} vPT (₦${vptNgnHalf}) — recalculated`,
+          });
+          report.ledger_entries_created++;
+        }
+      }
+    }
+
+    // ── Phase 2: Re-distribute for PLAN SUBSCRIPTIONS ───────────────
+    for (const user of usersWithPlans) {
+      try {
+        const plan = Plan.findByName(user.subscription_plan);
+        if (!plan || plan.price <= 0) continue;
+        report.subscriptions_processed++;
+
+        // 15% subscriber vPT reward (converted)
+        const subscriberVptNgn = Math.floor(plan.price * 0.15);
+        const subscriberVptUnits = parseFloat((subscriberVptNgn / VPT_PRICE).toFixed(4));
+
+        if (subscriberVptUnits > 0) {
+          report.new_subscriber_vpt_rewards++;
+          await Ledger.create({
+            uid: user.id,
+            type: 'SUBSCRIBER_VPT_REWARD',
+            direction: 'credit',
+            currency: 'vpt',
+            amount_vpt_units: subscriberVptUnits,
+            status: 'pending_distribution',
+            meta: { plan_name: plan.name, plan_price: plan.price, vpt_ngn_value: subscriberVptNgn, vpt_price: VPT_PRICE, recalculated: true, source: 'plan_subscription' },
+            description: `Subscriber vPT reward — ${subscriberVptUnits} vPT (₦${subscriberVptNgn}) — ${plan.name} plan — recalculated`,
+          });
+          report.ledger_entries_created++;
+        }
+
+        await _distributeForSub(user.id, plan.price, `plan_${plan.id}_${user.id}`, null, `${plan.name}_plan`);
+      } catch (err) {
+        report.errors.push(`Plan sub for user ${user.id}: ${err.message}`);
+      }
+    }
+
+    // ── Phase 3: Re-distribute for CREATOR CHANNEL SUBSCRIPTIONS ────
+    for (const sub of allCreatorSubs) {
+      try {
+        const amount = sub.amount || 0;
+        if (amount <= 0) continue;
+        report.subscriptions_processed++;
+
+        const subscriberVptNgn = Math.floor(amount * 0.15);
+        const subscriberVptUnits = parseFloat((subscriberVptNgn / VPT_PRICE).toFixed(4));
+
+        if (subscriberVptUnits > 0) {
+          report.new_subscriber_vpt_rewards++;
+          await Ledger.create({
+            uid: sub.subscriber_uid,
+            type: 'SUBSCRIBER_VPT_REWARD',
+            direction: 'credit',
+            currency: 'vpt',
+            amount_vpt_units: subscriberVptUnits,
+            status: 'pending_distribution',
+            meta: { creator_uid: sub.creator_uid, subscription_id: sub.id, subscription_amount: amount, vpt_ngn_value: subscriberVptNgn, vpt_price: VPT_PRICE, recalculated: true, source: 'creator_subscription' },
+            description: `Subscriber vPT reward — ${subscriberVptUnits} vPT (₦${subscriberVptNgn}) — creator sub — recalculated`,
+          });
+          report.ledger_entries_created++;
+        }
+
+        await _distributeForSub(sub.subscriber_uid, amount, sub.id, sub.creator_uid, 'creator_subscription');
+      } catch (err) {
+        report.errors.push(`Creator sub ${sub.id}: ${err.message}`);
+      }
+    }
+
+    // ── Phase 4: Persist updated referral totals ─────────────────────
+    for (const refRec of ReferralModel.getAll()) {
+      try {
+        await db.collection('referrals').doc(refRec.uid).set({
+          total_earnings_ngn: refRec.total_earnings_ngn || 0,
+          total_earnings_vpt_units: refRec.total_earnings_vpt_units || 0,
+          updated_at: Date.now(),
+        }, { merge: true });
+      } catch (err) {
+        report.errors.push(`Persist referral totals for ${refRec.uid}: ${err.message}`);
+      }
+    }
+
+    // Get final RBD pool balance for report
+    const rbdBalance = await PoolService.getRbdPoolBalance();
+
+    res.json({
+      success: true,
+      message: 'Payout recalculation complete.',
+      structure: '50% ops, 15% subscriber vPT, 15% referral (L1-5, 50/50 cash+vPT @ ₦750/vPT), 20% community pool. Empty levels → RBD Pool.',
+      rbd_pool: rbdBalance,
+      report,
+    });
+  } catch (err) {
+    console.error('[Referral] adminRecalculatePayouts:', err.message);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+}
+
+module.exports = { getMyCode, applyReferral, getDashboard, distributeReferralEarnings, adminListReferrals, adminAssignUpline, adminRecalculatePayouts };

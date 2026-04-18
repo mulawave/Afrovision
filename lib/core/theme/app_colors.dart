@@ -10,6 +10,7 @@ class AppColors {
   static const Color inputBorder = Color(0xFF1E2A5A);
   static const Color inputFocusBorder = Color(0xFFF49617);
   static const Color hintText = Color(0xFF5A6190);
+  static const Color goldText = lightOrange;
   static const Color errorRed = Color(0xFFFF4D6A);
   static const Color successGreen = Color(0xFF4CAF50);
   static const Color infoBlue = Color(0xFF2196F3);

@@ -49,3 +49,21 @@ backend/node_modules/
 backend/uploads/
 backend/.env
 android/build/
+
+# Deployment scripts (contain credentials — local only)
+deploy_all.ps1
+deploy_all.sh
+backend/deploy_backend.cmd
+backend/deploy.sh
+backend/cloudbuild.yaml
+admin/deploy_admin.cmd
+website/deploy_website.cmd
+
+# Sensitive artifacts — keep in vault, never commit
+mac_key.jks
+android/key.properties
+android/mac_key.jks
+user_schema_dump.json
+*.jks
+hs_err_pid*.log
+replay_pid*.log

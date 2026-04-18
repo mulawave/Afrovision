@@ -12,6 +12,7 @@ import '../../interactions/widgets/gift_overlay.dart';
 import '../../interactions/widgets/gift_sheet.dart';
 import '../../interactions/widgets/live_chat_panel.dart';
 import '../../interactions/services/interaction_service.dart';
+import '../../interactions/models/interaction_models.dart';
 import '../../channel/models/channel_model.dart';
 import '../../channel/services/channel_service.dart';
 import '../../channel/services/premium_stream_service.dart';
@@ -67,6 +68,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   // Fullscreen state
   bool _isFullscreen = false;
   bool _showFullscreenControls = true;
+  bool _showFullscreenGift = false;
+  bool _showFullscreenReact = false;
   Timer? _hideControlsTimer;
 
   @override
@@ -415,16 +418,61 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         height: double.infinity,
         decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
         child: SafeArea(
-          child: FadeTransition(
-            opacity: _fadeIn,
-            child: Column(
-              children: [
-                _buildHeader(),
-                Expanded(child: _buildBody()),
-              ],
-            ),
+          child: Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: _loading
+                    ? _buildLoadingState()
+                    : FadeTransition(opacity: _fadeIn, child: _buildBody()),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ─── Branded Loading Screen ───
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Animated TV signal icon
+          _LoadingTvWidget(),
+          const SizedBox(height: 28),
+          const Text(
+            'TUNING IN',
+            style: TextStyle(
+              color: AppColors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 3,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Please wait a moment...',
+            style: TextStyle(color: AppColors.goldText, fontSize: 12),
+          ),
+          const SizedBox(height: 28),
+          SizedBox(
+            width: 180,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: const LinearProgressIndicator(
+                backgroundColor: Color(0xFF1A2B5C),
+                color: AppColors.orange,
+                minHeight: 3,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Scanning dots
+          const _DotsLoader(),
+        ],
       ),
     );
   }
@@ -452,7 +500,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
               const Center(
                 child: CircularProgressIndicator(color: AppColors.orange),
               ),
-            // Gift overlay
+            // Gift overlay (floating animations)
             GiftOverlay(key: _overlayKey),
             // Timer overlay (top-left)
             if (initialized)
@@ -460,42 +508,116 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             // Channel logo + name (top-right)
             if (_channel != null)
               Positioned(top: 12, right: 12, child: _buildChannelBadge()),
-            // Fullscreen controls overlay
-            if (_showFullscreenControls)
-              Positioned(
-                top: 12,
-                right: _channel != null ? 12 : 12,
-                bottom: 12,
-                left: 12,
+            // Dismiss tap area for react/gift panels — must be BELOW the
+            // interactive panels in the z-order so it doesn't swallow their taps.
+            if (_showFullscreenReact || _showFullscreenGift)
+              Positioned.fill(
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  onTap:
-                      () {}, // absorb taps so outer GestureDetector doesn't toggle controls
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          // Interactions menu button
-                          _buildFloatingMenuButton(),
-                          // Exit fullscreen
-                          GestureDetector(
-                            onTap: _exitFullscreen,
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.6),
-                                borderRadius: BorderRadius.circular(10),
+                  onTap: () => setState(() {
+                    _showFullscreenReact = false;
+                    _showFullscreenGift = false;
+                  }),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            // ── Embedded reaction bar (slides up from bottom) ──
+            if (_showFullscreenReact)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 68,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {}, // absorb
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBlue.withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: AppColors.inputBorder.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: _reactionEmojis.map((emoji) {
+                        return GestureDetector(
+                          onTap: () {
+                            _onReactionTap(emoji);
+                            setState(() => _showFullscreenReact = false);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.inputBorder.withValues(
+                                alpha: 0.3,
                               ),
-                              child: const Icon(
-                                Icons.fullscreen_exit_rounded,
-                                color: AppColors.white,
-                                size: 26,
-                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              emoji,
+                              style: const TextStyle(fontSize: 24),
                             ),
                           ),
-                        ],
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ),
+            // ── Embedded gift panel (slides up, renders in-tree) ──
+            if (_showFullscreenGift && _channelId != null)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {}, // absorb
+                  child: _FullscreenGiftPanel(
+                    channelId: _channelId!,
+                    overlayKey: _overlayKey,
+                    onClose: () {
+                      setState(() => _showFullscreenGift = false);
+                      _startHideControlsTimer();
+                    },
+                  ),
+                ),
+              ),
+            // ── Fullscreen controls overlay (bottom bar) ──
+            if (_showFullscreenControls && !_showFullscreenGift)
+              Positioned(
+                bottom: 12,
+                left: 12,
+                right: 12,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {},
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Interaction buttons
+                      _buildFullscreenButtons(),
+                      // Exit fullscreen
+                      GestureDetector(
+                        onTap: _exitFullscreen,
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.fullscreen_exit_rounded,
+                            color: AppColors.white,
+                            size: 26,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -507,69 +629,85 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     );
   }
 
-  Widget _buildFloatingMenuButton() {
-    return PopupMenuButton<String>(
-      icon: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Icon(
-          Icons.chat_bubble_outline_rounded,
-          color: AppColors.white,
-          size: 22,
-        ),
-      ),
-      color: AppColors.cardBg,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      onSelected: (value) {
-        if (value == 'gift') {
-          showModalBottomSheet(
-            context: context,
-            backgroundColor: Colors.transparent,
-            isScrollControlled: true,
-            builder: (_) => GiftSheet(channelId: _channelId!),
-          );
-        } else if (value == 'react') {
-          _onReactionTap('❤️');
-        } else if (value == 'chat') {
-          _exitFullscreen();
-        }
-      },
-      itemBuilder: (_) => [
-        const PopupMenuItem(
-          value: 'gift',
-          child: Row(
-            children: [
-              Icon(
-                Icons.card_giftcard_rounded,
-                color: AppColors.orange,
-                size: 18,
-              ),
-              SizedBox(width: 8),
-              Text('Gift', style: TextStyle(color: AppColors.white)),
-            ],
+  Widget _buildFullscreenButtons() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Gift button
+        GestureDetector(
+          onTap: () {
+            _hideControlsTimer?.cancel();
+            setState(() {
+              _showFullscreenGift = !_showFullscreenGift;
+              _showFullscreenReact = false;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              gradient: _showFullscreenGift
+                  ? const LinearGradient(
+                      colors: [AppColors.lightOrange, AppColors.orange],
+                    )
+                  : null,
+              color: _showFullscreenGift
+                  ? null
+                  : Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('🎁', style: TextStyle(fontSize: 16)),
+                SizedBox(width: 4),
+                Text(
+                  'Gift',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        const PopupMenuItem(
-          value: 'react',
-          child: Row(
-            children: [
-              Icon(Icons.favorite_rounded, color: AppColors.orange, size: 18),
-              SizedBox(width: 8),
-              Text('React', style: TextStyle(color: AppColors.white)),
-            ],
+        // Reaction button
+        GestureDetector(
+          onTap: () {
+            _hideControlsTimer?.cancel();
+            setState(() {
+              _showFullscreenReact = !_showFullscreenReact;
+              _showFullscreenGift = false;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: _showFullscreenReact
+                  ? AppColors.orange.withValues(alpha: 0.8)
+                  : Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Text('😊', style: TextStyle(fontSize: 18)),
           ),
         ),
-        const PopupMenuItem(
-          value: 'chat',
-          child: Row(
-            children: [
-              Icon(Icons.chat_rounded, color: AppColors.orange, size: 18),
-              SizedBox(width: 8),
-              Text('Chat', style: TextStyle(color: AppColors.white)),
-            ],
+        // Chat button (exits fullscreen to use chat)
+        GestureDetector(
+          onTap: _exitFullscreen,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.chat_bubble_outline_rounded,
+              color: AppColors.white,
+              size: 22,
+            ),
           ),
         ),
       ],
@@ -755,12 +893,6 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   }
 
   Widget _buildBody() {
-    if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.orange),
-      );
-    }
-
     if (_error != null) {
       return Center(
         child: Padding(
@@ -829,10 +961,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 _channel!.entryFeeType == 'ngn'
                     ? 'Pay ₦${_channel!.entryFeeNgn.toStringAsFixed(0)} to watch this stream.'
                     : 'Pay ${_channel!.entryFeeVptUnits} vPT to watch this stream.',
-                style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.8),
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: AppColors.goldText, fontSize: 14),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
@@ -960,7 +1089,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Icon(
                     Icons.tv_rounded,
-                    color: AppColors.hintText.withValues(alpha: 0.4),
+                    color: AppColors.goldText,
                     size: 40,
                   ),
                 ),
@@ -978,7 +1107,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 ),
                 child: Icon(
                   Icons.tv_rounded,
-                  color: AppColors.hintText.withValues(alpha: 0.4),
+                  color: AppColors.goldText,
                   size: 40,
                 ),
               ),
@@ -1005,10 +1134,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             const SizedBox(height: 8),
             Text(
               'Check back later',
-              style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.7),
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppColors.goldText, fontSize: 13),
             ),
             const SizedBox(height: 16),
             // Standby indicator
@@ -1019,7 +1145,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                   width: 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: AppColors.hintText.withValues(alpha: 0.4),
+                    color: AppColors.goldText,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -1027,7 +1153,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 Text(
                   'STANDBY',
                   style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.4),
+                    color: AppColors.goldText,
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 2,
@@ -1265,7 +1391,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                       const SizedBox(width: 8),
                       Icon(
                         Icons.info_outline,
-                        color: AppColors.hintText.withValues(alpha: 0.5),
+                        color: AppColors.goldText,
                         size: 20,
                       ),
                     ],
@@ -1409,9 +1535,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                             Text(
                               timeStr,
                               style: TextStyle(
-                                color: AppColors.hintText.withValues(
-                                  alpha: 0.7,
-                                ),
+                                color: AppColors.goldText,
                                 fontSize: 12,
                               ),
                             ),
@@ -1449,7 +1573,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                           : description,
                       style: TextStyle(
                         color: description.isEmpty
-                            ? AppColors.hintText.withValues(alpha: 0.5)
+                            ? AppColors.goldText
                             : AppColors.white.withValues(alpha: 0.85),
                         fontSize: 14,
                         height: 1.5,
@@ -1577,18 +1701,14 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                               : Icons.notifications_none,
                           color: hasReminder
                               ? AppColors.orange
-                              : AppColors.hintText.withValues(alpha: 0.5),
+                              : AppColors.goldText,
                           size: 18,
                         ),
                 ),
               ),
             ],
             const SizedBox(width: 8),
-            Icon(
-              Icons.info_outline,
-              color: AppColors.hintText.withValues(alpha: 0.5),
-              size: 18,
-            ),
+            Icon(Icons.info_outline, color: AppColors.goldText, size: 18),
           ],
         ),
       ),
@@ -1602,23 +1722,38 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   Widget _buildInteractionBar() {
     return Row(
       children: [
-        // Free reaction emojis
-        ..._reactionEmojis.map(
-          (emoji) => GestureDetector(
-            onTap: () => _onReactionTap(emoji),
-            child: Container(
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.inputBorder.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(emoji, style: const TextStyle(fontSize: 18)),
+        // Free reaction emojis — scrollable to prevent overflow
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _reactionEmojis
+                  .map(
+                    (emoji) => GestureDetector(
+                      onTap: () => _onReactionTap(emoji),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.inputBorder.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 18),
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
             ),
           ),
         ),
-        const Spacer(),
-        // Gift button
+        const SizedBox(width: 8),
+        // Gift button — always visible on the right
         GestureDetector(
           onTap: _onGiftTap,
           child: Container(
@@ -1671,6 +1806,371 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         combo: result['combo'] as int? ?? 1,
       );
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fullscreen Gift Panel — renders in-tree (no modal route) so it appears above
+// the immersive fullscreen video surface on all Android devices.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _FullscreenGiftPanel extends StatefulWidget {
+  final String channelId;
+  final GlobalKey<GiftOverlayState> overlayKey;
+  final VoidCallback onClose;
+
+  const _FullscreenGiftPanel({
+    required this.channelId,
+    required this.overlayKey,
+    required this.onClose,
+  });
+
+  @override
+  State<_FullscreenGiftPanel> createState() => _FullscreenGiftPanelState();
+}
+
+class _FullscreenGiftPanelState extends State<_FullscreenGiftPanel> {
+  List<GiftModel> _gifts = [];
+  GiftWalletModel? _wallet;
+  bool _loading = true;
+  String? _sendingId;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final results = await Future.wait([
+        InteractionService.getGifts(),
+        InteractionService.getMyGiftWallet(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _gifts = results[0] as List<GiftModel>;
+        _wallet = results[1] as GiftWalletModel;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _sendGift(GiftModel gift) async {
+    if (_sendingId != null) return;
+    setState(() {
+      _sendingId = gift.id;
+      _error = null;
+    });
+    try {
+      final result = await InteractionService.sendGift(
+        channelId: widget.channelId,
+        giftId: gift.id,
+      );
+      if (!mounted) return;
+      widget.overlayKey.currentState?.showGift(
+        senderName: result['sender_name'] as String? ?? 'You',
+        giftName: result['gift_name'] as String? ?? 'Gift',
+        giftIcon: result['gift_icon'] as String? ?? '🎁',
+        combo: result['combo'] as int? ?? 1,
+      );
+      widget.onClose();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sendingId = null;
+        _error = e.toString().replaceAll('Exception: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 280),
+      decoration: BoxDecoration(
+        color: AppColors.darkBlue.withValues(alpha: 0.97),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        border: const Border(
+          top: BorderSide(color: AppColors.inputBorder, width: 1),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          // Handle + header row
+          Row(
+            children: [
+              const SizedBox(width: 16),
+              const Text(
+                'SEND A GIFT',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const Spacer(),
+              if (_wallet != null)
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.cardBg,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _wallet!.vptLabel,
+                    style: const TextStyle(
+                      color: AppColors.lightOrange,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              GestureDetector(
+                onTap: widget.onClose,
+                child: Container(
+                  margin: const EdgeInsets.only(right: 12),
+                  padding: const EdgeInsets.all(6),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    color: AppColors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: AppColors.errorRed, fontSize: 12),
+              ),
+            ),
+          const SizedBox(height: 8),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(30),
+              child: CircularProgressIndicator(color: AppColors.orange),
+            )
+          else if (_gifts.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(30),
+              child: Text(
+                'No gifts available',
+                style: TextStyle(color: AppColors.goldText, fontSize: 14),
+              ),
+            )
+          else
+            Flexible(
+              child: GridView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 5,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 0.75,
+                ),
+                itemCount: _gifts.length,
+                itemBuilder: (_, i) {
+                  final gift = _gifts[i];
+                  final isSending = _sendingId == gift.id;
+                  return GestureDetector(
+                    onTap: isSending ? null : () => _sendGift(gift),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isSending
+                              ? AppColors.orange
+                              : AppColors.inputBorder.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          isSending
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.orange,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(
+                                  gift.icon,
+                                  style: const TextStyle(fontSize: 22),
+                                ),
+                          const SizedBox(height: 4),
+                          Text(
+                            gift.name,
+                            style: const TextStyle(
+                              color: AppColors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                          Text(
+                            gift.priceLabel,
+                            style: const TextStyle(
+                              color: AppColors.lightOrange,
+                              fontSize: 9,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+}
+
+/// Animated TV icon for the channel loading screen.
+class _LoadingTvWidget extends StatefulWidget {
+  @override
+  State<_LoadingTvWidget> createState() => _LoadingTvWidgetState();
+}
+
+class _LoadingTvWidgetState extends State<_LoadingTvWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+  late Animation<double> _glow;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(
+      begin: 0.92,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    _glow = Tween<double>(
+      begin: 0.3,
+      end: 0.7,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) => Transform.scale(
+        scale: _scale.value,
+        child: Container(
+          width: 88,
+          height: 88,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              colors: [AppColors.lightOrange, AppColors.orange],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.orange.withValues(alpha: _glow.value),
+                blurRadius: 28,
+                spreadRadius: 4,
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.live_tv_rounded,
+            color: AppColors.white,
+            size: 42,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Animated scanning dots for the channel loading screen.
+class _DotsLoader extends StatefulWidget {
+  const _DotsLoader();
+
+  @override
+  State<_DotsLoader> createState() => _DotsLoaderState();
+}
+
+class _DotsLoaderState extends State<_DotsLoader>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final delay = i * 0.33;
+            final t = (_ctrl.value - delay).clamp(0.0, 1.0);
+            final opacity = (t < 0.5 ? t * 2 : (1 - t) * 2).clamp(0.2, 1.0);
+            return Container(
+              width: 7,
+              height: 7,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.orange.withValues(alpha: opacity),
+              ),
+            );
+          }),
+        );
+      },
+    );
   }
 }
 

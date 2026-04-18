@@ -85,6 +85,10 @@ class _PremiumStreamPaywallScreenState extends State<PremiumStreamPaywallScreen>
     _animCtrl.forward();
   }
 
+  Future<void> _refresh() async {
+    await _checkAccess();
+  }
+
   Future<void> _pay() async {
     setState(() {
       _paying = true;
@@ -203,291 +207,302 @@ class _PremiumStreamPaywallScreenState extends State<PremiumStreamPaywallScreen>
         ),
 
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const SizedBox(height: 24),
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            color: AppColors.orange,
+            backgroundColor: AppColors.inputFill,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 24),
 
-                // Lock icon with glow ring
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.orange.withAlpha(25),
-                    border: Border.all(
-                      color: AppColors.orange.withAlpha(80),
-                      width: 2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.orange.withAlpha(60),
-                        blurRadius: 30,
-                        spreadRadius: 2,
+                  // Lock icon with glow ring
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.orange.withAlpha(25),
+                      border: Border.all(
+                        color: AppColors.orange.withAlpha(80),
+                        width: 2,
                       ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.lock_rounded,
-                    color: AppColors.orange,
-                    size: 46,
-                  ),
-                ),
-
-                const SizedBox(height: 28),
-
-                // Channel name
-                Text(
-                  _channel!.name,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.2,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 8),
-
-                // Premium badge
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: AppColors.buttonGradient,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    '✦ PREMIUM STREAM',
-                    style: TextStyle(
-                      color: AppColors.darkBlue,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 36),
-
-                // Info card
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: AppColors.cardBg,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: AppColors.orange.withAlpha(60),
-                      width: 1,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      _InfoRow(
-                        icon: Icons.monetization_on_rounded,
-                        label: 'Entry fee',
-                        value: _feeLabel,
-                        valueColor: AppColors.lightOrange,
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Divider(color: AppColors.inputBorder, height: 1),
-                      ),
-                      _InfoRow(
-                        icon: Icons.timer_rounded,
-                        label: 'Access duration',
-                        value: _durationLabel,
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Divider(color: AppColors.inputBorder, height: 1),
-                      ),
-                      _InfoRow(
-                        icon: Icons.account_balance_wallet_rounded,
-                        label: 'Payment source',
-                        value: 'Gift wallet',
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // What you get
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: AppColors.inputFill,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.inputBorder),
-                  ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'What you get',
-                        style: TextStyle(
-                          color: AppColors.lightOrange,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.orange.withAlpha(60),
+                          blurRadius: 30,
+                          spreadRadius: 2,
                         ),
-                      ),
-                      SizedBox(height: 12),
-                      _BenefitRow(
-                        icon: Icons.hd_rounded,
-                        text: 'Full HD stream access',
-                      ),
-                      SizedBox(height: 8),
-                      _BenefitRow(
-                        icon: Icons.chat_bubble_rounded,
-                        text: 'Live chat participation',
-                      ),
-                      SizedBox(height: 8),
-                      _BenefitRow(
-                        icon: Icons.star_rounded,
-                        text: 'Subscriber badge in chat',
-                      ),
-                    ],
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.lock_rounded,
+                      color: AppColors.orange,
+                      size: 46,
+                    ),
                   ),
-                ),
 
-                // Error message
-                if (_error != null) ...[
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 28),
+
+                  // Channel name
+                  Text(
+                    _channel!.name,
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.2,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  // Premium badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: AppColors.buttonGradient,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      '✦ PREMIUM STREAM',
+                      style: TextStyle(
+                        color: AppColors.darkBlue,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 36),
+
+                  // Info card
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: AppColors.errorRed.withAlpha(25),
-                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.cardBg,
+                      borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: AppColors.errorRed.withAlpha(100),
+                        color: AppColors.orange.withAlpha(60),
+                        width: 1,
                       ),
                     ),
-                    child: Row(
+                    child: Column(
                       children: [
-                        const Icon(
-                          Icons.error_outline_rounded,
-                          color: AppColors.errorRed,
-                          size: 18,
+                        _InfoRow(
+                          icon: Icons.monetization_on_rounded,
+                          label: 'Entry fee',
+                          value: _feeLabel,
+                          valueColor: AppColors.lightOrange,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(
-                              color: AppColors.errorRed,
-                              fontSize: 13,
-                            ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Divider(
+                            color: AppColors.inputBorder,
+                            height: 1,
                           ),
+                        ),
+                        _InfoRow(
+                          icon: Icons.timer_rounded,
+                          label: 'Access duration',
+                          value: _durationLabel,
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Divider(
+                            color: AppColors.inputBorder,
+                            height: 1,
+                          ),
+                        ),
+                        _InfoRow(
+                          icon: Icons.account_balance_wallet_rounded,
+                          label: 'Payment source',
+                          value: 'Gift wallet',
                         ),
                       ],
                     ),
                   ),
-                ],
 
-                const SizedBox(height: 36),
+                  const SizedBox(height: 24),
 
-                // Pay button
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: _paying
-                      ? Container(
-                          decoration: BoxDecoration(
-                            gradient: AppColors.buttonGradient,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Center(
-                            child: SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                color: AppColors.darkBlue,
-                                strokeWidth: 2.5,
-                              ),
-                            ),
-                          ),
-                        )
-                      : DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: AppColors.buttonGradient,
-                            borderRadius: BorderRadius.circular(14),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.orange.withAlpha(80),
-                                blurRadius: 18,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                          ),
-                          child: ElevatedButton.icon(
-                            onPressed: _pay,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            icon: const Icon(
-                              Icons.play_arrow_rounded,
-                              color: AppColors.darkBlue,
-                              size: 22,
-                            ),
-                            label: Text(
-                              'Pay ${_feeLabel.split(' ').first} — Unlock Stream',
-                              style: const TextStyle(
-                                color: AppColors.darkBlue,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.3,
-                              ),
-                            ),
+                  // What you get
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.inputBorder),
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'What you get',
+                          style: TextStyle(
+                            color: AppColors.lightOrange,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
                           ),
                         ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Top-up shortcut if error mentions insufficient balance
-                if (_error != null)
-                  TextButton.icon(
-                    onPressed: () =>
-                        Navigator.pushNamed(context, '/gift-wallet'),
-                    icon: const Icon(
-                      Icons.add_circle_outline,
-                      color: AppColors.orange,
-                      size: 18,
-                    ),
-                    label: const Text(
-                      'Top up wallet',
-                      style: TextStyle(color: AppColors.orange, fontSize: 14),
+                        SizedBox(height: 12),
+                        _BenefitRow(
+                          icon: Icons.hd_rounded,
+                          text: 'Full HD stream access',
+                        ),
+                        SizedBox(height: 8),
+                        _BenefitRow(
+                          icon: Icons.chat_bubble_rounded,
+                          text: 'Live chat participation',
+                        ),
+                        SizedBox(height: 8),
+                        _BenefitRow(
+                          icon: Icons.star_rounded,
+                          text: 'Subscriber badge in chat',
+                        ),
+                      ],
                     ),
                   ),
 
-                const SizedBox(height: 24),
+                  // Error message
+                  if (_error != null) ...[
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorRed.withAlpha(25),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.errorRed.withAlpha(100),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.error_outline_rounded,
+                            color: AppColors.errorRed,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _error!,
+                              style: const TextStyle(
+                                color: AppColors.errorRed,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
 
-                Text(
-                  'Payments are charged from your AfroVision gift wallet.\nNo recurring charges — pay-per-view only.',
-                  style: const TextStyle(
-                    color: AppColors.hintText,
-                    fontSize: 12,
-                    height: 1.6,
+                  const SizedBox(height: 36),
+
+                  // Pay button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: _paying
+                        ? Container(
+                            decoration: BoxDecoration(
+                              gradient: AppColors.buttonGradient,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Center(
+                              child: SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  color: AppColors.darkBlue,
+                                  strokeWidth: 2.5,
+                                ),
+                              ),
+                            ),
+                          )
+                        : DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: AppColors.buttonGradient,
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.orange.withAlpha(80),
+                                  blurRadius: 18,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: ElevatedButton.icon(
+                              onPressed: _pay,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              icon: const Icon(
+                                Icons.play_arrow_rounded,
+                                color: AppColors.darkBlue,
+                                size: 22,
+                              ),
+                              label: Text(
+                                'Pay ${_feeLabel.split(' ').first} — Unlock Stream',
+                                style: const TextStyle(
+                                  color: AppColors.darkBlue,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ),
+                          ),
                   ),
-                  textAlign: TextAlign.center,
-                ),
 
-                const SizedBox(height: 32),
-              ],
+                  const SizedBox(height: 16),
+
+                  // Top-up shortcut if error mentions insufficient balance
+                  if (_error != null)
+                    TextButton.icon(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/gift-wallet'),
+                      icon: const Icon(
+                        Icons.add_circle_outline,
+                        color: AppColors.orange,
+                        size: 18,
+                      ),
+                      label: const Text(
+                        'Top up wallet',
+                        style: TextStyle(color: AppColors.orange, fontSize: 14),
+                      ),
+                    ),
+
+                  const SizedBox(height: 24),
+
+                  Text(
+                    'Payments are charged from your AfroVision gift wallet.\nNo recurring charges — pay-per-view only.',
+                    style: const TextStyle(
+                      color: AppColors.hintText,
+                      fontSize: 12,
+                      height: 1.6,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 32),
+                ],
+              ),
             ),
           ),
         ),

@@ -19,6 +19,10 @@ router.post('/gifts/upload-image', authenticateToken, upload.single('image'), up
 // ─── Gift wallet ─────────────────────────────────────────
 router.get('/wallet', authenticateToken, ctrl.getMyGiftWallet);
 
+// ─── Ravens ↔ vPT Exchange ──────────────────────────────
+router.post('/exchange', authenticateToken, ctrl.exchangeAssets);
+router.get('/exchange/rates', authenticateToken, ctrl.getExchangeRates);
+
 // ─── Send ────────────────────────────────────────────────
 router.post('/reactions', authenticateToken, ctrl.sendReaction);
 router.post('/gifts/send', authenticateToken, ctrl.sendGift);

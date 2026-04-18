@@ -42,11 +42,8 @@ class AuthService {
     await AuthStorage.deleteToken();
   }
 
-  static Future<String> forgotPassword(String email) async {
-    final data = await ApiService.post('/auth/forgot-password', {
-      'email': email,
-    });
-    return data['resetToken'] as String;
+  static Future<void> forgotPassword(String email) async {
+    await ApiService.post('/auth/forgot-password', {'email': email});
   }
 
   static Future<void> resetPassword(String token, String password) async {
@@ -63,5 +60,33 @@ class AuthService {
     await AuthStorage.saveToken(data['token'] as String);
     NotificationService.registerToken();
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+  }
+
+  // ── Account Deletion ──────────────────────────────────
+
+  static Future<Map<String, dynamic>> requestAccountDeletion(
+    String reason,
+    String feedback,
+  ) async {
+    return await ApiService.post('/users/delete-account', {
+      'reason': reason,
+      'feedback': feedback,
+    });
+  }
+
+  static Future<Map<String, dynamic>> getDeletionStatus() async {
+    return await ApiService.get('/users/delete-account');
+  }
+
+  static Future<Map<String, dynamic>> cancelAccountDeletion() async {
+    return await ApiService.delete('/users/delete-account');
+  }
+
+  static Future<Map<String, dynamic>> confirmImmediateDeletion(
+    String password,
+  ) async {
+    return await ApiService.post('/users/delete-account/confirm', {
+      'password': password,
+    });
   }
 }

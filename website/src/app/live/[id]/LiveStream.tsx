@@ -37,6 +37,7 @@ import {
   removeReminderApi,
   serveInStreamAdsApi,
   recordAdImpressionApi,
+  recordChannelViewApi,
 } from "@/lib/api";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
 
@@ -184,8 +185,13 @@ export function LiveStream({ id }: { id: string }) {
           entry_fee_ngn: accessRes.data.entry_fee_ngn,
           access_duration_minutes: accessRes.data.access_duration_minutes,
         });
+        // Record view event for analytics
+        if (accessRes.data.has_access) {
+          recordChannelViewApi(id).catch(() => {});
+        }
       } else {
         setAccess({ checked: true, has_access: true });
+        recordChannelViewApi(id).catch(() => {});
       }
 
       setLoading(false);
@@ -358,14 +364,14 @@ export function LiveStream({ id }: { id: string }) {
             </svg>
           </div>
           <h2 className="text-xl font-bold text-white mb-2">Premium Channel</h2>
-          <p className="text-av-hint text-sm mb-1">{channelName}</p>
-          <p className="text-av-hint text-sm mb-6">
+          <p className="text-av-light-orange text-sm mb-1">{channelName}</p>
+          <p className="text-av-light-orange text-sm mb-6">
             This channel requires payment to access. Pay once for {durationDisplay} of streaming.
           </p>
           <div className="bg-av-input-fill rounded-xl border border-av-input-border/30 p-4 mb-6">
-            <p className="text-xs text-av-hint uppercase tracking-wider mb-1">Entry Fee</p>
+            <p className="text-xs text-av-light-orange uppercase tracking-wider mb-1">Entry Fee</p>
             <p className="text-2xl font-bold text-av-orange">{feeDisplay}</p>
-            <p className="text-xs text-av-hint mt-1">{durationDisplay} access</p>
+            <p className="text-xs text-av-light-orange mt-1">{durationDisplay} access</p>
           </div>
           <button
             onClick={handlePayForAccess}
@@ -376,7 +382,7 @@ export function LiveStream({ id }: { id: string }) {
           </button>
           <Link
             href={`/channel/${id}`}
-            className="block mt-4 text-sm text-av-hint hover:text-av-orange transition-colors"
+            className="block mt-4 text-sm text-av-light-orange hover:text-av-orange transition-colors"
           >
             ← Back to channel
           </Link>
@@ -470,7 +476,7 @@ export function LiveStream({ id }: { id: string }) {
                         <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
                       </svg>
                     </div>
-                    <p className="text-[11px] text-av-hint">{channel?.category ?? "General"}</p>
+                    <p className="text-[11px] text-av-light-orange">{channel?.category ?? "General"}</p>
                   </div>
                 </Link>
 
@@ -479,7 +485,7 @@ export function LiveStream({ id }: { id: string }) {
                   <h1 className="text-lg font-bold text-av-white leading-snug">
                     {streamTitle}
                   </h1>
-                  <p className="text-xs text-av-white/50 mt-1 line-clamp-2">
+                  <p className="text-xs text-av-light-orange mt-1 line-clamp-2">
                     {channel?.description ?? ""}
                   </p>
                 </div>
@@ -509,7 +515,7 @@ export function LiveStream({ id }: { id: string }) {
                         }).catch(() => {});
                       }
                     }}
-                    className="w-10 h-10 rounded-full bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-hint hover:text-av-white hover:border-av-input-border/50 transition-all"
+                    className="w-10 h-10 rounded-full bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-white hover:border-av-input-border/50 transition-all"
                     title="Share"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -537,21 +543,21 @@ export function LiveStream({ id }: { id: string }) {
             <div className="mt-4 rounded-xl bg-av-card border border-av-input-border/20 p-4 sm:p-5">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-av-white">Live Activity</h3>
-                <span className="text-[11px] text-av-hint">Updates every 5s</span>
+                <span className="text-[11px] text-av-light-orange">Updates every 5s</span>
               </div>
               {events.length === 0 ? (
-                <p className="text-xs text-av-white/50">No reactions or gifts yet for this session.</p>
+                <p className="text-xs text-av-light-orange">No reactions or gifts yet for this session.</p>
               ) : (
                 <div className="space-y-2">
                   {events.slice(-5).reverse().map((event) => (
                     <div key={event.id} className="flex items-center justify-between gap-3 rounded-lg bg-av-input-fill/40 px-3 py-2 text-xs">
-                      <p className="text-av-white/80 min-w-0 flex-1 truncate">
+                      <p className="text-av-light-orange min-w-0 flex-1 truncate">
                         <span className="font-semibold text-av-white">{event.sender_name}</span>{" "}
                         {event.type === "gift"
                           ? `sent ${event.gift_icon || "🎁"} ${event.gift_name || "a gift"}`
                           : `reacted ${event.emoji || "🔥"}`}
                       </p>
-                      <span className="text-av-hint flex-shrink-0">
+                      <span className="text-av-light-orange flex-shrink-0">
                         {new Date(event.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
@@ -568,7 +574,7 @@ export function LiveStream({ id }: { id: string }) {
                   Browse All →
                 </Link>
               </div>
-              <p className="text-xs text-av-white/50">
+              <p className="text-xs text-av-light-orange">
                 Discover more channels on the AfroVision homepage.
               </p>
             </div>
@@ -583,7 +589,7 @@ export function LiveStream({ id }: { id: string }) {
                 className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
                   rightPanel === "chat"
                     ? "bg-av-input-fill text-av-white"
-                    : "text-av-hint hover:text-av-white"
+                    : "text-av-light-orange hover:text-av-white"
                 }`}
               >
                 💬 Live Chat
@@ -593,7 +599,7 @@ export function LiveStream({ id }: { id: string }) {
                 className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
                   rightPanel === "gifts"
                     ? "bg-av-input-fill text-av-white"
-                    : "text-av-hint hover:text-av-white"
+                    : "text-av-light-orange hover:text-av-white"
                 }`}
               >
                 🎁 Gifts
@@ -625,7 +631,7 @@ export function LiveStream({ id }: { id: string }) {
                   />
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-[10px] text-av-hint">Balance</span>
+                  <span className="text-[10px] text-av-light-orange">Balance</span>
                   <Link
                     href="/wallet"
                     className="text-[10px] text-av-orange font-medium hover:text-av-light-orange transition-colors"
@@ -639,7 +645,7 @@ export function LiveStream({ id }: { id: string }) {
               {user?.role === "admin" && (
               <div className="mt-3 rounded-xl bg-av-card border border-av-input-border/20 p-4">
                 <h4 className="text-xs font-semibold text-av-white mb-2">Gift Ledger</h4>
-                <p className="text-[10px] text-av-hint leading-relaxed">
+                <p className="text-[10px] text-av-light-orange leading-relaxed">
                   Every gift is recorded on the AfroVision ledger. Creator receives 50%, 
                   operations 30%, community pool 20%.
                 </p>
@@ -651,7 +657,7 @@ export function LiveStream({ id }: { id: string }) {
                   ].map((split) => (
                     <div key={split.label} className="text-center py-2 rounded-lg bg-av-dark-blue/50">
                       <p className={`text-sm font-bold ${split.color}`}>{split.pct}</p>
-                      <p className="text-[9px] text-av-hint mt-0.5">{split.label}</p>
+                      <p className="text-[9px] text-av-light-orange mt-0.5">{split.label}</p>
                     </div>
                   ))}
                 </div>
@@ -802,11 +808,11 @@ function EpgPanel({
               <p className="text-sm font-semibold text-av-white truncate">
                 {currentProgram?.video_title ?? nowPlayingTitle ?? "Playing"}
                 {isLoop && !currentProgram && (
-                  <span className="ml-1.5 text-[10px] font-normal text-av-hint">(repeat)</span>
+                  <span className="ml-1.5 text-[10px] font-normal text-av-light-orange">(repeat)</span>
                 )}
               </p>
               {currentProgram && !isLoop && (
-                <p className="text-[11px] text-av-hint mt-0.5">
+                <p className="text-[11px] text-av-light-orange mt-0.5">
                   {formatEpgTime(currentProgram.start_time)} – {formatEpgTime(currentProgram.end_time)}
                   <span className="mx-1.5">·</span>
                   {formatEpgDuration(currentProgram.video_duration)}
@@ -829,7 +835,7 @@ function EpgPanel({
       {/* ── Up Next ── */}
       {upcomingPrograms.length > 0 && (
         <div className="px-4 sm:px-5 pb-4">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-av-hint mb-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-av-light-orange mb-2">
             Up Next · {upcomingPrograms.length} program{upcomingPrograms.length > 1 ? "s" : ""}
           </p>
           <div className="max-h-[200px] space-y-1 overflow-y-auto pr-1">
@@ -847,11 +853,11 @@ function EpgPanel({
                 >
                   {/* Time column */}
                   <div className="w-[52px] flex-shrink-0 text-right">
-                    <p className="text-xs font-medium text-av-white/70 group-hover:text-av-white">
+                    <p className="text-xs font-medium text-av-light-orange group-hover:text-av-white">
                       {formatEpgTime(program.start_time)}
                     </p>
                     {!startsToday && (
-                      <p className="text-[9px] text-av-hint">
+                      <p className="text-[9px] text-av-light-orange">
                         {new Date(program.start_time).toLocaleDateString([], {
                           month: "short",
                           day: "numeric",
@@ -876,10 +882,10 @@ function EpgPanel({
 
                   {/* Title + duration */}
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-av-white/80 group-hover:text-av-white truncate">
+                    <p className="text-xs font-medium text-av-light-orange group-hover:text-av-white truncate">
                       {program.video_title}
                     </p>
-                    <p className="text-[10px] text-av-hint mt-0.5">
+                    <p className="text-[10px] text-av-light-orange mt-0.5">
                       {formatEpgDuration(program.video_duration)}
                       <span className="mx-1">·</span>
                       ends {formatEpgTime(program.end_time)}
@@ -894,7 +900,7 @@ function EpgPanel({
                       className={`flex h-6 w-6 items-center justify-center rounded-full transition-all ${
                         reminders.has(program.id)
                           ? "bg-av-orange/20 text-av-orange"
-                          : "bg-transparent text-av-hint/40 hover:text-av-orange/70 hover:bg-av-orange/10"
+                          : "bg-transparent text-av-light-orange hover:text-av-orange/70 hover:bg-av-orange/10"
                       } ${reminderLoading === program.id ? "opacity-50 animate-pulse" : ""}`}
                       title={reminders.has(program.id) ? "Remove reminder" : "Set reminder"}
                     >
@@ -907,7 +913,7 @@ function EpgPanel({
                         className={`flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold ${
                           index === 0
                             ? "bg-av-orange/20 text-av-orange"
-                            : "bg-av-input-fill text-av-hint"
+                            : "bg-av-input-fill text-av-light-orange"
                         }`}
                       >
                         {index + 1}
@@ -924,7 +930,7 @@ function EpgPanel({
       {/* Empty state */}
       {!currentProgram && !isLoop && upcomingPrograms.length === 0 && (
         <div className="px-4 sm:px-5 pb-4">
-          <p className="text-xs text-av-hint">No programs scheduled.</p>
+          <p className="text-xs text-av-light-orange">No programs scheduled.</p>
         </div>
       )}
 
@@ -945,7 +951,7 @@ function EpgPanel({
                   <p className="text-sm font-semibold text-av-white">
                     {selectedProgram.video_title}
                   </p>
-                  <p className="text-[11px] text-av-hint mt-1">
+                  <p className="text-[11px] text-av-light-orange mt-1">
                     {formatEpgTime(selectedProgram.start_time)} – {formatEpgTime(selectedProgram.end_time)}
                     <span className="mx-1.5">·</span>
                     {formatEpgDuration(selectedProgram.video_duration)}
@@ -953,7 +959,7 @@ function EpgPanel({
                 </div>
                 <button
                   onClick={() => setSelectedProgram(null)}
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-av-input-fill/50 text-av-hint transition-colors hover:bg-av-input-fill hover:text-av-white"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-av-input-fill/50 text-av-light-orange transition-colors hover:bg-av-input-fill hover:text-av-white"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -964,10 +970,10 @@ function EpgPanel({
 
             {/* Description */}
             <div className="px-5 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-av-hint mb-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-av-light-orange mb-2">
                 Description
               </p>
-              <p className="text-sm leading-relaxed text-av-white/80">
+              <p className="text-sm leading-relaxed text-av-light-orange">
                 {selectedProgram.video_description || "No description available."}
               </p>
             </div>

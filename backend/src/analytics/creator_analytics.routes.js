@@ -8,6 +8,7 @@ const router = Router();
 router.get('/stats', authenticateToken, ctrl.getMyStats);
 router.get('/streams', authenticateToken, ctrl.getMyStreams);
 router.get('/supporters', authenticateToken, ctrl.getMyTopSupporters);
+router.get('/channel', authenticateToken, ctrl.getChannelAnalytics);
 router.post('/streams/end', authenticateToken, ctrl.endMyStream);
 router.get('/admin/:uid/stats', authenticateToken, ctrl.adminGetCreatorStats);
 

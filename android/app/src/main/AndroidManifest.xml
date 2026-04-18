@@ -3,6 +3,10 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Push notifications (Android 13+ requires explicit runtime permission) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Keep the CPU awake to process high-priority FCM messages -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Full-screen intent for urgent notifications that bypass DND -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <application
         android:label="afrovision"
         android:name="${applicationName}"
@@ -11,9 +15,14 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="afrovision_main"/>
+        <!-- Monochrome notification icon (white on transparent) -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@mipmap/ic_launcher"/>
+            android:resource="@drawable/ic_stat_notification"/>
+        <!-- Accent colour shown behind the notification icon -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -31,12 +40,44 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- Deep links: website reset-password (and future paths) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="afrovision-website-134538542038.us-central1.run.app"
+                      android:pathPrefix="/reset-password"/>
+            </intent-filter>
+
+            <!-- Custom scheme: payment gateway callback redirect back to the app -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="afrovision"/>
+            </intent-filter>
         </activity>
+
+        <!-- Native FCM service: creates notification channels before Flutter
+             starts so notifications are never dropped on a fresh install. -->
+        <service
+            android:name=".AppMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+            </intent-filter>
+        </service>
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
     <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

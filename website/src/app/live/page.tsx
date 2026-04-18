@@ -1,4 +1,4 @@
-/* eslint-disable @next/next/no-img-element */
+﻿/* eslint-disable @next/next/no-img-element */
 
 "use client";
 
@@ -39,7 +39,7 @@ export default function LivePage() {
             <h1 className="mt-2 text-3xl font-bold text-av-white">
               Live Streams
             </h1>
-            <p className="mt-2 text-sm text-av-hint">
+            <p className="mt-2 text-sm text-av-light-orange">
               Jump into a live broadcast — watch, chat, and earn rewards.
             </p>
           </div>
@@ -65,7 +65,7 @@ export default function LivePage() {
               <h2 className="text-lg font-semibold text-av-white mb-2">
                 No one is live right now
               </h2>
-              <p className="text-sm text-av-hint mb-6">
+              <p className="text-sm text-av-light-orange mb-6">
                 Check back soon or browse all channels.
               </p>
               <Link
@@ -90,7 +90,7 @@ export default function LivePage() {
                       LIVE
                     </div>
                     {ch.viewer_count != null && (
-                      <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-sm text-[10px] font-medium text-av-white/80">
+                      <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-sm text-[10px] font-medium text-av-light-orange">
                         👁 {ch.viewer_count >= 1000 ? `${(ch.viewer_count / 1000).toFixed(1)}K` : ch.viewer_count}
                       </div>
                     )}
@@ -99,7 +99,7 @@ export default function LivePage() {
                     <h3 className="text-sm font-semibold text-av-white truncate group-hover:text-av-orange transition-colors">
                       {ch.name}
                     </h3>
-                    <p className="text-xs text-av-hint mt-0.5">{ch.category}</p>
+                    <p className="text-xs text-av-light-orange mt-0.5">{ch.category}</p>
                   </div>
                 </Link>
               ))}

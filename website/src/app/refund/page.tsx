@@ -12,7 +12,7 @@ export default function RefundPage() {
         <div className="mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Legal</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Refund Policy</h1>
-          <p className="mt-2 text-xs text-av-hint">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
+          <p className="mt-2 text-xs text-av-light-orange">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
         </div>
 
         <article className="space-y-8">
@@ -44,7 +44,7 @@ export default function RefundPage() {
           <Section title="5. How to Request a Refund">
             <p>To request a refund, follow these steps:</p>
             <ol className="list-decimal list-inside space-y-2 mt-2">
-              <li><strong className="text-av-white">Email us</strong> at <a href="mailto:billing@afrovision.tv" className="text-av-orange hover:underline">billing@afrovision.tv</a> with the subject line &quot;Refund Request.&quot;</li>
+              <li><strong className="text-av-white">Email us</strong> at <a href="mailto:billing@afrovision.online" className="text-av-orange hover:underline">billing@afrovision.online</a> with the subject line &quot;Refund Request.&quot;</li>
               <li><strong className="text-av-white">Include the following information:</strong>
                 <ul className="list-disc list-inside ml-6 mt-1 space-y-1">
                   <li>Your registered email address.</li>
@@ -104,9 +104,9 @@ export default function RefundPage() {
           <Section title="11. Contact Us">
             <p>For refund requests, billing enquiries, or questions about this policy:</p>
             <ul className="list-none space-y-1 mt-2">
-              <li><strong className="text-av-white">Billing:</strong>{" "}<a href="mailto:billing@afrovision.tv" className="text-av-orange hover:underline">billing@afrovision.tv</a></li>
-              <li><strong className="text-av-white">General Support:</strong>{" "}<a href="mailto:support@afrovision.tv" className="text-av-orange hover:underline">support@afrovision.tv</a></li>
-              <li><strong className="text-av-white">Legal:</strong>{" "}<a href="mailto:legal@afrovision.tv" className="text-av-orange hover:underline">legal@afrovision.tv</a></li>
+              <li><strong className="text-av-white">Billing:</strong>{" "}<a href="mailto:billing@afrovision.online" className="text-av-orange hover:underline">billing@afrovision.online</a></li>
+              <li><strong className="text-av-white">General Support:</strong>{" "}<a href="mailto:support@afrovision.online" className="text-av-orange hover:underline">support@afrovision.online</a></li>
+              <li><strong className="text-av-white">Legal:</strong>{" "}<a href="mailto:legal@afrovision.online" className="text-av-orange hover:underline">legal@afrovision.online</a></li>
             </ul>
           </Section>
         </article>
@@ -119,7 +119,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
       <h2 className="text-base font-semibold text-av-white mb-3">{title}</h2>
-      <div className="text-sm text-av-hint leading-relaxed">{children}</div>
+      <div className="text-sm text-av-light-orange leading-relaxed">{children}</div>
     </section>
   );
 }

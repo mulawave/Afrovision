@@ -132,6 +132,11 @@ function getStats() {
   };
 }
 
+function removeFromCache(id) {
+  const idx = entries.findIndex((e) => e.id === id);
+  if (idx !== -1) entries.splice(idx, 1);
+}
+
 module.exports = {
   init,
   isInitialized,
@@ -146,4 +151,5 @@ module.exports = {
   getAll,
   getRecent,
   getStats,
+  removeFromCache,
 };

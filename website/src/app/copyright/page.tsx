@@ -13,7 +13,7 @@ export default function CopyrightPage() {
         <div className="mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Legal</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Copyright Infringement Policy</h1>
-          <p className="mt-2 text-xs text-av-hint">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
+          <p className="mt-2 text-xs text-av-light-orange">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
         </div>
 
         <article className="space-y-8">
@@ -41,7 +41,7 @@ export default function CopyrightPage() {
                 <Link href="/report-copyright" className="text-av-orange hover:underline">Submit a Copyright Infringement Report</Link>
               </li>
               <li><strong className="text-av-white">Email:</strong>{" "}
-                <a href="mailto:copyright@afrovision.tv" className="text-av-orange hover:underline">copyright@afrovision.tv</a>
+                <a href="mailto:copyright@afrovision.online" className="text-av-orange hover:underline">copyright@afrovision.online</a>
               </li>
               <li><strong className="text-av-white">Mail:</strong> AfroVision Media Ltd, Attn: Copyright Agent, [Address to be provided].</li>
             </ul>
@@ -104,9 +104,9 @@ export default function CopyrightPage() {
           <Section title="11. Contact Us">
             <p>For copyright-related enquiries, notices, or counter-notifications:</p>
             <ul className="list-none space-y-1 mt-2">
-              <li><strong className="text-av-white">Copyright Agent:</strong>{" "}<a href="mailto:copyright@afrovision.tv" className="text-av-orange hover:underline">copyright@afrovision.tv</a></li>
+              <li><strong className="text-av-white">Copyright Agent:</strong>{" "}<a href="mailto:copyright@afrovision.online" className="text-av-orange hover:underline">copyright@afrovision.online</a></li>
               <li><strong className="text-av-white">Online Report Form:</strong>{" "}<Link href="/report-copyright" className="text-av-orange hover:underline">Submit a Report</Link></li>
-              <li><strong className="text-av-white">Legal:</strong>{" "}<a href="mailto:legal@afrovision.tv" className="text-av-orange hover:underline">legal@afrovision.tv</a></li>
+              <li><strong className="text-av-white">Legal:</strong>{" "}<a href="mailto:legal@afrovision.online" className="text-av-orange hover:underline">legal@afrovision.online</a></li>
             </ul>
           </Section>
         </article>
@@ -119,7 +119,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
       <h2 className="text-base font-semibold text-av-white mb-3">{title}</h2>
-      <div className="text-sm text-av-hint leading-relaxed">{children}</div>
+      <div className="text-sm text-av-light-orange leading-relaxed">{children}</div>
     </section>
   );
 }

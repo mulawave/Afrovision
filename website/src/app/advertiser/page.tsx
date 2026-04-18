@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -30,7 +30,7 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: "bg-red-500/15 text-red-300 border-red-500/30",
   active: "bg-green-500/15 text-green-300 border-green-500/30",
   paused: "bg-purple-500/15 text-purple-300 border-purple-500/30",
-  expired: "bg-white/8 text-white/50 border-white/10",
+  expired: "bg-white/8 text-av-light-orange border-white/10",
   depleted: "bg-orange-500/15 text-orange-300 border-orange-500/30",
 };
 
@@ -204,7 +204,7 @@ export default function AdvertiserPage() {
     return (
       <div className="mx-auto mt-32 max-w-md text-center">
         <h1 className="text-2xl font-bold text-white">Advertiser Portal</h1>
-        <p className="mt-4 text-white/60">Please log in to manage your advertisements.</p>
+        <p className="mt-4 text-av-light-orange">Please log in to manage your advertisements.</p>
       </div>
     );
   }
@@ -214,7 +214,7 @@ export default function AdvertiserPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-white">Advertiser Portal</h1>
-        <p className="mt-2 text-sm text-white/60">
+        <p className="mt-2 text-sm text-av-light-orange">
           Submit ads, track performance, and manage your advertising campaigns on AfroVision.
         </p>
       </div>
@@ -232,7 +232,7 @@ export default function AdvertiserPage() {
             className={`rounded-2xl border px-5 py-2.5 text-sm font-semibold transition-all ${
               tab === t.key
                 ? "border-[#F49617]/50 bg-gradient-to-r from-[#F49617]/20 to-[#F5C16C]/10 text-white shadow-lg shadow-[#F49617]/10"
-                : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                : "border-white/10 bg-white/5 text-av-light-orange hover:bg-white/10 hover:text-white"
             }`}
           >
             {t.label}
@@ -258,7 +258,7 @@ export default function AdvertiserPage() {
 
           {/* Category */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Category</label>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">Category</label>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {CATEGORIES.map((cat) => (
                 <button
@@ -268,11 +268,11 @@ export default function AdvertiserPage() {
                   className={`rounded-xl border px-4 py-3 text-left text-sm transition-all ${
                     formCategory === cat.key
                       ? "border-[#F49617]/50 bg-[#F49617]/15 text-white"
-                      : "border-white/10 bg-white/[0.03] text-white/60 hover:bg-white/[0.06]"
+                      : "border-white/10 bg-white/[0.03] text-av-light-orange hover:bg-white/[0.06]"
                   }`}
                 >
                   <span className="font-semibold">{cat.label}</span>
-                  <span className="block mt-0.5 text-[10px] uppercase tracking-wider text-white/40">{cat.type}</span>
+                  <span className="block mt-0.5 text-[10px] uppercase tracking-wider text-av-light-orange">{cat.type}</span>
                 </button>
               ))}
             </div>
@@ -281,7 +281,7 @@ export default function AdvertiserPage() {
           {/* Title + Description */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Title *</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">Title *</label>
               <input
                 type="text"
                 value={formTitle}
@@ -291,7 +291,7 @@ export default function AdvertiserPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Click URL</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">Click URL</label>
               <input
                 type="url"
                 value={formClickUrl}
@@ -303,7 +303,7 @@ export default function AdvertiserPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Description</label>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">Description</label>
             <textarea
               value={formDescription}
               onChange={(e) => setFormDescription(e.target.value)}
@@ -315,7 +315,7 @@ export default function AdvertiserPage() {
 
           {/* Media Upload */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">
               Media File * ({CATEGORIES.find((c) => c.key === formCategory)?.type === "video" ? "Video" : "Image"})
             </label>
             <input
@@ -323,17 +323,17 @@ export default function AdvertiserPage() {
               type="file"
               accept={CATEGORIES.find((c) => c.key === formCategory)?.type === "video" ? "video/*" : "image/*"}
               onChange={(e) => setFormFile(e.target.files?.[0] || null)}
-              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/60 file:mr-4 file:rounded-lg file:border-0 file:bg-[#F49617]/20 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#F5C16C] hover:file:bg-[#F49617]/30 transition"
+              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-av-light-orange file:mr-4 file:rounded-lg file:border-0 file:bg-[#F49617]/20 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#F5C16C] hover:file:bg-[#F49617]/30 transition"
             />
             {formFile && (
-              <p className="mt-1 text-xs text-white/40">{formFile.name} ({(formFile.size / 1024 / 1024).toFixed(1)} MB)</p>
+              <p className="mt-1 text-xs text-av-light-orange">{formFile.name} ({(formFile.size / 1024 / 1024).toFixed(1)} MB)</p>
             )}
           </div>
 
           {/* Budget & Pricing */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Budget (₦) *</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">Budget (₦) *</label>
               <input
                 type="number"
                 min="1"
@@ -345,7 +345,7 @@ export default function AdvertiserPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Price per Impression (₦) *</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">Price per Impression (₦) *</label>
               <input
                 type="number"
                 min="0.01"
@@ -361,7 +361,7 @@ export default function AdvertiserPage() {
           {/* Dates */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Start Date (Optional)</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">Start Date (Optional)</label>
               <input
                 type="datetime-local"
                 value={formStartDate}
@@ -370,7 +370,7 @@ export default function AdvertiserPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">End Date (Optional)</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">End Date (Optional)</label>
               <input
                 type="datetime-local"
                 value={formEndDate}
@@ -405,8 +405,8 @@ export default function AdvertiserPage() {
             </div>
           ) : ads.length === 0 ? (
             <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-12 text-center backdrop-blur-xl">
-              <p className="text-lg text-white/40">No ads yet</p>
-              <p className="mt-2 text-sm text-white/30">Submit your first ad to get started.</p>
+              <p className="text-lg text-av-light-orange">No ads yet</p>
+              <p className="mt-2 text-sm text-av-light-orange">Submit your first ad to get started.</p>
               <button
                 onClick={() => setTab("create")}
                 className="mt-6 rounded-2xl bg-gradient-to-r from-[#F49617] to-[#F5C16C] px-6 py-3 text-sm font-bold text-[#050A30]"
@@ -443,11 +443,11 @@ export default function AdvertiserPage() {
                             <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${STATUS_COLORS[ad.status] || ""}`}>
                               {ad.status}
                             </span>
-                            <span className="rounded-full bg-white/6 px-2 py-0.5 text-[10px] text-white/40">
+                            <span className="rounded-full bg-white/6 px-2 py-0.5 text-[10px] text-av-light-orange">
                               {CATEGORIES.find((c) => c.key === ad.category)?.label || ad.category}
                             </span>
                           </div>
-                          <div className="mt-2 flex items-center gap-4 text-xs text-white/40">
+                          <div className="mt-2 flex items-center gap-4 text-xs text-av-light-orange">
                             <span>₦{ad.budget.toLocaleString()} budget</span>
                             <span>₦{ad.spent.toLocaleString()} spent</span>
                             <span>{ad.impression_count.toLocaleString()} impressions</span>
@@ -485,7 +485,7 @@ export default function AdvertiserPage() {
                     {selectedAd?.id === ad.id && (
                       <div className="mt-2 rounded-2xl border border-white/8 bg-white/[0.03] p-5 space-y-3">
                         {statsLoading ? (
-                          <div className="flex items-center gap-2 text-sm text-white/40">
+                          <div className="flex items-center gap-2 text-sm text-av-light-orange">
                             <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-[#F5C16C]" />
                             Loading stats...
                           </div>
@@ -497,7 +497,7 @@ export default function AdvertiserPage() {
                             <MiniStat label="Channels Reached" value={stats.unique_channels.toLocaleString()} />
                           </div>
                         ) : (
-                          <p className="text-sm text-white/40">No stats available yet.</p>
+                          <p className="text-sm text-av-light-orange">No stats available yet.</p>
                         )}
                         <div className="pt-2 border-t border-white/6 space-y-2">
                           <DetailRow label="ID" value={ad.id} />
@@ -525,7 +525,7 @@ export default function AdvertiserPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-white">Top Up Budget</h3>
-            <p className="mt-1 text-sm text-white/50">Add funds to your ad campaign.</p>
+            <p className="mt-1 text-sm text-av-light-orange">Add funds to your ad campaign.</p>
             <input
               type="number"
               min="1"
@@ -539,7 +539,7 @@ export default function AdvertiserPage() {
             <div className="mt-4 flex gap-3">
               <button
                 onClick={() => setTopUpId(null)}
-                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/60 hover:bg-white/10 transition"
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-av-light-orange hover:bg-white/10 transition"
               >
                 Cancel
               </button>
@@ -630,7 +630,7 @@ function AdvertiserAnalyticsTab() {
           { label: "Avg Cost/Imp", value: `₦${fmt(overview.avg_cost)}` },
         ].map((c, i) => (
           <div key={i} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-            <p className="text-[10px] uppercase tracking-wider text-white/40">{c.label}</p>
+            <p className="text-[10px] uppercase tracking-wider text-av-light-orange">{c.label}</p>
             <p className="mt-1 text-lg font-bold text-white">{c.value}</p>
           </div>
         ))}
@@ -639,7 +639,7 @@ function AdvertiserAnalyticsTab() {
       {/* 30-Day Chart */}
       <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white/80">30-Day Performance</h3>
+          <h3 className="text-sm font-semibold text-av-light-orange">30-Day Performance</h3>
           <div className="flex gap-1">
             {(["cost", "impressions", "viewers"] as const).map((m) => (
               <button
@@ -648,7 +648,7 @@ function AdvertiserAnalyticsTab() {
                 className={`rounded-lg px-3 py-1 text-[10px] uppercase tracking-wider transition ${
                   chartMetric === m
                     ? "bg-[#F49617]/20 text-[#F49617]"
-                    : "text-white/40 hover:text-white/60"
+                    : "text-av-light-orange hover:text-av-light-orange"
                 }`}
               >
                 {m === "cost" ? "spend" : m}
@@ -670,7 +670,7 @@ function AdvertiserAnalyticsTab() {
             );
           })}
         </div>
-        <div className="mt-1 flex justify-between text-[9px] text-white/25">
+        <div className="mt-1 flex justify-between text-[9px] text-av-light-orange">
           <span>{daily[0]?.date}</span>
           <span>{daily[daily.length - 1]?.date}</span>
         </div>
@@ -679,20 +679,20 @@ function AdvertiserAnalyticsTab() {
       {/* Category Breakdown */}
       {categories.length > 0 && (
         <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
-          <h3 className="text-sm font-semibold text-white/80">By Category</h3>
+          <h3 className="text-sm font-semibold text-av-light-orange">By Category</h3>
           <div className="mt-3 space-y-3">
             {categories.sort((a, b) => b.cost - a.cost).map((c, i) => {
               const catMax = Math.max(...categories.map((x) => x.cost), 1);
               return (
                 <div key={i}>
                   <div className="flex justify-between">
-                    <span className="text-xs text-white/70">{CATEGORY_LABELS_MAP[c.category] || c.category}</span>
-                    <span className="text-xs font-medium text-white/60">₦{fmt(c.cost)}</span>
+                    <span className="text-xs text-av-light-orange">{CATEGORY_LABELS_MAP[c.category] || c.category}</span>
+                    <span className="text-xs font-medium text-av-light-orange">₦{fmt(c.cost)}</span>
                   </div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
                     <div className="h-full rounded-full bg-[#F49617]/50" style={{ width: `${(c.cost / catMax) * 100}%` }} />
                   </div>
-                  <p className="mt-0.5 text-[10px] text-white/30">{fmtI(c.impressions)} impressions · {fmtI(c.viewers)} viewers</p>
+                  <p className="mt-0.5 text-[10px] text-av-light-orange">{fmtI(c.impressions)} impressions · {fmtI(c.viewers)} viewers</p>
                 </div>
               );
             })}
@@ -702,14 +702,14 @@ function AdvertiserAnalyticsTab() {
 
       {/* Per-Ad Table */}
       <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
-        <h3 className="text-sm font-semibold text-white/80">Ad Performance</h3>
+        <h3 className="text-sm font-semibold text-av-light-orange">Ad Performance</h3>
         <div className="mt-3 overflow-x-auto">
           {per_ad.length === 0 ? (
-            <p className="text-xs text-white/30">No ads yet.</p>
+            <p className="text-xs text-av-light-orange">No ads yet.</p>
           ) : (
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-white/8 text-[10px] uppercase tracking-wider text-white/35">
+                <tr className="border-b border-white/8 text-[10px] uppercase tracking-wider text-av-light-orange">
                   <th className="py-2 pr-3">Title</th>
                   <th className="py-2 pr-3">Category</th>
                   <th className="py-2 pr-3">Status</th>
@@ -723,18 +723,18 @@ function AdvertiserAnalyticsTab() {
               <tbody>
                 {per_ad.map((ad) => (
                   <tr key={ad.id} className="border-b border-white/5">
-                    <td className="py-2 pr-3 font-medium text-white/80">{ad.title}</td>
-                    <td className="py-2 pr-3 text-white/50">{CATEGORY_LABELS_MAP[ad.category] || ad.category}</td>
+                    <td className="py-2 pr-3 font-medium text-av-light-orange">{ad.title}</td>
+                    <td className="py-2 pr-3 text-av-light-orange">{CATEGORY_LABELS_MAP[ad.category] || ad.category}</td>
                     <td className="py-2 pr-3">
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] border ${STATUS_COLORS[ad.status] || "bg-white/8 text-white/50 border-white/10"}`}>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] border ${STATUS_COLORS[ad.status] || "bg-white/8 text-av-light-orange border-white/10"}`}>
                         {ad.status}
                       </span>
                     </td>
-                    <td className="py-2 pr-3 text-right text-white/60">₦{fmt(ad.budget)}</td>
+                    <td className="py-2 pr-3 text-right text-av-light-orange">₦{fmt(ad.budget)}</td>
                     <td className="py-2 pr-3 text-right font-medium text-[#F49617]">₦{fmt(ad.spent)}</td>
-                    <td className="py-2 pr-3 text-right text-white/60">{fmtI(ad.impressions)}</td>
-                    <td className="py-2 pr-3 text-right text-white/60">{fmtI(ad.viewers)}</td>
-                    <td className="py-2 text-right text-white/60">{ad.unique_channels}</td>
+                    <td className="py-2 pr-3 text-right text-av-light-orange">{fmtI(ad.impressions)}</td>
+                    <td className="py-2 pr-3 text-right text-av-light-orange">{fmtI(ad.viewers)}</td>
+                    <td className="py-2 text-right text-av-light-orange">{ad.unique_channels}</td>
                   </tr>
                 ))}
               </tbody>
@@ -752,7 +752,7 @@ function StatCard({ label, value, color }: { label: string; value: string; color
   const borderColor = color === "green" ? "border-green-500/20" : color === "orange" ? "border-[#F49617]/20" : "border-white/8";
   return (
     <div className={`rounded-2xl border ${borderColor} bg-white/[0.03] p-4`}>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-white/40">{label}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-av-light-orange">{label}</p>
       <p className="mt-1 text-lg font-bold text-white">{value}</p>
     </div>
   );
@@ -761,7 +761,7 @@ function StatCard({ label, value, color }: { label: string; value: string; color
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-white/40">{label}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-av-light-orange">{label}</p>
       <p className="text-sm font-semibold text-white">{value}</p>
     </div>
   );
@@ -770,8 +770,8 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-3 text-xs">
-      <span className="font-semibold text-white/40 min-w-[100px]">{label}</span>
-      <span className="text-white/70 break-all">{value}</span>
+      <span className="font-semibold text-av-light-orange min-w-[100px]">{label}</span>
+      <span className="text-av-light-orange break-all">{value}</span>
     </div>
   );
 }

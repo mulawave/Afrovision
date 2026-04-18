@@ -1,10 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { getMeApi, type StoredUser } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import { PremiumBadge } from "@/components/PremiumBadge";
 
 function formatDate(value: string | null) {
   if (!value) return "Not available";
@@ -49,7 +50,7 @@ export default function ProfilePage() {
     return (
       <main className="min-h-screen pt-24 flex items-center justify-center px-6">
         <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-          <p className="text-sm text-av-hint">Sign in to view your profile.</p>
+          <p className="text-sm text-av-light-orange">Sign in to view your profile.</p>
           <Link href="/login?redirect=/profile" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
             Sign in →
           </Link>
@@ -94,8 +95,11 @@ export default function ProfilePage() {
                     </div>
                   )}
                   <div>
-                    <h2 className="text-xl font-semibold text-av-white">{profile.name || "Unnamed member"}</h2>
-                    <p className="text-sm text-av-hint">{profile.email}</p>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <h2 className="text-xl font-semibold text-av-white">{profile.name || "Unnamed member"}</h2>
+                      <PremiumBadge user={profile} size="md" />
+                    </div>
+                    <p className="text-sm text-av-light-orange">{profile.email}</p>
                     <Link href="/profile/edit" className="mt-2 inline-block text-xs font-semibold text-av-orange hover:text-av-light-orange">
                       Edit Profile
                     </Link>
@@ -103,7 +107,7 @@ export default function ProfilePage() {
                       <span className="rounded-full border border-av-orange/30 bg-av-orange/10 px-3 py-1 text-[11px] font-bold uppercase text-av-orange">
                         {profile.role}
                       </span>
-                      <span className="rounded-full border border-av-input-border/30 bg-av-input-fill px-3 py-1 text-[11px] font-medium text-av-white/70">
+                      <span className="rounded-full border border-av-input-border/30 bg-av-input-fill px-3 py-1 text-[11px] font-medium text-av-light-orange">
                         KYC: {profile.kyc_status}
                       </span>
                     </div>
@@ -129,10 +133,11 @@ export default function ProfilePage() {
                   {(profile.role === "creator" || profile.role === "admin") ? <QuickLink href="/create-channel" label="Create Channel" note="Launch a new public or private channel with media" /> : null}
                   {(profile.role === "creator" || profile.role === "admin") ? <QuickLink href="/creator-studio" label="Creator Studio" note="Upload videos and manage the broadcast schedule" /> : null}
                   {profile.role === "admin" ? <QuickLink href="/admin" label="Admin" note="Review users, channels, flags, and broadcast messaging" /> : null}
+                  <QuickLink href="/profile/delete-account" label="Delete Account" note="Request permanent account deletion with a 30-day grace period" danger />
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-av-input-border/30 bg-av-card p-6 text-sm text-av-hint">
+              <section className="rounded-2xl border border-av-input-border/30 bg-av-card p-6 text-sm text-av-light-orange">
                 <p>Subscription status: <span className="font-semibold text-av-white">{profile.subscription_status}</span></p>
                 <p className="mt-2">Expiry: <span className="font-semibold text-av-white">{formatDate(profile.subscription_expiry)}</span></p>
                 <p className="mt-2">Creator wallet: <span className="font-semibold text-av-white">{profile.bsc_address || "Not created yet"}</span></p>
@@ -149,17 +154,17 @@ export default function ProfilePage() {
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-av-input-border/30 bg-av-card p-5">
-      <p className="text-[11px] uppercase tracking-wider text-av-hint">{label}</p>
+      <p className="text-[11px] uppercase tracking-wider text-av-light-orange">{label}</p>
       <p className="mt-2 text-base font-semibold text-av-white">{value}</p>
     </div>
   );
 }
 
-function QuickLink({ href, label, note }: { href: string; label: string; note: string }) {
+function QuickLink({ href, label, note, danger }: { href: string; label: string; note: string; danger?: boolean }) {
   return (
-    <Link href={href} className="block rounded-xl border border-av-input-border/30 bg-av-input-fill/40 p-4 transition-all hover:border-av-orange/40 hover:bg-av-input-fill/70">
-      <p className="text-sm font-semibold text-av-white">{label}</p>
-      <p className="mt-1 text-xs text-av-hint">{note}</p>
+    <Link href={href} className={`block rounded-xl border p-4 transition-all ${danger ? "border-av-error/30 bg-av-error/5 hover:border-av-error/50 hover:bg-av-error/10" : "border-av-input-border/30 bg-av-input-fill/40 hover:border-av-orange/40 hover:bg-av-input-fill/70"}`}>
+      <p className={`text-sm font-semibold ${danger ? "text-av-error" : "text-av-white"}`}>{label}</p>
+      <p className={`mt-1 text-xs ${danger ? "text-av-error/70" : "text-av-light-orange"}`}>{note}</p>
     </Link>
   );
 }

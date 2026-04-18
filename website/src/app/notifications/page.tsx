@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -136,7 +136,7 @@ export default function NotificationsPage() {
     return (
       <main className="flex min-h-screen items-center justify-center px-6 pt-24">
         <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-          <p className="text-sm text-av-hint">Sign in to access your notification inbox.</p>
+          <p className="text-sm text-av-light-orange">Sign in to access your notification inbox.</p>
           <Link href="/login?redirect=/notifications" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
             Sign in →
           </Link>
@@ -154,7 +154,7 @@ export default function NotificationsPage() {
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Inbox</p>
             <h1 className="mt-2 text-3xl font-bold text-av-white">Notifications</h1>
-            <p className="mt-2 text-sm text-av-hint">Unread: {unreadCount}. Review alerts, go-live notices, account updates, and admin messages.</p>
+            <p className="mt-2 text-sm text-av-light-orange">Unread: {unreadCount}. Review alerts, go-live notices, account updates, and admin messages.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -183,13 +183,13 @@ export default function NotificationsPage() {
                 <button
                   key={value}
                   onClick={() => setScope(value)}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${scope === value ? "bg-av-orange text-av-dark-blue" : "border border-av-input-border/30 bg-av-input-fill/40 text-av-white/70"}`}
+                  className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${scope === value ? "bg-av-orange text-av-dark-blue" : "border border-av-input-border/30 bg-av-input-fill/40 text-av-light-orange"}`}
                 >
                   {value === "inbox" ? "Inbox" : "Archived"}
                 </button>
               ))}
             </div>
-            <label className="flex items-center gap-2 text-sm text-av-white/70">
+            <label className="flex items-center gap-2 text-sm text-av-light-orange">
               <input
                 type="checkbox"
                 checked={unreadOnly}
@@ -201,7 +201,7 @@ export default function NotificationsPage() {
           </div>
 
           <div className="mt-4 flex flex-col gap-3 border-t border-av-input-border/20 pt-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3 text-sm text-av-white/70">
+            <div className="flex items-center gap-3 text-sm text-av-light-orange">
               <button onClick={toggleSelectAll} className="font-semibold text-av-light-orange">
                 {allVisibleSelected ? "Clear selection" : "Select all visible"}
               </button>
@@ -240,7 +240,7 @@ export default function NotificationsPage() {
           </div>
         ) : notifications.length === 0 ? (
           <div className="mt-6 rounded-2xl border border-av-input-border/20 bg-av-card/60 p-12 text-center">
-            <p className="text-sm text-av-hint">
+            <p className="text-sm text-av-light-orange">
               {scope === "archived" ? "No archived notifications." : "Your inbox is clear."}
             </p>
           </div>
@@ -260,12 +260,12 @@ export default function NotificationsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`h-2.5 w-2.5 rounded-full ${item.is_read ? "bg-av-hint/40" : "bg-av-orange"}`} />
                         <h2 className="text-lg font-semibold text-av-white">{item.title}</h2>
-                        <span className="rounded-full border border-av-input-border/20 bg-av-input-fill/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-av-white/60">
+                        <span className="rounded-full border border-av-input-border/20 bg-av-input-fill/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-av-light-orange">
                           {item.type.replace(/_/g, " ")}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-av-white/75">{item.body}</p>
-                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-av-hint">
+                      <p className="mt-2 text-sm text-av-light-orange">{item.body}</p>
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-av-light-orange">
                         <span>{formatTimestamp(item.created_at)}</span>
                         {item.source ? <span>Source: {item.source.replace(/_/g, " ")}</span> : null}
                         {item.link ? (
@@ -279,11 +279,11 @@ export default function NotificationsPage() {
 
                   <div className="flex flex-wrap gap-2 lg:max-w-xs lg:justify-end">
                     {item.archived ? (
-                      <button onClick={() => handleSingleAction(item.id, "unarchive")} disabled={busy} className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white/70 disabled:opacity-50">
+                      <button onClick={() => handleSingleAction(item.id, "unarchive")} disabled={busy} className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange disabled:opacity-50">
                         Unarchive
                       </button>
                     ) : (
-                      <button onClick={() => handleSingleAction(item.id, item.is_read ? "unread" : "read")} disabled={busy} className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white/70 disabled:opacity-50">
+                      <button onClick={() => handleSingleAction(item.id, item.is_read ? "unread" : "read")} disabled={busy} className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange disabled:opacity-50">
                         {item.is_read ? "Mark unread" : "Mark read"}
                       </button>
                     )}
@@ -320,7 +320,7 @@ function BulkButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="rounded-full border border-av-input-border/30 bg-av-input-fill/40 px-4 py-2 text-sm font-semibold text-av-white/80 disabled:opacity-50"
+      className="rounded-full border border-av-input-border/30 bg-av-input-fill/40 px-4 py-2 text-sm font-semibold text-av-light-orange disabled:opacity-50"
     >
       {label}
     </button>

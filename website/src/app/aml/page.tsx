@@ -12,7 +12,7 @@ export default function AmlPage() {
         <div className="mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Legal</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Anti-Money Laundering Policy</h1>
-          <p className="mt-2 text-xs text-av-hint">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
+          <p className="mt-2 text-xs text-av-light-orange">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
         </div>
 
         <article className="space-y-8">
@@ -132,7 +132,7 @@ export default function AmlPage() {
               <li>Provide accurate and truthful identification information.</li>
               <li>Not use the Platform for any illegal purpose, including money laundering or terrorism financing.</li>
               <li>Cooperate with any verification or compliance enquiries.</li>
-              <li>Report any suspicious activity observed on the Platform to <a href="mailto:compliance@afrovision.tv" className="text-av-orange hover:underline">compliance@afrovision.tv</a>.</li>
+              <li>Report any suspicious activity observed on the Platform to <a href="mailto:compliance@afrovision.online" className="text-av-orange hover:underline">compliance@afrovision.online</a>.</li>
             </ul>
             <p className="mt-2">Failure to comply may result in account suspension, fund seizure, and referral to law enforcement authorities.</p>
           </Section>
@@ -154,8 +154,8 @@ export default function AmlPage() {
           <Section title="14. Contact Us">
             <p>If you have questions about this AML Policy or wish to report suspicious activity, please contact:</p>
             <ul className="list-none space-y-1 mt-2">
-              <li><strong className="text-av-white">Compliance Team:</strong>{" "}<a href="mailto:compliance@afrovision.tv" className="text-av-orange hover:underline">compliance@afrovision.tv</a></li>
-              <li><strong className="text-av-white">Legal:</strong>{" "}<a href="mailto:legal@afrovision.tv" className="text-av-orange hover:underline">legal@afrovision.tv</a></li>
+              <li><strong className="text-av-white">Compliance Team:</strong>{" "}<a href="mailto:compliance@afrovision.online" className="text-av-orange hover:underline">compliance@afrovision.online</a></li>
+              <li><strong className="text-av-white">Legal:</strong>{" "}<a href="mailto:legal@afrovision.online" className="text-av-orange hover:underline">legal@afrovision.online</a></li>
             </ul>
           </Section>
         </article>
@@ -168,7 +168,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
       <h2 className="text-base font-semibold text-av-white mb-3">{title}</h2>
-      <div className="text-sm text-av-hint leading-relaxed">{children}</div>
+      <div className="text-sm text-av-light-orange leading-relaxed">{children}</div>
     </section>
   );
 }

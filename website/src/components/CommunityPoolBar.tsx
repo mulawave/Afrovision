@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { getHomeStatsApi } from "@/lib/api";
+
+const AUTH_ROUTES = ["/login", "/register", "/pak-login", "/forgot-password", "/reset-password"];
 
 interface PoolData {
   total_vpt: number;
@@ -20,10 +23,12 @@ function formatNum(n: number): string {
 
 export function CommunityPoolBar() {
   const { isAuthenticated, isLoading } = useAuth();
+  const pathname = usePathname();
   const [pool, setPool] = useState<PoolData | null>(null);
+  const hidden = AUTH_ROUTES.includes(pathname);
 
   useEffect(() => {
-    if (!isAuthenticated || isLoading) return;
+    if (isLoading || hidden) return;
     let cancelled = false;
 
     async function load() {
@@ -44,9 +49,9 @@ export function CommunityPoolBar() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [isAuthenticated, isLoading]);
+  }, [isLoading, hidden]);
 
-  if (!isAuthenticated || isLoading || !pool) return null;
+  if (hidden || isLoading || !pool) return null;
 
   const stats = [
     {

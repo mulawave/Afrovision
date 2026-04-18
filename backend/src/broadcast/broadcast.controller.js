@@ -67,7 +67,8 @@ async function registerUploadedVideo(req, res) {
     if (!video_url) return res.status(400).json({ error: 'video_url is required' });
 
     // Validate URL is from our GCS bucket
-    const BUCKET_NAME = process.env.GCS_BUCKET || 'afrovision-media';
+    const BUCKET_NAME = process.env.GCS_BUCKET;
+    if (!BUCKET_NAME) return res.status(503).json({ error: 'GCS_BUCKET is not configured' });
     if (!video_url.startsWith(`https://storage.googleapis.com/${BUCKET_NAME}/videos/`)) {
       return res.status(400).json({ error: 'Invalid video URL — must be from the AfroVision media bucket' });
     }

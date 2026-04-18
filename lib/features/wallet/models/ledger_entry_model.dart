@@ -6,7 +6,7 @@ class LedgerEntryModel {
   final String? currency;
   final double amountNgn;
   final double amountVpt;
-  final int amountVptUnits;
+  final double amountVptUnits;
   final double? balanceBefore;
   final double? balanceAfter;
   final String? referenceId;
@@ -25,7 +25,7 @@ class LedgerEntryModel {
     this.currency,
     required this.amountNgn,
     required this.amountVpt,
-    this.amountVptUnits = 0,
+    this.amountVptUnits = 0.0,
     this.balanceBefore,
     this.balanceAfter,
     this.referenceId,
@@ -46,7 +46,7 @@ class LedgerEntryModel {
       currency: json['currency'] as String?,
       amountNgn: (json['amount_ngn'] as num?)?.toDouble() ?? 0,
       amountVpt: (json['amount_vpt'] as num?)?.toDouble() ?? 0,
-      amountVptUnits: (json['amount_vpt_units'] as num?)?.toInt() ?? 0,
+      amountVptUnits: (json['amount_vpt_units'] as num?)?.toDouble() ?? 0,
       balanceBefore: (json['balance_before'] as num?)?.toDouble(),
       balanceAfter: (json['balance_after'] as num?)?.toDouble(),
       referenceId: json['reference_id'] as String?,
@@ -91,6 +91,18 @@ class LedgerEntryModel {
         return 'Withdrawal';
       case 'REVERSAL':
         return 'Reversal';
+      case 'REFERRAL_EARNING':
+        return 'Referral Earning';
+      case 'SUBSCRIBER_VPT_REWARD':
+        return 'Subscriber vPT Reward';
+      case 'SUBSCRIPTION_PAYMENT':
+        return 'Creator Subscription';
+      case 'VIEWER_REWARD':
+        return 'Viewer Reward';
+      case 'VIEWER_REWARD_BATCH':
+        return 'Viewer Reward Batch';
+      case 'VIEWER_REWARD_FAILED':
+        return 'Viewer Reward Failed';
       default:
         return type;
     }
@@ -101,6 +113,7 @@ class LedgerEntryModel {
       case 'success':
         return 'Completed';
       case 'pending':
+      case 'pending_distribution':
         return 'Pending';
       case 'failed':
         return 'Failed';
@@ -110,7 +123,7 @@ class LedgerEntryModel {
   }
 
   bool get isSuccess => status == 'success';
-  bool get isPending => status == 'pending';
+  bool get isPending => status == 'pending' || status == 'pending_distribution';
   bool get isFailed => status == 'failed';
 
   bool get isIncome =>
@@ -118,7 +131,10 @@ class LedgerEntryModel {
       type == 'VPT_SWAP' ||
       type == 'GIFT_RECEIVED_VPT' ||
       type == 'GIFT_RECEIVED_NGN' ||
-      type == 'WALLET_FUND';
+      type == 'WALLET_FUND' ||
+      type == 'REFERRAL_EARNING' ||
+      type == 'SUBSCRIBER_VPT_REWARD' ||
+      type == 'VIEWER_REWARD';
 
   bool get isExpense =>
       type == 'GIFT_SENT_VPT' ||

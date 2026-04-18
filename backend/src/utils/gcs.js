@@ -1,6 +1,9 @@
 const { Storage } = require('@google-cloud/storage');
 
-const BUCKET_NAME = process.env.GCS_BUCKET || 'afrovision-media';
+const BUCKET_NAME = process.env.GCS_BUCKET;
+if (!BUCKET_NAME) {
+  throw new Error('GCS_BUCKET environment variable is required for GCS operations');
+}
 const storage = new Storage();
 const bucket = storage.bucket(BUCKET_NAME);
 

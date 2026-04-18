@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
@@ -79,7 +79,7 @@ export default function KycPage() {
     return (
       <main className="min-h-screen pt-24 flex items-center justify-center px-6">
         <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-          <p className="text-sm text-av-hint">Sign in to verify your identity.</p>
+          <p className="text-sm text-av-light-orange">Sign in to verify your identity.</p>
           <Link href="/login?redirect=/kyc" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
             Sign in →
           </Link>
@@ -178,15 +178,15 @@ export default function KycPage() {
                 {kycStatus.status === "verified" ? "✓ Verified" : kycStatus.status === "under_review" ? "Under Review" : "Pending Review"}
               </div>
               <h1 className="mt-6 text-2xl font-bold text-av-white">KYC Verification</h1>
-              <p className="mt-3 text-sm text-av-hint">
+              <p className="mt-3 text-sm text-av-light-orange">
                 {kycStatus.status === "verified"
                   ? "Your identity has been verified. You have full access to all platform features."
                   : "Your documents are being reviewed. This usually takes 1-2 business days."}
               </p>
               <div className="mt-6 space-y-2 text-left rounded-xl bg-av-input-fill/30 p-4">
-                <p className="text-xs text-av-hint">Name: <span className="text-av-white">{kycStatus.full_name}</span></p>
-                <p className="text-xs text-av-hint">ID Type: <span className="text-av-white">{kycStatus.id_type}</span></p>
-                <p className="text-xs text-av-hint">Submitted: <span className="text-av-white">{new Date(kycStatus.submitted_at).toLocaleDateString()}</span></p>
+                <p className="text-xs text-av-light-orange">Name: <span className="text-av-white">{kycStatus.full_name}</span></p>
+                <p className="text-xs text-av-light-orange">ID Type: <span className="text-av-white">{kycStatus.id_type}</span></p>
+                <p className="text-xs text-av-light-orange">Submitted: <span className="text-av-white">{new Date(kycStatus.submitted_at).toLocaleDateString()}</span></p>
               </div>
               <Link href="/" className="mt-6 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
                 ← Back to Home
@@ -211,7 +211,7 @@ export default function KycPage() {
                 </svg>
               </div>
               <h1 className="mt-4 text-2xl font-bold text-av-white">KYC Submitted</h1>
-              <p className="mt-3 text-sm text-av-hint">Your documents are now under review. We&apos;ll notify you once verification is complete.</p>
+              <p className="mt-3 text-sm text-av-light-orange">Your documents are now under review. We&apos;ll notify you once verification is complete.</p>
               <Link href="/" className="mt-6 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
                 ← Back to Home
               </Link>
@@ -230,7 +230,7 @@ export default function KycPage() {
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Identity Verification</p>
             <h1 className="mt-2 text-3xl font-bold text-av-white">Complete KYC</h1>
-            <p className="mt-2 text-sm text-av-hint">
+            <p className="mt-2 text-sm text-av-light-orange">
               Verify your identity to unlock all features — premium subscriptions, wallet withdrawals, and creator tools.
             </p>
           </div>
@@ -241,7 +241,7 @@ export default function KycPage() {
               {kycStatus.rejection_reason && (
                 <p className="mt-1 text-xs text-red-300/70">Reason: {kycStatus.rejection_reason}</p>
               )}
-              <p className="mt-2 text-xs text-av-hint">Please re-submit with valid documents below.</p>
+              <p className="mt-2 text-xs text-av-light-orange">Please re-submit with valid documents below.</p>
             </div>
           )}
 
@@ -257,7 +257,7 @@ export default function KycPage() {
               <h2 className="text-sm font-semibold text-av-white mb-4">Personal Information</h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">Full Legal Name *</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Full Legal Name *</label>
                   <input
                     type="text"
                     value={fullName}
@@ -268,7 +268,7 @@ export default function KycPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">Date of Birth</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Date of Birth</label>
                   <input
                     type="date"
                     value={dob}
@@ -277,7 +277,7 @@ export default function KycPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">Phone Number</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Phone Number</label>
                   <input
                     type="tel"
                     value={phone}
@@ -287,7 +287,7 @@ export default function KycPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">Nationality</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Nationality</label>
                   <input
                     type="text"
                     value={nationality}
@@ -297,7 +297,7 @@ export default function KycPage() {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">Address</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Address</label>
                   <input
                     type="text"
                     value={address}
@@ -314,7 +314,7 @@ export default function KycPage() {
               <h2 className="text-sm font-semibold text-av-white mb-4">Identity Document</h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">ID Type *</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">ID Type *</label>
                   <select
                     value={idType}
                     onChange={(e) => setIdType(e.target.value)}
@@ -326,7 +326,7 @@ export default function KycPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">ID Number *</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">ID Number *</label>
                   <input
                     type="text"
                     value={idNumber}
@@ -338,7 +338,7 @@ export default function KycPage() {
                 </div>
                 {idType !== "nin_slip" && idType !== "national_id" && (
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">ID Expiry Date</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">ID Expiry Date</label>
                   <input
                     type="date"
                     value={idExpiry}
@@ -430,7 +430,7 @@ function FileUploadBox({
       {uploading ? (
         <div className="flex items-center justify-center gap-2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
-          <span className="text-xs text-av-hint">Uploading...</span>
+          <span className="text-xs text-av-light-orange">Uploading...</span>
         </div>
       ) : uploaded ? (
         <div className="flex items-center justify-center gap-2">
@@ -441,9 +441,9 @@ function FileUploadBox({
         </div>
       ) : (
         <>
-          <p className="text-xs font-medium text-av-white/70">{label}</p>
-          {hint && <p className="mt-1 text-[10px] text-av-hint">{hint}</p>}
-          <p className="mt-1 text-[10px] text-av-hint">Click to select file</p>
+          <p className="text-xs font-medium text-av-light-orange">{label}</p>
+          {hint && <p className="mt-1 text-[10px] text-av-light-orange">{hint}</p>}
+          <p className="mt-1 text-[10px] text-av-light-orange">Click to select file</p>
         </>
       )}
     </div>

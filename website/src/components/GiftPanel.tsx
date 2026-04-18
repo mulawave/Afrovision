@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useCallback, useEffect } from "react";
 import { type GiftItem, getGiftsApi } from "@/lib/api";
@@ -66,7 +66,7 @@ export function GiftPanel({ walletBalance, onSendGift }: GiftPanelProps) {
         </div>
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-av-orange/10 border border-av-orange/20">
           <span className="text-[10px] font-bold text-av-orange">💎 {walletBalance.toLocaleString()}</span>
-          <span className="text-[9px] text-av-hint">VPT</span>
+          <span className="text-[9px] text-av-light-orange">vPT</span>
         </div>
       </div>
 
@@ -77,7 +77,7 @@ export function GiftPanel({ walletBalance, onSendGift }: GiftPanelProps) {
             <div className="w-6 h-6 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
           </div>
         ) : gifts.length === 0 ? (
-          <p className="text-center text-[11px] text-av-hint py-6">No gifts available</p>
+          <p className="text-center text-[11px] text-av-light-orange py-6">No gifts available</p>
         ) : (
           <div className="grid grid-cols-4 gap-2">
             {gifts.map((gift) => {
@@ -104,7 +104,7 @@ export function GiftPanel({ walletBalance, onSendGift }: GiftPanelProps) {
                   )}
 
                   <span className="text-2xl">{gift.icon}</span>
-                  <span className="text-[10px] text-av-white/70 font-medium truncate w-full text-center">
+                  <span className="text-[10px] text-av-light-orange font-medium truncate w-full text-center">
                     {gift.name}
                   </span>
                   <span className="text-[10px] font-bold text-av-orange">
@@ -134,13 +134,13 @@ export function GiftPanel({ walletBalance, onSendGift }: GiftPanelProps) {
             {sending ? (
               <span className="gift-send-animation inline-block">{lastSent} Sent!</span>
             ) : canAfford ? (
-              `Send ${selectedGift.icon} ${selectedGift.name} — ${selectedGift.vpt_units} VPT`
+              `Send ${selectedGift.icon} ${selectedGift.name} — ${selectedGift.vpt_units} vPT`
             ) : (
-              "Insufficient VPT Balance"
+              "Insufficient vPT Balance"
             )}
           </button>
         ) : (
-          <p className="text-center text-[11px] text-av-hint py-2">
+          <p className="text-center text-[11px] text-av-light-orange py-2">
             Select a gift to send to the creator
           </p>
         )}

@@ -7,8 +7,10 @@ const User = require('../users/user.model');
 const LedgerService = require('../vpt/ledger.service');
 const { emitChannelEvent } = require('../realtime/socket.service');
 const { getSenderDisplayName } = require('./live_identity');
+const SettingsService = require('../admin/settings.service');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
+const NotificationService = require('../notifications/notification.service');
 
 // ─── Constants ───────────────────────────────────────────
 const SPLIT = { creator: 0.5, operations: 0.3, community: 0.2 };
@@ -143,8 +145,37 @@ function getAllGifts(req, res) {
 
 async function getMyGiftWallet(req, res) {
   try {
-    const wallet = await GiftWallet.ensureWallet(req.userId);
-    res.json({ wallet: { vpt_units: wallet.vpt_units, ngn_balance: wallet.ngn_balance } });
+    const user = User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // blockchain_tokens is a very large integer stored as a Firestore number or string.
+    // Return it as a string to avoid JavaScript Number precision loss.
+    const tokensRaw = user.blockchain_tokens;
+    const blockchainTokens = tokensRaw != null ? String(tokensRaw) : null;
+
+    // Include connected wallet info if available
+    let connectedWallet = null;
+    try {
+      const WalletModel = require('../wallet/wallet.model');
+      const walletRecord = WalletModel.findByUserId(req.userId);
+      if (walletRecord && walletRecord.connected_wallet_address) {
+        connectedWallet = {
+          address: walletRecord.connected_wallet_address,
+          type: walletRecord.connected_wallet_type,
+          connected_at: walletRecord.connected_wallet_at,
+        };
+      }
+    } catch { /* wallet module not loaded yet */ }
+
+    res.json({
+      wallet: {
+        vpt: user.vpt || 0,
+        cash: user.cash || 0,
+        coins: user.coins || 0,
+        blockchain_tokens: blockchainTokens,
+        connected_wallet: connectedWallet,
+      },
+    });
   } catch (err) {
     console.error('[Interactions] getMyGiftWallet error:', err.message);
     res.status(500).json({ error: 'Failed to retrieve wallet' });
@@ -166,6 +197,9 @@ async function sendReaction(req, res) {
 
     const channel = Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const senderAlias = channel.type === 'private'
+      ? getSenderDisplayName(req.userId, channel)
+      : null;
 
     const db = getFirestore();
     const event = {
@@ -174,6 +208,7 @@ async function sendReaction(req, res) {
       type: 'reaction',
       emoji,
       sender_uid: req.userId,
+      sender_alias: senderAlias,
       created_at: Date.now(),
     };
     await db.collection('channel_events').doc(event.id).set(event);
@@ -214,6 +249,9 @@ async function sendGift(req, res) {
 
     const channel = Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const senderAlias = channel.type === 'private'
+      ? getSenderDisplayName(req.userId, channel)
+      : null;
 
     const creatorUid = channel.owner_id;
     if (creatorUid === req.userId) {
@@ -224,9 +262,23 @@ async function sendGift(req, res) {
 
     let analyticsShare;
     if (gift.currency === 'vpt') {
-      analyticsShare = await _sendVptGift(db, req.userId, creatorUid, channel_id, gift);
+      analyticsShare = await _sendVptGift(
+        db,
+        req.userId,
+        creatorUid,
+        channel_id,
+        gift,
+        senderAlias,
+      );
     } else if (gift.currency === 'ngn') {
-      analyticsShare = await _sendNgnGift(db, req.userId, creatorUid, channel_id, gift);
+      analyticsShare = await _sendNgnGift(
+        db,
+        req.userId,
+        creatorUid,
+        channel_id,
+        gift,
+        senderAlias,
+      );
     } else {
       return res.status(400).json({ error: 'Unknown gift currency' });
     }
@@ -241,14 +293,30 @@ async function sendGift(req, res) {
       console.error('[Interactions] gift analytics update error:', analyticsError.message);
     }
 
+    // Notify gift recipient
+    const sender = User.findById(req.userId);
+    const senderName = sender ? (sender.name || sender.email || 'Someone') : 'Someone';
+    const currencyLabel = gift.currency === 'vpt'
+      ? `${Math.floor(gift.vpt_units * SPLIT.creator)} vPT`
+      : `₦${(gift.naira_value * SPLIT.creator).toFixed(0)}`;
+    NotificationService.notifyUser(creatorUid, {
+      title: `🎁 You received a ${gift.name}!`,
+      body: `${senderName} sent you a ${gift.name} — you earned ${currencyLabel}`,
+      type: 'gift_received',
+      link: `/live/${channel_id}`,
+      data: {
+        gift_id: gift.id,
+        gift_name: gift.name,
+        channel_id,
+        sender_uid: req.userId,
+      },
+    }).catch((err) => console.error('[Interactions] gift notification error:', err.message));
+
     // Register combo
     await _registerCombo(db, channel_id, req.userId, gift_id);
 
     // Get display name
-    const user = User.findById(req.userId);
-    const displayName = channel.type === 'private'
-      ? getSenderDisplayName(req.userId, channel)
-      : (user?.name || user?.email || 'Anonymous');
+    const displayName = getSenderDisplayName(req.userId, channel);
 
     emitChannelEvent(channel_id, {
       id: crypto.randomUUID(),
@@ -279,42 +347,35 @@ async function sendGift(req, res) {
   }
 }
 
-async function _sendVptGift(db, senderUid, creatorUid, channelId, gift) {
-  const senderRef = db.collection('gift_wallets').doc(senderUid);
-  const creatorRef = db.collection('gift_wallets').doc(creatorUid);
+async function _sendVptGift(db, senderUid, creatorUid, channelId, gift, senderAlias = null) {
+  const senderRef = db.collection('users').doc(senderUid);
+  const creatorRef = db.collection('users').doc(creatorUid);
 
+  let creatorShare;
   await db.runTransaction(async (tx) => {
     const senderDoc = await tx.get(senderRef);
     const creatorDoc = await tx.get(creatorRef);
 
-    const senderData = senderDoc.exists ? senderDoc.data() : { uid: senderUid, vpt_units: 0, ngn_balance: 0 };
-    const creatorData = creatorDoc.exists ? creatorDoc.data() : { uid: creatorUid, vpt_units: 0, ngn_balance: 0 };
+    const senderData = senderDoc.exists ? senderDoc.data() : { id: senderUid, vpt: 0, cash: 0 };
+    const creatorData = creatorDoc.exists ? creatorDoc.data() : { id: creatorUid, vpt: 0, cash: 0 };
 
     const cost = gift.vpt_units;
-    const senderBefore = senderData.vpt_units || 0;
+    const senderBefore = senderData.vpt || 0;
     if (senderBefore < cost) throw new Error('INSUFFICIENT_VPT');
 
-    const creatorShare = Math.floor(cost * SPLIT.creator);
+    creatorShare = Math.floor(cost * SPLIT.creator);
     const opsShare = Math.floor(cost * SPLIT.operations);
     const communityShare = cost - creatorShare - opsShare;
 
     const senderAfter = senderBefore - cost;
-    const creatorBefore = creatorData.vpt_units || 0;
+    const creatorBefore = creatorData.vpt || 0;
     const creatorAfter = creatorBefore + creatorShare;
 
     // Debit sender
-    tx.set(senderRef, {
-      ...senderData,
-      vpt_units: senderAfter,
-      updated_at: Date.now(),
-    });
+    tx.update(senderRef, { vpt: senderAfter });
 
     // Credit creator
-    tx.set(creatorRef, {
-      ...creatorData,
-      vpt_units: creatorAfter,
-      updated_at: Date.now(),
-    });
+    tx.update(creatorRef, { vpt: creatorAfter });
 
     // Pools
     const admin = require('firebase-admin');
@@ -358,6 +419,7 @@ async function _sendVptGift(db, senderUid, creatorUid, channelId, gift) {
       type: 'gift',
       gift_id: gift.id,
       sender_uid: senderUid,
+      sender_alias: senderAlias,
       created_at: Date.now(),
     });
 
@@ -366,6 +428,7 @@ async function _sendVptGift(db, senderUid, creatorUid, channelId, gift) {
       channel_id: channelId,
       gift_id: gift.id,
       sender_uid: senderUid,
+      sender_alias: senderAlias,
       vpt_units: cost,
       created_at: Date.now(),
     });
@@ -378,42 +441,35 @@ async function _sendVptGift(db, senderUid, creatorUid, channelId, gift) {
   return { ngn: 0, vpt: creatorShare };
 }
 
-async function _sendNgnGift(db, senderUid, creatorUid, channelId, gift) {
-  const senderRef = db.collection('gift_wallets').doc(senderUid);
-  const creatorRef = db.collection('gift_wallets').doc(creatorUid);
+async function _sendNgnGift(db, senderUid, creatorUid, channelId, gift, senderAlias = null) {
+  const senderRef = db.collection('users').doc(senderUid);
+  const creatorRef = db.collection('users').doc(creatorUid);
 
+  let creatorShare;
   await db.runTransaction(async (tx) => {
     const senderDoc = await tx.get(senderRef);
     const creatorDoc = await tx.get(creatorRef);
 
-    const senderData = senderDoc.exists ? senderDoc.data() : { uid: senderUid, vpt_units: 0, ngn_balance: 0 };
-    const creatorData = creatorDoc.exists ? creatorDoc.data() : { uid: creatorUid, vpt_units: 0, ngn_balance: 0 };
+    const senderData = senderDoc.exists ? senderDoc.data() : { id: senderUid, vpt: 0, cash: 0 };
+    const creatorData = creatorDoc.exists ? creatorDoc.data() : { id: creatorUid, vpt: 0, cash: 0 };
 
     const cost = gift.naira_value;
-    const senderBefore = senderData.ngn_balance || 0;
+    const senderBefore = senderData.cash || 0;
     if (senderBefore < cost) throw new Error('INSUFFICIENT_NGN');
 
-    const creatorShare = cost * SPLIT.creator;
+    creatorShare = cost * SPLIT.creator;
     const opsShare = cost * SPLIT.operations;
     const communityShare = cost - creatorShare - opsShare;
 
     const senderAfter = senderBefore - cost;
-    const creatorBefore = creatorData.ngn_balance || 0;
+    const creatorBefore = creatorData.cash || 0;
     const creatorAfter = creatorBefore + creatorShare;
 
     // Debit sender
-    tx.set(senderRef, {
-      ...senderData,
-      ngn_balance: senderAfter,
-      updated_at: Date.now(),
-    });
+    tx.update(senderRef, { cash: senderAfter });
 
     // Credit creator
-    tx.set(creatorRef, {
-      ...creatorData,
-      ngn_balance: creatorAfter,
-      updated_at: Date.now(),
-    });
+    tx.update(creatorRef, { cash: creatorAfter });
 
     // Pools
     const admin = require('firebase-admin');
@@ -457,6 +513,7 @@ async function _sendNgnGift(db, senderUid, creatorUid, channelId, gift) {
       type: 'gift',
       gift_id: gift.id,
       sender_uid: senderUid,
+      sender_alias: senderAlias,
       created_at: Date.now(),
     });
 
@@ -465,6 +522,7 @@ async function _sendNgnGift(db, senderUid, creatorUid, channelId, gift) {
       channel_id: channelId,
       gift_id: gift.id,
       sender_uid: senderUid,
+      sender_alias: senderAlias,
       naira: cost,
       created_at: Date.now(),
     });
@@ -527,6 +585,9 @@ async function getLeaderboard(req, res) {
     const channelId = req.params.channelId;
     if (!channelId) return res.status(400).json({ error: 'Channel ID required' });
 
+    const channel = Channel.findById(channelId);
+    const isPrivate = channel?.type === 'private';
+
     const db = getFirestore();
     const snapshot = await db.collection('gift_stats')
       .where('channel_id', '==', channelId)
@@ -535,21 +596,35 @@ async function getLeaderboard(req, res) {
     const totals = {};
     snapshot.forEach((doc) => {
       const d = doc.data();
-      const uid = d.sender_uid;
-      totals[uid] = (totals[uid] || 0) + (d.vpt_units || d.naira || 0);
+      const alias = d.sender_alias || 'Anonymous';
+      const key = isPrivate
+        ? `anon:${channelId}:${alias}`
+        : d.sender_uid;
+      if (!key) return;
+
+      if (!totals[key]) {
+        totals[key] = {
+          uid: isPrivate ? '' : d.sender_uid,
+          display_name: isPrivate ? alias : null,
+          total: 0,
+        };
+      }
+      totals[key].total += d.vpt_units || d.naira || 0;
     });
 
-    const channel = Channel.findById(channelId);
-    const isPrivate = channel?.type === 'private';
-
-    const leaderboard = Object.entries(totals)
-      .sort((a, b) => b[1] - a[1])
+    const leaderboard = Object.values(totals)
+      .sort((a, b) => b.total - a.total)
       .slice(0, 10)
-      .map(([uid, total], idx) => {
+      .map((entry, idx) => {
         const displayName = isPrivate
-          ? getSenderDisplayName(uid, channel)
-          : getSenderDisplayName(uid, { ...channel, type: 'public' });
-        return { rank: idx + 1, display_name: displayName, total };
+          ? entry.display_name || 'Anonymous'
+          : getSenderDisplayName(entry.uid, { ...channel, type: 'public' });
+        return {
+          rank: idx + 1,
+          uid: isPrivate ? '' : entry.uid,
+          display_name: displayName,
+          total: entry.total,
+        };
       });
 
     res.json({ leaderboard });
@@ -587,7 +662,7 @@ async function getChannelEvents(req, res) {
     const events = filteredDocs.map((doc) => {
       const d = doc.data();
       const senderName = isPrivate
-        ? getSenderDisplayName(d.sender_uid, channel)
+        ? d.sender_alias || getSenderDisplayName(d.sender_uid, channel)
         : getSenderDisplayName(d.sender_uid, { ...channel, type: 'public' });
 
       const event = {
@@ -617,6 +692,119 @@ async function getChannelEvents(req, res) {
   }
 }
 
+// ─── Ravens ↔ vPT Exchange ───────────────────────────────
+
+async function exchangeAssets(req, res) {
+  try {
+    const { from, to, amount } = req.body;
+    if (!from || !to || !amount || amount <= 0) {
+      return res.status(400).json({ error: 'from, to, and a positive amount are required' });
+    }
+
+    const validPairs = ['ravens_to_vpt', 'vpt_to_ravens'];
+    const pair = `${from}_to_${to}`;
+    if (!validPairs.includes(pair)) {
+      return res.status(400).json({ error: 'Only ravens↔vpt conversions are allowed' });
+    }
+
+    const vptRavenRate = (await SettingsService.getNumber('VPT_RAVEN_RATE')) || 75;
+    const uid = req.userId;
+    const user = User.findById(uid);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const db = getFirestore();
+    const userRef = db.collection('users').doc(uid);
+
+    if (pair === 'ravens_to_vpt') {
+      // Convert Ravens → vPT  (amount = Ravens to spend)
+      const ravensNeeded = Math.floor(amount);
+      if (ravensNeeded < vptRavenRate) {
+        return res.status(400).json({ error: `Minimum ${vptRavenRate} Ravens required for 1 vPT` });
+      }
+      const vptGained = parseFloat((ravensNeeded / vptRavenRate).toFixed(4));
+      const ravensUsed = Math.floor(vptGained * vptRavenRate); // exact Ravens consumed
+
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(userRef);
+        const data = snap.exists ? snap.data() : {};
+        const currentCoins = data.coins || 0;
+        if (currentCoins < ravensUsed) throw new Error('INSUFFICIENT_RAVENS');
+        tx.update(userRef, {
+          coins: parseFloat((currentCoins - ravensUsed).toFixed(2)),
+          vpt: parseFloat(((data.vpt || 0) + vptGained).toFixed(4)),
+        });
+      });
+
+      // Sync in-memory cache
+      User.adjustCoins(uid, -ravensUsed);
+      User.adjustVpt(uid, vptGained);
+      // Re-read to fix any rounding drift between Firestore tx and in-memory
+      const updated = User.findById(uid);
+
+      return res.json({
+        message: `Converted ${ravensUsed} Ravens → ${vptGained} vPT`,
+        wallet: { vpt: updated.vpt, cash: updated.cash, coins: updated.coins },
+      });
+    }
+
+    // vpt_to_ravens
+    const vptToSpend = parseFloat(parseFloat(amount).toFixed(4));
+    if (vptToSpend <= 0) return res.status(400).json({ error: 'Amount must be positive' });
+    const ravensGained = Math.floor(vptToSpend * vptRavenRate);
+    if (ravensGained <= 0) return res.status(400).json({ error: 'Amount too small to convert' });
+
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      const data = snap.exists ? snap.data() : {};
+      const currentVpt = data.vpt || 0;
+      if (currentVpt < vptToSpend) throw new Error('INSUFFICIENT_VPT');
+      tx.update(userRef, {
+        vpt: parseFloat((currentVpt - vptToSpend).toFixed(4)),
+        coins: parseFloat(((data.coins || 0) + ravensGained).toFixed(2)),
+      });
+    });
+
+    User.adjustVpt(uid, -vptToSpend);
+    User.adjustCoins(uid, ravensGained);
+    const updated = User.findById(uid);
+
+    return res.json({
+      message: `Converted ${vptToSpend} vPT → ${ravensGained} Ravens`,
+      wallet: { vpt: updated.vpt, cash: updated.cash, coins: updated.coins },
+    });
+  } catch (err) {
+    if (err.message === 'INSUFFICIENT_RAVENS') {
+      return res.status(400).json({ error: 'Insufficient Ravens balance' });
+    }
+    if (err.message === 'INSUFFICIENT_VPT') {
+      return res.status(400).json({ error: 'Insufficient vPT balance' });
+    }
+    console.error('[Exchange] error:', err.message);
+    return res.status(500).json({ error: 'Exchange failed' });
+  }
+}
+
+// ─── Exchange Rates (public) ─────────────────────────────
+
+async function getExchangeRates(req, res) {
+  try {
+    const vptRavenRate = (await SettingsService.getNumber('VPT_RAVEN_RATE')) || 75;
+    const ravenNgnRate = (await SettingsService.getNumber('RAVEN_NGN_RATE')) || 10;
+    const vptPriceNgn = (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750;
+
+    res.json({
+      rates: {
+        vpt_raven_rate: vptRavenRate,
+        raven_ngn_rate: ravenNgnRate,
+        vpt_price_ngn: vptPriceNgn,
+      },
+    });
+  } catch (err) {
+    console.error('[ExchangeRates] error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch exchange rates' });
+  }
+}
+
 module.exports = {
   createGift,
   updateGift,
@@ -630,4 +818,6 @@ module.exports = {
   getCombo,
   getLeaderboard,
   getChannelEvents,
+  exchangeAssets,
+  getExchangeRates,
 };

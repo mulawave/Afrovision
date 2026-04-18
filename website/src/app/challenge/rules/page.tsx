@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Challenge Rules & Prizes — AfroVision",
@@ -13,7 +13,7 @@ export default function ChallengeRulesPage() {
         <div className="mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Challenge</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Rules &amp; Prizes</h1>
-          <p className="mt-2 text-xs text-av-hint">Season 1 — Updated April 5, 2026</p>
+          <p className="mt-2 text-xs text-av-light-orange">Season 1 — Updated April 5, 2026</p>
         </div>
 
         <article className="space-y-8">
@@ -54,12 +54,12 @@ export default function ChallengeRulesPage() {
                 <div className="rounded-xl bg-av-dark-blue/50 border border-av-input-border/20 p-4">
                   <p className="text-2xl font-extrabold text-av-orange mb-1">60%</p>
                   <p className="text-xs font-semibold text-av-white mb-1">Engagement Metrics</p>
-                  <p className="text-xs text-av-hint">Peak viewers, chat activity, reactions, gifts received, follower growth during competition.</p>
+                  <p className="text-xs text-av-light-orange">Peak viewers, chat activity, reactions, gifts received, follower growth during competition.</p>
                 </div>
                 <div className="rounded-xl bg-av-dark-blue/50 border border-av-input-border/20 p-4">
                   <p className="text-2xl font-extrabold text-av-orange mb-1">40%</p>
                   <p className="text-xs font-semibold text-av-white mb-1">Judge Panel</p>
-                  <p className="text-xs text-av-hint">Content quality, creativity, production value, audience connection, and consistency.</p>
+                  <p className="text-xs text-av-light-orange">Content quality, creativity, production value, audience connection, and consistency.</p>
                 </div>
               </div>
             </div>
@@ -78,7 +78,7 @@ export default function ChallengeRulesPage() {
                     <span className="text-xs uppercase tracking-widest text-av-light-orange font-bold">{p.place}</span>
                     <span className="text-lg font-extrabold text-av-orange">{p.amount}</span>
                   </div>
-                  <ul className="list-disc list-inside space-y-0.5 text-xs text-av-hint">
+                  <ul className="list-disc list-inside space-y-0.5 text-xs text-av-light-orange">
                     {p.extras.map((e) => <li key={e}>{e}</li>)}
                   </ul>
                 </div>
@@ -128,7 +128,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
       <h2 className="text-lg font-bold text-av-white mb-3">{title}</h2>
-      <div className="text-sm text-av-hint leading-relaxed space-y-2">{children}</div>
+      <div className="text-sm text-av-light-orange leading-relaxed space-y-2">{children}</div>
     </section>
   );
 }

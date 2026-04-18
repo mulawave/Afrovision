@@ -158,7 +158,7 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
                           Text(
                             'Access private and public channels by number',
                             style: TextStyle(
-                              color: AppColors.hintText.withValues(alpha: 0.7),
+                              color: AppColors.goldText,
                               fontSize: 14,
                             ),
                           ),

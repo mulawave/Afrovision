@@ -78,6 +78,8 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         _loading = false;
       });
       _animController.forward();
+      // Record view for analytics (fire and forget)
+      ChannelService.recordView(id).catchError((_) {});
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -101,7 +103,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(
+            e.toString(),
+            style: const TextStyle(color: AppColors.white),
+          ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
         ),
@@ -167,7 +172,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(
+            e.toString(),
+            style: const TextStyle(color: AppColors.white),
+          ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -390,7 +398,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                       Clipboard.setData(ClipboardData(text: ch.channelNumber));
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: const Text('Channel number copied'),
+                          content: const Text(
+                            'Channel number copied',
+                            style: TextStyle(color: AppColors.white),
+                          ),
                           backgroundColor: const Color(
                             0xFF4CAF50,
                           ).withValues(alpha: 0.9),
@@ -622,7 +633,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                 Text(
                   label,
                   style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.7),
+                    color: AppColors.goldText,
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
                     letterSpacing: 0.5,

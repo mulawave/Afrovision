@@ -97,6 +97,35 @@ async function incrementStreamEntry(creatorUid, { ngn = 0, vpt = 0 } = {}) {
 }
 
 /**
+ * Increment viewer counts for today.
+ * Uses a Firestore set to track unique viewers per creator per day.
+ */
+async function incrementViewers(creatorUid, viewerUid) {
+  const db = getFirestore();
+  const admin = require('firebase-admin');
+  const today = _getTodayKey();
+  const docId = _docId(creatorUid, today);
+
+  // Always increment total viewers
+  await db.collection(COLLECTION).doc(docId).set({
+    date: today,
+    creator_uid: creatorUid,
+    total_viewers: admin.firestore.FieldValue.increment(1),
+    updated_at: Date.now(),
+  }, { merge: true });
+
+  // Track unique viewer in a subcollection to avoid double-counting
+  const uniqueRef = db.collection(COLLECTION).doc(docId).collection('unique_viewers').doc(viewerUid);
+  const existing = await uniqueRef.get();
+  if (!existing.exists) {
+    await uniqueRef.set({ first_seen: Date.now() });
+    await db.collection(COLLECTION).doc(docId).set({
+      unique_viewers: admin.firestore.FieldValue.increment(1),
+    }, { merge: true });
+  }
+}
+
+/**
  * Increment stream count for today (called on go-live).
  */
 async function incrementStreams(creatorUid) {
@@ -150,6 +179,7 @@ module.exports = {
   incrementGifts,
   incrementSubscription,
   incrementStreamEntry,
+  incrementViewers,
   incrementStreams,
   getToday,
   getLastNDays,

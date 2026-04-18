@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef } from "react";
 import { NavLink } from "@/components/NavLink";
@@ -101,7 +101,7 @@ function LiveCard({ stream }: { stream: LiveStream }) {
         </div>
 
         {/* Viewer count overlay */}
-        <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-medium text-av-white/80">
+        <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-medium text-av-light-orange">
           👁 {formatViewers(stream.viewers)}
         </div>
         {stream.logoUrl ? (
@@ -136,7 +136,7 @@ function LiveCard({ stream }: { stream: LiveStream }) {
         <h4 className="text-xs font-semibold text-av-white truncate group-hover:text-av-error transition-colors">
           {stream.title}
         </h4>
-        <p className="text-[11px] text-av-hint mt-0.5 truncate">
+        <p className="text-[11px] text-av-light-orange mt-0.5 truncate">
           {stream.channel} · {stream.category}
         </p>
       </div>
@@ -198,7 +198,7 @@ export function LiveNowRow({ section }: { section?: HomepageLiveSection }) {
               <h2 className="text-xl lg:text-2xl font-bold text-av-white tracking-tight">
                 {section?.title || "Streams Happening Now"}
               </h2>
-              <p className="text-xs text-av-hint mt-0.5">
+              <p className="text-xs text-av-light-orange mt-0.5">
                 {streams.length} live streams · {section?.subtitle || "Jump in before you miss out"}
               </p>
             </div>
@@ -207,7 +207,7 @@ export function LiveNowRow({ section }: { section?: HomepageLiveSection }) {
           <div className="hidden sm:flex items-center gap-2">
             <button
               onClick={() => scroll("left")}
-              className="w-8 h-8 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-hint hover:text-av-white hover:border-av-error/40 transition-all"
+              className="w-8 h-8 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-white hover:border-av-error/40 transition-all"
               aria-label="Scroll left"
             >
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -216,7 +216,7 @@ export function LiveNowRow({ section }: { section?: HomepageLiveSection }) {
             </button>
             <button
               onClick={() => scroll("right")}
-              className="w-8 h-8 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-hint hover:text-av-white hover:border-av-error/40 transition-all"
+              className="w-8 h-8 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-white hover:border-av-error/40 transition-all"
               aria-label="Scroll right"
             >
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2}>

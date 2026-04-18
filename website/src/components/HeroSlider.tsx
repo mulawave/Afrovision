@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { NavLink } from "@/components/NavLink";
@@ -31,7 +31,7 @@ const SLIDES: Slide[] = [
     title: "AfroBeats Friday Night",
     subtitle: "LIVE NOW",
     description:
-      "The biggest Afrobeats DJs are live right now. Join the party, send gifts, and earn VPT while vibing with thousands of fans.",
+      "The biggest Afrobeats DJs are live right now. Join the party, send gifts, and earn vPT while vibing with thousands of fans.",
     cta: { label: "Watch Live Now", href: "/live/1" },
     secondaryCta: { label: "Browse All Live", href: "/live" },
     icon: "🔴",
@@ -45,7 +45,7 @@ const SLIDES: Slide[] = [
     title: "Watch. Earn. Connect.",
     subtitle: "Africa's Premier Streaming Platform",
     description:
-      "Join thousands of creators and viewers on the continent's most vibrant live streaming community. Earn VPT rewards while you watch.",
+      "Join thousands of creators and viewers on the continent's most vibrant live streaming community. Earn vPT rewards while you watch.",
     cta: { label: "Explore Channels", href: "/channels" },
     secondaryCta: { label: "Download App", href: "/download" },
     icon: "🎬",
@@ -169,7 +169,7 @@ export function HeroSlider({ slides, autoRotateMs = AUTO_PLAY_MS }: { slides?: H
                 LIVE
               </span>
               {slide.viewers && (
-                <span className="px-3 py-1 rounded-full bg-black/30 backdrop-blur-sm text-[11px] font-medium text-av-white/80">
+                <span className="px-3 py-1 rounded-full bg-black/30 backdrop-blur-sm text-[11px] font-medium text-av-light-orange">
                   👁 {formatViewers(slide.viewers)} watching
                 </span>
               )}
@@ -208,7 +208,7 @@ export function HeroSlider({ slides, autoRotateMs = AUTO_PLAY_MS }: { slides?: H
           {/* Description */}
           <p
             key={`desc-${slide.id}`}
-            className="animate-fade-in-up text-base lg:text-lg text-av-white/70 leading-relaxed mb-8 max-w-lg"
+            className="animate-fade-in-up text-base lg:text-lg text-av-light-orange leading-relaxed mb-8 max-w-lg"
             style={{ animationDelay: "0.15s" }}
           >
             {slide.description}
@@ -264,7 +264,7 @@ export function HeroSlider({ slides, autoRotateMs = AUTO_PLAY_MS }: { slides?: H
               )}
             </button>
           ))}
-          <span className="ml-4 text-xs text-av-hint font-mono tabular-nums">
+          <span className="ml-4 text-xs text-av-light-orange font-mono tabular-nums">
             {String(current + 1).padStart(2, "0")} /{" "}
             {String(items.length).padStart(2, "0")}
           </span>

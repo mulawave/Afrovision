@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/services/notification_service.dart';
+import 'core/services/deep_link_service.dart';
 import 'core/theme/app_colors.dart';
 import 'firebase_options.dart';
 import 'features/auth/screens/splash_screen.dart';
@@ -14,6 +15,7 @@ import 'features/auth/screens/terms_screen.dart';
 import 'features/auth/screens/privacy_policy_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'features/profile/screens/edit_profile_screen.dart';
+import 'features/profile/screens/delete_account_screen.dart';
 import 'features/subscription/screens/plans_screen.dart';
 import 'features/channel/screens/channel_list_screen.dart';
 import 'features/channel/screens/create_channel_screen.dart';
@@ -24,6 +26,8 @@ import 'features/channel/screens/edit_channel_screen.dart';
 import 'features/wallet/screens/digital_assets_screen.dart';
 import 'features/wallet/screens/gift_wallet_screen.dart';
 import 'features/wallet/screens/withdrawal_screen.dart';
+import 'features/wallet/screens/withdrawal_history_screen.dart';
+import 'features/wallet/screens/add_bank_account_screen.dart';
 import 'features/broadcast/screens/video_upload_screen.dart';
 import 'features/broadcast/screens/schedule_screen.dart';
 import 'features/broadcast/screens/channel_player_screen.dart';
@@ -36,6 +40,8 @@ import 'features/auth/screens/pak_login_screen.dart';
 import 'features/ads/screens/advertiser_screen.dart';
 import 'features/broadcast/screens/reminders_screen.dart';
 import 'features/kyc/screens/kyc_screen.dart';
+import 'features/channel/screens/channel_analytics_screen.dart';
+import 'features/payments/screens/checkout_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -66,6 +72,9 @@ class AfroVisionApp extends StatelessWidget {
     // Wire the navigator key so notification taps can navigate
     NotificationService.navigatorKey = navigatorKey;
 
+    // Initialize deep-link handling for inbound app/universal links
+    DeepLinkService.initialize(navigatorKey);
+
     return MaterialApp(
       title: 'AfroVision',
       debugShowCheckedModeBanner: false,
@@ -77,6 +86,16 @@ class AfroVisionApp extends StatelessWidget {
           primary: AppColors.orange,
           secondary: AppColors.lightOrange,
           surface: AppColors.darkBlue,
+        ),
+        snackBarTheme: const SnackBarThemeData(
+          backgroundColor: AppColors.cardBg,
+          contentTextStyle: TextStyle(
+            color: AppColors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+          actionTextColor: AppColors.lightOrange,
+          behavior: SnackBarBehavior.floating,
         ),
         fontFamily: 'SF Pro Display',
       ),
@@ -92,6 +111,7 @@ class AfroVisionApp extends StatelessWidget {
         '/privacy-policy': (_) => const PrivacyPolicyScreen(),
         '/profile': (_) => const ProfileScreen(),
         '/edit-profile': (_) => const EditProfileScreen(),
+        '/delete-account': (_) => const DeleteAccountScreen(),
         '/plans': (_) => const PlansScreen(),
         '/channels': (_) => const ChannelListScreen(),
         '/create-channel': (_) => const CreateChannelScreen(),
@@ -102,6 +122,8 @@ class AfroVisionApp extends StatelessWidget {
         '/digital-assets': (_) => const DigitalAssetsScreen(),
         '/gift-wallet': (_) => const GiftWalletScreen(),
         '/withdrawals': (_) => const WithdrawalScreen(),
+        '/withdrawal-history': (_) => const WithdrawalHistoryScreen(),
+        '/add-bank-account': (_) => const AddBankAccountScreen(),
         '/video-upload': (_) => const VideoUploadScreen(),
         '/schedule': (_) => const ScheduleScreen(),
         '/channel-player': (_) => const ChannelPlayerScreen(),
@@ -114,6 +136,8 @@ class AfroVisionApp extends StatelessWidget {
         '/advertiser': (_) => const AdvertiserScreen(),
         '/reminders': (_) => const RemindersScreen(),
         '/kyc': (_) => const KycScreen(),
+        '/channel-analytics': (_) => const ChannelAnalyticsScreen(),
+        '/checkout': (_) => const CheckoutScreen(),
       },
     );
   }

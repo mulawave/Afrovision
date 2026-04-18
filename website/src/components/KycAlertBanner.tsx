@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -40,7 +40,7 @@ export function KycAlertBanner() {
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
             </svg>
           </div>
-          <p className="text-xs sm:text-sm text-av-white/90 truncate">
+          <p className="text-xs sm:text-sm text-av-white truncate">
             {isRejected
               ? "Your KYC verification was rejected. Please re-submit with valid documents."
               : "Complete your KYC verification to unlock all platform features."}
@@ -59,7 +59,7 @@ export function KycAlertBanner() {
           </Link>
           <button
             onClick={() => setDismissed(true)}
-            className="p-1 rounded-full text-av-hint hover:text-av-white hover:bg-av-white/5 transition-colors"
+            className="p-1 rounded-full text-av-light-orange hover:text-av-white hover:bg-av-white/5 transition-colors"
             aria-label="Dismiss"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">

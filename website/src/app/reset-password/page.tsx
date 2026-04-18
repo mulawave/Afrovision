@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, Suspense } from "react";
 import Link from "next/link";
@@ -66,7 +66,7 @@ function ResetPasswordContent() {
             </span>
           </Link>
           <h1 className="text-2xl font-bold text-av-white mt-6">Set new password</h1>
-          <p className="text-sm text-av-hint mt-1">Choose a strong password for your account</p>
+          <p className="text-sm text-av-light-orange mt-1">Choose a strong password for your account</p>
         </div>
 
         <div className="rounded-2xl bg-av-card border border-av-input-border/30 p-6 sm:p-8">
@@ -78,7 +78,7 @@ function ResetPasswordContent() {
                 </svg>
               </div>
               <h2 className="text-lg font-bold text-av-white mb-2">Password updated</h2>
-              <p className="text-sm text-av-hint mb-6">
+              <p className="text-sm text-av-light-orange mb-6">
                 Your password has been reset successfully. You can now sign in.
               </p>
               <Link
@@ -104,7 +104,7 @@ function ResetPasswordContent() {
 
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                  <label htmlFor="rp-password" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                  <label htmlFor="rp-password" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                     New password
                   </label>
                   <div className="relative">
@@ -118,12 +118,12 @@ function ResetPasswordContent() {
                       required
                       minLength={8}
                       disabled={isSubmitting || !token}
-                      className="w-full h-11 px-4 pr-11 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                      className="w-full h-11 px-4 pr-11 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-av-hint hover:text-av-white transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-av-light-orange hover:text-av-white transition-colors"
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                         {showPassword ? (
@@ -137,7 +137,7 @@ function ResetPasswordContent() {
                 </div>
 
                 <div>
-                  <label htmlFor="rp-confirm" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                  <label htmlFor="rp-confirm" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                     Confirm new password
                   </label>
                   <input
@@ -149,7 +149,7 @@ function ResetPasswordContent() {
                     autoComplete="new-password"
                     required
                     disabled={isSubmitting || !token}
-                    className={`w-full h-11 px-4 rounded-xl bg-av-input-fill border text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:ring-1 transition-all disabled:opacity-50 ${
+                    className={`w-full h-11 px-4 rounded-xl bg-av-input-fill border text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:ring-1 transition-all disabled:opacity-50 ${
                       confirmPassword && confirmPassword !== password
                         ? "border-av-error/60 focus:border-av-error/80 focus:ring-av-error/20"
                         : "border-av-input-border/40 focus:border-av-orange/60 focus:ring-av-orange/20"

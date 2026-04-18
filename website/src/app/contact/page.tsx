@@ -9,28 +9,28 @@ export const metadata: Metadata = {
 
 const CONTACTS = [
   {
-    icon: "📧",
+    icon: "??",
     title: "General Inquiries",
-    detail: "hello@afrovision.tv",
-    href: "mailto:hello@afrovision.tv",
+    detail: "hello@afrovision.online",
+    href: "mailto:hello@afrovision.online",
   },
   {
-    icon: "🛟",
+    icon: "??",
     title: "Support",
-    detail: "support@afrovision.tv",
-    href: "mailto:support@afrovision.tv",
+    detail: "support@afrovision.online",
+    href: "mailto:support@afrovision.online",
   },
   {
-    icon: "🤝",
+    icon: "??",
     title: "Partnerships",
-    detail: "partners@afrovision.tv",
-    href: "mailto:partners@afrovision.tv",
+    detail: "partners@afrovision.online",
+    href: "mailto:partners@afrovision.online",
   },
   {
-    icon: "📰",
+    icon: "??",
     title: "Press & Media",
-    detail: "press@afrovision.tv",
-    href: "mailto:press@afrovision.tv",
+    detail: "press@afrovision.online",
+    href: "mailto:press@afrovision.online",
   },
 ];
 
@@ -45,7 +45,7 @@ export default function ContactPage() {
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">
             Contact Us
           </h1>
-          <p className="mt-4 text-base text-av-hint leading-relaxed max-w-2xl">
+          <p className="mt-4 text-base text-av-light-orange leading-relaxed max-w-2xl">
             Have a question, partnership proposal, or need help? Reach out using
             any of the channels below.
           </p>
@@ -71,7 +71,7 @@ export default function ContactPage() {
           <h2 className="text-lg font-bold text-av-white mb-2">
             Prefer social media?
           </h2>
-          <p className="text-sm text-av-hint mb-4">
+          <p className="text-sm text-av-light-orange mb-4">
             Follow us on our social channels for updates and direct messages.
           </p>
           <div className="flex justify-center gap-4">
@@ -79,15 +79,15 @@ export default function ContactPage() {
               href="https://twitter.com/AfroVisionTV"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-4 py-2 rounded-xl bg-av-card border border-av-input-border/30 text-sm text-av-hint hover:text-av-white hover:border-av-orange/40 transition-all"
+              className="px-4 py-2 rounded-xl bg-av-card border border-av-input-border/30 text-sm text-av-light-orange hover:text-av-white hover:border-av-orange/40 transition-all"
             >
-              𝕏 Twitter
+              ?? Twitter
             </Link>
             <Link
               href="https://instagram.com/AfroVisionTV"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-4 py-2 rounded-xl bg-av-card border border-av-input-border/30 text-sm text-av-hint hover:text-av-white hover:border-av-orange/40 transition-all"
+              className="px-4 py-2 rounded-xl bg-av-card border border-av-input-border/30 text-sm text-av-light-orange hover:text-av-white hover:border-av-orange/40 transition-all"
             >
               Instagram
             </Link>

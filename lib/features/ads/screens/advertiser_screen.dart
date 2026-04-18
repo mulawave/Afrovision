@@ -320,7 +320,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
                 Text(
                   category.replaceAll('_', ' ').toUpperCase(),
                   style: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.6),
+                    color: AppColors.goldText,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.5,
@@ -412,10 +412,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
             const SizedBox(height: 2),
             Text(
               label,
-              style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.5),
-                fontSize: 9,
-              ),
+              style: TextStyle(color: AppColors.goldText, fontSize: 9),
             ),
           ],
         ),
@@ -671,7 +668,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
                           Text(
                             '${ad['impressions'] ?? 0} impressions · ₦${(ad['spent'] as num?)?.toStringAsFixed(0) ?? '0'} spent',
                             style: TextStyle(
-                              color: AppColors.hintText.withValues(alpha: 0.7),
+                              color: AppColors.goldText,
                               fontSize: 11,
                             ),
                           ),
@@ -723,10 +720,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
             const SizedBox(height: 4),
             Text(
               label,
-              style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.6),
-                fontSize: 11,
-              ),
+              style: TextStyle(color: AppColors.goldText, fontSize: 11),
             ),
           ],
         ),
@@ -769,9 +763,16 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
 
     if (title.isEmpty || budget <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Title and budget are required'),
-          backgroundColor: AppColors.errorRed,
+        SnackBar(
+          content: const Text(
+            'Title and budget are required',
+            style: TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       return;
@@ -788,9 +789,16 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ad submitted for review'),
-          backgroundColor: Color(0xFF4CAF50),
+        SnackBar(
+          content: const Text(
+            'Ad submitted for review',
+            style: TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       _titleCtrl.clear();
@@ -802,8 +810,15 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: AppColors.errorRed,
+          content: Text(
+            'Error: $e',
+            style: const TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     } finally {
@@ -838,10 +853,7 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
           const SizedBox(height: 6),
           Text(
             'Your ad will be reviewed by an admin before going live.',
-            style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.7),
-              fontSize: 12,
-            ),
+            style: TextStyle(color: AppColors.goldText, fontSize: 12),
           ),
           const SizedBox(height: 20),
 
@@ -931,7 +943,7 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
       child: Text(
         text,
         style: TextStyle(
-          color: AppColors.hintText.withValues(alpha: 0.8),
+          color: AppColors.goldText,
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),

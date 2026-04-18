@@ -266,7 +266,7 @@ async function buyVPT(amountBNB) {
 
   const vptAmount = await formatTokenAmount(vptAmountWei, ethers);
 
-  console.log(`[Swap] ${amountBNB} BNB → ${vptAmount} vPT (tx: ${receipt.hash})`);
+  // Swap completed successfully
   return { txHash: receipt.hash, vptAmountWei: vptAmountWei.toString(), vptAmount };
 }
 

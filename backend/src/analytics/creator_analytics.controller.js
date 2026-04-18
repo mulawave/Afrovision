@@ -142,7 +142,11 @@ async function getMyTopSupporters(req, res) {
     const db = getFirestore();
 
     // Get all channel IDs owned by this creator
-    const myChannels = Channel.getByOwner(req.userId).map((c) => c.id);
+    const myChannelsRaw = Channel.getByOwner(req.userId);
+    const myChannels = myChannelsRaw.map((c) => c.id);
+    const channelTypeById = new Map(
+      myChannelsRaw.map((channel) => [channel.id, channel.type || 'public']),
+    );
     if (myChannels.length === 0) return res.json({ supporters: [] });
 
     // Firestore `in` query max 10 items — chunk
@@ -152,7 +156,7 @@ async function getMyTopSupporters(req, res) {
       chunks.push(myChannels.slice(i, i + CHUNK));
     }
 
-    const totals = {}; // uid -> { ngn, vpt }
+    const totals = {}; // key -> { uid, name, ngn, vpt }
 
     await Promise.all(
       chunks.map(async (chunk) => {
@@ -161,21 +165,37 @@ async function getMyTopSupporters(req, res) {
           .get();
         snapshot.forEach((doc) => {
           const d = doc.data();
+          const channelType = channelTypeById.get(d.channel_id) || 'public';
+
+          if (channelType === 'private') {
+            const alias = d.sender_alias || 'Anonymous';
+            const key = `anon:${d.channel_id}:${alias}`;
+            if (!totals[key]) {
+              totals[key] = { uid: '', name: alias, ngn: 0, vpt: 0 };
+            }
+            totals[key].ngn += (d.naira || 0) * 0.5;
+            totals[key].vpt += Math.floor((d.vpt_units || 0) * 0.5);
+            return;
+          }
+
           const uid = d.sender_uid;
           if (!uid) return;
-          if (!totals[uid]) totals[uid] = { ngn: 0, vpt: 0 };
-          totals[uid].ngn += (d.naira || 0) * 0.5; // creator's 50% share
-          totals[uid].vpt += Math.floor((d.vpt_units || 0) * 0.5);
+          const key = `uid:${uid}`;
+          if (!totals[key]) {
+            totals[key] = { uid, name: null, ngn: 0, vpt: 0 };
+          }
+          totals[key].ngn += (d.naira || 0) * 0.5; // creator's 50% share
+          totals[key].vpt += Math.floor((d.vpt_units || 0) * 0.5);
         });
       }),
     );
 
     const supporters = Object.entries(totals)
-      .map(([uid, data]) => {
-        const user = User.findById(uid);
+      .map(([, data]) => {
+        const user = data.uid ? User.findById(data.uid) : null;
         return {
-          uid,
-          name: user?.name || user?.email || 'Anonymous',
+          uid: data.uid,
+          name: data.name || user?.name || user?.email || 'Anonymous',
           total_gifts_ngn: Math.round(data.ngn),
           total_gifts_vpt: data.vpt,
         };
@@ -265,10 +285,228 @@ async function adminGetCreatorStats(req, res) {
   }
 }
 
+const KycModel = require('../kyc/kyc.model');
+
+/**
+ * GET /analytics/creator/channel?channel_id=X&period=7d|30d|90d|365d
+ * Comprehensive channel analytics for a creator.
+ */
+async function getChannelAnalytics(req, res) {
+  try {
+    const creatorUid = req.userId;
+    const { channel_id, period = '30d' } = req.query;
+
+    if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
+
+    const days = period === '7d' ? 7 : period === '90d' ? 90 : period === '365d' ? 365 : 30;
+
+    // ── Date range
+    const now = Date.now();
+    const sinceMs = now - days * 24 * 60 * 60 * 1000;
+
+    const db = getFirestore();
+
+    // ── Fetch in parallel: events + stream stats + daily stats
+    const [eventsSnap, channelStreams, dailyDocs, chatSnap] = await Promise.all([
+      db.collection('channel_events')
+        .where('channel_id', '==', channel_id)
+        .where('created_at', '>=', sinceMs)
+        .orderBy('created_at', 'asc')
+        .limit(5000)
+        .get(),
+      StreamStats.getByChannel ? StreamStats.getByChannel(channel_id) : [],
+      db.collection('creator_daily_stats')
+        .where('creator_uid', '==', creatorUid)
+        .orderBy('date', 'desc')
+        .limit(days)
+        .get(),
+      db.collection('channel_chats').doc(channel_id).collection('messages')
+        .where('created_at', '>=', sinceMs)
+        .limit(2000)
+        .get().catch(() => ({ size: 0, forEach: () => {} })),
+    ]);
+
+    const events = eventsSnap.docs.map((d) => d.data());
+    const reactions = events.filter((e) => e.type === 'reaction');
+    const giftEvents = events.filter((e) => e.type === 'gift');
+    const viewEvents = events.filter((e) => e.type === 'view');
+    const totalComments = chatSnap.size || 0;
+
+    // ── Derive views from channel_events (unique senders = unique viewers)
+    // Anyone who sent a reaction, gift, comment, or view event has viewed the channel
+    const allSendersByDay = {};
+    for (const ev of events) {
+      if (!ev.sender_uid) continue;
+      const dayKey = new Date(ev.created_at).toISOString().split('T')[0];
+      if (!allSendersByDay[dayKey]) allSendersByDay[dayKey] = new Set();
+      allSendersByDay[dayKey].add(ev.sender_uid);
+    }
+    // Also count chat senders as viewers
+    const chatSendersByDay = {};
+    chatSnap.forEach((doc) => {
+      const msg = doc.data();
+      if (!msg.sender_uid) return;
+      const dayKey = new Date(msg.created_at).toISOString().split('T')[0];
+      if (!chatSendersByDay[dayKey]) chatSendersByDay[dayKey] = new Set();
+      chatSendersByDay[dayKey].add(msg.sender_uid);
+      if (!allSendersByDay[dayKey]) allSendersByDay[dayKey] = new Set();
+      allSendersByDay[dayKey].add(msg.sender_uid);
+    });
+
+    // ── Viewer activity by hour of day (based on event timestamps)
+    const hourBuckets = Array.from({ length: 24 }, (_, h) => ({ hour: h, events: 0 }));
+    for (const ev of events) {
+      const h = new Date(ev.created_at).getUTCHours();
+      hourBuckets[h].events++;
+    }
+    const peakHourEntry = hourBuckets.reduce((a, b) => (b.events > a.events ? b : a), hourBuckets[0]);
+    const peakHour = peakHourEntry.hour;
+    const peakHourLabel = `${peakHour.toString().padStart(2, '0')}:00`;
+
+    // ── Daily timeline from creator_daily_stats
+    const dailyMap = {};
+    dailyDocs.forEach((doc) => {
+      const d = doc.data();
+      dailyMap[d.date] = d;
+    });
+    const timeline = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const dt = new Date(now - i * 24 * 60 * 60 * 1000);
+      const key = dt.toISOString().split('T')[0];
+      const d = dailyMap[key] || {};
+      // Use daily stats if available; otherwise derive from channel_events unique senders
+      const derivedUniqueViewers = allSendersByDay[key] ? allSendersByDay[key].size : 0;
+      const statsViewers = d.total_viewers || 0;
+      const statsUnique = d.unique_viewers || 0;
+      timeline.push({
+        date: key,
+        views: Math.max(statsViewers, derivedUniqueViewers),
+        unique_viewers: Math.max(statsUnique, derivedUniqueViewers),
+        gifts_ngn: d.gifts_ngn || 0,
+        gifts_vpt: d.gifts_vpt || 0,
+        streams: d.streams_count || 0,
+      });
+    }
+
+    // ── Period highs from timeline
+    const sortedByViews = [...timeline].sort((a, b) => b.views - a.views);
+    const bestDay = sortedByViews[0] || null;
+
+    // Weekly / monthly totals from timeline
+    const last7 = timeline.slice(-7);
+    const last30 = timeline.slice(-30);
+    const weeklyViews = last7.reduce((s, d) => s + d.views, 0);
+    const monthlyViews = last30.reduce((s, d) => s + d.views, 0);
+    const yearlyViews = timeline.reduce((s, d) => s + d.views, 0);
+
+    // ── Stream-level peak viewers
+    const filteredStreams = channelStreams.filter
+      ? channelStreams.filter((s) => s.start_time >= sinceMs)
+      : [];
+    const peakViewers = filteredStreams.length
+      ? Math.max(...filteredStreams.map((s) => s.peak_viewers || 0))
+      : 0;
+
+    // ── Gift totals from gift_events
+    let totalGiftsNgn = 0;
+    let totalGiftsVpt = 0;
+    giftEvents.forEach((e) => {
+      totalGiftsNgn += e.naira || e.ngn || 0;
+      totalGiftsVpt += e.vpt_units || e.vpt || 0;
+    });
+
+    // ── Demographics from KYC records of unique senders
+    const senderUids = [...new Set(events.map((e) => e.sender_uid).filter(Boolean))];
+
+    const genderCounts = { male: 0, female: 0, non_binary: 0, prefer_not_to_say: 0, unknown: 0 };
+    const ageCounts = { '13-17': 0, '18-24': 0, '25-34': 0, '35-44': 0, '45-54': 0, '55+': 0, unknown: 0 };
+    const countryMap = {};
+
+    for (const uid of senderUids) {
+      const kyc = KycModel.findByUserId(uid);
+      if (!kyc) { genderCounts.unknown++; ageCounts.unknown++; continue; }
+
+      // Gender
+      const g = kyc.gender || 'unknown';
+      genderCounts[g] = (genderCounts[g] || 0) + 1;
+
+      // Age from date_of_birth
+      if (kyc.date_of_birth) {
+        const dob = new Date(kyc.date_of_birth);
+        const age = Math.floor((now - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+        if (age < 18) ageCounts['13-17']++;
+        else if (age < 25) ageCounts['18-24']++;
+        else if (age < 35) ageCounts['25-34']++;
+        else if (age < 45) ageCounts['35-44']++;
+        else if (age < 55) ageCounts['45-54']++;
+        else ageCounts['55+']++;
+      } else {
+        ageCounts.unknown++;
+      }
+
+      // Country from nationality
+      const country = kyc.nationality || 'NG';
+      countryMap[country] = (countryMap[country] || 0) + 1;
+    }
+
+    const totalWithDemographics = senderUids.length || 1;
+
+    const genderLabels = { male: 'Male', female: 'Female', non_binary: 'Non-binary', prefer_not_to_say: 'Prefer not to say', unknown: 'Unknown' };
+    const genderDemographics = Object.entries(genderCounts)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => ({ label: genderLabels[k] || k, count: v, pct: Math.round((v / totalWithDemographics) * 100) }))
+      .sort((a, b) => b.count - a.count);
+
+    const ageGroups = Object.entries(ageCounts)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => ({ label: k, count: v, pct: Math.round((v / totalWithDemographics) * 100) }))
+      .sort((a, b) => b.count - a.count);
+
+    const countryNames = { NG: 'Nigeria', GH: 'Ghana', KE: 'Kenya', ZA: 'South Africa', US: 'United States', GB: 'United Kingdom', CA: 'Canada', SN: 'Senegal', ET: 'Ethiopia', TZ: 'Tanzania', CI: "Côte d'Ivoire" };
+    const topCountries = Object.entries(countryMap)
+      .map(([k, v]) => ({ code: k, country: countryNames[k] || k, count: v, pct: Math.round((v / totalWithDemographics) * 100) }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    return res.json({
+      channel_id,
+      period,
+      overview: {
+        total_views: timeline.reduce((s, d) => s + d.views, 0),
+        unique_viewers: timeline.reduce((s, d) => s + d.unique_viewers, 0),
+        peak_viewers: peakViewers,
+        peak_hour: peakHourLabel,
+        total_reactions: reactions.length,
+        total_comments: totalComments,
+        total_gifts_count: giftEvents.length,
+        total_gifts_ngn: Math.round(totalGiftsNgn),
+        total_gifts_vpt: Math.round(totalGiftsVpt),
+        weekly_views: weeklyViews,
+        monthly_views: monthlyViews,
+        yearly_views: yearlyViews,
+        best_day_views: bestDay?.views || 0,
+        best_day_date: bestDay?.date || null,
+      },
+      viewer_activity_by_hour: hourBuckets,
+      timeline,
+      demographics: {
+        gender: genderDemographics,
+        age_groups: ageGroups,
+        top_countries: topCountries,
+        total_identified: senderUids.length,
+      },
+    });
+  } catch (err) {
+    console.error('[Analytics] getChannelAnalytics error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 module.exports = {
   getMyStats,
   getMyStreams,
   getMyTopSupporters,
   endMyStream,
   adminGetCreatorStats,
+  getChannelAnalytics,
 };

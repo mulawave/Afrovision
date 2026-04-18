@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef } from "react";
 import Link from "next/link";
@@ -107,23 +107,23 @@ export default function ReportCopyrightPage() {
               </svg>
             </div>
             <h1 className="text-2xl font-bold text-av-white mb-2">Report Submitted</h1>
-            <p className="text-sm text-av-hint mb-4">
+            <p className="text-sm text-av-light-orange mb-4">
               Your copyright infringement report has been received. Our team will review it within 24–72 hours.
             </p>
             {trackingId && (
               <div className="inline-block px-4 py-2 rounded-xl bg-av-dark-blue/60 border border-av-input-border/30 mb-4">
-                <p className="text-[10px] uppercase tracking-widest text-av-hint mb-1">Tracking Reference</p>
+                <p className="text-[10px] uppercase tracking-widest text-av-light-orange mb-1">Tracking Reference</p>
                 <p className="text-lg font-mono font-bold text-av-orange">{trackingId}</p>
               </div>
             )}
-            <p className="text-xs text-av-hint mb-6">
+            <p className="text-xs text-av-light-orange mb-6">
               Keep this tracking reference for your records. You will also receive a confirmation email at{" "}
               <span className="text-av-white">{form.email}</span>.
             </p>
             <div className="flex items-center justify-center gap-3">
               <Link
                 href="/copyright"
-                className="px-5 py-2.5 rounded-xl border border-av-input-border/40 text-xs font-semibold text-av-hint hover:text-av-white hover:border-av-input-border/60 transition-all"
+                className="px-5 py-2.5 rounded-xl border border-av-input-border/40 text-xs font-semibold text-av-light-orange hover:text-av-white hover:border-av-input-border/60 transition-all"
               >
                 Copyright Policy
               </Link>
@@ -147,7 +147,7 @@ export default function ReportCopyrightPage() {
         <div className="mb-8">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Legal</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Report Copyright Infringement</h1>
-          <p className="mt-2 text-sm text-av-hint leading-relaxed">
+          <p className="mt-2 text-sm text-av-light-orange leading-relaxed">
             Use this form to report content on AfroVision that you believe infringes your copyright. Please review our{" "}
             <Link href="/copyright" className="text-av-orange hover:underline">Copyright Infringement Policy</Link>{" "}
             before submitting.
@@ -168,7 +168,7 @@ export default function ReportCopyrightPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="cr-name" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                  <label htmlFor="cr-name" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                     Full Name <span className="text-av-error">*</span>
                   </label>
                   <input
@@ -178,12 +178,12 @@ export default function ReportCopyrightPage() {
                     onChange={(e) => set("fullName", e.target.value)}
                     required
                     disabled={isSubmitting}
-                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                     placeholder="Your full legal name"
                   />
                 </div>
                 <div>
-                  <label htmlFor="cr-email" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                  <label htmlFor="cr-email" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                     Email Address <span className="text-av-error">*</span>
                   </label>
                   <input
@@ -193,14 +193,14 @@ export default function ReportCopyrightPage() {
                     onChange={(e) => set("email", e.target.value)}
                     required
                     disabled={isSubmitting}
-                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                     placeholder="you@example.com"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="cr-phone" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                  <label htmlFor="cr-phone" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                     Phone Number
                   </label>
                   <input
@@ -209,12 +209,12 @@ export default function ReportCopyrightPage() {
                     value={form.phone}
                     onChange={(e) => set("phone", e.target.value)}
                     disabled={isSubmitting}
-                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                     placeholder="+234..."
                   />
                 </div>
                 <div>
-                  <label htmlFor="cr-address" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                  <label htmlFor="cr-address" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                     Postal Address
                   </label>
                   <input
@@ -223,7 +223,7 @@ export default function ReportCopyrightPage() {
                     value={form.address}
                     onChange={(e) => set("address", e.target.value)}
                     disabled={isSubmitting}
-                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                     placeholder="Street, City, Country"
                   />
                 </div>
@@ -236,7 +236,7 @@ export default function ReportCopyrightPage() {
             <legend className="text-base font-semibold text-av-white mb-4">Original Copyrighted Work</legend>
             <div className="space-y-4">
               <div>
-                <label htmlFor="cr-work-desc" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                <label htmlFor="cr-work-desc" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                   Description of the Copyrighted Work <span className="text-av-error">*</span>
                 </label>
                 <textarea
@@ -246,12 +246,12 @@ export default function ReportCopyrightPage() {
                   required
                   disabled={isSubmitting}
                   rows={3}
-                  className="w-full px-4 py-3 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50 resize-y"
+                  className="w-full px-4 py-3 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50 resize-y"
                   placeholder="Describe the original work that you believe has been infringed (e.g., title, type of work, registration number if available)"
                 />
               </div>
               <div>
-                <label htmlFor="cr-work-url" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                <label htmlFor="cr-work-url" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                   URL of Original Work
                 </label>
                 <input
@@ -260,7 +260,7 @@ export default function ReportCopyrightPage() {
                   value={form.copyrightWorkUrl}
                   onChange={(e) => set("copyrightWorkUrl", e.target.value)}
                   disabled={isSubmitting}
-                  className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                  className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                   placeholder="https://example.com/your-original-work"
                 />
               </div>
@@ -272,7 +272,7 @@ export default function ReportCopyrightPage() {
             <legend className="text-base font-semibold text-av-white mb-4">Infringing Content on AfroVision</legend>
             <div className="space-y-4">
               <div>
-                <label htmlFor="cr-inf-urls" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                <label htmlFor="cr-inf-urls" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                   URL(s) of Infringing Content <span className="text-av-error">*</span>
                 </label>
                 <textarea
@@ -282,12 +282,12 @@ export default function ReportCopyrightPage() {
                   required
                   disabled={isSubmitting}
                   rows={3}
-                  className="w-full px-4 py-3 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50 resize-y"
+                  className="w-full px-4 py-3 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50 resize-y"
                   placeholder="Paste the AfroVision URL(s) of the content you believe infringes your copyright — one per line"
                 />
               </div>
               <div>
-                <label htmlFor="cr-inf-desc" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                <label htmlFor="cr-inf-desc" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                   Additional Description
                 </label>
                 <textarea
@@ -296,7 +296,7 @@ export default function ReportCopyrightPage() {
                   onChange={(e) => set("infringingContentDescription", e.target.value)}
                   disabled={isSubmitting}
                   rows={2}
-                  className="w-full px-4 py-3 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50 resize-y"
+                  className="w-full px-4 py-3 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50 resize-y"
                   placeholder="Describe how and where the infringement occurs (optional)"
                 />
               </div>
@@ -315,7 +315,7 @@ export default function ReportCopyrightPage() {
                   disabled={isSubmitting}
                   className="mt-0.5 w-4 h-4 rounded border-av-input-border/40 bg-av-input-fill text-av-orange focus:ring-av-orange/40 accent-av-orange"
                 />
-                <span className="text-xs text-av-hint leading-relaxed group-hover:text-av-white/70 transition-colors">
+                <span className="text-xs text-av-light-orange leading-relaxed group-hover:text-av-light-orange transition-colors">
                   <span className="text-av-error">*</span> I have a good-faith belief that use of the material described above is not authorised by the copyright owner, its agent, or the law.
                 </span>
               </label>
@@ -327,7 +327,7 @@ export default function ReportCopyrightPage() {
                   disabled={isSubmitting}
                   className="mt-0.5 w-4 h-4 rounded border-av-input-border/40 bg-av-input-fill text-av-orange focus:ring-av-orange/40 accent-av-orange"
                 />
-                <span className="text-xs text-av-hint leading-relaxed group-hover:text-av-white/70 transition-colors">
+                <span className="text-xs text-av-light-orange leading-relaxed group-hover:text-av-light-orange transition-colors">
                   <span className="text-av-error">*</span> The information in this notification is accurate, and under penalty of perjury, I am the copyright owner or am authorised to act on behalf of the owner.
                 </span>
               </label>
@@ -339,7 +339,7 @@ export default function ReportCopyrightPage() {
                   disabled={isSubmitting}
                   className="mt-0.5 w-4 h-4 rounded border-av-input-border/40 bg-av-input-fill text-av-orange focus:ring-av-orange/40 accent-av-orange"
                 />
-                <span className="text-xs text-av-hint leading-relaxed group-hover:text-av-white/70 transition-colors">
+                <span className="text-xs text-av-light-orange leading-relaxed group-hover:text-av-light-orange transition-colors">
                   <span className="text-av-error">*</span> I understand that filing a false or misleading notice may result in legal liability, including damages and attorneys&apos; fees.
                 </span>
               </label>
@@ -350,7 +350,7 @@ export default function ReportCopyrightPage() {
           <fieldset className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
             <legend className="text-base font-semibold text-av-white mb-4">Electronic Signature</legend>
             <div>
-              <label htmlFor="cr-sig" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+              <label htmlFor="cr-sig" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                 Full Legal Name (as signature) <span className="text-av-error">*</span>
               </label>
               <input
@@ -360,10 +360,10 @@ export default function ReportCopyrightPage() {
                 onChange={(e) => set("signature", e.target.value)}
                 required
                 disabled={isSubmitting}
-                className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                 placeholder="Type your full legal name"
               />
-              <p className="text-[10px] text-av-hint mt-1.5">
+              <p className="text-[10px] text-av-light-orange mt-1.5">
                 By typing your name above, you certify this report as your electronic signature on {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.
               </p>
             </div>
@@ -385,7 +385,7 @@ export default function ReportCopyrightPage() {
                 "Submit Copyright Report"
               )}
             </button>
-            <p className="text-[10px] text-av-hint text-center max-w-md">
+            <p className="text-[10px] text-av-light-orange text-center max-w-md">
               Submitting a false report may result in legal consequences. By submitting, you confirm all information above is true and complete.
             </p>
           </div>

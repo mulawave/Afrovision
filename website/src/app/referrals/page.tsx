@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
@@ -52,7 +52,7 @@ export default function ReferralsPage() {
     return (
       <main className="min-h-screen pt-20 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-av-hint mb-4">Sign in to view your referral dashboard</p>
+          <p className="text-av-light-orange mb-4">Sign in to view your referral dashboard</p>
           <Link href="/login" className="text-av-orange hover:underline">
             Sign in →
           </Link>
@@ -91,7 +91,7 @@ export default function ReferralsPage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-white">Refer & Earn</h1>
-          <p className="text-av-hint mt-1 text-sm">Share your code, earn from your network&apos;s activity</p>
+          <p className="text-av-light-orange mt-1 text-sm">Share your code, earn from your network&apos;s activity</p>
         </div>
 
         {/* Referral Code Card */}
@@ -103,7 +103,7 @@ export default function ReferralsPage() {
               </svg>
             </div>
             <div className="flex-1">
-              <p className="text-xs text-av-hint uppercase tracking-widest mb-1">Your Referral Code</p>
+              <p className="text-xs text-av-light-orange uppercase tracking-widest mb-1">Your Referral Code</p>
               <p className="text-2xl sm:text-3xl font-extrabold text-white tracking-[0.25em] font-mono">
                 {data.referral_code}
               </p>
@@ -129,6 +129,34 @@ export default function ReferralsPage() {
           <StatCard label="Active Levels" value={`${data.upline.length} / 5`} />
         </div>
 
+        {/* Ledger Balance */}
+        {data.ledger_summary && (
+          <div className="rounded-2xl bg-av-card border border-av-input-border/30 p-5 sm:p-6 mb-6">
+            <h3 className="text-sm font-semibold text-white mb-4">Referral Off-chain vPT Balance</h3>
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <div className="rounded-xl bg-av-input-fill border border-av-input-border/30 p-4">
+                <p className="text-[10px] text-av-light-orange uppercase tracking-wider mb-1">Pending NGN</p>
+                <p className="text-lg font-bold text-av-light-orange">₦{data.ledger_summary.pending_ngn.toLocaleString()}</p>
+              </div>
+              <div className="rounded-xl bg-av-input-fill border border-av-input-border/30 p-4">
+                <p className="text-[10px] text-av-light-orange uppercase tracking-wider mb-1">Off-chain vPT</p>
+                <p className="text-lg font-bold text-av-orange">{data.ledger_summary.pending_vpt_units.toLocaleString()} VPT</p>
+              </div>
+              <div className="rounded-xl bg-av-input-fill border border-av-input-border/30 p-4">
+                <p className="text-[10px] text-av-light-orange uppercase tracking-wider mb-1">Credited NGN</p>
+                <p className="text-lg font-bold text-av-success">₦{data.ledger_summary.credited_ngn.toLocaleString()}</p>
+              </div>
+              <div className="rounded-xl bg-av-input-fill border border-av-input-border/30 p-4">
+                <p className="text-[10px] text-av-light-orange uppercase tracking-wider mb-1">Credited VPT</p>
+                <p className="text-lg font-bold text-av-success">{data.ledger_summary.credited_vpt_units.toLocaleString()} VPT</p>
+              </div>
+            </div>
+            <p className="text-xs text-av-light-orange mt-3">
+              Referral earnings shown here feed your unified off-chain wallet balance. Credited earnings have been deposited to your wallet.
+            </p>
+          </div>
+        )}
+
         {/* Level Distribution */}
         <div className="rounded-2xl bg-av-card border border-av-input-border/30 p-5 sm:p-6 mb-6">
           <h3 className="text-sm font-semibold text-white mb-4">Referral Levels</h3>
@@ -139,11 +167,11 @@ export default function ReferralsPage() {
                 className="text-center p-3 rounded-xl bg-av-input-fill border border-av-input-border/30"
               >
                 <p className="text-lg sm:text-xl font-bold text-av-orange">{lvl.percentage}%</p>
-                <p className="text-[10px] text-av-hint mt-1">Level {lvl.level}</p>
+                <p className="text-[10px] text-av-light-orange mt-1">Level {lvl.level}</p>
               </div>
             ))}
           </div>
-          <p className="text-xs text-av-hint mt-3">
+          <p className="text-xs text-av-light-orange mt-3">
             Earnings come from 1/3 of the 30% community pool on each creator subscription in your tree.
             Split: 50% cash wallet · 50% vPT wallet.
           </p>
@@ -158,7 +186,7 @@ export default function ReferralsPage() {
               className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                 tab === t
                   ? "bg-gradient-to-r from-av-orange to-av-light-orange text-av-dark-blue"
-                  : "text-av-hint hover:text-white"
+                  : "text-av-light-orange hover:text-white"
               }`}
             >
               {t === "earnings" ? "Earnings History" : t === "referrals" ? "Direct Referrals" : "My Upline"}
@@ -193,7 +221,7 @@ export default function ReferralsPage() {
                 <span className="text-xl mt-0.5">{step.icon}</span>
                 <div>
                   <p className="text-sm font-semibold text-white">{step.title}</p>
-                  <p className="text-xs text-av-hint">{step.desc}</p>
+                  <p className="text-xs text-av-light-orange">{step.desc}</p>
                 </div>
               </div>
             ))}
@@ -213,7 +241,7 @@ function StatCard({ label, value, icon }: { label: string; value: string; icon?:
         {icon && <span className="mr-1">{icon}</span>}
         {value}
       </p>
-      <p className="text-[10px] text-av-hint mt-1 uppercase tracking-wider">{label}</p>
+      <p className="text-[10px] text-av-light-orange mt-1 uppercase tracking-wider">{label}</p>
     </div>
   );
 }
@@ -222,7 +250,7 @@ function EarningsTab({ earnings }: { earnings: ReferralDashboard["earnings"] }) 
   if (earnings.length === 0) {
     return (
       <div className="p-8 text-center">
-        <p className="text-av-hint text-sm">No earnings yet. Share your code to start earning!</p>
+        <p className="text-av-light-orange text-sm">No earnings yet. Share your code to start earning!</p>
       </div>
     );
   }
@@ -237,7 +265,20 @@ function EarningsTab({ earnings }: { earnings: ReferralDashboard["earnings"] }) 
             <p className="text-sm text-white truncate">
               {e.source_name || e.source_email || "Unknown"}
             </p>
-            <p className="text-[10px] text-av-hint">{maskTime(e.created_at)}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-[10px] text-av-light-orange">{maskTime(e.created_at)}</p>
+              {e.status && (
+                <span
+                  className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${
+                    e.status === "credited"
+                      ? "bg-av-success/20 text-av-success"
+                      : "bg-av-light-orange/20 text-av-light-orange"
+                  }`}
+                >
+                  {e.status === "credited" ? "Credited" : "Pending"}
+                </span>
+              )}
+            </div>
           </div>
           <div className="text-right">
             {e.amount_ngn > 0 && (
@@ -257,7 +298,7 @@ function ReferralsTab({ referrals }: { referrals: ReferralDashboard["direct_refe
   if (referrals.length === 0) {
     return (
       <div className="p-8 text-center">
-        <p className="text-av-hint text-sm">You haven&apos;t referred anyone yet.</p>
+        <p className="text-av-light-orange text-sm">You haven&apos;t referred anyone yet.</p>
       </div>
     );
   }
@@ -270,9 +311,9 @@ function ReferralsTab({ referrals }: { referrals: ReferralDashboard["direct_refe
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-white truncate">{r.name || "Anonymous"}</p>
-            <p className="text-[10px] text-av-hint truncate">{r.email || "—"}</p>
+            <p className="text-[10px] text-av-light-orange truncate">{r.email || "—"}</p>
           </div>
-          <p className="text-[10px] text-av-hint">{r.joined_at ? maskTime(r.joined_at) : "—"}</p>
+          <p className="text-[10px] text-av-light-orange">{r.joined_at ? maskTime(r.joined_at) : "—"}</p>
         </div>
       ))}
     </div>
@@ -283,7 +324,7 @@ function UplineTab({ upline }: { upline: ReferralDashboard["upline"] }) {
   if (upline.length === 0) {
     return (
       <div className="p-8 text-center">
-        <p className="text-av-hint text-sm">You joined without a referral code — no upline.</p>
+        <p className="text-av-light-orange text-sm">You joined without a referral code — no upline.</p>
       </div>
     );
   }
@@ -296,9 +337,9 @@ function UplineTab({ upline }: { upline: ReferralDashboard["upline"] }) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-white truncate">{u.name || "Anonymous"}</p>
-            <p className="text-[10px] text-av-hint truncate">{u.email || "—"}</p>
+            <p className="text-[10px] text-av-light-orange truncate">{u.email || "—"}</p>
           </div>
-          <p className="text-[10px] text-av-hint">Level {u.level} referrer</p>
+          <p className="text-[10px] text-av-light-orange">Level {u.level} referrer</p>
         </div>
       ))}
     </div>

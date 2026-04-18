@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
@@ -19,7 +19,7 @@ export default function AboutPage() {
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">
             About AfroVision
           </h1>
-          <p className="mt-4 text-base text-av-hint leading-relaxed max-w-2xl">
+          <p className="mt-4 text-base text-av-light-orange leading-relaxed max-w-2xl">
             AfroVision is Africa&apos;s premier live streaming platform — built
             to amplify African creators, connect vibrant communities, and reward
             everyone who participates.
@@ -29,7 +29,7 @@ export default function AboutPage() {
         {/* Mission */}
         <section className="mb-12 rounded-2xl bg-av-card border border-av-input-border/30 p-8">
           <h2 className="text-xl font-bold text-av-white mb-4">Our Mission</h2>
-          <p className="text-sm text-av-hint leading-relaxed">
+          <p className="text-sm text-av-light-orange leading-relaxed">
             We believe the next generation of global entertainment will come from
             Africa. AfroVision exists to give African creators the stage, tools,
             and economic infrastructure they need to build sustainable careers —
@@ -71,7 +71,7 @@ export default function AboutPage() {
                 <h3 className="mt-3 text-sm font-semibold text-av-white">
                   {v.title}
                 </h3>
-                <p className="mt-1 text-xs text-av-hint leading-relaxed">
+                <p className="mt-1 text-xs text-av-light-orange leading-relaxed">
                   {v.desc}
                 </p>
               </div>
@@ -84,7 +84,7 @@ export default function AboutPage() {
           <h2 className="text-lg font-bold text-av-white mb-2">
             Ready to join AfroVision?
           </h2>
-          <p className="text-sm text-av-hint mb-6">
+          <p className="text-sm text-av-light-orange mb-6">
             Start watching, earning, and creating today.
           </p>
           <Link

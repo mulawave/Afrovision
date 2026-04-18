@@ -23,6 +23,7 @@ import {
   getFollowStatusApi,
   followCreatorApi,
   unfollowCreatorApi,
+  recordChannelViewApi,
 } from "@/lib/api";
 
 function formatNumber(n: number): string {
@@ -102,6 +103,9 @@ export function ChannelProfile({ id }: { id: string }) {
         return;
       }
       setChannel(channelRes.data.channel);
+
+      // Record view for analytics (non-blocking)
+      recordChannelViewApi(id).catch(() => {});
 
       // Check now-playing (non-blocking)
       getNowPlayingApi(id).then((res) => {
@@ -248,7 +252,7 @@ export function ChannelProfile({ id }: { id: string }) {
     return (
       <main className="min-h-screen pt-16 flex flex-col items-center justify-center gap-4">
         <p className="text-3xl">📺</p>
-        <p className="text-sm text-av-hint">{error || "Channel not found"}</p>
+        <p className="text-sm text-av-light-orange">{error || "Channel not found"}</p>
         <Link href="/" className="text-xs text-av-orange hover:text-av-light-orange transition-colors">
           ← Back to Home
         </Link>
@@ -321,20 +325,20 @@ export function ChannelProfile({ id }: { id: string }) {
                   <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
                 </svg>
               </div>
-              <p className="text-sm text-av-hint mt-0.5">
+              <p className="text-sm text-av-light-orange mt-0.5">
                 #{channel.channel_number} · {channel.category}
                 {channel.type === "private" && (
                   <>
                     <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold text-av-orange bg-av-orange/10 border border-av-orange/20">
                       PREMIUM
                     </span>
-                    <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold border ${hasAccess ? "text-emerald-300 bg-emerald-400/10 border-emerald-400/20" : "text-av-hint bg-av-input-fill/60 border-av-input-border/30"}`}>
+                    <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold border ${hasAccess ? "text-emerald-300 bg-emerald-400/10 border-emerald-400/20" : "text-av-light-orange bg-av-input-fill/60 border-av-input-border/30"}`}>
                       {hasAccess ? "ACCESS ACTIVE" : "LOCKED"}
                     </span>
                   </>
                 )}
               </p>
-              <p className="text-xs text-av-white/50 mt-1">
+              <p className="text-xs text-av-light-orange mt-1">
                 by {channel.owner_name} · Joined {formatDate(channel.created_at)}
               </p>
             </div>
@@ -382,7 +386,7 @@ export function ChannelProfile({ id }: { id: string }) {
                   "🔔 Subscribe"
                 )}
               </button>
-              <button className="w-11 h-11 rounded-full bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-hint hover:text-av-white hover:border-av-input-border/50 transition-all">
+              <button className="w-11 h-11 rounded-full bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-white hover:border-av-input-border/50 transition-all">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" />
                 </svg>
@@ -425,7 +429,7 @@ export function ChannelProfile({ id }: { id: string }) {
               className={`px-5 py-3 text-sm font-medium whitespace-nowrap transition-all relative ${
                 activeTab === tab.key
                   ? "text-av-orange"
-                  : "text-av-hint hover:text-av-white"
+                  : "text-av-light-orange hover:text-av-white"
               }`}
             >
               {tab.label}
@@ -450,7 +454,7 @@ export function ChannelProfile({ id }: { id: string }) {
                 ) : videos.length === 0 ? (
                   <div className="text-center py-16 rounded-xl bg-av-card/50 border border-av-input-border/20">
                     <p className="text-3xl mb-2">🎬</p>
-                    <p className="text-sm text-av-hint">No past streams yet</p>
+                    <p className="text-sm text-av-light-orange">No past streams yet</p>
                   </div>
                 ) : (
                   videos.map((video) => (
@@ -474,10 +478,10 @@ export function ChannelProfile({ id }: { id: string }) {
                           {video.title}
                         </h4>
                         <div className="flex items-center gap-3 mt-2">
-                          <span className="text-[11px] text-av-white/50">
+                          <span className="text-[11px] text-av-light-orange">
                             ⏱ {formatDuration(video.duration)}
                           </span>
-                          <span className="text-[11px] text-av-white/40">
+                          <span className="text-[11px] text-av-light-orange">
                             {formatDate(video.created_at)}
                           </span>
                         </div>
@@ -493,15 +497,15 @@ export function ChannelProfile({ id }: { id: string }) {
               <div className="space-y-4">
                 <div className="rounded-xl bg-av-card border border-av-input-border/20 p-6">
                   <h3 className="text-sm font-semibold text-av-white mb-3">About {channel.name}</h3>
-                  <p className="text-sm text-av-white/70 leading-relaxed">
+                  <p className="text-sm text-av-light-orange leading-relaxed">
                     {channel.description || "No description provided."}
                   </p>
                   <div className="flex items-center gap-4 mt-4 pt-4 border-t border-av-input-border/15">
-                    <span className="text-xs text-av-hint">
+                    <span className="text-xs text-av-light-orange">
                       📅 Joined {formatDate(channel.created_at)}
                     </span>
-                    <span className="text-xs text-av-hint">📍 {channel.category}</span>
-                    <span className="text-xs text-av-hint">
+                    <span className="text-xs text-av-light-orange">📍 {channel.category}</span>
+                    <span className="text-xs text-av-light-orange">
                       📺 Channel #{channel.channel_number}
                     </span>
                   </div>
@@ -519,7 +523,7 @@ export function ChannelProfile({ id }: { id: string }) {
                 ) : schedule.length === 0 ? (
                   <div className="text-center py-16 rounded-xl bg-av-card/50 border border-av-input-border/20">
                     <p className="text-3xl mb-2">📅</p>
-                    <p className="text-sm text-av-hint">No upcoming programs scheduled</p>
+                    <p className="text-sm text-av-light-orange">No upcoming programs scheduled</p>
                   </div>
                 ) : (
                   schedule.map((prog) => (
@@ -542,7 +546,7 @@ export function ChannelProfile({ id }: { id: string }) {
                         <h4 className="text-sm font-semibold text-av-white truncate">
                           {prog.video_title}
                         </h4>
-                        <p className="text-xs text-av-hint mt-0.5">
+                        <p className="text-xs text-av-light-orange mt-0.5">
                           {formatScheduleTime(prog.start_time)} · {formatDuration(prog.video_duration)}
                         </p>
                       </div>
@@ -558,7 +562,7 @@ export function ChannelProfile({ id }: { id: string }) {
             {/* Quick description */}
             <div className="rounded-xl bg-av-card border border-av-input-border/20 p-5">
               <h3 className="text-sm font-semibold text-av-white mb-2">About</h3>
-              <p className="text-xs text-av-white/60 leading-relaxed line-clamp-3">
+              <p className="text-xs text-av-light-orange leading-relaxed line-clamp-3">
                 {channel.description || "No description provided."}
               </p>
             </div>
@@ -566,7 +570,7 @@ export function ChannelProfile({ id }: { id: string }) {
             {/* Channel info */}
             <div className="rounded-xl bg-av-card border border-av-input-border/20 p-5">
               <h3 className="text-sm font-semibold text-av-white mb-3">Channel Info</h3>
-              <div className="space-y-2.5 text-xs text-av-white/60">
+              <div className="space-y-2.5 text-xs text-av-light-orange">
                 <div className="flex items-center justify-between">
                   <span>Owner</span>
                   <span className="text-av-white font-medium">{channel.owner_name}</span>
@@ -596,7 +600,7 @@ export function ChannelProfile({ id }: { id: string }) {
 
             <Link
               href="/"
-              className="flex items-center justify-center gap-2 w-full py-3 text-sm font-medium text-av-hint hover:text-av-white rounded-xl border border-av-input-border/20 hover:border-av-input-border/40 transition-all"
+              className="flex items-center justify-center gap-2 w-full py-3 text-sm font-medium text-av-light-orange hover:text-av-white rounded-xl border border-av-input-border/20 hover:border-av-input-border/40 transition-all"
             >
               ← Back to Home
             </Link>

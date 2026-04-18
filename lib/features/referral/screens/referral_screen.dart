@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_pagination_controls.dart';
 import '../../../core/api/api_service.dart';
 import '../services/referral_service.dart';
 
@@ -13,6 +14,8 @@ class ReferralScreen extends StatefulWidget {
 
 class _ReferralScreenState extends State<ReferralScreen>
     with SingleTickerProviderStateMixin {
+  static const int _pageSize = 5;
+
   late AnimationController _animCtrl;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -22,6 +25,9 @@ class _ReferralScreenState extends State<ReferralScreen>
   String? _error;
   bool _copied = false;
   int _tabIndex = 0; // 0=earnings, 1=referrals, 2=upline
+  int _earningsPage = 0;
+  int _referralsPage = 0;
+  int _uplinePage = 0;
 
   @override
   void initState() {
@@ -59,7 +65,22 @@ class _ReferralScreenState extends State<ReferralScreen>
         _error = e.message;
         _loading = false;
       });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Connection error. Please try again.';
+        _loading = false;
+      });
     }
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _earningsPage = 0;
+      _referralsPage = 0;
+      _uplinePage = 0;
+    });
+    await _load();
   }
 
   Future<void> _copy() async {
@@ -81,6 +102,14 @@ class _ReferralScreenState extends State<ReferralScreen>
     final d = DateTime.fromMillisecondsSinceEpoch(ts);
     return '${d.day}/${d.month}/${d.year}';
   }
+
+  List<T> _paginate<T>(List<T> items, int page) {
+    final start = page * _pageSize;
+    return items.skip(start).take(_pageSize).toList();
+  }
+
+  int _pageCount(int length) =>
+      length == 0 ? 1 : ((length - 1) ~/ _pageSize) + 1;
 
   @override
   Widget build(BuildContext context) {
@@ -198,23 +227,30 @@ class _ReferralScreenState extends State<ReferralScreen>
       opacity: _fadeAnim,
       child: SlideTransition(
         position: _slideAnim,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Column(
-            children: [
-              _buildHeroCard(d),
-              const SizedBox(height: 16),
-              _buildStatsRow(d),
-              const SizedBox(height: 16),
-              _buildLevelDistribution(d),
-              const SizedBox(height: 16),
-              _buildTabs(),
-              const SizedBox(height: 12),
-              _buildTabContent(d),
-              const SizedBox(height: 16),
-              _buildHowItWorks(),
-              const SizedBox(height: 32),
-            ],
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          color: AppColors.orange,
+          backgroundColor: AppColors.inputFill,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Column(
+              children: [
+                _buildHeroCard(d),
+                const SizedBox(height: 16),
+                _buildLedgerBalanceCard(d),
+                const SizedBox(height: 16),
+                _buildStatsRow(d),
+                const SizedBox(height: 16),
+                _buildLevelDistribution(d),
+                const SizedBox(height: 16),
+                _buildTabs(),
+                const SizedBox(height: 12),
+                _buildTabContent(d),
+                const SizedBox(height: 16),
+                _buildHowItWorks(),
+                const SizedBox(height: 32),
+              ],
+            ),
           ),
         ),
       ),
@@ -223,6 +259,7 @@ class _ReferralScreenState extends State<ReferralScreen>
 
   Widget _buildHeroCard(ReferralDashboard d) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: AppColors.cardBg,
@@ -303,6 +340,103 @@ class _ReferralScreenState extends State<ReferralScreen>
     );
   }
 
+  Widget _buildLedgerBalanceCard(ReferralDashboard d) {
+    final ls = d.ledgerSummary;
+    final totalVpt = ls.pendingVptUnits + ls.creditedVptUnits;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.account_balance_rounded,
+                  color: AppColors.orange,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Referral Off-chain vPT',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // vPT Ledger Balance
+          _balanceRow(
+            'Off-chain vPT Balance',
+            '${totalVpt.toStringAsFixed(0)} vPT',
+            AppColors.lightOrange,
+            Icons.diamond_rounded,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Referral vPT that contributes to your off-chain vPT balance. Subscriber rewards, gifts and other asset activity appear in Digital Assets.',
+            style: const TextStyle(
+              color: AppColors.goldText,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _balanceRow(String label, String value, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.hintText,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatsRow(ReferralDashboard d) {
     return IntrinsicHeight(
       child: Row(
@@ -311,14 +445,14 @@ class _ReferralScreenState extends State<ReferralScreen>
           _statTile('Invites', '${d.invitedCount}', Icons.people_rounded),
           const SizedBox(width: 10),
           _statTile(
-            'NGN Earned',
+            'Referral Cash',
             '₦${d.totalEarningsNgn.toStringAsFixed(0)}',
             Icons.account_balance_wallet_rounded,
           ),
           const SizedBox(width: 10),
           _statTile(
-            'VPT Earned',
-            d.totalEarningsVptUnits.toStringAsFixed(0),
+            'Referral vPT',
+            '${d.totalEarningsVptUnits.toStringAsFixed(2)} vPT',
             Icons.diamond_rounded,
           ),
         ],
@@ -443,7 +577,9 @@ class _ReferralScreenState extends State<ReferralScreen>
           final selected = _tabIndex == i;
           return Expanded(
             child: GestureDetector(
-              onTap: () => setState(() => _tabIndex = i),
+              onTap: () => setState(() {
+                _tabIndex = i;
+              }),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(vertical: 10),
@@ -488,6 +624,8 @@ class _ReferralScreenState extends State<ReferralScreen>
         'Share your code to start earning!',
       );
     }
+    final pageCount = _pageCount(d.earnings.length);
+    final items = _paginate(d.earnings, _earningsPage);
     return Container(
       decoration: BoxDecoration(
         color: AppColors.cardBg,
@@ -495,88 +633,126 @@ class _ReferralScreenState extends State<ReferralScreen>
         border: Border.all(color: AppColors.inputBorder),
       ),
       child: Column(
-        children: d.earnings.map((e) {
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: AppColors.inputBorder.withValues(alpha: 0.3),
+        children: [
+          ...items.map((e) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: AppColors.inputBorder.withValues(alpha: 0.3),
+                  ),
                 ),
               ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: AppColors.inputFill,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    'L${e.level}',
-                    style: const TextStyle(
-                      color: AppColors.orange,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'L${e.level}',
+                      style: const TextStyle(
+                        color: AppColors.orange,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        e.sourceName ?? e.sourceEmail ?? 'Unknown',
-                        style: const TextStyle(
-                          color: AppColors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          e.sourceName ?? e.sourceEmail ?? 'Unknown',
+                          style: const TextStyle(
+                            color: AppColors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _timeAgo(e.createdAt),
-                        style: const TextStyle(
-                          color: AppColors.hintText,
-                          fontSize: 10,
+                        const SizedBox(height: 2),
+                        Text(
+                          _timeAgo(e.createdAt),
+                          style: const TextStyle(
+                            color: AppColors.goldText,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (e.amountNgn > 0)
+                        Text(
+                          '₦${e.amountNgn.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: AppColors.lightOrange,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      if (e.amountVptUnits > 0)
+                        Text(
+                          '${e.amountVptUnits.toStringAsFixed(0)} vPT',
+                          style: const TextStyle(
+                            color: AppColors.orange,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: e.isPending
+                              ? AppColors.lightOrange.withValues(alpha: 0.15)
+                              : Colors.green.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          e.isPending ? 'Pending' : 'Credited',
+                          style: TextStyle(
+                            color: e.isPending
+                                ? AppColors.lightOrange
+                                : Colors.green,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (e.amountNgn > 0)
-                      Text(
-                        '₦${e.amountNgn.toStringAsFixed(0)}',
-                        style: const TextStyle(
-                          color: AppColors.lightOrange,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    if (e.amountVptUnits > 0)
-                      Text(
-                        '${e.amountVptUnits.toStringAsFixed(0)} VPT',
-                        style: const TextStyle(
-                          color: AppColors.orange,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
+                ],
+              ),
+            );
+          }),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: AppPaginationControls(
+              currentPage: _earningsPage,
+              totalPages: pageCount,
+              onPrevious: _earningsPage > 0
+                  ? () => setState(() => _earningsPage -= 1)
+                  : null,
+              onNext: _earningsPage < pageCount - 1
+                  ? () => setState(() => _earningsPage += 1)
+                  : null,
             ),
-          );
-        }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -588,6 +764,8 @@ class _ReferralScreenState extends State<ReferralScreen>
         'Share your code to invite friends!',
       );
     }
+    final pageCount = _pageCount(d.directReferrals.length);
+    final items = _paginate(d.directReferrals, _referralsPage);
     return Container(
       decoration: BoxDecoration(
         color: AppColors.cardBg,
@@ -595,75 +773,90 @@ class _ReferralScreenState extends State<ReferralScreen>
         border: Border.all(color: AppColors.inputBorder),
       ),
       child: Column(
-        children: d.directReferrals.map((r) {
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: AppColors.inputBorder.withValues(alpha: 0.3),
+        children: [
+          ...items.map((r) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: AppColors.inputBorder.withValues(alpha: 0.3),
+                  ),
                 ),
               ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    gradient: AppColors.buttonGradient,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    (r.name ?? r.email ?? '?')[0].toUpperCase(),
-                    style: const TextStyle(
-                      color: AppColors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: AppColors.buttonGradient,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      (r.name ?? r.email ?? '?')[0].toUpperCase(),
+                      style: const TextStyle(
+                        color: AppColors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        r.name ?? 'Anonymous',
-                        style: const TextStyle(
-                          color: AppColors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (r.email != null)
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          r.email!,
+                          r.name ?? 'Anonymous',
                           style: const TextStyle(
-                            color: AppColors.hintText,
-                            fontSize: 10,
+                            color: AppColors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                    ],
-                  ),
-                ),
-                if (r.joinedAt != null)
-                  Text(
-                    _timeAgo(r.joinedAt!),
-                    style: const TextStyle(
-                      color: AppColors.hintText,
-                      fontSize: 10,
+                        if (r.email != null)
+                          Text(
+                            r.email!,
+                            style: const TextStyle(
+                              color: AppColors.goldText,
+                              fontSize: 10,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
                     ),
                   ),
-              ],
+                  if (r.joinedAt != null)
+                    Text(
+                      _timeAgo(r.joinedAt!),
+                      style: const TextStyle(
+                        color: AppColors.goldText,
+                        fontSize: 10,
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: AppPaginationControls(
+              currentPage: _referralsPage,
+              totalPages: pageCount,
+              onPrevious: _referralsPage > 0
+                  ? () => setState(() => _referralsPage -= 1)
+                  : null,
+              onNext: _referralsPage < pageCount - 1
+                  ? () => setState(() => _referralsPage += 1)
+                  : null,
             ),
-          );
-        }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -672,6 +865,8 @@ class _ReferralScreenState extends State<ReferralScreen>
     if (d.upline.isEmpty) {
       return _emptyState('No upline', 'You joined without a referral code.');
     }
+    final pageCount = _pageCount(d.upline.length);
+    final items = _paginate(d.upline, _uplinePage);
     return Container(
       decoration: BoxDecoration(
         color: AppColors.cardBg,
@@ -679,80 +874,96 @@ class _ReferralScreenState extends State<ReferralScreen>
         border: Border.all(color: AppColors.inputBorder),
       ),
       child: Column(
-        children: d.upline.map((u) {
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: AppColors.inputBorder.withValues(alpha: 0.3),
+        children: [
+          ...items.map((u) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: AppColors.inputBorder.withValues(alpha: 0.3),
+                  ),
                 ),
               ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: AppColors.inputFill,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    'L${u.level ?? '?'}',
-                    style: const TextStyle(
-                      color: AppColors.lightOrange,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'L${u.level ?? '?'}',
+                      style: const TextStyle(
+                        color: AppColors.lightOrange,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        u.name ?? 'Anonymous',
-                        style: const TextStyle(
-                          color: AppColors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (u.email != null)
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          u.email!,
+                          u.name ?? 'Anonymous',
                           style: const TextStyle(
-                            color: AppColors.hintText,
-                            fontSize: 10,
+                            color: AppColors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                    ],
+                        if (u.email != null)
+                          Text(
+                            u.email!,
+                            style: const TextStyle(
+                              color: AppColors.goldText,
+                              fontSize: 10,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-                Text(
-                  'Level ${u.level ?? '?'} referrer',
-                  style: const TextStyle(
-                    color: AppColors.hintText,
-                    fontSize: 10,
+                  Text(
+                    'Level ${u.level ?? '?'} referrer',
+                    style: const TextStyle(
+                      color: AppColors.goldText,
+                      fontSize: 10,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
+            );
+          }),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: AppPaginationControls(
+              currentPage: _uplinePage,
+              totalPages: pageCount,
+              onPrevious: _uplinePage > 0
+                  ? () => setState(() => _uplinePage -= 1)
+                  : null,
+              onNext: _uplinePage < pageCount - 1
+                  ? () => setState(() => _uplinePage += 1)
+                  : null,
             ),
-          );
-        }).toList(),
+          ),
+        ],
       ),
     );
   }
 
   Widget _emptyState(String title, String subtitle) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
       decoration: BoxDecoration(
         color: AppColors.cardBg,

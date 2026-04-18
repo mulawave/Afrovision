@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef } from "react";
 import { NavLink } from "@/components/NavLink";
@@ -60,7 +60,7 @@ function ChannelCard({ channel }: { channel: Channel }) {
         )}
 
         {/* Viewer count */}
-        <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-sm text-[10px] font-medium text-av-white/80">
+        <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-sm text-[10px] font-medium text-av-light-orange">
           👁 {formatViewers(channel.viewers)}
         </div>
 
@@ -85,7 +85,7 @@ function ChannelCard({ channel }: { channel: Channel }) {
         <h3 className="text-sm font-semibold text-av-white truncate group-hover:text-av-orange transition-colors">
           {channel.name}
         </h3>
-        <p className="text-xs text-av-hint mt-0.5">{channel.category}</p>
+        <p className="text-xs text-av-light-orange mt-0.5">{channel.category}</p>
       </div>
     </NavLink>
   );
@@ -154,7 +154,7 @@ export function FeaturedChannels({ section, loading: externalLoading }: { sectio
             <h2 className="text-2xl lg:text-3xl font-bold text-av-white tracking-tight">
               {section?.title || "🔥 Featured Channels"}
             </h2>
-            <p className="text-sm text-av-hint mt-1">
+            <p className="text-sm text-av-light-orange mt-1">
               {section?.subtitle || "Trending live and popular channels right now"}
             </p>
           </div>
@@ -163,7 +163,7 @@ export function FeaturedChannels({ section, loading: externalLoading }: { sectio
             <div className="hidden sm:flex items-center gap-2">
               <button
                 onClick={() => scroll("left")}
-                className="w-9 h-9 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-hint hover:text-av-white hover:border-av-orange/40 transition-all"
+                className="w-9 h-9 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-white hover:border-av-orange/40 transition-all"
                 aria-label="Scroll left"
               >
                 <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -172,7 +172,7 @@ export function FeaturedChannels({ section, loading: externalLoading }: { sectio
               </button>
               <button
                 onClick={() => scroll("right")}
-                className="w-9 h-9 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-hint hover:text-av-white hover:border-av-orange/40 transition-all"
+                className="w-9 h-9 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-white hover:border-av-orange/40 transition-all"
                 aria-label="Scroll right"
               >
                 <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -202,7 +202,7 @@ export function FeaturedChannels({ section, loading: externalLoading }: { sectio
         {!isLoading && isEmpty && (
           <div className="text-center py-16 rounded-2xl bg-av-card/50 border border-av-input-border/20">
             <p className="text-4xl mb-3">📡</p>
-            <p className="text-av-hint text-sm">
+            <p className="text-av-light-orange text-sm">
               No featured channels right now. Check back soon!
             </p>
           </div>

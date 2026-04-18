@@ -80,7 +80,7 @@ async function triggerBatchProcess(req, res) {
     const result = await Distribution.processBatch();
     res.json({ result });
   } catch (err) {
-    console.error('[VPT] Batch process error:', err.message);
+    console.error('[VPT] Batch process error');
     res.status(500).json({ error: 'Batch processing failed' });
   }
 }
@@ -93,7 +93,7 @@ async function retryBatch(req, res) {
     if (result.error) return res.status(400).json(result);
     res.json({ result });
   } catch (err) {
-    console.error('[VPT] Retry error:', err.message);
+    console.error('[VPT] Retry error');
     res.status(500).json({ error: 'Retry failed' });
   }
 }
@@ -104,7 +104,7 @@ async function getTreasuryBalance(req, res) {
     const balance = await SwapService.getTreasuryBalance();
     res.json({ treasury: balance });
   } catch (err) {
-    console.error('[VPT] Treasury balance error:', err.message);
+    console.error('[VPT] Treasury balance error');
     res.status(500).json({ error: 'Failed to fetch treasury balance' });
   }
 }
@@ -116,7 +116,7 @@ async function getBlockchainPreflight(req, res) {
     const readiness = await SwapService.getBlockchainReadiness();
     res.json({ readiness });
   } catch (err) {
-    console.error('[VPT] Blockchain preflight error:', err.message);
+    console.error('[VPT] Blockchain preflight error');
     res.status(500).json({ error: 'Failed to evaluate blockchain readiness' });
   }
 }
@@ -129,7 +129,7 @@ async function getPoolStats(req, res) {
     const stats = await PoolService.getPoolStats();
     res.json({ stats });
   } catch (err) {
-    console.error('[VPT] Pool stats error:', err.message);
+    console.error('[VPT] Pool stats error');
     res.status(500).json({ error: 'Failed to fetch pool stats' });
   }
 }
@@ -140,7 +140,7 @@ async function triggerViewerRewards(req, res) {
     const result = await PoolService.distributeViewerRewards();
     res.json({ result });
   } catch (err) {
-    console.error('[VPT] Viewer reward distribution error:', err.message);
+    console.error('[VPT] Viewer reward distribution error');
     res.status(500).json({ error: 'Viewer reward distribution failed' });
   }
 }

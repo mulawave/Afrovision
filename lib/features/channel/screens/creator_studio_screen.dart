@@ -65,7 +65,10 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(
+            e.toString(),
+            style: const TextStyle(color: AppColors.white),
+          ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -174,24 +177,18 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
         children: [
           Icon(
             Icons.video_library_rounded,
-            color: AppColors.hintText.withValues(alpha: 0.5),
+            color: AppColors.goldText,
             size: 56,
           ),
           const SizedBox(height: 16),
           Text(
             'No channels created yet',
-            style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.7),
-              fontSize: 16,
-            ),
+            style: TextStyle(color: AppColors.goldText, fontSize: 16),
           ),
           const SizedBox(height: 8),
           Text(
             'Tap + to create your first channel',
-            style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.5),
-              fontSize: 13,
-            ),
+            style: TextStyle(color: AppColors.goldText, fontSize: 13),
           ),
         ],
       ),
@@ -239,7 +236,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                 decoration: BoxDecoration(
                   color: channel.isActive
                       ? AppColors.orange.withValues(alpha: 0.12)
-                      : AppColors.hintText.withValues(alpha: 0.08),
+                      : AppColors.goldText,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
@@ -248,7 +245,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                       : Icons.live_tv_rounded,
                   color: channel.isActive
                       ? AppColors.orange
-                      : AppColors.hintText.withValues(alpha: 0.5),
+                      : AppColors.goldText,
                   size: 22,
                 ),
               ),
@@ -262,7 +259,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                       style: TextStyle(
                         color: channel.isActive
                             ? AppColors.white
-                            : AppColors.hintText.withValues(alpha: 0.6),
+                            : AppColors.goldText,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -292,7 +289,10 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                             );
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: const Text('Channel number copied'),
+                                content: const Text(
+                                  'Channel number copied',
+                                  style: TextStyle(color: AppColors.white),
+                                ),
                                 backgroundColor: const Color(
                                   0xFF4CAF50,
                                 ).withValues(alpha: 0.9),
@@ -403,6 +403,21 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                       context,
                       '/schedule',
                       arguments: channel.id,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildActionButton(
+                  icon: Icons.bar_chart_rounded,
+                  label: 'Analytics',
+                  color: const Color(0xFF4CAF50),
+                  onTap: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/channel-analytics',
+                      arguments: channel,
                     );
                   },
                 ),

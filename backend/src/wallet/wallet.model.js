@@ -45,6 +45,13 @@ function findByAddress(address) {
   return wallets.find((w) => w.bsc_address === address);
 }
 
+function findByConnectedWalletAddress(address) {
+  const lower = address.toLowerCase();
+  return wallets.find(
+    (w) => w.connected_wallet_address && w.connected_wallet_address.toLowerCase() === lower
+  );
+}
+
 async function setStatus(userId, status) {
   const wallet = findByUserId(userId);
   if (!wallet) return null;
@@ -65,6 +72,35 @@ function getAll() {
   return wallets;
 }
 
+async function updateBscAddress(userId, newAddress) {
+  const wallet = findByUserId(userId);
+  if (!wallet) return null;
+  wallet.bsc_address = newAddress;
+  wallet.last_used_at = Date.now();
+  await persist(wallet);
+  return wallet;
+}
+
+async function setConnectedWallet(userId, { address, type }) {
+  const wallet = findByUserId(userId);
+  if (!wallet) return null;
+  wallet.connected_wallet_address = address;
+  wallet.connected_wallet_type = type || 'manual';
+  wallet.connected_wallet_at = Date.now();
+  await persist(wallet);
+  return wallet;
+}
+
+async function clearConnectedWallet(userId) {
+  const wallet = findByUserId(userId);
+  if (!wallet) return null;
+  wallet.connected_wallet_address = null;
+  wallet.connected_wallet_type = null;
+  wallet.connected_wallet_at = null;
+  await persist(wallet);
+  return wallet;
+}
+
 function toSafe(wallet) {
   if (!wallet) return null;
   return {
@@ -74,6 +110,9 @@ function toSafe(wallet) {
     status: wallet.status,
     created_at: wallet.created_at,
     last_used_at: wallet.last_used_at,
+    connected_wallet_address: wallet.connected_wallet_address || null,
+    connected_wallet_type: wallet.connected_wallet_type || null,
+    connected_wallet_at: wallet.connected_wallet_at || null,
   };
 }
 
@@ -83,8 +122,12 @@ module.exports = {
   create,
   findByUserId,
   findByAddress,
+  findByConnectedWalletAddress,
   setStatus,
   touchLastUsed,
+  updateBscAddress,
+  setConnectedWallet,
+  clearConnectedWallet,
   getAll,
   toSafe,
 };

@@ -40,4 +40,19 @@ async function authenticateToken(req, res, next) {
   }
 }
 
-module.exports = { generateToken, verifyToken, authenticateToken };
+async function optionalAuth(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) {
+    return next();
+  }
+  const token = header.split(' ')[1];
+  try {
+    const payload = await verifyToken(token);
+    req.userId = payload.userId;
+  } catch (_) {
+    // Invalid token — proceed without auth
+  }
+  next();
+}
+
+module.exports = { generateToken, verifyToken, authenticateToken, optionalAuth };

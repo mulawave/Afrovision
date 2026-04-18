@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Advertisement } from "@/lib/api";
@@ -114,14 +114,14 @@ export function AdBreak({ ads, channelName, channelId, onImpression, onComplete 
                   <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z" />
                 </svg>
               </div>
-              <span className="text-lg font-bold text-white/80 tracking-wide">AfroVision</span>
+              <span className="text-lg font-bold text-av-light-orange tracking-wide">AfroVision</span>
             </div>
 
             {/* Ad break text */}
             <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2 tracking-tight">
               Ad Break
             </h2>
-            <p className="text-sm text-white/50">
+            <p className="text-sm text-av-light-orange">
               {totalAds} ad{totalAds !== 1 ? "s" : ""} · Returning to{" "}
               <span className="text-[#F5C16C]">{channelName}</span> shortly
             </p>
@@ -156,11 +156,11 @@ export function AdBreak({ ads, channelName, channelId, onImpression, onComplete 
                 </svg>
                 Ad {currentIndex + 1} of {totalAds}
               </span>
-              <span className="px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-medium text-white/70">
+              <span className="px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-medium text-av-light-orange">
                 {getCategoryLabel(currentAd.category)}
               </span>
             </div>
-            <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-mono text-white/60">
+            <span className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-mono text-av-light-orange">
               {countdown > 0 ? `${countdown}s` : "Ending..."}
             </span>
           </div>
@@ -178,9 +178,9 @@ export function AdBreak({ ads, channelName, channelId, onImpression, onComplete 
             </div>
             <div className="flex items-center justify-between">
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-white/90 truncate">{currentAd.title}</p>
+                <p className="text-xs font-semibold text-av-light-orange truncate">{currentAd.title}</p>
                 {currentAd.description && (
-                  <p className="text-[10px] text-white/50 truncate mt-0.5">{currentAd.description}</p>
+                  <p className="text-[10px] text-av-light-orange truncate mt-0.5">{currentAd.description}</p>
                 )}
               </div>
               {currentAd.click_url && (
@@ -219,7 +219,7 @@ export function AdBreak({ ads, channelName, channelId, onImpression, onComplete 
             <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">
               Returning to <span className="text-[#F5C16C]">{channelName}</span>
             </h2>
-            <p className="text-sm text-white/50">Your program continues now</p>
+            <p className="text-sm text-av-light-orange">Your program continues now</p>
 
             <div className="mt-6 flex justify-center">
               <div className="w-8 h-8 rounded-full border-2 border-[#F5C16C]/30 border-t-[#F5C16C] animate-spin" />

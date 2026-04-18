@@ -4,12 +4,10 @@ const { getFirestore } = require('../utils/firestore');
 const COLLECTION = 'referrals';
 const EARNINGS_COLLECTION = 'referral_earnings';
 
-// 5-level referral distribution percentages
+// 5-level referral distribution percentages (of the 15% referral pool)
 const LEVEL_DISTRIBUTION = [0.40, 0.20, 0.15, 0.15, 0.10];
-// 1/3 of the 30% community pool goes to referral tree
-const REFERRAL_POOL_FRACTION = 1 / 3;
-// Base account email — fills any missing levels in the tree
-const BASE_ACCOUNT_EMAIL = 'richardobroh@gmail.com';
+// vPT conversion rate: 1 vPT = ₦750
+const VPT_PRICE_NGN = 750;
 
 // In-memory cache: Map<uid, referralObject>
 const byUid = new Map();
@@ -18,7 +16,6 @@ const byCode = new Map();
 // Map<uid, earningsArray> for referral earnings history
 const earningsByUid = new Map();
 let initialized = false;
-let _baseAccountUid = null;
 
 async function init() {
   if (initialized) return;
@@ -49,21 +46,6 @@ function _generateCode() {
 async function _persist(uid, data) {
   const db = getFirestore();
   await db.collection(COLLECTION).doc(uid).set(data, { merge: true });
-}
-
-/**
- * Resolve the base account UID (richardobroh@gmail.com).
- * Caches after first resolution.
- */
-function getBaseAccountUid() {
-  if (_baseAccountUid) return _baseAccountUid;
-  // Lazy-require to avoid circular dependency at load time
-  const User = require('../users/user.model');
-  const baseUser = User.findByEmail(BASE_ACCOUNT_EMAIL);
-  if (baseUser) {
-    _baseAccountUid = baseUser.id;
-  }
-  return _baseAccountUid;
 }
 
 /**
@@ -156,12 +138,12 @@ async function recordInvite(referrerUid, newUserUid) {
 
 /**
  * Resolve the 5-level referral tree for a given user.
- * Returns an array of 5 UIDs — missing levels filled with the base account.
+ * Walks UP the referral chain: L1 = who referred subscriber, L2 = who referred L1, etc.
+ * Returns an array of 5 entries — null for levels with no referrer in the chain.
  * @param {string} subscriberUid - The user who made the subscription
- * @returns {string[]} Array of 5 UIDs [L1, L2, L3, L4, L5]
+ * @returns {(string|null)[]} Array of 5 UIDs or nulls [L1, L2, L3, L4, L5]
  */
 function resolveTree(subscriberUid) {
-  const baseUid = getBaseAccountUid();
   const tree = [];
 
   let currentUid = subscriberUid;
@@ -173,17 +155,17 @@ function resolveTree(subscriberUid) {
       tree.push(referrerUid);
       currentUid = referrerUid;
     } else {
-      // Fill remaining levels with base account
+      // No more referrers in chain — fill remaining with null
       while (tree.length < 5) {
-        tree.push(baseUid || null);
+        tree.push(null);
       }
       break;
     }
   }
 
-  // If tree still has fewer than 5 (shouldn't happen but safety), pad with base
+  // Safety pad
   while (tree.length < 5) {
-    tree.push(baseUid || null);
+    tree.push(null);
   }
 
   return tree;
@@ -211,6 +193,7 @@ async function recordEarning({
     amount_vpt_units: amountVptUnits,
     subscription_id: subscriptionId,
     creator_uid: creatorUid,
+    status: 'pending_ledger', // pending_ledger → credited
     created_at: Date.now(),
   };
   await db.collection(EARNINGS_COLLECTION).doc(earning.id).set(earning);
@@ -251,6 +234,119 @@ function getDirectReferrals(uid) {
   return referral.referrers || [];
 }
 
+/**
+ * Get all referral records (admin).
+ */
+function getAll() {
+  return Array.from(byUid.values());
+}
+
+/**
+ * Get all earnings across all users (admin).
+ */
+function getAllEarnings() {
+  const all = [];
+  for (const [, list] of earningsByUid) {
+    all.push(...list);
+  }
+  return all.sort((a, b) => b.created_at - a.created_at);
+}
+
+/**
+ * Get users who have no referred_by (no upline).
+ */
+function getUsersWithoutUpline() {
+  const result = [];
+  for (const [uid, rec] of byUid) {
+    if (!rec.referred_by) {
+      result.push(rec);
+    }
+  }
+  return result;
+}
+
+/**
+ * Assign an upline (referred_by) to a user.
+ * @param {string} uid - The user to assign an upline to
+ * @param {string} referrerUid - The upline user's UID
+ */
+async function assignUpline(uid, referrerUid) {
+  const record = byUid.get(uid);
+  if (!record) throw new Error('User referral record not found');
+  if (uid === referrerUid) throw new Error('Cannot assign self as upline');
+
+  record.referred_by = referrerUid;
+  record.updated_at = Date.now();
+  byUid.set(uid, record);
+  await _persist(uid, {
+    referred_by: referrerUid,
+    updated_at: record.updated_at,
+  });
+
+  // Also add this user to the referrer's referrers list if not already there
+  const referrerRecord = byUid.get(referrerUid);
+  if (referrerRecord && !referrerRecord.referrers.includes(uid)) {
+    referrerRecord.referrers.push(uid);
+    referrerRecord.invited_count = referrerRecord.referrers.length;
+    referrerRecord.updated_at = Date.now();
+    byUid.set(referrerUid, referrerRecord);
+    await _persist(referrerUid, {
+      referrers: referrerRecord.referrers,
+      invited_count: referrerRecord.invited_count,
+      updated_at: referrerRecord.updated_at,
+    });
+  }
+
+  return record;
+}
+
+/**
+ * Mark an earning as credited.
+ * @param {string} earningId
+ */
+async function markEarningCredited(earningId) {
+  const db = getFirestore();
+  for (const [, list] of earningsByUid) {
+    const earning = list.find((e) => e.id === earningId);
+    if (earning) {
+      earning.status = 'credited';
+      await db.collection(EARNINGS_COLLECTION).doc(earningId).update({ status: 'credited' });
+      return earning;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get ledger balance summary for a user (pending vs credited).
+ */
+function getLedgerSummary(uid) {
+  const earnings = earningsByUid.get(uid) || [];
+  let pendingNgn = 0;
+  let pendingVpt = 0;
+  let creditedNgn = 0;
+  let creditedVpt = 0;
+  for (const e of earnings) {
+    if (e.status === 'credited') {
+      creditedNgn += e.amount_ngn || 0;
+      creditedVpt += e.amount_vpt_units || 0;
+    } else {
+      pendingNgn += e.amount_ngn || 0;
+      pendingVpt += e.amount_vpt_units || 0;
+    }
+  }
+  return {
+    pending_ngn: pendingNgn,
+    pending_vpt_units: pendingVpt,
+    credited_ngn: creditedNgn,
+    credited_vpt_units: creditedVpt,
+  };
+}
+
+function clearEarningsCache() {
+  earningsByUid.clear();
+}
+
 module.exports = {
   init,
   ensureReferral,
@@ -261,9 +357,14 @@ module.exports = {
   recordEarning,
   getEarnings,
   getDirectReferrals,
-  getBaseAccountUid,
+  getAll,
+  getAllEarnings,
+  getUsersWithoutUpline,
+  assignUpline,
+  markEarningCredited,
+  getLedgerSummary,
+  clearEarningsCache,
   LEVEL_DISTRIBUTION,
-  REFERRAL_POOL_FRACTION,
-  BASE_ACCOUNT_EMAIL,
+  VPT_PRICE_NGN,
   EARNINGS_COLLECTION,
 };

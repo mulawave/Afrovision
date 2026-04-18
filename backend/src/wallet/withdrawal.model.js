@@ -22,12 +22,19 @@ function isInitialized() {
   return initialized;
 }
 
-async function create({ uid, amount, currency }) {
+async function create({ uid, amount, currency, bank_details, transaction_fee, service_charge, total_fees, total_debit, vat_amount, vat_rate }) {
   const withdrawal = {
     id: crypto.randomUUID(),
     uid,
-    amount,
+    amount,                                  // payout amount (what user receives)
+    transaction_fee: transaction_fee || 0,   // provider processing fee
+    service_charge: service_charge || 0,     // AfroVision service charge
+    total_fees: total_fees || 0,             // transaction_fee + service_charge
+    vat_amount: vat_amount || 0,             // 7.5% VAT on fees
+    vat_rate: vat_rate || 0,                 // VAT rate (0.075)
+    total_debit: total_debit || amount,      // total taken from wallet (amount + fees + VAT)
     currency: currency || 'ngn',
+    bank_details: bank_details || null,
     status: 'pending',
     created_at: Date.now(),
     processed_at: null,

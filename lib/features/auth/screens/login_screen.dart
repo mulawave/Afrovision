@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_logo.dart';
+import '../../../core/widgets/content_ratings_bar.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -220,9 +221,7 @@ class _LoginScreenState extends State<LoginScreen>
                           child: RichText(
                             text: TextSpan(
                               style: TextStyle(
-                                color: AppColors.hintText.withValues(
-                                  alpha: 0.9,
-                                ),
+                                color: AppColors.goldText,
                                 fontSize: 12.5,
                                 height: 1.4,
                               ),
@@ -286,7 +285,7 @@ class _LoginScreenState extends State<LoginScreen>
                           child: Text(
                             'OR',
                             style: TextStyle(
-                              color: AppColors.hintText.withValues(alpha: 0.7),
+                              color: AppColors.goldText,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               letterSpacing: 1.5,
@@ -366,6 +365,8 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+                    const ContentRatingsBar(),
                     const SizedBox(height: 24),
                   ],
                 ),

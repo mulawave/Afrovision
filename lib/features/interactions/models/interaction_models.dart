@@ -44,20 +44,32 @@ class GiftModel {
 }
 
 class GiftWalletModel {
-  final int vptUnits;
-  final double ngnBalance;
+  final double vpt;
+  final double cash;
+  final double coins;
 
-  GiftWalletModel({required this.vptUnits, required this.ngnBalance});
+  GiftWalletModel({required this.vpt, required this.cash, required this.coins});
+
+  static double _safe(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0;
+    return 0;
+  }
 
   factory GiftWalletModel.fromJson(Map<String, dynamic> json) {
     return GiftWalletModel(
-      vptUnits: json['vpt_units'] as int? ?? 0,
-      ngnBalance: (json['ngn_balance'] as num?)?.toDouble() ?? 0,
+      vpt: _safe(json['vpt']),
+      cash: _safe(json['cash']),
+      coins: _safe(json['coins']),
     );
   }
 
+  /// Legacy convenience — vpt expressed in "units" (vpt × 1 000 000).
+  int get vptUnits => (vpt * 1000000).round();
+  double get ngnBalance => cash;
+
   String get vptLabel {
-    final vpt = vptUnits / 1000000;
     if (vpt >= 1) return '${vpt.toStringAsFixed(2)} vPT';
     return '${(vptUnits / 1000).toStringAsFixed(0)}K units';
   }

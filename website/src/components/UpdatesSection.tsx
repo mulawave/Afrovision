@@ -1,4 +1,4 @@
-import { NavLink } from "@/components/NavLink";
+﻿import { NavLink } from "@/components/NavLink";
 import type { HomepageUpdatesSection } from "@/lib/homepage";
 
 interface Update {
@@ -40,9 +40,9 @@ const DEMO_UPDATES: Update[] = [
   },
   {
     id: 4,
-    title: "VPT Wallet Integration",
+    title: "vPT Wallet Integration",
     summary:
-      "Earn and spend VPT tokens across the platform. Seamless wallet experience with instant transfers.",
+      "Earn and spend vPT tokens across the platform. Seamless wallet experience with instant transfers.",
     date: "Feb 18, 2026",
     icon: "💰",
     tag: "Economy",
@@ -76,7 +76,7 @@ function tagColor(tag: string): string {
     Platform: "bg-purple-500/15 text-purple-400 border-purple-500/30",
     Performance: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
   };
-  return map[tag] ?? "bg-av-card text-av-hint border-av-input-border/30";
+  return map[tag] ?? "bg-av-card text-av-light-orange border-av-input-border/30";
 }
 
 export function UpdatesSection({ section }: { section?: HomepageUpdatesSection }) {
@@ -101,7 +101,7 @@ export function UpdatesSection({ section }: { section?: HomepageUpdatesSection }
             <h2 className="text-2xl lg:text-3xl font-bold text-av-white tracking-tight">
               {section?.title || "✨ Latest Updates"}
             </h2>
-            <p className="text-sm text-av-hint mt-1">
+            <p className="text-sm text-av-light-orange mt-1">
               {section?.subtitle || "What&apos;s new on the platform — features, fixes, and milestones"}
             </p>
           </div>
@@ -117,7 +117,7 @@ export function UpdatesSection({ section }: { section?: HomepageUpdatesSection }
         {isEmpty && (
           <div className="text-center py-16 rounded-2xl bg-av-card/50 border border-av-input-border/20">
             <p className="text-4xl mb-3">📋</p>
-            <p className="text-av-hint text-sm">No updates yet. Stay tuned!</p>
+            <p className="text-av-light-orange text-sm">No updates yet. Stay tuned!</p>
           </div>
         )}
 
@@ -140,10 +140,10 @@ export function UpdatesSection({ section }: { section?: HomepageUpdatesSection }
                 <h3 className="text-sm font-semibold text-av-white mb-1.5 group-hover:text-av-orange transition-colors">
                   {u.title}
                 </h3>
-                <p className="text-xs text-av-hint leading-relaxed mb-3 line-clamp-2">
+                <p className="text-xs text-av-light-orange leading-relaxed mb-3 line-clamp-2">
                   {u.summary}
                 </p>
-                <time className="text-[10px] text-av-hint/60 uppercase tracking-wider font-medium">
+                <time className="text-[10px] text-av-light-orange uppercase tracking-wider font-medium">
                   {u.date}
                 </time>
               </article>

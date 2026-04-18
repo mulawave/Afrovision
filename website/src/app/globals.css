@@ -11,6 +11,8 @@
   --color-av-input-border: #1E2A5A;
   --color-av-hint: #5A6190;
   --color-av-error: #FF4D6A;
+  --color-av-success: #4CAF50;
+  --color-av-gold: #F5C16C;
   --color-av-card: #0A1040;
 
   --font-sans: var(--font-geist-sans);

@@ -62,8 +62,15 @@ class _RemindersScreenState extends State<RemindersScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: AppColors.errorRed,
+          content: Text(
+            'Error: $e',
+            style: const TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     }
@@ -350,7 +357,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: isPast
-                      ? AppColors.hintText.withValues(alpha: 0.15)
+                      ? AppColors.goldText
                       : AppColors.lightOrange.withValues(alpha: 0.2),
                 ),
                 boxShadow: [
@@ -368,7 +375,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                     height: 44,
                     decoration: BoxDecoration(
                       color: isPast
-                          ? AppColors.hintText.withValues(alpha: 0.1)
+                          ? AppColors.goldText
                           : AppColors.lightOrange.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -403,7 +410,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                         Text(
                           channelName,
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.6),
+                            color: AppColors.goldText,
                             fontSize: 11,
                           ),
                         ),
@@ -427,7 +434,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                       Text(
                         dateStr,
                         style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.5),
+                          color: AppColors.goldText,
                           fontSize: 10,
                         ),
                       ),

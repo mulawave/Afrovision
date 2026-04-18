@@ -1,11 +1,11 @@
-/* eslint-disable @next/next/no-img-element */
+﻿/* eslint-disable @next/next/no-img-element */
 
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getChannelByNumberApi, getChannelsApi, type Channel } from "@/lib/api";
+import { getChannelByNumberApi, getChannelsApi, getCategoriesApi, type Channel, type Category } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { BannerAd } from "@/components/BannerAd";
 
@@ -13,9 +13,11 @@ export default function ChannelsPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [channelNumber, setChannelNumber] = useState("");
   const [numberLoading, setNumberLoading] = useState(false);
   const [numberError, setNumberError] = useState<string | null>(null);
@@ -23,12 +25,15 @@ export default function ChannelsPage() {
   useEffect(() => {
     let cancelled = false;
 
-    getChannelsApi().then((res) => {
+    Promise.all([getChannelsApi(), getCategoriesApi()]).then(([channelsRes, categoriesRes]) => {
       if (cancelled) return;
-      if (res.ok && "channels" in res.data) {
-        setChannels(res.data.channels);
+      if (channelsRes.ok && "channels" in channelsRes.data) {
+        setChannels(channelsRes.data.channels);
       } else {
         setError("Failed to load channels");
+      }
+      if (categoriesRes.ok && "categories" in categoriesRes.data) {
+        setCategories(categoriesRes.data.categories);
       }
       setLoading(false);
     });
@@ -39,14 +44,23 @@ export default function ChannelsPage() {
   }, []);
 
   const filteredChannels = useMemo(() => {
+    let result = channels;
+
+    if (selectedCategory) {
+      result = result.filter((channel) => channel.category?.toLowerCase() === selectedCategory.toLowerCase());
+    }
+
     const value = query.trim().toLowerCase();
-    if (!value) return channels;
-    return channels.filter((channel) =>
-      [channel.name, channel.category, channel.owner_name]
-        .filter(Boolean)
-        .some((field) => field.toLowerCase().includes(value))
-    );
-  }, [channels, query]);
+    if (value) {
+      result = result.filter((channel) =>
+        [channel.name, channel.category, channel.owner_name]
+          .filter(Boolean)
+          .some((field) => field.toLowerCase().includes(value))
+      );
+    }
+
+    return result;
+  }, [channels, query, selectedCategory]);
 
   async function handleChannelNumberAccess(e: React.FormEvent) {
     e.preventDefault();
@@ -81,12 +95,12 @@ export default function ChannelsPage() {
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Discover</p>
             <h1 className="mt-2 text-3xl font-bold text-av-white">Channels</h1>
-            <p className="mt-2 max-w-2xl text-sm text-av-hint">
+            <p className="mt-2 max-w-2xl text-sm text-av-light-orange">
               Public channels appear here. Private channels stay off public listings and can only be opened with their channel number.
             </p>
           </div>
           <form onSubmit={handleChannelNumberAccess} className="w-full max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-4">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-av-white/70">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange">
               Private Channel Access
             </label>
             <div className="mt-3 flex gap-2">
@@ -94,7 +108,7 @@ export default function ChannelsPage() {
                 value={channelNumber}
                 onChange={(e) => setChannelNumber(e.target.value.replace(/\D/g, ""))}
                 placeholder="Enter channel number"
-                className="h-11 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none"
+                className="h-11 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none"
               />
               <button
                 type="submit"
@@ -104,7 +118,7 @@ export default function ChannelsPage() {
                 {numberLoading ? "Opening..." : "Open"}
               </button>
             </div>
-            <p className="mt-2 text-[11px] text-av-hint">
+            <p className="mt-2 text-[11px] text-av-light-orange">
               {isAuthenticated ? "Signed in users can access a private channel directly by number." : "Sign in first to access a private channel by number."}
             </p>
             {numberError && <p className="mt-2 text-xs text-av-error">{numberError}</p>}
@@ -116,9 +130,37 @@ export default function ChannelsPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search public channels by name, category, or creator"
-            className="h-11 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none"
+            className="h-11 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none"
           />
         </div>
+
+        {categories.length > 0 && (
+          <div className="mb-6 flex flex-wrap gap-2">
+            <button
+              onClick={() => setSelectedCategory(null)}
+              className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-all ${
+                !selectedCategory
+                  ? "border-av-orange/50 bg-gradient-to-r from-av-orange to-av-light-orange text-av-dark-blue shadow-md shadow-av-orange/20"
+                  : "border-av-input-border/30 bg-av-card text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
+              }`}
+            >
+              All
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.name === selectedCategory ? null : cat.name)}
+                className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-all ${
+                  selectedCategory === cat.name
+                    ? "border-av-orange/50 bg-gradient-to-r from-av-orange to-av-light-orange text-av-dark-blue shadow-md shadow-av-orange/20"
+                    : "border-av-input-border/30 bg-av-card text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
+                }`}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         <BannerAd placement="page" className="mb-6" />
 
@@ -133,7 +175,7 @@ export default function ChannelsPage() {
         ) : filteredChannels.length === 0 ? (
           <div className="rounded-2xl border border-av-input-border/20 bg-av-card/50 p-12 text-center">
             <p className="text-4xl">📺</p>
-            <p className="mt-3 text-sm text-av-hint">No public channels matched your search.</p>
+            <p className="mt-3 text-sm text-av-light-orange">No public channels matched your search.</p>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -157,11 +199,11 @@ export default function ChannelsPage() {
                 <div className="p-5">
                   <div className="flex items-center justify-between gap-3">
                     <h2 className="truncate text-lg font-semibold text-av-white group-hover:text-av-orange transition-colors">{channel.name}</h2>
-                    <span className="text-[11px] font-semibold text-av-hint">#{channel.channel_number}</span>
+                    <span className="text-[11px] font-semibold text-av-light-orange">#{channel.channel_number}</span>
                   </div>
-                  <p className="mt-1 text-xs text-av-hint">{channel.category} · by {channel.owner_name}</p>
-                  <p className="mt-3 line-clamp-2 text-sm text-av-white/70">{channel.description}</p>
-                  <div className="mt-4 flex items-center justify-between text-xs text-av-hint">
+                  <p className="mt-1 text-xs text-av-light-orange">{channel.category} · by {channel.owner_name}</p>
+                  <p className="mt-3 line-clamp-2 text-sm text-av-light-orange">{channel.description}</p>
+                  <div className="mt-4 flex items-center justify-between text-xs text-av-light-orange">
                     <span>{channel.followers_count ?? 0} followers</span>
                     <span className="text-av-orange">Watch →</span>
                   </div>

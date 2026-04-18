@@ -7,7 +7,7 @@
     "start": "node src/app.js",
     "doctor:firestore": "node scripts/firestore-doctor.js",
     "preflight:blockchain": "node scripts/blockchain-preflight.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node test/smoke.test.js",
     "deploy:testnet": "hardhat run scripts/deploy.js --network bscTestnet",
     "add-liquidity": "node scripts/add-liquidity.js"
   },
@@ -28,6 +28,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "nodemailer": "^6.10.1",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {

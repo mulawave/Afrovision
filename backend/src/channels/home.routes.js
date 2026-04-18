@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { authenticateToken } = require('../utils/jwt');
+const { authenticateToken, optionalAuth } = require('../utils/jwt');
 const Channel = require('./channel.model');
 const User = require('../users/user.model');
 const Ledger = require('../vpt/ledger.model');
@@ -26,8 +26,69 @@ router.get('/captcha-key', async (req, res) => {
   }
 });
 
+// GET /home/app-links — public app linking config sourced from admin settings
+router.get('/app-links', async (req, res) => {
+  try {
+    const [
+      androidEnabled,
+      androidPackage,
+      androidFingerprints,
+      androidStoreUrl,
+      iosEnabled,
+      iosTeamId,
+      iosBundleId,
+      appLinkPaths,
+    ] = await Promise.all([
+      SettingsService.get('ANDROID_APP_LINKS_ENABLED'),
+      SettingsService.get('ANDROID_APP_PACKAGE'),
+      SettingsService.get('ANDROID_APP_SHA256_FINGERPRINTS'),
+      SettingsService.get('ANDROID_PLAY_STORE_URL'),
+      SettingsService.get('IOS_UNIVERSAL_LINKS_ENABLED'),
+      SettingsService.get('IOS_TEAM_ID'),
+      SettingsService.get('IOS_BUNDLE_ID'),
+      SettingsService.get('APP_LINK_PATHS'),
+    ]);
+
+    const splitList = (value) => String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    res.json({
+      android: {
+        enabled: String(androidEnabled || '').toLowerCase() === 'true',
+        package_name: androidPackage || 'com.afrovision.afrovision',
+        sha256_cert_fingerprints: splitList(androidFingerprints),
+        play_store_url: androidStoreUrl || '',
+      },
+      ios: {
+        enabled: String(iosEnabled || '').toLowerCase() === 'true',
+        team_id: iosTeamId || '',
+        bundle_id: iosBundleId || 'com.afrovision.afrovision',
+      },
+      paths: splitList(appLinkPaths || '/reset-password*'),
+    });
+  } catch (err) {
+    console.error('[Home] app-links error:', err.message || err);
+    res.json({
+      android: {
+        enabled: false,
+        package_name: 'com.afrovision.afrovision',
+        sha256_cert_fingerprints: [],
+        play_store_url: '',
+      },
+      ios: {
+        enabled: false,
+        team_id: '',
+        bundle_id: 'com.afrovision.afrovision',
+      },
+      paths: ['/reset-password*'],
+    });
+  }
+});
+
 // GET /home/stats — community pool, recent channels, total counts
-router.get('/stats', authenticateToken, async (req, res) => {
+router.get('/stats', optionalAuth, async (req, res) => {
   // Use admin-configurable vPT price; fall back to 750
   let vptToNaira = 750;
   try {

@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 
 export default function NotFound() {
   return (
@@ -10,7 +10,7 @@ export default function NotFound() {
         <h2 className="text-lg font-bold text-av-white mb-2">
           Page Not Found
         </h2>
-        <p className="text-sm text-av-hint mb-6 leading-relaxed">
+        <p className="text-sm text-av-light-orange mb-6 leading-relaxed">
           The page you&apos;re looking for doesn&apos;t exist or has been moved.
         </p>
         <Link

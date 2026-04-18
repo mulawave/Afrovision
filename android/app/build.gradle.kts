@@ -51,7 +51,7 @@ android {
         minSdk = flutter.minSdkVersion  // firebase_messaging requires minSdk 23
         targetSdk = flutter.targetSdkVersion
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
     }
 
     buildTypes {
@@ -73,4 +73,8 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Required for AppMessagingService.kt — exposes FirebaseMessagingService and
+    // RemoteMessage to Kotlin-native code compiled in this module directly.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging-ktx")
 }

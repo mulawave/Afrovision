@@ -141,9 +141,42 @@ async function clearArchived(req, res) {
   res.json({ removed, unread_count: Notification.countUnread(req.userId) });
 }
 
+async function sendTestPush(req, res) {
+  const fcm = require('../utils/fcm');
+  const user = User.findById(req.userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  // Build the exact same token set used by sendToUser so the test exercises
+  // the full delivery path including the deviceToken field.
+  const tokenSet = new Set(Array.isArray(user.fcm_tokens) ? user.fcm_tokens : []);
+  if (user.deviceToken) tokenSet.add(user.deviceToken);
+
+  if (tokenSet.size === 0) {
+    return res.status(422).json({ success: false, error: 'No device token registered for this account' });
+  }
+
+  const result = await fcm.sendToTokens([...tokenSet], {
+    title: 'AfroVision Test',
+    body: 'Push notification delivery confirmed.',
+    data: { type: 'test' },
+  }, req.userId);
+
+  if (result.successCount > 0) {
+    return res.json({ success: true, delivered: result.successCount, failed: result.failureCount });
+  }
+
+  return res.status(502).json({
+    success: false,
+    error: 'FCM delivery failed — token may be invalid or device is unreachable',
+    delivered: 0,
+    failed: result.failureCount,
+  });
+}
+
 module.exports = {
   sendToUser,
   broadcastAll,
+  sendTestPush,
   listMine,
   getUnreadCount,
   markRead,

@@ -246,7 +246,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
               Text(
                 '$_viewerCount watching',
                 style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.85),
+                  color: AppColors.goldText,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
@@ -297,7 +297,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
                         'Chat is live. Be the first viewer to say something.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: AppColors.hintText.withValues(alpha: 0.85),
+                          color: AppColors.goldText,
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
                         ),
@@ -390,7 +390,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
                     counterText: '',
                     hintText: 'Send a message...',
                     hintStyle: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.7),
+                      color: AppColors.goldText,
                     ),
                     filled: true,
                     fillColor: AppColors.inputFill,
@@ -454,7 +454,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
           Text(
             '${_inputController.text.length}/200 · Be respectful. Chat rules apply.',
             style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.75),
+              color: AppColors.goldText,
               fontSize: 11,
               fontWeight: FontWeight.w500,
             ),

@@ -64,6 +64,10 @@ class _EditProfileScreenState extends State<EditProfileScreen>
     }
   }
 
+  Future<void> _refresh() async {
+    await _loadProfile();
+  }
+
   Future<void> _pickAvatar() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
@@ -238,62 +242,67 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                   opacity: _fadeAnim,
                   child: SlideTransition(
                     position: _slideAnim,
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 32),
-                          // Avatar
-                          Center(child: _buildAvatar()),
-                          const SizedBox(height: 8),
-                          Center(
-                            child: Text(
-                              'Tap to change photo',
-                              style: TextStyle(
-                                color: AppColors.white.withValues(alpha: 0.5),
-                                fontSize: 12,
+                    child: RefreshIndicator(
+                      onRefresh: _refresh,
+                      color: AppColors.orange,
+                      backgroundColor: AppColors.inputFill,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 32),
+                            // Avatar
+                            Center(child: _buildAvatar()),
+                            const SizedBox(height: 8),
+                            Center(
+                              child: Text(
+                                'Tap to change photo',
+                                style: TextStyle(
+                                  color: AppColors.white.withValues(alpha: 0.5),
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 28),
+                            const SizedBox(height: 28),
 
-                          AppTextField(
-                            controller: _nameController,
-                            label: 'DISPLAY NAME',
-                            hint: 'Enter your name',
-                            prefixIcon: Icons.person_outline_rounded,
-                            errorText: _nameError,
-                            onChanged: (_) {
-                              if (_nameError != null) {
-                                setState(() => _nameError = null);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 20),
+                            AppTextField(
+                              controller: _nameController,
+                              label: 'DISPLAY NAME',
+                              hint: 'Enter your name',
+                              prefixIcon: Icons.person_outline_rounded,
+                              errorText: _nameError,
+                              onChanged: (_) {
+                                if (_nameError != null) {
+                                  setState(() => _nameError = null);
+                                }
+                              },
+                            ),
+                            const SizedBox(height: 20),
 
-                          AppTextField(
-                            controller: _emailController,
-                            label: 'EMAIL ADDRESS',
-                            hint: 'Enter your email',
-                            prefixIcon: Icons.email_outlined,
-                            keyboardType: TextInputType.emailAddress,
-                            errorText: _emailError,
-                            onChanged: (_) {
-                              if (_emailError != null) {
-                                setState(() => _emailError = null);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 32),
+                            AppTextField(
+                              controller: _emailController,
+                              label: 'EMAIL ADDRESS',
+                              hint: 'Enter your email',
+                              prefixIcon: Icons.email_outlined,
+                              keyboardType: TextInputType.emailAddress,
+                              errorText: _emailError,
+                              onChanged: (_) {
+                                if (_emailError != null) {
+                                  setState(() => _emailError = null);
+                                }
+                              },
+                            ),
+                            const SizedBox(height: 32),
 
-                          AppButton(
-                            label: 'Save Changes',
-                            onPressed: _save,
-                            loading: _saving,
-                            enabled: !_saving,
-                          ),
-                        ],
+                            AppButton(
+                              label: 'Save Changes',
+                              onPressed: _save,
+                              loading: _saving,
+                              enabled: !_saving,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

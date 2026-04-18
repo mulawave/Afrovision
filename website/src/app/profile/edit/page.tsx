@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
@@ -55,7 +55,7 @@ export default function EditProfilePage() {
     return (
       <main className="min-h-screen pt-24 flex items-center justify-center px-6">
         <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-          <p className="text-sm text-av-hint">Sign in to edit your profile.</p>
+          <p className="text-sm text-av-light-orange">Sign in to edit your profile.</p>
           <Link href="/login?redirect=/profile/edit" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
             Sign in →
           </Link>
@@ -193,7 +193,7 @@ export default function EditProfilePage() {
                 >
                   {uploadingAvatar ? "Uploading..." : "Change Photo"}
                 </button>
-                <p className="mt-2 text-[10px] text-av-hint">JPG, PNG, or WebP. Max 5MB.</p>
+                <p className="mt-2 text-[10px] text-av-light-orange">JPG, PNG, or WebP. Max 5MB.</p>
                 <input
                   ref={avatarRef}
                   type="file"
@@ -219,7 +219,7 @@ export default function EditProfilePage() {
             <section className="rounded-2xl border border-av-input-border/30 bg-av-card p-6 space-y-5">
               <h2 className="text-sm font-semibold text-av-white">Account Details</h2>
               <div>
-                <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">Display Name</label>
+                <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Display Name</label>
                 <input
                   type="text"
                   value={name}
@@ -230,7 +230,7 @@ export default function EditProfilePage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] uppercase tracking-wider text-av-hint mb-1.5">Email Address</label>
+                <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Email Address</label>
                 <input
                   type="email"
                   value={email}

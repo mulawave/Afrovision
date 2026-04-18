@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -107,7 +107,7 @@ export function NotificationBell() {
     <div className="relative" ref={bellRef}>
       <button
         onClick={handleToggle}
-        className="relative flex h-10 w-10 items-center justify-center rounded-full border border-av-input-border/30 bg-av-card text-av-white/80 transition-colors hover:text-av-white hover:border-av-orange/40"
+        className="relative flex h-10 w-10 items-center justify-center rounded-full border border-av-input-border/30 bg-av-card text-av-light-orange transition-colors hover:text-av-white hover:border-av-orange/40"
         aria-label="Notifications"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -125,7 +125,7 @@ export function NotificationBell() {
           <div className="flex items-center justify-between border-b border-av-input-border/20 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-av-white">Notifications</p>
-              <p className="text-[11px] text-av-hint">{unreadCount} unread</p>
+              <p className="text-[11px] text-av-light-orange">{unreadCount} unread</p>
             </div>
             <button
               onClick={handleMarkAllRead}
@@ -142,7 +142,7 @@ export function NotificationBell() {
             </div>
           ) : notifications.length === 0 ? (
             <div className="px-4 py-8 text-center">
-              <p className="text-sm text-av-hint">No notifications yet.</p>
+              <p className="text-sm text-av-light-orange">No notifications yet.</p>
             </div>
           ) : (
             <div className="max-h-96 overflow-y-auto">
@@ -160,9 +160,9 @@ export function NotificationBell() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-3">
                         <p className="truncate text-sm font-semibold text-av-white">{item.title}</p>
-                        <span className="shrink-0 text-[10px] text-av-hint">{formatTimestamp(item.created_at)}</span>
+                        <span className="shrink-0 text-[10px] text-av-light-orange">{formatTimestamp(item.created_at)}</span>
                       </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-av-white/70">{item.body}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-av-light-orange">{item.body}</p>
                     </div>
                   </div>
                 </Link>

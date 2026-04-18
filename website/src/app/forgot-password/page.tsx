@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
             </span>
           </Link>
           <h1 className="text-2xl font-bold text-av-white mt-6">Reset your password</h1>
-          <p className="text-sm text-av-hint mt-1">Enter your email and we&apos;ll send you a reset link</p>
+          <p className="text-sm text-av-light-orange mt-1">Enter your email and we&apos;ll send you a reset link</p>
         </div>
 
         <div className="rounded-2xl bg-av-card border border-av-input-border/30 p-6 sm:p-8">
@@ -64,7 +64,7 @@ export default function ForgotPasswordPage() {
                 </svg>
               </div>
               <h2 className="text-lg font-bold text-av-white mb-2">Check your email</h2>
-              <p className="text-sm text-av-hint leading-relaxed mb-6">
+              <p className="text-sm text-av-light-orange leading-relaxed mb-6">
                 If an account exists for <strong className="text-av-white">{email}</strong>, you&apos;ll receive a password reset link.
               </p>
               <Link
@@ -84,7 +84,7 @@ export default function ForgotPasswordPage() {
 
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                  <label htmlFor="fp-email" className="block text-xs font-semibold text-av-white/80 mb-1.5">
+                  <label htmlFor="fp-email" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                     Email address
                   </label>
                   <input
@@ -96,7 +96,7 @@ export default function ForgotPasswordPage() {
                     autoComplete="email"
                     required
                     disabled={isSubmitting}
-                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-hint/50 focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
+                    className="w-full h-11 px-4 rounded-xl bg-av-input-fill border border-av-input-border/40 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/60 focus:ring-1 focus:ring-av-orange/20 transition-all disabled:opacity-50"
                   />
                 </div>
 
@@ -119,7 +119,7 @@ export default function ForgotPasswordPage() {
           )}
 
           {!success && (
-            <p className="text-center text-sm text-av-hint mt-6">
+            <p className="text-center text-sm text-av-light-orange mt-6">
               Remember your password?{" "}
               <Link href="/login" className="text-av-orange font-semibold hover:text-av-light-orange transition-colors">
                 Sign in

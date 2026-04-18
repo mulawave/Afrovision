@@ -6,6 +6,7 @@ const { generateToken } = require('../utils/jwt');
 const { getFirestore } = require('../utils/firestore');
 const ReferralModel = require('../referrals/referral.model');
 const { verifyCaptcha } = require('../utils/captcha');
+const SmtpService = require('../admin/smtp.service');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SALT_ROUNDS = 10;
@@ -113,10 +114,26 @@ async function forgotPassword(req, res, next) {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    const user = User.findByEmail(email);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = User.findByEmail(normalizedEmail);
     if (user) {
-      await User.storeResetToken(user.id);
-      // TODO: send reset link via email service
+      const websiteUrl = process.env.WEBSITE_URL;
+      if (!websiteUrl) {
+        return res.status(503).json({ error: 'WEBSITE_URL is not configured' });
+      }
+
+      const token = await User.storeResetToken(user.id);
+
+      try {
+        const resetUrl = new URL('/reset-password', websiteUrl);
+        resetUrl.searchParams.set('token', token);
+        await SmtpService.sendPasswordResetEmail({
+          toEmail: user.email,
+          resetUrl: resetUrl.toString(),
+        });
+      } catch (emailError) {
+        console.error('[Auth] forgotPassword email error:', emailError.message);
+      }
     }
 
     // Always return the same response to prevent user enumeration
@@ -354,8 +371,8 @@ async function pakLogin(req, res) {
       profilePicture: profile.ppic,
       isVerified: existing?.isVerified ?? false,
 
-      cash: existing?.cash ?? profile.wallet,
-      vpt: existing?.vpt ?? profile.tokens,
+      cash: Number(existing?.cash ?? profile.wallet) || 0,
+      vpt: Number(existing?.vpt ?? profile.tokens) || 0,
       currency: existing?.currency ?? (profile.currency || 'NGN'),
       slots: existing?.slots ?? profile.slots,
       level: existing?.level ?? (profile.rank || 5),
@@ -369,7 +386,6 @@ async function pakLogin(req, res) {
       vpinId: trimmedPak,
       isAdmin: existing?.isAdmin ?? false,
 
-      stake_wallet: existing?.stake_wallet ?? profile.stake_wallet,
       blockchain_tokens: existing?.blockchain_tokens ?? profile.blockchain_tokens,
       equity_percentage: existing?.equity_percentage ?? profile.equity_percentage,
       profit: existing?.profit ?? profile.earnings,
@@ -426,4 +442,51 @@ async function pakLogin(req, res) {
   }
 }
 
-module.exports = { register, login, me, forgotPassword, resetPassword, logout, pakLogin };
+// ─── Wallet Login ──────────────────────────────────────────────
+
+/**
+ * POST /auth/wallet-login
+ * Authenticate via a connected BSC wallet address.
+ * Only works if an existing user has linked this wallet to their account.
+ * Does NOT create new accounts.
+ */
+const WalletModel = require('../wallet/wallet.model');
+
+async function walletLogin(req, res, next) {
+  try {
+    const { address } = req.body;
+
+    if (!address || typeof address !== 'string') {
+      return res.status(400).json({ error: 'A wallet address is required' });
+    }
+
+    const trimmed = address.trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
+      return res.status(400).json({ error: 'Invalid BSC wallet address format' });
+    }
+
+    // Look up wallet record by connected_wallet_address
+    const walletRecord = WalletModel.findByConnectedWalletAddress(trimmed);
+    if (!walletRecord) {
+      return res.status(404).json({
+        error: 'No account is linked to this wallet address. Please create an account first, then link your wallet under Wallet → Connect Wallet to enable wallet login. Alternatively, import your account via Login with PAK and link your wallet.',
+      });
+    }
+
+    // Resolve user from wallet's user_id
+    const user = User.findById(walletRecord.user_id);
+    if (!user) {
+      return res.status(404).json({
+        error: 'The linked account could not be found. Please contact support.',
+      });
+    }
+
+    const token = await generateToken(user.id);
+    res.json({ token, user: User.toSafeUser(user), wallet_login: true });
+  } catch (err) {
+    console.error('[Wallet Login] error:', err);
+    next(err);
+  }
+}
+
+module.exports = { register, login, me, forgotPassword, resetPassword, logout, pakLogin, walletLogin };

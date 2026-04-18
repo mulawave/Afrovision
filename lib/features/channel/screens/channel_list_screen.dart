@@ -204,14 +204,14 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 children: [
                   Icon(
                     Icons.tv_off_rounded,
-                    color: AppColors.hintText.withValues(alpha: 0.5),
+                    color: AppColors.goldText,
                     size: 56,
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'No channels yet',
                     style: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.7),
+                      color: AppColors.goldText,
                       fontSize: 16,
                     ),
                   ),
@@ -238,7 +238,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                   Text(
                     '${_channels.length} channel${_channels.length == 1 ? '' : 's'}',
                     style: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.7),
+                      color: AppColors.goldText,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -262,7 +262,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                           decoration: BoxDecoration(
                             color: isActive
                                 ? AppColors.orange
-                                : AppColors.hintText.withValues(alpha: 0.3),
+                                : AppColors.goldText,
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
@@ -494,9 +494,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                                   width: 3,
                                   height: 3,
                                   decoration: BoxDecoration(
-                                    color: AppColors.hintText.withValues(
-                                      alpha: 0.4,
-                                    ),
+                                    color: AppColors.goldText,
                                     shape: BoxShape.circle,
                                   ),
                                 ),
@@ -519,7 +517,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                   ),
                   Icon(
                     Icons.chevron_right_rounded,
-                    color: AppColors.hintText.withValues(alpha: 0.4),
+                    color: AppColors.goldText,
                     size: 20,
                   ),
                 ],
@@ -546,7 +544,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
       child: Center(
         child: Icon(
           Icons.live_tv_rounded,
-          color: AppColors.hintText.withValues(alpha: 0.15),
+          color: AppColors.goldText,
           size: 32,
         ),
       ),
@@ -624,7 +622,7 @@ class _SearchModalState extends State<_SearchModal> {
             height: 4,
             margin: const EdgeInsets.only(top: 12, bottom: 16),
             decoration: BoxDecoration(
-              color: AppColors.hintText.withValues(alpha: 0.3),
+              color: AppColors.goldText,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -647,7 +645,7 @@ class _SearchModalState extends State<_SearchModal> {
                 decoration: InputDecoration(
                   hintText: 'Search channels...',
                   hintStyle: TextStyle(
-                    color: AppColors.hintText.withValues(alpha: 0.5),
+                    color: AppColors.goldText,
                     fontSize: 15,
                   ),
                   prefixIcon: const Icon(
@@ -663,7 +661,7 @@ class _SearchModalState extends State<_SearchModal> {
                           },
                           child: Icon(
                             Icons.close_rounded,
-                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            color: AppColors.goldText,
                             size: 20,
                           ),
                         )
@@ -686,7 +684,7 @@ class _SearchModalState extends State<_SearchModal> {
               child: Text(
                 _controller.text.isEmpty ? 'SUGGESTED' : 'RESULTS',
                 style: TextStyle(
-                  color: AppColors.hintText.withValues(alpha: 0.5),
+                  color: AppColors.goldText,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.2,
@@ -704,14 +702,14 @@ class _SearchModalState extends State<_SearchModal> {
                       children: [
                         Icon(
                           Icons.search_off_rounded,
-                          color: AppColors.hintText.withValues(alpha: 0.3),
+                          color: AppColors.goldText,
                           size: 40,
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'No channels found',
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.5),
+                            color: AppColors.goldText,
                             fontSize: 14,
                           ),
                         ),

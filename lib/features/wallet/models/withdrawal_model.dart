@@ -6,6 +6,15 @@ class WithdrawalModel {
   final String status;
   final int createdAt;
   final int? processedAt;
+  final String? bankName;
+  final String? accountName;
+  final String? accountNumberMasked;
+  final double transactionFee;
+  final double serviceCharge;
+  final double totalFees;
+  final double vatAmount;
+  final double vatRate;
+  final double totalDebit;
 
   WithdrawalModel({
     required this.id,
@@ -15,6 +24,15 @@ class WithdrawalModel {
     required this.status,
     required this.createdAt,
     this.processedAt,
+    this.bankName,
+    this.accountName,
+    this.accountNumberMasked,
+    this.transactionFee = 0,
+    this.serviceCharge = 0,
+    this.totalFees = 0,
+    this.vatAmount = 0,
+    this.vatRate = 0,
+    this.totalDebit = 0,
   });
 
   factory WithdrawalModel.fromJson(Map<String, dynamic> json) {
@@ -26,6 +44,22 @@ class WithdrawalModel {
       status: json['status'] as String? ?? 'pending',
       createdAt: json['created_at'] as int? ?? 0,
       processedAt: json['processed_at'] as int?,
+      bankName:
+          (json['bank_details'] as Map<String, dynamic>?)?['bank_name']
+              as String?,
+      accountName:
+          (json['bank_details'] as Map<String, dynamic>?)?['account_name']
+              as String?,
+      accountNumberMasked:
+          (json['bank_details']
+                  as Map<String, dynamic>?)?['account_number_masked']
+              as String?,
+      transactionFee: (json['transaction_fee'] as num?)?.toDouble() ?? 0,
+      serviceCharge: (json['service_charge'] as num?)?.toDouble() ?? 0,
+      totalFees: (json['total_fees'] as num?)?.toDouble() ?? 0,
+      vatAmount: (json['vat_amount'] as num?)?.toDouble() ?? 0,
+      vatRate: (json['vat_rate'] as num?)?.toDouble() ?? 0,
+      totalDebit: (json['total_debit'] as num?)?.toDouble() ?? 0,
     );
   }
 

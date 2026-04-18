@@ -25,8 +25,7 @@ class ProfileService {
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 
-  static Future<UserModel> requestCreator() async {
-    final data = await ApiService.post('/users/request-creator', {});
-    return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+  static Future<Map<String, dynamic>> requestCreator() async {
+    return ApiService.post('/users/request-creator', {});
   }
 }

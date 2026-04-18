@@ -15,6 +15,9 @@ router.post('/mark-all-read', authenticateToken, ctrl.markAllRead);
 router.post('/bulk', authenticateToken, ctrl.bulkUpdate);
 router.delete('/clear/archived', authenticateToken, ctrl.clearArchived);
 
+// Authenticated user — test push delivery to own device
+router.post('/test-push', authenticateToken, ctrl.sendTestPush);
+
 // Admin-only endpoints (admin check is enforced inside the controller)
 router.post('/send-user', authenticateToken, ctrl.sendToUser);
 router.post('/broadcast', authenticateToken, ctrl.broadcastAll);

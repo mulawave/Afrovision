@@ -48,9 +48,7 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {branding.favicon_url && (
-          <link rel="icon" href={branding.favicon_url} />
-        )}
+        <link rel="icon" href={branding.favicon_url || "/favicon.png"} />
       </head>
       <body className="min-h-full flex flex-col">
         <AuthProvider>

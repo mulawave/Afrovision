@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Socket } from "socket.io-client";
@@ -190,7 +190,7 @@ export function LiveChat({ channelId }: LiveChatProps) {
             {isConnected ? "Connected" : "Reconnecting..."}
           </span>
         </div>
-        <span className="text-[10px] text-av-hint font-mono">{viewerCount} watching · {messages.length} msgs</span>
+        <span className="text-[10px] text-av-light-orange font-mono">{viewerCount} watching · {messages.length} msgs</span>
       </div>
 
       {/* Messages area */}
@@ -199,11 +199,11 @@ export function LiveChat({ channelId }: LiveChatProps) {
         className="flex-1 overflow-y-auto px-3 py-2 space-y-1 min-h-0"
       >
         {isLoading ? (
-          <div className="h-full flex items-center justify-center text-xs text-av-hint">
+          <div className="h-full flex items-center justify-center text-xs text-av-light-orange">
             Loading chat…
           </div>
         ) : messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-xs text-av-hint text-center px-6">
+          <div className="h-full flex items-center justify-center text-xs text-av-light-orange text-center px-6">
             Chat is live. Be the first viewer to say something.
           </div>
         ) : messages.map((msg) => (
@@ -224,7 +224,7 @@ export function LiveChat({ channelId }: LiveChatProps) {
               {msg.sender_name}
             </span>
             {/* Message text */}
-            <span className="text-av-white/85 break-words min-w-0">
+            <span className="text-av-light-orange break-words min-w-0">
               {msg.text}
             </span>
           </div>
@@ -248,7 +248,7 @@ export function LiveChat({ channelId }: LiveChatProps) {
                 onKeyDown={handleKeyDown}
                 placeholder="Send a message..."
                 maxLength={200}
-                className="flex-1 h-9 px-3 rounded-lg bg-av-input-fill border border-av-input-border/30 text-sm text-av-white placeholder:text-av-hint/60 focus:outline-none focus:border-av-orange/50 transition-colors"
+                className="flex-1 h-9 px-3 rounded-lg bg-av-input-fill border border-av-input-border/30 text-sm text-av-white placeholder:text-av-light-orange focus:outline-none focus:border-av-orange/50 transition-colors"
               />
               <button
                 onClick={sendMessage}
@@ -258,14 +258,14 @@ export function LiveChat({ channelId }: LiveChatProps) {
                 {isSending ? "Sending..." : "Send"}
               </button>
             </div>
-            <p className="text-[10px] text-av-hint/50 mt-1.5 px-1">
+            <p className="text-[10px] text-av-light-orange mt-1.5 px-1">
               {input.length}/200 · Be respectful. Chat rules apply.
             </p>
           </>
         ) : (
           <Link
             href={`/login?redirect=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname : "/")}`}
-            className="flex items-center justify-center gap-2 w-full h-10 rounded-lg bg-av-input-fill border border-av-input-border/30 text-sm text-av-hint hover:text-av-orange hover:border-av-orange/40 transition-all"
+            className="flex items-center justify-center gap-2 w-full h-10 rounded-lg bg-av-input-fill border border-av-input-border/30 text-sm text-av-light-orange hover:text-av-orange hover:border-av-orange/40 transition-all"
           >
             Sign in to chat
           </Link>

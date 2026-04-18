@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect } from "react";
 
@@ -22,7 +22,7 @@ export default function GlobalError({
         <h2 className="text-lg font-bold text-av-white mb-2">
           Something went wrong
         </h2>
-        <p className="text-sm text-av-hint mb-6 leading-relaxed">
+        <p className="text-sm text-av-light-orange mb-6 leading-relaxed">
           An unexpected error occurred. Please try again or return to the
           homepage.
         </p>
@@ -35,7 +35,7 @@ export default function GlobalError({
           </button>
           <link
             href="/"
-            className="px-5 py-2 rounded-xl bg-av-card border border-av-input-border/30 text-sm font-medium text-av-hint hover:text-av-white hover:border-av-orange/40 transition-all"
+            className="px-5 py-2 rounded-xl bg-av-card border border-av-input-border/30 text-sm font-medium text-av-light-orange hover:text-av-white hover:border-av-orange/40 transition-all"
           >
             Go Home
           </link>

@@ -1,104 +1,65 @@
 const { getFirestore } = require('../utils/firestore');
+const User = require('../users/user.model');
 
-const COLLECTION = 'gift_wallets';
-let wallets = [];
-let initialized = false;
+// ── Migration bridge ─────────────────────────────────────
+// Balances now live on the user document (users/{uid}.vpt, .cash).
+// GiftWallet functions translate to user-model operations and return
+// the old shape { uid, vpt_units, ngn_balance } for backward compat.
+// The old 'gift_wallets' Firestore collection is no longer written to.
 
-async function persist(wallet) {
-  const db = getFirestore();
-  await db.collection(COLLECTION).doc(wallet.uid).set(wallet);
+const USERS_COLLECTION = 'users';
+
+function _toWalletShape(user) {
+  return {
+    uid: user.id,
+    vpt_units: user.vpt || 0,
+    ngn_balance: user.cash || 0,
+    updated_at: Date.now(),
+  };
 }
 
 async function init() {
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  wallets = snapshot.docs.map((doc) => doc.data());
-  initialized = true;
-  return wallets;
+  // No-op — balances live on user docs loaded by User.init()
+  return [];
 }
 
 function isInitialized() {
-  return initialized;
+  return User.isInitialized();
 }
 
 function findByUid(uid) {
-  return wallets.find((w) => w.uid === uid);
+  const user = User.findById(uid);
+  if (!user) return undefined;
+  return _toWalletShape(user);
 }
 
 async function ensureWallet(uid) {
-  let wallet = findByUid(uid);
-  if (!wallet) {
-    wallet = {
-      uid,
-      vpt_units: 0,
-      ngn_balance: 0,
-      updated_at: Date.now(),
-    };
-    wallets.push(wallet);
-    await persist(wallet);
-  }
-  return wallet;
+  let user = User.findById(uid);
+  if (!user) return { uid, vpt_units: 0, ngn_balance: 0, updated_at: Date.now() };
+  return _toWalletShape(user);
 }
 
 async function adjustVptUnits(uid, delta) {
-  const db = getFirestore();
-  const docRef = db.collection(COLLECTION).doc(uid);
-  const updated = await db.runTransaction(async (tx) => {
-    const snap = await tx.get(docRef);
-    let data;
-    if (snap.exists) {
-      data = snap.data();
-    } else {
-      data = { uid, vpt_units: 0, ngn_balance: 0, updated_at: Date.now() };
-    }
-    data.vpt_units += delta;
-    data.updated_at = Date.now();
-    tx.set(docRef, data);
-    return data;
-  });
-  // Sync in-memory cache
-  const idx = wallets.findIndex((w) => w.uid === uid);
-  if (idx >= 0) wallets[idx] = updated;
-  else wallets.push(updated);
-  return updated;
+  const updated = await User.adjustVpt(uid, delta);
+  if (!updated) return { uid, vpt_units: 0, ngn_balance: 0, updated_at: Date.now() };
+  return _toWalletShape(updated);
 }
 
 async function adjustNgnBalance(uid, delta) {
-  const db = getFirestore();
-  const docRef = db.collection(COLLECTION).doc(uid);
-  const updated = await db.runTransaction(async (tx) => {
-    const snap = await tx.get(docRef);
-    let data;
-    if (snap.exists) {
-      data = snap.data();
-    } else {
-      data = { uid, vpt_units: 0, ngn_balance: 0, updated_at: Date.now() };
-    }
-    data.ngn_balance += delta;
-    data.updated_at = Date.now();
-    tx.set(docRef, data);
-    return data;
-  });
-  // Sync in-memory cache
-  const idx = wallets.findIndex((w) => w.uid === uid);
-  if (idx >= 0) wallets[idx] = updated;
-  else wallets.push(updated);
-  return updated;
+  const updated = await User.adjustCash(uid, delta);
+  if (!updated) return { uid, vpt_units: 0, ngn_balance: 0, updated_at: Date.now() };
+  return _toWalletShape(updated);
 }
 
 function getAll() {
-  return wallets;
+  return User.getAll().map(_toWalletShape);
 }
 
 async function reloadFromFirestore(uid) {
-  const db = getFirestore();
-  const doc = await db.collection(COLLECTION).doc(uid).get();
-  if (!doc.exists) return null;
-  const data = doc.data();
-  const idx = wallets.findIndex((w) => w.uid === uid);
-  if (idx >= 0) wallets[idx] = data;
-  else wallets.push(data);
-  return data;
+  // User model is in-memory + Firestore-persisted, just return current state
+  const user = User.findById(uid);
+  if (!user) return null;
+  return _toWalletShape(user);
 }
 
 module.exports = {

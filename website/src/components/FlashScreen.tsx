@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -73,7 +73,7 @@ export function FlashScreen({ type, title, channelName, durationMs = 5000, onCom
               <path d="M10 8l6 4-6 4V8z" />
             </svg>
           </div>
-          <span className="text-white/60 text-sm font-semibold tracking-widest uppercase">AfroVision</span>
+          <span className="text-av-light-orange text-sm font-semibold tracking-widest uppercase">AfroVision</span>
         </div>
 
         {/* Type label */}
@@ -88,7 +88,7 @@ export function FlashScreen({ type, title, channelName, durationMs = 5000, onCom
         </h2>
 
         {/* Channel name */}
-        <p className="text-white/40 text-sm">
+        <p className="text-av-light-orange text-sm">
           on <span className="text-av-light-orange font-semibold">{channelName}</span>
         </p>
       </div>

@@ -82,6 +82,10 @@ async function create({ email, passwordHash }) {
     subscription_expiry: null,
     preferred_currency: 'NGN',
     vpt_balance: 0,
+    vpt: 0,
+    cash: 0,
+    coins: 0,
+    bank_details: null,
     first_subscription_at: null,
     following_creator_ids: [],
     fcm_tokens: [],
@@ -107,6 +111,15 @@ async function updateProfile(userId, fields) {
   if (fields.email !== undefined) user.email = fields.email;
   if (fields.avatar_url !== undefined) user.avatar_url = fields.avatar_url;
   if (fields.preferred_currency !== undefined) user.preferred_currency = fields.preferred_currency;
+  if (fields.bank_details !== undefined) user.bank_details = fields.bank_details;
+  await persistUser(user);
+  return user;
+}
+
+async function setBankDetails(userId, bankDetails) {
+  const user = findById(userId);
+  if (!user) return null;
+  user.bank_details = bankDetails;
   await persistUser(user);
   return user;
 }
@@ -161,14 +174,57 @@ async function adjustVptBalance(userId, delta) {
   return user;
 }
 
+async function adjustVpt(userId, delta) {
+  const user = findById(userId);
+  if (!user) return null;
+  user.vpt = Math.round(((user.vpt || 0) + delta) * 10000) / 10000;
+  await persistUser(user);
+  return user;
+}
+
+async function adjustCash(userId, delta) {
+  const user = findById(userId);
+  if (!user) return null;
+  user.cash = Math.round(((user.cash || 0) + delta) * 100) / 100;
+  await persistUser(user);
+  return user;
+}
+
+async function adjustCoins(userId, delta) {
+  const user = findById(userId);
+  if (!user) return null;
+  user.coins = Math.round(((user.coins || 0) + delta) * 100) / 100;
+  await persistUser(user);
+  return user;
+}
+
+async function setBlockchainTokens(userId, rawValue) {
+  const user = findById(userId);
+  if (!user) return null;
+  user.blockchain_tokens = rawValue != null ? String(rawValue) : null;
+  await persistUser(user);
+  return user;
+}
+
 async function addFcmToken(userId, token) {
   const user = findById(userId);
   if (!user) return null;
   if (!Array.isArray(user.fcm_tokens)) user.fcm_tokens = [];
+
+  // afroDeviceToken is AfroVision-exclusive — always track the latest token so
+  // reinstalls/token rotations don't leave a stale afroDeviceToken in Firestore.
+  let changed = false;
+  if (user.afroDeviceToken !== token) {
+    user.afroDeviceToken = token;
+    changed = true;
+  }
+
   if (!user.fcm_tokens.includes(token)) {
     user.fcm_tokens.push(token);
-    await persistUser(user);
+    changed = true;
   }
+
+  if (changed) await persistUser(user);
   return user;
 }
 
@@ -352,11 +408,19 @@ async function deleteResetToken(token) {
 function toSafeUser(user) {
   // Lazy-load wallet to include BSC address
   let bscAddress = null;
+  let subscriptionPlanType = null;
   try {
     const WalletModel = require('../wallet/wallet.model');
     const wallet = WalletModel.findByUserId(user.id);
     if (wallet) bscAddress = wallet.bsc_address;
   } catch { /* wallet module not loaded yet */ }
+
+  try {
+    const PlanModel = require('../subscriptions/plan.model');
+    subscriptionPlanType = user.subscription_plan
+      ? PlanModel.findByName(user.subscription_plan)?.type || null
+      : null;
+  } catch { /* plans module not loaded yet */ }
 
   return {
     id: user.id,
@@ -367,10 +431,15 @@ function toSafeUser(user) {
     is_premium_creator: user.is_premium_creator,
     kyc_status: user.kyc_status,
     subscription_plan: user.subscription_plan,
+    subscription_plan_type: subscriptionPlanType,
     subscription_status: user.subscription_status,
     subscription_expiry: user.subscription_expiry,
     preferred_currency: user.preferred_currency,
-    vpt_balance: user.vpt_balance,
+    vpt_balance: Number(user.vpt_balance) || 0,
+    vpt: Number(user.vpt) || 0,
+    cash: Number(user.cash) || 0,
+    coins: Number(user.coins) || 0,
+    bank_details: user.bank_details || null,
     bsc_address: bscAddress,
     first_subscription_at: user.first_subscription_at,
     following_creator_ids: Array.isArray(user.following_creator_ids) ? user.following_creator_ids : [],
@@ -398,6 +467,15 @@ function toDetailedUser(user) {
     if (wallet) bscAddress = wallet.bsc_address;
   } catch { /* wallet module not loaded yet */ }
   detailed.bsc_address = bscAddress;
+
+  try {
+    const PlanModel = require('../subscriptions/plan.model');
+    detailed.subscription_plan_type = user.subscription_plan
+      ? PlanModel.findByName(user.subscription_plan)?.type || null
+      : null;
+  } catch {
+    detailed.subscription_plan_type = null;
+  }
 
   // Ensure arrays
   detailed.following_creator_ids = Array.isArray(user.following_creator_ids) ? user.following_creator_ids : [];
@@ -428,6 +506,11 @@ module.exports = {
   setSubscription,
   setFirstSubscriptionAt,
   adjustVptBalance,
+  adjustVpt,
+  adjustCash,
+  adjustCoins,
+  setBankDetails,
+  setBlockchainTokens,
   followCreator,
   unfollowCreator,
   isFollowing,

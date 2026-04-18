@@ -18,6 +18,7 @@ import {
   clearAuth,
   loginApi,
   pakLoginApi,
+  walletLoginApi,
   registerApi,
   getMeApi,
 } from "@/lib/api";
@@ -28,6 +29,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   login: (email: string, password: string, captchaToken?: string) => Promise<{ ok: boolean; error?: string }>;
   pakLogin: (pak: string) => Promise<{ ok: boolean; error?: string }>;
+  walletLogin: (address: string) => Promise<{ ok: boolean; error?: string }>;
   register: (
     email: string,
     password: string,
@@ -91,6 +93,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: false, error: errorData.error || "PAK login failed" };
   }, []);
 
+  const walletLogin = useCallback(async (address: string) => {
+    const res = await walletLoginApi(address);
+    if (res.ok && "token" in res.data) {
+      const authData = res.data as AuthResponse;
+      setAuth(authData.token, authData.user);
+      setUser(authData.user);
+      return { ok: true };
+    }
+    const errorData = res.data as ErrorResponse;
+    return { ok: false, error: errorData.error || "Wallet login failed" };
+  }, []);
+
   const register = useCallback(
     async (email: string, password: string, referralCode?: string, captchaToken?: string) => {
       const res = await registerApi(email, password, referralCode, captchaToken);
@@ -132,6 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         login,
         pakLogin,
+        walletLogin,
         register,
         logout,
         refreshUser,

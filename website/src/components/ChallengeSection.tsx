@@ -1,4 +1,4 @@
-import { NavLink } from "@/components/NavLink";
+﻿import { NavLink } from "@/components/NavLink";
 import type { HomepageChallengeSection as HomepageChallengeSectionData } from "@/lib/homepage";
 
 const DEFAULT_STATS = [
@@ -47,7 +47,7 @@ export function ChallengeSection({ section }: { section?: HomepageChallengeSecti
         </h2>
 
         {/* Subtitle */}
-        <p className="text-base lg:text-lg text-av-white/70 leading-relaxed max-w-2xl mx-auto mb-8">
+        <p className="text-base lg:text-lg text-av-light-orange leading-relaxed max-w-2xl mx-auto mb-8">
           {section?.description || "Compete with creators across Africa. Stream your best content, grow your audience, and win prizes that launch careers. The stage is yours."}
         </p>
 
@@ -58,7 +58,7 @@ export function ChallengeSection({ section }: { section?: HomepageChallengeSecti
               <p className="text-2xl lg:text-3xl font-extrabold text-av-orange">
                 {stat.value}
               </p>
-              <p className="text-[10px] uppercase tracking-widest text-av-hint font-semibold mt-1">
+              <p className="text-[10px] uppercase tracking-widest text-av-light-orange font-semibold mt-1">
                 {stat.label}
               </p>
             </div>

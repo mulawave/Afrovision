@@ -47,7 +47,7 @@ async function submitKyc(req, res) {
     }
 
     const {
-      full_name, date_of_birth, nationality, phone, address,
+      full_name, gender, date_of_birth, nationality, phone, address,
       id_type, id_number, id_front_url, id_back_url, id_expiry_date,
       selfie_url, biometric_hash,
     } = req.body;
@@ -69,6 +69,7 @@ async function submitKyc(req, res) {
     const record = await KycModel.submit({
       user_id: userId,
       full_name: full_name.trim(),
+      gender: gender || null,
       date_of_birth,
       nationality: nationality || 'NG',
       phone,
@@ -101,6 +102,22 @@ async function getMyKyc(req, res) {
   } catch (err) {
     console.error('[KYC] getMyKyc error:', err);
     res.status(500).json({ error: 'Failed to fetch KYC' });
+  }
+}
+
+async function updateMyGender(req, res) {
+  try {
+    const { gender } = req.body;
+    const validGenders = ['male', 'female', 'non_binary', 'prefer_not_to_say'];
+    if (!gender || !validGenders.includes(gender)) {
+      return res.status(400).json({ error: `gender must be one of: ${validGenders.join(', ')}` });
+    }
+    const updated = await KycModel.updateGender(req.userId, gender);
+    if (!updated) return res.status(404).json({ error: 'No KYC record found to update' });
+    res.json({ message: 'Gender updated', gender: updated.gender });
+  } catch (err) {
+    console.error('[KYC] updateMyGender error:', err);
+    res.status(500).json({ error: 'Failed to update gender' });
   }
 }
 
@@ -195,6 +212,7 @@ module.exports = {
   uploadKycDoc,
   submitKyc,
   getMyKyc,
+  updateMyGender,
   adminListKyc,
   adminGetKyc,
   adminReviewKyc,

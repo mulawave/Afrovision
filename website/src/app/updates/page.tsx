@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
@@ -122,7 +122,7 @@ export default function UpdatesPage() {
         <div className="mb-12">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">What&apos;s New</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Platform Updates</h1>
-          <p className="mt-4 text-base text-av-hint leading-relaxed max-w-2xl">
+          <p className="mt-4 text-base text-av-light-orange leading-relaxed max-w-2xl">
             The latest features, improvements, and milestones on AfroVision. We ship often — here&apos;s what&apos;s changed.
           </p>
         </div>
@@ -141,18 +141,18 @@ export default function UpdatesPage() {
                     <h2 className="text-base font-semibold text-av-white group-hover:text-av-orange transition-colors">
                       {u.title}
                     </h2>
-                    <p className="text-xs text-av-hint mt-0.5">{u.date}</p>
+                    <p className="text-xs text-av-light-orange mt-0.5">{u.date}</p>
                   </div>
                 </div>
                 <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${u.tagColor}`}>
                   {u.tag}
                 </span>
               </div>
-              <p className="text-sm text-av-hint leading-relaxed">{u.summary}</p>
+              <p className="text-sm text-av-light-orange leading-relaxed">{u.summary}</p>
               {u.details && (
                 <ul className="mt-3 space-y-1.5">
                   {u.details.map((d, j) => (
-                    <li key={j} className="flex gap-2 text-xs text-av-hint">
+                    <li key={j} className="flex gap-2 text-xs text-av-light-orange">
                       <span className="text-av-orange mt-0.5">•</span>
                       <span>{d}</span>
                     </li>
@@ -165,7 +165,7 @@ export default function UpdatesPage() {
 
         {/* Bottom */}
         <div className="mt-12 text-center">
-          <p className="text-sm text-av-hint mb-4">Want to suggest a feature or report a bug?</p>
+          <p className="text-sm text-av-light-orange mb-4">Want to suggest a feature or report a bug?</p>
           <Link
             href="/contact"
             className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-full border border-av-white/20 text-av-white hover:bg-av-white/5 transition-all"

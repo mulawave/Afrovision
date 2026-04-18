@@ -100,6 +100,10 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
     }
   }
 
+  Future<void> _refresh() async {
+    await _checkSubscription();
+  }
+
   Future<void> _subscribe() async {
     setState(() {
       _acting = true;
@@ -201,8 +205,10 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
   void _showSnack(String msg, {required bool success}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg),
-        backgroundColor: success ? const Color(0xFF4CAF50) : AppColors.hintText,
+        content: Text(msg, style: const TextStyle(color: AppColors.white)),
+        backgroundColor: success
+            ? const Color(0xFF4CAF50).withValues(alpha: 0.9)
+            : AppColors.errorRed.withValues(alpha: 0.9),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -284,129 +290,134 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
         ),
 
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const SizedBox(height: 16),
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            color: AppColors.orange,
+            backgroundColor: AppColors.inputFill,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 16),
 
-                // Creator avatar placeholder
-                Container(
-                  width: 86,
-                  height: 86,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: AppColors.buttonGradient,
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.orange.withAlpha(80),
-                        blurRadius: 24,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      _creatorName.isNotEmpty
-                          ? _creatorName[0].toUpperCase()
-                          : '?',
-                      style: const TextStyle(
-                        color: AppColors.darkBlue,
-                        fontSize: 34,
-                        fontWeight: FontWeight.w900,
-                      ),
+                  // Creator avatar placeholder
+                  Container(
+                    width: 86,
+                    height: 86,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: AppColors.buttonGradient,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.orange.withAlpha(80),
+                          blurRadius: 24,
+                          spreadRadius: 2,
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                Text(
-                  _creatorName,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 6),
-
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50).withAlpha(30),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: const Color(0xFF4CAF50).withAlpha(80),
-                    ),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.verified_rounded,
-                        color: Color(0xFF4CAF50),
-                        size: 14,
-                      ),
-                      SizedBox(width: 4),
-                      Text(
-                        'CREATOR',
-                        style: TextStyle(
-                          color: Color(0xFF4CAF50),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 1.2,
+                    child: Center(
+                      child: Text(
+                        _creatorName.isNotEmpty
+                            ? _creatorName[0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                          color: AppColors.darkBlue,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 32),
-
-                // ── Active subscription card ──────────────────────────────
-                if (_subscription != null && _subscription!.isActive)
-                  _buildActiveCard()
-                // ── Cancelled subscription card ───────────────────────────
-                else if (_subscription != null && !_subscription!.isActive)
-                  _buildCancelledCard()
-                // ── Subscribe card ────────────────────────────────────────
-                else
-                  _buildSubscribeCard(),
-
-                // Error
-                if (_error != null) ...[
-                  const SizedBox(height: 20),
-                  _ErrorBanner(message: _error!),
-                ],
-
-                if (_error != null &&
-                    (_error!.contains('Top up') ||
-                        _error!.contains('wallet'))) ...[
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () =>
-                        Navigator.pushNamed(context, '/gift-wallet'),
-                    icon: const Icon(
-                      Icons.add_circle_outline,
-                      color: AppColors.orange,
-                      size: 18,
-                    ),
-                    label: const Text(
-                      'Top up wallet',
-                      style: TextStyle(color: AppColors.orange),
                     ),
                   ),
-                ],
 
-                const SizedBox(height: 40),
-              ],
+                  const SizedBox(height: 16),
+
+                  Text(
+                    _creatorName,
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 6),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4CAF50).withAlpha(30),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFF4CAF50).withAlpha(80),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.verified_rounded,
+                          color: Color(0xFF4CAF50),
+                          size: 14,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'CREATOR',
+                          style: TextStyle(
+                            color: Color(0xFF4CAF50),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // ── Active subscription card ──────────────────────────────
+                  if (_subscription != null && _subscription!.isActive)
+                    _buildActiveCard()
+                  // ── Cancelled subscription card ───────────────────────────
+                  else if (_subscription != null && !_subscription!.isActive)
+                    _buildCancelledCard()
+                  // ── Subscribe card ────────────────────────────────────────
+                  else
+                    _buildSubscribeCard(),
+
+                  // Error
+                  if (_error != null) ...[
+                    const SizedBox(height: 20),
+                    _ErrorBanner(message: _error!),
+                  ],
+
+                  if (_error != null &&
+                      (_error!.contains('Top up') ||
+                          _error!.contains('wallet'))) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/gift-wallet'),
+                      icon: const Icon(
+                        Icons.add_circle_outline,
+                        color: AppColors.orange,
+                        size: 18,
+                      ),
+                      label: const Text(
+                        'Top up wallet',
+                        style: TextStyle(color: AppColors.orange),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 40),
+                ],
+              ),
             ),
           ),
         ),

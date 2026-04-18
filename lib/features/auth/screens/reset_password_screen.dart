@@ -31,9 +31,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-    _fadeIn = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut),
-    );
+    _fadeIn = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _animCtrl.forward();
 
     _tokenController.addListener(_onFieldChanged);
@@ -64,8 +65,25 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
 
   void _onFieldChanged() => setState(() {});
 
+  String _resolveToken(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return '';
+
+    try {
+      final uri = Uri.parse(trimmed);
+      final queryToken = uri.queryParameters['token'];
+      if (queryToken != null && queryToken.isNotEmpty) {
+        return queryToken;
+      }
+    } catch (_) {
+      // Fall back to the raw token below.
+    }
+
+    return trimmed;
+  }
+
   bool get _canSubmit =>
-      _tokenController.text.trim().isNotEmpty &&
+      _resolveToken(_tokenController.text).isNotEmpty &&
       _passwordController.text.isNotEmpty &&
       _confirmController.text.isNotEmpty &&
       !_loading;
@@ -79,7 +97,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
   }
 
   Future<void> _reset() async {
-    final token = _tokenController.text.trim();
+    final token = _resolveToken(_tokenController.text);
     final password = _passwordController.text;
 
     if (_confirmError != null) {
@@ -97,11 +115,15 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Password reset successful!'),
+          content: const Text(
+            'Password reset successful!',
+            style: TextStyle(color: AppColors.white),
+          ),
           backgroundColor: Colors.greenAccent.shade700,
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
@@ -124,8 +146,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
           child: FadeTransition(
             opacity: _fadeIn,
             child: SingleChildScrollView(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
               child: Column(
                 children: [
                   const SizedBox(height: 24),
@@ -141,8 +162,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: AppColors.inputBorder),
                         ),
-                        child: const Icon(Icons.arrow_back_ios_new,
-                            color: AppColors.white, size: 18),
+                        child: const Icon(
+                          Icons.arrow_back_ios_new,
+                          color: AppColors.white,
+                          size: 18,
+                        ),
                       ),
                     ),
                   ),
@@ -156,8 +180,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
                       shape: BoxShape.circle,
                       color: AppColors.orange.withValues(alpha: 0.12),
                     ),
-                    child: const Icon(Icons.vpn_key_rounded,
-                        color: AppColors.orange, size: 36),
+                    child: const Icon(
+                      Icons.vpn_key_rounded,
+                      color: AppColors.orange,
+                      size: 36,
+                    ),
                   ),
                   const SizedBox(height: 24),
                   const Text(
@@ -170,11 +197,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Enter your reset token and new password',
-                    style: TextStyle(
-                      color: AppColors.hintText.withValues(alpha: 0.8),
-                      fontSize: 14,
-                    ),
+                    'Paste your reset token or the full reset link from your email, then choose a new password.',
+                    style: TextStyle(color: AppColors.goldText, fontSize: 14),
                   ),
                   const SizedBox(height: 40),
 
@@ -183,22 +207,32 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
                       width: double.infinity,
                       margin: const EdgeInsets.only(bottom: 20),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.errorRed.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                            color: AppColors.errorRed.withValues(alpha: 0.3)),
+                          color: AppColors.errorRed.withValues(alpha: 0.3),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.error_outline,
-                              color: AppColors.errorRed, size: 18),
+                          const Icon(
+                            Icons.error_outline,
+                            color: AppColors.errorRed,
+                            size: 18,
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: Text(_error!,
-                                style: const TextStyle(
-                                    color: AppColors.errorRed, fontSize: 13)),
+                            child: Text(
+                              _error!,
+                              style: const TextStyle(
+                                color: AppColors.errorRed,
+                                fontSize: 13,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -206,8 +240,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
 
                   AppTextField(
                     controller: _tokenController,
-                    label: 'RESET TOKEN',
-                    hint: 'Paste your reset token',
+                    label: 'RESET TOKEN OR LINK',
+                    hint: 'Paste your reset token or full reset URL',
                     prefixIcon: Icons.key_outlined,
                   ),
                   const SizedBox(height: 20),
@@ -248,7 +282,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
                   const SizedBox(height: 24),
                   GestureDetector(
                     onTap: () => Navigator.pushNamedAndRemoveUntil(
-                        context, '/login', (_) => false),
+                      context,
+                      '/login',
+                      (_) => false,
+                    ),
                     child: const Text(
                       'Back to Sign In',
                       style: TextStyle(

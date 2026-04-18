@@ -132,6 +132,7 @@ export interface StoredUser {
   is_premium_creator: boolean;
   kyc_status: "none" | "pending" | "verified" | "rejected";
   subscription_plan: string | null;
+  subscription_plan_type?: "creator" | "viewer" | null;
   subscription_status: "inactive" | "active" | "expired";
   subscription_expiry: string | null;
   avatar_url: string | null;
@@ -166,6 +167,13 @@ export async function pakLoginApi(pak: string) {
   return api<AuthResponse | ErrorResponse>("/auth/pak-login", {
     method: "POST",
     body: { pak },
+  });
+}
+
+export async function walletLoginApi(address: string) {
+  return api<AuthResponse | ErrorResponse>("/auth/wallet-login", {
+    method: "POST",
+    body: { address },
   });
 }
 
@@ -219,8 +227,35 @@ export interface GiftItem {
 }
 
 export interface GiftWallet {
-  vpt_units: number;
-  ngn_balance: number;
+  vpt: number;
+  cash: number;
+  coins: number;
+  blockchain_tokens: string | null;
+}
+
+export interface CheckoutProvider {
+  id: "paystack" | "flutterwave";
+  label: string;
+  enabled: boolean;
+}
+
+export interface CheckoutPayment {
+  id: string;
+  purpose: "platform_plan" | "wallet_topup";
+  provider: "paystack" | "flutterwave";
+  status: string;
+  amount_ngn: number;
+  balance_type?: "ngn" | "vpt" | null;
+  plan_id?: string | null;
+  billing_cycle?: "monthly" | "yearly" | null;
+  reference?: string | null;
+  checkout_url?: string | null;
+  raw_status?: string | null;
+  error?: string | null;
+  verified_at?: number | null;
+  applied_at?: number | null;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface Plan {
@@ -241,6 +276,41 @@ export async function getPlansApi() {
   return api<{ plans: Plan[] }>("/subscriptions/plans");
 }
 
+export async function getCheckoutProvidersApi() {
+  return api<{ providers: CheckoutProvider[] } | ErrorResponse>("/payments/providers", {
+    requireAuth: true,
+  });
+}
+
+export async function initializeCheckoutApi(input: {
+  purpose: "platform_plan" | "wallet_topup";
+  provider: "paystack" | "flutterwave";
+  return_url?: string;
+  planId?: string;
+  billingCycle?: "monthly" | "yearly";
+  amount_ngn?: number;
+  balanceType?: "ngn" | "vpt";
+}) {
+  return api<{ payment: CheckoutPayment } | ErrorResponse>("/payments/checkout/initialize", {
+    method: "POST",
+    body: input,
+    requireAuth: true,
+  });
+}
+
+export async function verifyCheckoutApi(paymentId: string) {
+  return api<{
+    payment: CheckoutPayment;
+    user: StoredUser | null;
+    wallet: GiftWallet | null;
+    plan: Plan | null;
+  } | ErrorResponse>(`/payments/checkout/${paymentId}/verify`, {
+    method: "POST",
+    body: {},
+    requireAuth: true,
+  });
+}
+
 export async function getGiftsApi() {
   return api<{ gifts: GiftItem[] }>("/interactions/gifts", {
     requireAuth: true,
@@ -251,6 +321,31 @@ export async function getGiftWalletApi() {
   return api<{ wallet: GiftWallet }>("/interactions/wallet", {
     requireAuth: true,
   });
+}
+
+// ── Exchange rates & Ravens↔vPT conversion ────────────────
+
+export interface ExchangeRates {
+  vpt_raven_rate: number;
+  raven_ngn_rate: number;
+  vpt_price_ngn: number;
+}
+
+export async function getExchangeRatesApi() {
+  return api<{ rates: ExchangeRates }>("/interactions/exchange/rates", {
+    requireAuth: true,
+  });
+}
+
+export async function exchangeAssetsApi(from: "ravens" | "vpt", to: "ravens" | "vpt", amount: number) {
+  return api<{ message: string; wallet: { vpt: number; cash: number; coins: number } }>(
+    "/interactions/exchange",
+    {
+      method: "POST",
+      body: { from, to, amount },
+      requireAuth: true,
+    }
+  );
 }
 
 export async function sendGiftApi(channelId: string, giftId: string) {
@@ -397,6 +492,10 @@ export async function payForAccessApi(channelId: string) {
   }>(`/channels/${channelId}/pay`, { method: "POST", requireAuth: true });
 }
 
+export async function recordChannelViewApi(channelId: string) {
+  return api(`/channels/${channelId}/view`, { method: "POST", requireAuth: true });
+}
+
 export interface FollowStatus {
   followed: boolean;
   followers_count: number;
@@ -465,6 +564,7 @@ export interface ReferralEarning {
   amount_vpt_units: number;
   subscription_id: string;
   creator_uid: string;
+  status?: string;
   created_at: number;
 }
 
@@ -487,6 +587,12 @@ export interface ReferralDashboard {
   }[];
   earnings: ReferralEarning[];
   level_distribution: { level: number; percentage: number }[];
+  ledger_summary?: {
+    pending_ngn: number;
+    pending_vpt_units: number;
+    credited_ngn: number;
+    credited_vpt_units: number;
+  };
 }
 
 export async function getReferralDashboardApi() {
@@ -536,6 +642,58 @@ export async function getWalletApi() {
 export async function createWalletApi() {
   return api<{ wallet: CreatorWallet } | ErrorResponse>("/wallet/create", {
     method: "POST",
+    requireAuth: true,
+  });
+}
+
+// ── External Wallet API ──────────────────────────────────
+
+export interface ConnectedWallet {
+  address: string;
+  type: string;
+  balances?: { bnb_balance: number; vpt_balance: number; vpt_balance_raw: string; address: string; token_address: string | null; token_configured: boolean };
+}
+
+export async function scanWalletBalanceApi(address: string) {
+  return api<{ address: string; vpt_balance_raw: string; vpt_balance: number; bnb_balance: string } | ErrorResponse>(
+    `/wallet/scan-balance/${encodeURIComponent(address)}`,
+    { requireAuth: true }
+  );
+}
+
+export async function importWalletAddressApi(address: string) {
+  return api<{ message: string } | ErrorResponse>("/wallet/import-address", {
+    method: "POST",
+    body: { address },
+    requireAuth: true,
+  });
+}
+
+export async function connectExternalWalletApi(address: string, type: string) {
+  return api<{ wallet: Record<string, unknown>; connected: ConnectedWallet } | ErrorResponse>("/wallet/connect-external", {
+    method: "POST",
+    body: { address, type },
+    requireAuth: true,
+  });
+}
+
+export async function disconnectExternalWalletApi() {
+  return api<{ message: string } | ErrorResponse>("/wallet/disconnect-external", {
+    method: "DELETE",
+    requireAuth: true,
+  });
+}
+
+export async function getConnectedWalletApi() {
+  return api<{ connected: ConnectedWallet | null } | ErrorResponse>("/wallet/connected", {
+    requireAuth: true,
+  });
+}
+
+export async function transferToExternalApi(asset: string, amount: string, toAddress: string) {
+  return api<{ message: string; tx_hash?: string } | ErrorResponse>("/wallet/transfer", {
+    method: "POST",
+    body: { asset, amount, to_address: toAddress },
     requireAuth: true,
   });
 }
@@ -1268,4 +1426,172 @@ export async function getMyAdAnalyticsApi() {
   return api<AdvertiserAnalytics | ErrorResponse>("/ads/my-analytics", {
     requireAuth: true,
   });
+}
+
+// ── Withdrawal API methods ─────────────────────────────────
+
+export interface BankDetails {
+  bank_name: string;
+  bank_code: string;
+  account_number: string;
+  account_name: string;
+}
+
+export interface Withdrawal {
+  id: string;
+  uid: string;
+  amount: number;
+  transaction_fee: number;
+  service_charge: number;
+  total_fees: number;
+  vat_amount: number;
+  vat_rate: number;
+  total_debit: number;
+  currency: string;
+  status: "pending" | "approved" | "rejected";
+  bank_details: BankDetails | null;
+  created_at: number;
+  processed_at: number | null;
+}
+
+export async function getMyWithdrawalsApi() {
+  return api<{ withdrawals: Withdrawal[] } | ErrorResponse>("/withdrawals/", {
+    requireAuth: true,
+  });
+}
+
+export async function requestWithdrawalApi(amount: number) {
+  return api<{ withdrawal: Withdrawal } | ErrorResponse>("/withdrawals/request", {
+    method: "POST",
+    body: { amount },
+    requireAuth: true,
+  });
+}
+
+export async function getMyBankDetailsApi() {
+  return api<{ bank_details: BankDetails | null } | ErrorResponse>("/users/bank-details", {
+    requireAuth: true,
+  });
+}
+
+export interface BankOption {
+  name: string;
+  code: string;
+  slug: string;
+}
+
+export interface ResolvedBankAccount {
+  account_name: string;
+  account_number: string;
+  bank_code: string;
+}
+
+export async function getSupportedBanksApi() {
+  return api<{ banks: BankOption[] } | ErrorResponse>("/users/bank-details/banks", {
+    requireAuth: true,
+  });
+}
+
+export async function resolveBankAccountApi(bankCode: string, accountNumber: string) {
+  return api<ResolvedBankAccount | ErrorResponse>("/users/bank-details/resolve", {
+    method: "POST",
+    body: { bank_code: bankCode, account_number: accountNumber },
+    requireAuth: true,
+  });
+}
+
+export async function saveBankDetailsApi(data: {
+  bank_code: string;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+}) {
+  return api<{ bank_details: BankDetails } | ErrorResponse>("/users/bank-details", {
+    method: "POST",
+    body: data,
+    requireAuth: true,
+  });
+}
+
+// ── Creator Channel Analytics ──────────────────────────────
+
+export interface ChannelAnalytics {
+  channel_id: string;
+  period: string;
+  overview: {
+    total_views: number;
+    unique_viewers: number;
+    peak_viewers: number;
+    peak_hour: string;
+    total_reactions: number;
+    total_comments: number;
+    total_gifts_count: number;
+    total_gifts_ngn: number;
+    total_gifts_vpt: number;
+    weekly_views: number;
+    monthly_views: number;
+    yearly_views: number;
+    best_day_views: number;
+    best_day_date: string | null;
+  };
+  viewer_activity_by_hour: Array<{ hour: number; events: number }>;
+  timeline: Array<{
+    date: string;
+    views: number;
+    unique_viewers: number;
+    gifts_ngn: number;
+    gifts_vpt: number;
+    streams: number;
+  }>;
+  demographics: {
+    gender: Array<{ label: string; count: number; pct: number }>;
+    age_groups: Array<{ label: string; count: number; pct: number }>;
+    top_countries: Array<{ code: string; country: string; count: number; pct: number }>;
+    total_identified: number;
+  };
+}
+
+export async function getChannelAnalyticsApi(channelId: string, period: string) {
+  return api<ChannelAnalytics | ErrorResponse>(
+    `/analytics/creator/channel?channel_id=${encodeURIComponent(channelId)}&period=${encodeURIComponent(period)}`,
+    { requireAuth: true }
+  );
+}
+
+// ── Account Deletion ────────────────────────────────────────────
+
+export interface DeletionRequest {
+  id: string;
+  scheduled_deletion_at: number;
+  grace_period_days: number;
+  created_at: number;
+  reason?: string;
+}
+
+export async function requestAccountDeletionApi(reason: string, feedback: string) {
+  return api<{ message: string; request: DeletionRequest } | ErrorResponse>(
+    "/users/delete-account",
+    { method: "POST", body: { reason, feedback }, requireAuth: true }
+  );
+}
+
+export async function getDeletionStatusApi() {
+  return api<{ has_pending_request: boolean; request?: DeletionRequest } | ErrorResponse>(
+    "/users/delete-account",
+    { requireAuth: true }
+  );
+}
+
+export async function cancelAccountDeletionApi() {
+  return api<{ message: string } | ErrorResponse>(
+    "/users/delete-account",
+    { method: "DELETE", requireAuth: true }
+  );
+}
+
+export async function confirmImmediateDeletionApi(password: string) {
+  return api<{ message: string } | ErrorResponse>(
+    "/users/delete-account/confirm",
+    { method: "POST", body: { password }, requireAuth: true }
+  );
 }

@@ -84,8 +84,15 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     if (_videos.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Upload videos first before scheduling'),
+          content: const Text(
+            'Upload videos first before scheduling',
+            style: TextStyle(color: AppColors.white),
+          ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       return;
@@ -109,8 +116,15 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     if (_videos.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Upload videos first before scheduling'),
+          content: const Text(
+            'Upload videos first before scheduling',
+            style: TextStyle(color: AppColors.white),
+          ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       return;
@@ -138,8 +152,13 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         SnackBar(
           content: const Text(
             'Cannot delete a program that has already started',
+            style: TextStyle(color: AppColors.white),
           ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       return;
@@ -186,7 +205,10 @@ class _ScheduleScreenState extends State<ScheduleScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(
+            e.toString(),
+            style: const TextStyle(color: AppColors.white),
+          ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -443,7 +465,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         children: [
           Icon(
             Icons.calendar_today_outlined,
-            color: AppColors.hintText.withValues(alpha: 0.5),
+            color: AppColors.goldText,
             size: 56,
           ),
           const SizedBox(height: 16),
@@ -458,10 +480,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
           const SizedBox(height: 8),
           Text(
             'Tap + to schedule a broadcast',
-            style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.6),
-              fontSize: 13,
-            ),
+            style: TextStyle(color: AppColors.goldText, fontSize: 13),
           ),
         ],
       ),
@@ -563,7 +582,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                     padding: const EdgeInsets.all(8),
                     child: Icon(
                       Icons.lock_outline,
-                      color: AppColors.hintText.withValues(alpha: 0.4),
+                      color: AppColors.goldText,
                       size: 18,
                     ),
                   )
@@ -576,7 +595,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          AppColors.hintText.withValues(alpha: 0.6),
+                          AppColors.goldText,
                         ),
                       ),
                     ),
@@ -587,7 +606,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                       padding: const EdgeInsets.all(8),
                       child: Icon(
                         Icons.delete_outline,
-                        color: AppColors.hintText.withValues(alpha: 0.6),
+                        color: AppColors.goldText,
                         size: 20,
                       ),
                     ),
@@ -727,7 +746,7 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.hintText.withValues(alpha: 0.3),
+                color: AppColors.goldText,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -843,10 +862,7 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet> {
             const SizedBox(height: 12),
             Text(
               'Ends: ${endTime.month}/${endTime.day} ${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
-              style: TextStyle(
-                color: AppColors.hintText.withValues(alpha: 0.7),
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppColors.goldText, fontSize: 13),
             ),
           ],
 
@@ -1019,7 +1035,7 @@ class _SequentialBottomSheetState extends State<_SequentialBottomSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.hintText.withValues(alpha: 0.3),
+                color: AppColors.goldText,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -1037,10 +1053,7 @@ class _SequentialBottomSheetState extends State<_SequentialBottomSheet> {
           const SizedBox(height: 6),
           Text(
             'Select videos in playback order. They will be chained back-to-back.',
-            style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.7),
-              fontSize: 13,
-            ),
+            style: TextStyle(color: AppColors.goldText, fontSize: 13),
           ),
           const SizedBox(height: 20),
 
@@ -1108,11 +1121,7 @@ class _SequentialBottomSheetState extends State<_SequentialBottomSheet> {
                             width: 24,
                             height: 24,
                             decoration: BoxDecoration(
-                              border: Border.all(
-                                color: AppColors.hintText.withValues(
-                                  alpha: 0.5,
-                                ),
-                              ),
+                              border: Border.all(color: AppColors.goldText),
                               borderRadius: BorderRadius.circular(6),
                             ),
                           ),
@@ -1134,7 +1143,7 @@ class _SequentialBottomSheetState extends State<_SequentialBottomSheet> {
                         Text(
                           _formatDuration(video.duration),
                           style: TextStyle(
-                            color: AppColors.hintText.withValues(alpha: 0.7),
+                            color: AppColors.goldText,
                             fontSize: 12,
                           ),
                         ),
@@ -1221,10 +1230,7 @@ class _SequentialBottomSheetState extends State<_SequentialBottomSheet> {
                     const SizedBox(height: 4),
                     Text(
                       'Ends: ${endTime.month}/${endTime.day} ${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
-                      style: TextStyle(
-                        color: AppColors.hintText.withValues(alpha: 0.7),
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: AppColors.goldText, fontSize: 12),
                     ),
                   ],
                 ],

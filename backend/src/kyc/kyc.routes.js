@@ -21,6 +21,7 @@ const router = Router();
 router.post('/upload-doc', authenticateToken, upload.single('file'), uploadSingleToGCS, ctrl.uploadKycDoc);
 router.post('/submit', authenticateToken, ctrl.submitKyc);
 router.get('/me', authenticateToken, ctrl.getMyKyc);
+router.patch('/gender', authenticateToken, ctrl.updateMyGender);
 
 // Admin
 router.get('/admin/list', authenticateToken, ctrl.adminListKyc);

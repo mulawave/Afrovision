@@ -131,10 +131,15 @@ class _EditChannelScreenState extends State<EditChannelScreen>
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(
+            e.toString(),
+            style: const TextStyle(color: AppColors.white),
+          ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     }
@@ -151,8 +156,10 @@ class _EditChannelScreenState extends State<EditChannelScreen>
           child: Column(
             children: [
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
                     GestureDetector(
@@ -164,8 +171,11 @@ class _EditChannelScreenState extends State<EditChannelScreen>
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: AppColors.inputBorder),
                         ),
-                        child: const Icon(Icons.arrow_back_ios_new_rounded,
-                            color: AppColors.white, size: 18),
+                        child: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          color: AppColors.white,
+                          size: 18,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -195,14 +205,18 @@ class _EditChannelScreenState extends State<EditChannelScreen>
                             Center(
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
+                                  horizontal: 14,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
-                                  color:
-                                      AppColors.orange.withValues(alpha: 0.1),
+                                  color: AppColors.orange.withValues(
+                                    alpha: 0.1,
+                                  ),
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
-                                    color: AppColors.orange
-                                        .withValues(alpha: 0.3),
+                                    color: AppColors.orange.withValues(
+                                      alpha: 0.3,
+                                    ),
                                   ),
                                 ),
                                 child: Text(
@@ -250,17 +264,22 @@ class _EditChannelScreenState extends State<EditChannelScreen>
                               padding: const EdgeInsets.all(12),
                               margin: const EdgeInsets.only(bottom: 16),
                               decoration: BoxDecoration(
-                                color:
-                                    AppColors.errorRed.withValues(alpha: 0.1),
+                                color: AppColors.errorRed.withValues(
+                                  alpha: 0.1,
+                                ),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                    color: AppColors.errorRed
-                                        .withValues(alpha: 0.3)),
+                                  color: AppColors.errorRed.withValues(
+                                    alpha: 0.3,
+                                  ),
+                                ),
                               ),
                               child: Text(
                                 _error!,
                                 style: const TextStyle(
-                                    color: AppColors.errorRed, fontSize: 13),
+                                  color: AppColors.errorRed,
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
                           AppButton(
@@ -347,8 +366,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
                   height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(AppColors.orange),
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.orange),
                   ),
                 )
               : Column(
@@ -363,7 +381,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
                     Text(
                       imageUrl != null ? 'Change $label' : 'Add $label',
                       style: TextStyle(
-                        color: AppColors.hintText.withValues(alpha: 0.8),
+                        color: AppColors.goldText,
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
                       ),

@@ -13,6 +13,9 @@ async function sendToTokens(tokens, payload, userId = null) {
   if (!tokens || tokens.length === 0) return { successCount: 0, failureCount: 0 };
 
   const badgeCount = payload.badge || 1;
+  const dataMap = payload.data || {};
+  // v2 channel ID — v1 channel may have been created on-device without sound so it
+  const channelId = 'afrovision_main';
 
   const message = {
     tokens,
@@ -20,11 +23,21 @@ async function sendToTokens(tokens, payload, userId = null) {
       title: payload.title,
       body: payload.body,
     },
-    data: payload.data || {},
+    data: dataMap,
     android: {
       notification: {
-        channelId: 'afrovision_main',
+        channelId,
+        // Explicit monochrome icon — without this the FCM SDK may fall back to
+        // the launcher icon (coloured blob) instead of the ADtv status-bar icon.
+        icon: 'ic_stat_notification',
+        // 'high' triggers heads-up banner on Android.
         priority: 'high',
+        defaultVibrateTimings: true,
+        defaultLightSettings: true,
+        // Sound fields — channel sound setting AND explicit FCM sound are both
+        // needed: channel provides the default, FCM payload confirms it.
+        defaultSound: true,
+        sound: 'default',
       },
       priority: 'high',
     },
@@ -47,21 +60,25 @@ async function sendToTokens(tokens, payload, userId = null) {
   }
 
   // Clean up tokens that are no longer valid
-  if (userId && response.failureCount > 0) {
+  if (response.failureCount > 0) {
     const staleTokens = [];
     response.responses.forEach((r, idx) => {
       if (!r.success) {
         const code = r.error && r.error.code;
+        console.error(`[FCM] token[${idx}] error code=${code} message=${r.error && r.error.message}`);
         if (
-          code === 'messaging/registration-token-not-registered' ||
-          code === 'messaging/invalid-registration-token'
+          userId &&
+          (code === 'messaging/registration-token-not-registered' ||
+            code === 'messaging/invalid-registration-token')
         ) {
           staleTokens.push(tokens[idx]);
         }
       }
     });
-    for (const t of staleTokens) {
-      await User.removeFcmToken(userId, t).catch(() => {});
+    if (userId) {
+      for (const t of staleTokens) {
+        await User.removeFcmToken(userId, t).catch(() => {});
+      }
     }
   }
 
@@ -76,10 +93,16 @@ async function sendToTokens(tokens, payload, userId = null) {
  */
 async function sendToUser(userId, payload) {
   const user = User.findById(userId);
-  if (!user || !Array.isArray(user.fcm_tokens) || user.fcm_tokens.length === 0) {
-    return { successCount: 0, failureCount: 0 };
-  }
-  return sendToTokens(user.fcm_tokens, payload, userId);
+  if (!user) return { successCount: 0, failureCount: 0 };
+
+  // Build the token set from afroDeviceToken (AfroVision-exclusive) + fcm_tokens[].
+  // deviceToken is intentionally excluded — it belongs to the Raven ecosystem.
+  const tokenSet = new Set(Array.isArray(user.fcm_tokens) ? user.fcm_tokens : []);
+  if (user.afroDeviceToken) tokenSet.add(user.afroDeviceToken);
+
+  const tokens = [...tokenSet];
+  if (tokens.length === 0) return { successCount: 0, failureCount: 0 };
+  return sendToTokens(tokens, payload, userId);
 }
 
 /**

@@ -12,7 +12,7 @@ export default function PrivacyPage() {
         <div className="mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Legal</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Privacy Policy</h1>
-          <p className="mt-2 text-xs text-av-hint">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
+          <p className="mt-2 text-xs text-av-light-orange">Effective Date: April 4, 2026 &nbsp;|&nbsp; Last Reviewed: April 4, 2026</p>
         </div>
 
         <article className="space-y-8">
@@ -102,7 +102,7 @@ export default function PrivacyPage() {
               <li><strong className="text-av-white">Objection:</strong> Object to processing of your data for direct marketing purposes.</li>
               <li><strong className="text-av-white">Withdraw Consent:</strong> Where processing is based on consent, withdraw your consent at any time.</li>
             </ul>
-            <p className="mt-2">To exercise any of these rights, contact us at <a href="mailto:privacy@afrovision.tv" className="text-av-orange hover:underline">privacy@afrovision.tv</a>. We will respond within 30 days.</p>
+            <p className="mt-2">To exercise any of these rights, contact us at <a href="mailto:privacy@afrovision.online" className="text-av-orange hover:underline">privacy@afrovision.online</a>. We will respond within 30 days.</p>
           </Section>
 
           <Section title="9. International Data Transfers">
@@ -110,7 +110,7 @@ export default function PrivacyPage() {
           </Section>
 
           <Section title="10. Children&apos;s Privacy">
-            <p>AfroVision is not intended for users under 18 years of age. We do not knowingly collect personal information from children. If we discover that we have inadvertently collected data from a child, we will promptly delete that information. If you believe a child has provided us with personal data, please contact us at <a href="mailto:privacy@afrovision.tv" className="text-av-orange hover:underline">privacy@afrovision.tv</a>.</p>
+            <p>AfroVision is not intended for users under 18 years of age. We do not knowingly collect personal information from children. If we discover that we have inadvertently collected data from a child, we will promptly delete that information. If you believe a child has provided us with personal data, please contact us at <a href="mailto:privacy@afrovision.online" className="text-av-orange hover:underline">privacy@afrovision.online</a>.</p>
           </Section>
 
           <Section title="11. Third-Party Links and Services">
@@ -124,9 +124,9 @@ export default function PrivacyPage() {
           <Section title="13. Contact Us">
             <p>If you have questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us:</p>
             <ul className="list-none space-y-1 mt-2">
-              <li><strong className="text-av-white">Privacy Officer:</strong>{" "}<a href="mailto:privacy@afrovision.tv" className="text-av-orange hover:underline">privacy@afrovision.tv</a></li>
-              <li><strong className="text-av-white">General Support:</strong>{" "}<a href="mailto:support@afrovision.tv" className="text-av-orange hover:underline">support@afrovision.tv</a></li>
-              <li><strong className="text-av-white">Legal:</strong>{" "}<a href="mailto:legal@afrovision.tv" className="text-av-orange hover:underline">legal@afrovision.tv</a></li>
+              <li><strong className="text-av-white">Privacy Officer:</strong>{" "}<a href="mailto:privacy@afrovision.online" className="text-av-orange hover:underline">privacy@afrovision.online</a></li>
+              <li><strong className="text-av-white">General Support:</strong>{" "}<a href="mailto:support@afrovision.online" className="text-av-orange hover:underline">support@afrovision.online</a></li>
+              <li><strong className="text-av-white">Legal:</strong>{" "}<a href="mailto:legal@afrovision.online" className="text-av-orange hover:underline">legal@afrovision.online</a></li>
             </ul>
           </Section>
         </article>
@@ -139,7 +139,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
       <h2 className="text-base font-semibold text-av-white mb-3">{title}</h2>
-      <div className="text-sm text-av-hint leading-relaxed">{children}</div>
+      <div className="text-sm text-av-light-orange leading-relaxed">{children}</div>
     </section>
   );
 }

@@ -248,7 +248,7 @@ class TermsScreen extends StatelessWidget {
           Text(
             subtitle,
             style: TextStyle(
-              color: AppColors.hintText.withValues(alpha: 0.8),
+              color: AppColors.goldText,
               fontSize: 12,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.5,

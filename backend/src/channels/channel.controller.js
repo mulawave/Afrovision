@@ -1,6 +1,10 @@
 const Channel = require('./channel.model');
 const User = require('../users/user.model');
 const CreatorSub = require('../subscriptions/creator_subscription.model');
+const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
+const StreamStats = require('../analytics/stream_stats.model');
+const { getFirestore } = require('../utils/firestore');
+const crypto = require('crypto');
 
 function sanitize(str) {
   if (typeof str !== 'string') return str;
@@ -228,6 +232,44 @@ function getSubscriberFeed(req, res) {
   res.json({ channels });
 }
 
+/**
+ * POST /channels/:id/view
+ * Records a view event for analytics.
+ */
+async function recordView(req, res) {
+  try {
+    const channel = Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const viewerUid = req.userId;
+
+    // Record view event in channel_events
+    const db = getFirestore();
+    const event = {
+      id: crypto.randomUUID(),
+      channel_id: channel.id,
+      type: 'view',
+      sender_uid: viewerUid,
+      created_at: Date.now(),
+    };
+    await db.collection('channel_events').doc(event.id).set(event);
+
+    // Increment daily stats for the channel owner
+    await CreatorDailyStats.incrementViewers(channel.owner_id, viewerUid);
+
+    // Also increment stream stats if there's an active stream
+    const activeStream = StreamStats.getActiveByChannel(channel.id);
+    if (activeStream) {
+      await StreamStats.incrementViewer(activeStream.id);
+    }
+
+    res.json({ message: 'View recorded' });
+  } catch (err) {
+    console.error('[Channel] recordView error:', err.message);
+    res.status(500).json({ error: 'Failed to record view' });
+  }
+}
+
 module.exports = {
   createChannel,
   createChannelWithMedia,
@@ -240,4 +282,5 @@ module.exports = {
   enableChannel,
   uploadMedia,
   getSubscriberFeed,
+  recordView,
 };

@@ -17,6 +17,7 @@ router.get('/number/:channelNumber', authenticateToken, ctrl.getChannelByNumber)
 router.get('/:id', authenticateToken, ctrl.getChannelById);
 router.get('/:id/access', authenticateToken, premiumCtrl.checkAccess);
 router.post('/:id/pay', authenticateToken, premiumCtrl.payForAccess);
+router.post('/:id/view', authenticateToken, ctrl.recordView);
 router.patch('/:id/enable', authenticateToken, ctrl.enableChannel);
 router.post('/:id/upload/:mediaType', authenticateToken, upload.single('file'), uploadSingleToGCS, ctrl.uploadMedia);
 router.patch('/:id', authenticateToken, ctrl.updateChannel);

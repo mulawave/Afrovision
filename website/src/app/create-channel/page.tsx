@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -85,7 +85,7 @@ export default function CreateChannelPage() {
     return (
       <main className="flex min-h-screen items-center justify-center px-6 pt-24">
         <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-          <p className="text-sm text-av-hint">Sign in to create a channel.</p>
+          <p className="text-sm text-av-light-orange">Sign in to create a channel.</p>
           <Link href="/login?redirect=/create-channel" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
             Sign in →
           </Link>
@@ -100,11 +100,11 @@ export default function CreateChannelPage() {
         <div className="mx-auto max-w-3xl rounded-3xl border border-av-input-border/30 bg-av-card p-8 text-center">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Creator Access</p>
           <h1 className="mt-3 text-3xl font-bold text-av-white">Channel creation is reserved for creator accounts</h1>
-          <p className="mt-4 text-sm text-av-hint">
+          <p className="mt-4 text-sm text-av-light-orange">
             Your account is currently a viewer profile. Upgrade to a creator plan before creating public or private channels.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/profile" className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-white/80 hover:border-av-orange/40 hover:text-av-white">
+            <Link href="/profile" className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white">
               Open profile
             </Link>
             <Link href="/wallet" className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue">
@@ -125,15 +125,15 @@ export default function CreateChannelPage() {
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Publishing</p>
             <h1 className="mt-2 text-3xl font-bold text-av-white">Create Channel</h1>
-            <p className="mt-2 max-w-2xl text-sm text-av-hint">
+            <p className="mt-2 max-w-2xl text-sm text-av-light-orange">
               Launch a polished public channel or a premium private room. Add brand media now so the channel is ready for discovery and live playback immediately.
             </p>
           </div>
           <div className="flex gap-3">
-            <Link href="/creator-studio" className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-white/80 hover:border-av-orange/40 hover:text-av-white">
+            <Link href="/creator-studio" className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white">
               Creator Studio
             </Link>
-            <Link href="/channels" className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-white/80 hover:border-av-orange/40 hover:text-av-white">
+            <Link href="/channels" className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white">
               Browse channels
             </Link>
           </div>
@@ -143,11 +143,11 @@ export default function CreateChannelPage() {
           <form onSubmit={handleSubmit} className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
             <div className="grid gap-5">
               <Field label="Channel name">
-                <input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} className="h-12 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none" placeholder="Afrobeats World" />
+                <input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} className="h-12 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none" placeholder="Afrobeats World" />
               </Field>
 
               <Field label="Description">
-                <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={2000} rows={5} className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 py-3 text-sm text-av-white placeholder:text-av-hint/60 focus:border-av-orange/50 focus:outline-none" placeholder="Tell members what makes this channel worth following." />
+                <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={2000} rows={5} className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 py-3 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none" placeholder="Tell members what makes this channel worth following." />
               </Field>
 
               <div className="grid gap-5 md:grid-cols-2">
@@ -166,7 +166,7 @@ export default function CreateChannelPage() {
                         type="button"
                         onClick={() => setType(value)}
                         disabled={value === "private" && !canCreatePrivate}
-                        className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${type === value ? "bg-av-orange text-av-dark-blue" : "text-av-white/70"} disabled:cursor-not-allowed disabled:opacity-40`}
+                        className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${type === value ? "bg-av-orange text-av-dark-blue" : "text-av-light-orange"} disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         {value}
                       </button>
@@ -185,7 +185,7 @@ export default function CreateChannelPage() {
               </div>
 
               {error ? <p className="rounded-xl border border-av-error/30 bg-av-error/5 px-4 py-3 text-sm text-av-error">{error}</p> : null}
-              {successLink ? <p className="rounded-xl border border-av-orange/30 bg-av-orange/10 px-4 py-3 text-sm text-av-white/80">Channel created successfully. <Link href={successLink} className="font-semibold text-av-light-orange">Open channel →</Link></p> : null}
+              {successLink ? <p className="rounded-xl border border-av-orange/30 bg-av-orange/10 px-4 py-3 text-sm text-av-light-orange">Channel created successfully. <Link href={successLink} className="font-semibold text-av-light-orange">Open channel →</Link></p> : null}
 
               <button type="submit" disabled={saving || loading} className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-6 py-3 text-sm font-semibold text-av-dark-blue disabled:opacity-60">
                 {saving ? "Creating..." : "Create channel"}
@@ -208,7 +208,7 @@ export default function CreateChannelPage() {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-av-white/70">{label}</span>
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-av-light-orange">{label}</span>
       {children}
     </label>
   );
@@ -217,8 +217,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function FileField({ label, note, children }: { label: string; note: string; children: ReactNode }) {
   return (
     <div className="rounded-2xl border border-av-input-border/30 bg-av-input-fill/40 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-av-white/70">{label}</p>
-      <p className="mt-1 text-xs text-av-hint">{note}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-av-light-orange">{label}</p>
+      <p className="mt-1 text-xs text-av-light-orange">{note}</p>
       <div className="mt-4">{children}</div>
     </div>
   );
@@ -228,7 +228,7 @@ function InfoCard({ title, copy }: { title: string; copy: string }) {
   return (
     <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
       <h2 className="text-lg font-semibold text-av-white">{title}</h2>
-      <p className="mt-3 text-sm leading-6 text-av-hint">{copy}</p>
+      <p className="mt-3 text-sm leading-6 text-av-light-orange">{copy}</p>
     </div>
   );
 }

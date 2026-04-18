@@ -4,10 +4,12 @@ const Ledger = require('../vpt/ledger.model');
 const User = require('../users/user.model');
 const AuditService = require('../admin/audit.service');
 const CreatorStats = require('../channels/creator_stats.model');
+const ReferralModel = require('../referrals/referral.model');
 const { distributeReferralEarnings } = require('../referrals/referral.controller');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const { serializeCreatorSubscriptionForAdmin } = require('../admin/admin.presenter');
+const NotificationService = require('../notifications/notification.service');
 
 // Default creator subscription prices (configurable per-creator in future)
 const DEFAULT_NGN_PRICE = 2000; // ₦2,000 / month
@@ -44,8 +46,6 @@ async function subscribe(req, res) {
 
     const selectedCurrency = currency === 'vpt' ? 'vpt' : 'ngn';
     const amount = selectedCurrency === 'vpt' ? DEFAULT_VPT_PRICE : DEFAULT_NGN_PRICE;
-    let creatorShareNgn = 0;
-    let creatorShareVpt = 0;
 
     const wallet = await GiftWallet.ensureWallet(subscriberUid);
 
@@ -57,21 +57,8 @@ async function subscribe(req, res) {
           available: wallet.vpt_units,
         });
       }
-      // Creator gets 70 %, community/ops 30 %
-      const creatorShare = Math.floor(amount * 0.7);
-      creatorShareVpt = creatorShare;
-      const communityPool = amount - creatorShare;
+      // Deduct full amount from subscriber
       await GiftWallet.adjustVptUnits(subscriberUid, -amount);
-      await GiftWallet.adjustVptUnits(creatorUid, creatorShare);
-
-      // Distribute referral earnings from community pool (async, non-blocking)
-      distributeReferralEarnings({
-        subscriberUid,
-        communityPoolAmount: communityPool,
-        currency: 'vpt',
-        subscriptionId: null, // Will be set after sub creation
-        creatorUid,
-      }).catch((err) => console.error('[CreatorSub] referral distribution error:', err.message));
     } else {
       if (wallet.ngn_balance < amount) {
         return res.status(402).json({
@@ -80,20 +67,41 @@ async function subscribe(req, res) {
           available: wallet.ngn_balance,
         });
       }
-      const creatorShare = Math.floor(amount * 0.7);
-      creatorShareNgn = creatorShare;
-      const communityPool = amount - creatorShare;
+      // Deduct full amount from subscriber
       await GiftWallet.adjustNgnBalance(subscriberUid, -amount);
-      await GiftWallet.adjustNgnBalance(creatorUid, creatorShare);
+    }
 
-      // Distribute referral earnings from community pool (async, non-blocking)
-      distributeReferralEarnings({
-        subscriberUid,
-        communityPoolAmount: communityPool,
-        currency: 'ngn',
-        subscriptionId: null,
-        creatorUid,
-      }).catch((err) => console.error('[CreatorSub] referral distribution error:', err.message));
+    // ── Payout Split (applies identically to NGN and vPT subscriptions) ──
+    // 50% → Operations pool (platform keeps — no transfer needed)
+    // 15% → Subscriber vPT reward (always credited as vPT)
+    // 15% → 5-level referral reward (50% cash / 50% vPT per level)
+    // 20% → Community pool (retained by platform for future use)
+    const opsPool = Math.floor(amount * 0.50);
+    const subscriberVptNgn = Math.floor(amount * 0.15);
+    const subscriberVptUnits = parseFloat(
+      (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),
+    );
+    const referralPool = Math.floor(amount * 0.15);
+    const communityPool = amount - opsPool - subscriberVptNgn - referralPool; // remainder ≈ 20%
+
+    // Credit subscriber vPT reward (always as vPT units regardless of payment currency)
+    if (subscriberVptUnits > 0) {
+      await Ledger.create({
+        uid: subscriberUid,
+        type: 'SUBSCRIBER_VPT_REWARD',
+        direction: 'credit',
+        currency: 'vpt',
+        amount_vpt_units: subscriberVptUnits,
+        status: 'pending_distribution',
+        meta: {
+          creator_uid: creatorUid,
+          subscription_amount: amount,
+          payment_currency: selectedCurrency,
+          reward_value_ngn: subscriberVptNgn,
+          vpt_price: ReferralModel.VPT_PRICE_NGN,
+        },
+        description: `Subscriber vPT reward — ${subscriberVptUnits} vPT (₦${subscriberVptNgn}) — subscription to ${creator.name || creatorUid.slice(0, 8)}`,
+      });
     }
 
     const sub = await CreatorSub.create({
@@ -104,6 +112,16 @@ async function subscribe(req, res) {
       amount,
     });
 
+    // Distribute 5-level referral rewards from the 15% referral pool (async, non-blocking)
+    if (referralPool > 0) {
+      distributeReferralEarnings({
+        subscriberUid,
+        referralPoolAmount: referralPool,
+        subscriptionId: sub.id,
+        creatorUid,
+      }).catch((err) => console.error('[CreatorSub] referral distribution error:', err.message));
+    }
+
     await Ledger.create({
       uid: subscriberUid,
       type: 'SUBSCRIPTION_PAYMENT',
@@ -112,7 +130,12 @@ async function subscribe(req, res) {
       amount_ngn: selectedCurrency === 'ngn' ? amount : 0,
       amount_vpt_units: selectedCurrency === 'vpt' ? amount : 0,
       status: 'success',
-      meta: { creator_uid: creatorUid, creator_name: creator.name, subscription_id: sub.id },
+      meta: {
+        creator_uid: creatorUid,
+        creator_name: creator.name,
+        subscription_id: sub.id,
+        split: { ops_pool: opsPool, subscriber_vpt_ngn: subscriberVptNgn, subscriber_vpt_units: subscriberVptUnits, referral_pool: referralPool, community_pool: communityPool },
+      },
       description: `Creator subscription — ${creator.name}`,
     });
 
@@ -121,8 +144,8 @@ async function subscribe(req, res) {
 
     try {
       await CreatorDailyStats.incrementSubscription(creatorUid, {
-        ngn: creatorShareNgn,
-        vpt: creatorShareVpt,
+        ngn: selectedCurrency === 'ngn' ? amount : 0,
+        vpt: selectedCurrency === 'vpt' ? amount : 0,
       });
       const activeStream = StreamStats.getActiveByCreator(creatorUid);
       if (activeStream) {
@@ -133,6 +156,37 @@ async function subscribe(req, res) {
     }
 
     res.status(201).json({ subscription: sub });
+
+    // Notify creator about new subscriber (non-blocking)
+    const subscriber = User.findById(subscriberUid);
+    const subscriberName = subscriber ? (subscriber.name || subscriber.email || 'A user') : 'A user';
+    NotificationService.notifyUser(creatorUid, {
+      title: '🎉 New Subscriber!',
+      body: `${subscriberName} just subscribed to your channel!`,
+      type: 'new_subscriber',
+      link: '/dashboard',
+      data: {
+        subscriber_uid: subscriberUid,
+        subscription_id: sub.id,
+        currency: selectedCurrency,
+        amount: String(amount),
+      },
+    }).catch((err) => console.error('[CreatorSub] creator notification error:', err.message));
+
+    // Notify subscriber about subscription confirmation
+    NotificationService.notifyUser(subscriberUid, {
+      title: '✅ Subscription Confirmed!',
+      body: `You subscribed to ${creator.name || 'a creator'}. ${subscriberVptUnits > 0 ? `You earned ${subscriberVptUnits} vPT!` : ''}`,
+      type: 'subscription_activated',
+      link: '/subscriptions',
+      data: {
+        creator_uid: creatorUid,
+        subscription_id: sub.id,
+        currency: selectedCurrency,
+        amount: String(amount),
+        vpt_reward: String(subscriberVptUnits),
+      },
+    }).catch((err) => console.error('[CreatorSub] subscriber notification error:', err.message));
   } catch (err) {
     console.error('[CreatorSub] subscribe:', err.message);
     res.status(500).json({ error: 'Internal server error' });

@@ -7,10 +7,10 @@ export const metadata: Metadata = {
 };
 
 const PERKS = [
-  { icon: "🌍", text: "Remote-first — work from anywhere in Africa" },
-  { icon: "📈", text: "Early-stage equity and growth opportunity" },
-  { icon: "🎯", text: "Direct impact on millions of African creators" },
-  { icon: "🛠️", text: "Modern stack — Flutter, Next.js, Node, GCP" },
+  { icon: "??", text: "Remote-first — work from anywhere in Africa" },
+  { icon: "??", text: "Early-stage equity and growth opportunity" },
+  { icon: "??", text: "Direct impact on millions of African creators" },
+  { icon: "???", text: "Modern stack — Flutter, Next.js, Node, GCP" },
 ];
 
 export default function CareersPage() {
@@ -24,7 +24,7 @@ export default function CareersPage() {
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">
             Careers at AfroVision
           </h1>
-          <p className="mt-4 text-base text-av-hint leading-relaxed max-w-2xl">
+          <p className="mt-4 text-base text-av-light-orange leading-relaxed max-w-2xl">
             We&apos;re building Africa&apos;s premier live streaming platform.
             If you&apos;re passionate about creators, community, and cutting-edge
             technology — we want to hear from you.
@@ -41,7 +41,7 @@ export default function CareersPage() {
                 className="flex items-start gap-3 rounded-xl bg-av-card border border-av-input-border/30 p-5"
               >
                 <span className="text-xl">{p.icon}</span>
-                <p className="text-sm text-av-hint">{p.text}</p>
+                <p className="text-sm text-av-light-orange">{p.text}</p>
               </div>
             ))}
           </div>
@@ -51,16 +51,16 @@ export default function CareersPage() {
         <section className="mb-12">
           <h2 className="text-xl font-bold text-av-white mb-6">Open Positions</h2>
           <div className="rounded-2xl bg-av-card border border-av-input-border/30 p-8 text-center">
-            <p className="text-sm text-av-hint leading-relaxed">
+            <p className="text-sm text-av-light-orange leading-relaxed">
               We don&apos;t have any open positions right now, but we&apos;re always
               looking for exceptional talent. Send your CV and a note about what
               excites you about AfroVision to:
             </p>
             <a
-              href="mailto:careers@afrovision.tv"
+              href="mailto:careers@afrovision.online"
               className="inline-block mt-4 text-av-orange font-semibold text-sm hover:underline"
             >
-              careers@afrovision.tv
+              careers@afrovision.online
             </a>
           </div>
         </section>

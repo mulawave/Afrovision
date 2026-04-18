@@ -8,6 +8,7 @@ const GiftWallet = require('../interactions/gift-wallet.model');
 const Withdrawal = require('../wallet/withdrawal.model');
 const Wallet = require('../wallet/wallet.model');
 const AuditService = require('./audit.service');
+const SmtpService = require('./smtp.service');
 const { serializeChannelForAdmin } = require('./admin.presenter');
 const { getFirestore } = require('../utils/firestore');
 const { getAuth } = require('firebase-admin/auth');
@@ -295,11 +296,45 @@ async function resetSetting(req, res) {
   }
 }
 
+async function testSmtpSettings(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  const email = String(req.body?.email || '').trim();
+  if (!email) {
+    return res.status(400).json({ error: 'email is required' });
+  }
+
+  try {
+    const result = await SmtpService.sendTestEmail({
+      toEmail: email,
+      initiatedBy: caller.email || caller.id,
+    });
+
+    await AuditService.logAction(caller.id, 'smtp_test_email', email, {
+      accepted: result.accepted,
+      rejected: result.rejected,
+      message_id: result.messageId,
+    });
+
+    res.json({
+      message: `Test email sent to ${email}`,
+      result,
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'SMTP test failed' });
+  }
+}
+
 // --- User Management ---
 
 function listUsers(req, res) {
   if (!requireAdmin(req, res)) return;
-  const users = User.getAll().map((u) => User.toSafeUser(u));
+  const users = User.getAll().map((u) => ({
+    ...User.toSafeUser(u),
+    deviceToken: u.deviceToken || null,
+    fcm_tokens: Array.isArray(u.fcm_tokens) ? u.fcm_tokens : [],
+  }));
   res.json({ users });
 }
 
@@ -503,14 +538,14 @@ async function enrichRecoveredUsers(req, res) {
     const uid = user.id;
     const enriched = { id: uid, email: null, sources: [] };
 
-    // 1. Check gift_wallets collection
+    // 1. Check users collection (unified wallet)
     try {
-      const gw = await db.collection('gift_wallets').doc(uid).get();
-      if (gw.exists) {
-        const gwData = gw.data();
-        if (gwData.email) {
-          enriched.email = gwData.email;
-          enriched.sources.push('gift_wallets');
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        if (userData.email) {
+          enriched.email = userData.email;
+          enriched.sources.push('users');
         }
       }
     } catch { /* ignore */ }
@@ -693,21 +728,15 @@ function getUserWallet(req, res) {
   const user = User.findById(uid);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const giftWallet = GiftWallet.findByUid(uid) || {
-    uid,
-    vpt_units: 0,
-    ngn_balance: 0,
-    updated_at: null,
-  };
   const wallet = Wallet.toSafe(Wallet.findByUserId(uid));
 
   res.json({
     wallet: {
       uid,
       email: user.email,
-      ngn_balance: giftWallet.ngn_balance || 0,
-      vpt_units: giftWallet.vpt_units || 0,
-      updated_at: giftWallet.updated_at || null,
+      cash: user.cash || 0,
+      vpt: user.vpt || 0,
+      coins: user.coins || 0,
       bsc_address: wallet?.bsc_address || null,
       wallet_status: wallet?.status || 'not_created',
       wallet_created_at: wallet?.created_at || null,
@@ -720,20 +749,18 @@ function listWallets(req, res) {
   if (!requireAdmin(req, res)) return;
 
   const users = User.getAll();
-  const giftWallets = new Map(GiftWallet.getAll().map((wallet) => [wallet.uid, wallet]));
   const blockchainWallets = new Map(Wallet.getAll().map((wallet) => [wallet.user_id, wallet]));
 
   const wallets = users.map((user) => {
-    const giftWallet = giftWallets.get(user.id) || null;
     const blockchainWallet = blockchainWallets.get(user.id) || null;
 
     return {
       uid: user.id,
       email: user.email,
       role: user.role,
-      ngn_balance: giftWallet?.ngn_balance || 0,
-      vpt_units: giftWallet?.vpt_units || 0,
-      updated_at: giftWallet?.updated_at || null,
+      cash: user.cash || 0,
+      vpt: user.vpt || 0,
+      coins: user.coins || 0,
       bsc_address: blockchainWallet?.bsc_address || null,
       wallet_status: blockchainWallet?.status || 'not_created',
       wallet_created_at: blockchainWallet?.created_at || null,
@@ -813,11 +840,11 @@ function getDashboard(req, res) {
   const users = User.getAll();
   const channels = Channel.getEvery();
   const ledgerStats = Ledger.getStats();
-  const giftWallets = GiftWallet.getAll();
   const pendingWithdrawals = Withdrawal.getPending();
 
-  const totalGiftVpt = giftWallets.reduce((sum, w) => sum + (w.vpt_units || 0), 0);
-  const totalGiftNgn = giftWallets.reduce((sum, w) => sum + (w.ngn_balance || 0), 0);
+  const totalVpt = users.reduce((sum, u) => sum + (parseFloat(u.vpt) || 0), 0);
+  const totalCash = users.reduce((sum, u) => sum + (parseFloat(u.cash) || 0), 0);
+  const totalCoins = users.reduce((sum, u) => sum + (parseFloat(u.coins) || 0), 0);
 
   res.json({
     dashboard: {
@@ -837,9 +864,9 @@ function getDashboard(req, res) {
       },
       financial: {
         ...ledgerStats,
-        gift_wallets: giftWallets.length,
-        total_gift_vpt: totalGiftVpt,
-        total_gift_ngn: totalGiftNgn,
+        total_vpt: totalVpt,
+        total_cash: totalCash,
+        total_ravens: totalCoins,
         pending_withdrawals: pendingWithdrawals.length,
       },
     },
@@ -1087,7 +1114,6 @@ async function recoverFromEmailIndex(req, res) {
         streakCount: 0,
         deviceToken: '',
         vpinId: '',
-        stake_wallet: '',
         blockchain_tokens: '0',
         equity_percentage: '0.00',
         profit: '',
@@ -1507,6 +1533,7 @@ module.exports = {
   updateSetting,
   bulkUpdateSettings,
   resetSetting,
+  testSmtpSettings,
   listUsers,
   deleteUser,
   cleanupDuplicates,
