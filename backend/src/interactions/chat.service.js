@@ -6,21 +6,9 @@ const CreatorSubscription = require('../subscriptions/creator_subscription.model
 const User = require('../users/user.model');
 const { getSenderBadge, getSenderDisplayName } = require('./live_identity');
 
-const SEND_RATE_LIMIT = 6;
-const SEND_RATE_WINDOW = 10_000;
 const MAX_MESSAGE_LENGTH = 200;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
-const sendBuckets = new Map();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [uid, bucket] of sendBuckets) {
-    const live = bucket.filter((timestamp) => now - timestamp < SEND_RATE_WINDOW);
-    if (live.length === 0) sendBuckets.delete(uid);
-    else sendBuckets.set(uid, live);
-  }
-}, 60_000).unref();
 
 function getRoomName(channelId) {
   return `channel:${channelId}`;
@@ -34,18 +22,6 @@ function getMessagesCollection(channelId) {
 function sanitizeMessage(text) {
   if (typeof text !== 'string') return '';
   return text.replace(/\s+/g, ' ').replace(/[<>]/g, '').trim();
-}
-
-function checkSendRateLimit(uid) {
-  const now = Date.now();
-  const bucket = sendBuckets.get(uid) || [];
-  const recent = bucket.filter((timestamp) => now - timestamp < SEND_RATE_WINDOW);
-  if (recent.length >= SEND_RATE_LIMIT) {
-    return false;
-  }
-  recent.push(now);
-  sendBuckets.set(uid, recent);
-  return true;
 }
 
 function ensureChatAccess(uid, channelId) {
@@ -153,15 +129,6 @@ async function createMessage({ uid, channelId, text }) {
       status: 400,
       error: `Messages must be ${MAX_MESSAGE_LENGTH} characters or fewer`,
       code: 'MESSAGE_TOO_LONG',
-    };
-  }
-
-  if (!checkSendRateLimit(uid)) {
-    return {
-      ok: false,
-      status: 429,
-      error: 'You are sending messages too quickly',
-      code: 'RATE_LIMITED',
     };
   }
 

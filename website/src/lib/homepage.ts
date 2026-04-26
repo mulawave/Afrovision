@@ -188,7 +188,7 @@ export interface AppLinkConfig {
 export async function getHomepageContent(): Promise<HomepageContent | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
+    const timeout = setTimeout(() => controller.abort(), 10000);
 
     const response = await fetch(`${API_BASE}/home/content`, {
       cache: "no-store",
@@ -198,12 +198,14 @@ export async function getHomepageContent(): Promise<HomepageContent | null> {
     clearTimeout(timeout);
 
     if (!response.ok) {
+      console.error(`[homepage] /home/content returned ${response.status}`);
       return null;
     }
 
     const payload = await response.json();
     return payload?.homepage || null;
-  } catch {
+  } catch (err) {
+    console.error("[homepage] getHomepageContent failed:", err);
     return null;
   }
 }

@@ -15,34 +15,7 @@ const ReputationService = require('../reputation/reputation.service');
 
 // ─── Constants ───────────────────────────────────────────
 const SPLIT = { creator: 0.5, operations: 0.3, community: 0.2 };
-const RATE_LIMIT = 5;
-const RATE_WINDOW = 5000;
 const COMBO_WINDOW = 3000;
-
-// ─── In-memory rate limit ────────────────────────────────
-const rateBuckets = new Map();
-
-function checkRateLimit(uid) {
-  const now = Date.now();
-  const bucket = rateBuckets.get(uid) || [];
-  const recent = bucket.filter((t) => now - t < RATE_WINDOW);
-  if (recent.length >= RATE_LIMIT) {
-    return false;
-  }
-  recent.push(now);
-  rateBuckets.set(uid, recent);
-  return true;
-}
-
-// Prune stale rate-limit buckets every 60 s
-setInterval(() => {
-  const now = Date.now();
-  for (const [uid, bucket] of rateBuckets) {
-    const live = bucket.filter((t) => now - t < RATE_WINDOW);
-    if (live.length === 0) rateBuckets.delete(uid);
-    else rateBuckets.set(uid, live);
-  }
-}, 60_000).unref();
 
 // ─── Admin: Gift CRUD ────────────────────────────────────
 
@@ -196,10 +169,6 @@ async function sendReaction(req, res) {
       return res.status(400).json({ error: 'channel_id and emoji are required' });
     }
 
-    if (!checkRateLimit(req.userId)) {
-      return res.status(429).json({ error: 'Rate limit exceeded' });
-    }
-
     const channel = Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     const senderAlias = channel.type === 'private'
@@ -241,10 +210,6 @@ async function sendGift(req, res) {
     const { channel_id, gift_id } = req.body;
     if (!channel_id || !gift_id) {
       return res.status(400).json({ error: 'channel_id and gift_id are required' });
-    }
-
-    if (!checkRateLimit(req.userId)) {
-      return res.status(429).json({ error: 'Rate limit exceeded' });
     }
 
     const gift = await GiftModel.findById(gift_id);

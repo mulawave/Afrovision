@@ -2,7 +2,6 @@ const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const path = require('path');
 const { getFirestore } = require('./utils/firestore');
 const authRoutes = require('./auth/auth.routes');
@@ -68,8 +67,6 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 
 app.use(helmet());
-// Global rate limit removed — admin panel was being throttled by shared Cloud Run IP
-// Auth endpoints have their own per-IP/email limiter in auth.routes.js
 
 if (!process.env.ALLOWED_ORIGINS) {
   console.error('[FATAL] ALLOWED_ORIGINS environment variable is required. Set it to a comma-separated list of allowed origins.');
