@@ -16,6 +16,19 @@ class ApiService {
     return headers;
   }
 
+  /// Safely decode JSON from a response body.
+  /// Throws a readable ApiException when the server returns HTML instead of JSON.
+  static Map<String, dynamic> _decodeJson(http.Response response) {
+    final body = response.body.trimLeft();
+    if (body.startsWith('<')) {
+      throw ApiException(
+        'Server returned an unexpected response. Please try again later.',
+        response.statusCode,
+      );
+    }
+    return jsonDecode(body) as Map<String, dynamic>;
+  }
+
   static Future<Map<String, dynamic>> post(
     String path,
     Map<String, dynamic> body,
@@ -25,7 +38,7 @@ class ApiService {
       headers: await _headers(),
       body: jsonEncode(body),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         data['error'] as String? ?? 'Request failed',
@@ -40,7 +53,7 @@ class ApiService {
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         data['error'] as String? ?? 'Request failed',
@@ -59,7 +72,7 @@ class ApiService {
       headers: await _headers(),
       body: jsonEncode(body),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         data['error'] as String? ?? 'Request failed',
@@ -78,7 +91,7 @@ class ApiService {
       headers: await _headers(),
       body: jsonEncode(body),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         data['error'] as String? ?? 'Request failed',
@@ -93,7 +106,7 @@ class ApiService {
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         data['error'] as String? ?? 'Request failed',
@@ -116,7 +129,7 @@ class ApiService {
     request.files.add(await http.MultipartFile.fromPath(fieldName, file.path));
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         data['error'] as String? ?? 'Upload failed',
@@ -141,7 +154,7 @@ class ApiService {
     request.files.add(await http.MultipartFile.fromPath(fieldName, file.path));
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         data['error'] as String? ?? 'Upload failed',
@@ -157,7 +170,14 @@ class ApiService {
       Uri.parse('$_baseUrl$path'),
       headers: {'Content-Type': 'application/json'},
     );
-    final data = jsonDecode(response.body);
+    final body = response.body.trimLeft();
+    if (body.startsWith('<')) {
+      throw ApiException(
+        'Server returned an unexpected response. Please try again later.',
+        response.statusCode,
+      );
+    }
+    final data = jsonDecode(body);
     if (response.statusCode >= 400) {
       throw ApiException(
         (data is Map ? data['error'] : null) as String? ?? 'Request failed',

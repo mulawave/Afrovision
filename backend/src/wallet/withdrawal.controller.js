@@ -4,6 +4,7 @@ const WithdrawalModel = require('./withdrawal.model');
 const GiftWallet = require('../interactions/gift-wallet.model');
 const LedgerService = require('../vpt/ledger.service');
 const LedgerModel = require('../vpt/ledger.model');
+const PoolService = require('../vpt/pool.service');
 const User = require('../users/user.model');
 const AuditService = require('../admin/audit.service');
 const { serializeWithdrawalForAdmin } = require('../admin/admin.presenter');
@@ -633,16 +634,26 @@ async function getSystemTotals(req, res) {
 
   try {
     const db = getFirestore();
-    const [opsDoc, commDoc, chargesDoc, providerDoc, vatDoc] = await Promise.all([
-      db.collection('pools').doc('operations').get(),
-      db.collection('pools').doc('community').get(),
+    const [communityStats, operationsPool, chargesDoc, providerDoc, vatDoc] = await Promise.all([
+      PoolService.getPoolStats(),
+      PoolService.getRecalculatedOperationsPool(),
       db.doc(CHARGES_POOL_DOC).get(),
       db.doc(PROVIDER_FEES_DOC).get(),
       db.doc(VAT_POOL_DOC).get(),
     ]);
 
-    const ops = opsDoc.exists ? opsDoc.data() : { vpt_units: 0, naira: 0 };
-    const comm = commDoc.exists ? commDoc.data() : { vpt_units: 0, naira: 0 };
+    const comm = {
+      balance_ngn: communityStats?.pool?.balance_ngn || 0,
+      balance_vpt: communityStats?.pool?.balance_vpt || 0,
+      total_credited: communityStats?.pool?.total_credited || 0,
+      total_credited_vpt: communityStats?.pool?.total_credited_vpt || 0,
+      total_distributed: communityStats?.pool?.total_distributed || 0,
+      total_distributed_vpt: communityStats?.pool?.total_distributed_vpt || 0,
+    };
+    const ops = {
+      balance_ngn: operationsPool?.balance_ngn || 0,
+      total_credited: operationsPool?.total_credited || 0,
+    };
     const charges = chargesDoc.exists ? chargesDoc.data() : {
       balance_ngn: 0, total_collected: 0, total_transaction_fees: 0,
       total_service_charges: 0, total_refunded: 0, transaction_count: 0,

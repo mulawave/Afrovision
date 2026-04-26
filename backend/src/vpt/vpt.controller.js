@@ -9,7 +9,7 @@ function getBalance(req, res) {
   const user = User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({
-    balance: user.vpt_balance,
+    balance: user.vpt,
     transactions: Vpt.getByUser(req.userId),
   });
 }
@@ -134,6 +134,32 @@ async function getPoolStats(req, res) {
   }
 }
 
+// ─── OPERATIONS POOL ENDPOINTS ──────────────────────────
+
+async function getOperationsPoolStats(req, res) {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const pool = await PoolService.getRecalculatedOperationsPool();
+    res.json({ stats: { pool } });
+  } catch (err) {
+    console.error('[VPT] Operations pool stats error');
+    res.status(500).json({ error: 'Failed to fetch operations pool stats' });
+  }
+}
+
+// ─── RBD POOL ENDPOINTS ────────────────────────────────
+
+async function getRbdPoolStats(req, res) {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const pool = await PoolService.getRbdPoolBalance();
+    res.json({ stats: { pool } });
+  } catch (err) {
+    console.error('[VPT] RBD pool stats error');
+    res.status(500).json({ error: 'Failed to fetch RBD pool stats' });
+  }
+}
+
 async function triggerViewerRewards(req, res) {
   if (!requireAdmin(req, res)) return;
   try {
@@ -174,6 +200,8 @@ module.exports = {
   getTreasuryBalance,
   getBlockchainPreflight,
   getPoolStats,
+  getOperationsPoolStats,
+  getRbdPoolStats,
   triggerViewerRewards,
   getPoolDistributions,
   getPoolDistribution,

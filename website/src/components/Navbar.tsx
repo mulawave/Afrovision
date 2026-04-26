@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { NotificationBell } from "@/components/NotificationBell";
 import { PremiumBadge } from "@/components/PremiumBadge";
+import { getMyReputationApi, type Reputation } from "@/lib/api";
+import { ReputationBadge } from "@/components/ReputationBadge";
 
 const NAV_LINKS = [
   { label: "Home", href: "/" },
@@ -28,6 +30,8 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
   const [walletBusy, setWalletBusy] = useState(false);
   const [walletDetectBusy, setWalletDetectBusy] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
+  const [reputation, setReputation] = useState<Reputation | null>(null);
+  const [repLoading, setRepLoading] = useState(false);
   const { user, isAuthenticated, isLoading, logout, walletLogin } = useAuth();
   const menuRef = useRef<HTMLDivElement>(null);
   const authPanelRef = useRef<HTMLDivElement>(null);
@@ -50,6 +54,18 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [userMenuOpen]);
+
+  // Load reputation when user menu opens
+  useEffect(() => {
+    if (!userMenuOpen || !isAuthenticated) return;
+    setRepLoading(true);
+    getMyReputationApi().then((res) => {
+      if (res.ok && "reputation" in res.data) {
+        setReputation(res.data.reputation);
+      }
+      setRepLoading(false);
+    });
+  }, [userMenuOpen, isAuthenticated]);
 
   // Close auth panel on outside click
   useEffect(() => {
@@ -207,13 +223,14 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                           </div>
                           <PremiumBadge user={user} size="sm" className="flex-shrink-0 mt-0.5" />
                         </div>
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
                           <span className="px-2 py-0.5 rounded-full bg-av-orange/10 border border-av-orange/20 text-[10px] font-bold text-av-orange uppercase">
                             {user.role}
                           </span>
                           <span className="flex items-center gap-1 text-[10px] font-medium text-av-light-orange">
-                            💎 {user.vpt_balance.toLocaleString()} vPT
+                            💎 {user.vpt.toLocaleString()} vPT
                           </span>
+                          <ReputationBadge reputation={reputation} size="sm" loading={repLoading} />
                         </div>
                       </div>
 
@@ -258,6 +275,16 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                             <path d="M17 9V7a5 5 0 00-10 0v2M5 9h14l1 11H4L5 9z" />
                           </svg>
                           Withdrawals
+                        </Link>
+                        <Link
+                          href="/leaderboard"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-av-light-orange hover:text-av-white hover:bg-av-input-fill/50 transition-colors"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-av-light-orange">
+                            <path d="M7.5 21H2V9h5.5v12zm7.25-18h-5.5v18h5.5V3zM22 11h-5.5v10H22V11z" />
+                          </svg>
+                          Leaderboard
                         </Link>
                         <Link
                           href="/referrals"
@@ -614,7 +641,10 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                   )}
                   <div>
                     <p className="text-sm font-medium text-av-white truncate">{user.name || user.email}</p>
-                    <p className="text-[10px] text-av-light-orange">💎 {user.vpt_balance.toLocaleString()} vPT</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-av-light-orange">💎 {user.vpt.toLocaleString()} vPT</span>
+                      <ReputationBadge reputation={reputation} size="sm" loading={repLoading} />
+                    </div>
                   </div>
                 </div>
                 <Link
@@ -630,6 +660,13 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                   className="block px-4 py-3 text-sm font-medium text-av-light-orange hover:text-av-white rounded-lg hover:bg-av-white/5 transition-colors"
                 >
                   Wallet
+                </Link>
+                <Link
+                  href="/leaderboard"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-4 py-3 text-sm font-medium text-av-light-orange hover:text-av-white rounded-lg hover:bg-av-white/5 transition-colors"
+                >
+                  Leaderboard
                 </Link>
                 <Link
                   href="/referrals"

@@ -1,0 +1,4 @@
+FIREBASE_PROJECT_ID: raven-ai-6ff76
+GCS_BUCKET: afrovision-media
+ENVIRONMENT: production
+ALLOWED_ORIGINS: "https://afrovision.online,https://admin.afrovision.online,https://afrovision-website.web.app,https://afrovision-admin.web.app"

@@ -7,6 +7,10 @@ const path = require('path');
 let passed = 0;
 let failed = 0;
 
+if (!process.env.GCS_BUCKET) {
+  process.env.GCS_BUCKET = 'afrovision-test-bucket';
+}
+
 function test(name, fn) {
   try {
     fn();

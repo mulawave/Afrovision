@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/role_badge.dart';
+import '../../../core/widgets/reputation_badge.dart';
 import '../../auth/models/user_model.dart';
 import '../../auth/services/profile_service.dart';
 import '../../auth/services/auth_service.dart';
 import '../../currency/models/currency_model.dart';
 import '../../currency/currency_service.dart';
+import '../../reputation/models/reputation_model.dart';
+import '../../reputation/services/reputation_service.dart';
+import '../../reputation/widgets/reputation_card.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -17,6 +21,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen>
     with SingleTickerProviderStateMixin {
   UserModel? _user;
+  ReputationModel? _reputation;
   bool _loading = true;
   List<CurrencyModel> _currencies = [];
   late AnimationController _animController;
@@ -49,11 +54,15 @@ class _ProfileScreenState extends State<ProfileScreen>
       final results = await Future.wait([
         ProfileService.getProfile(),
         CurrencyService.getCurrencies(),
+        ReputationService.getMyReputation()
+            .then<ReputationModel?>((v) => v)
+            .catchError((_) => null),
       ]);
       if (!mounted) return;
       setState(() {
         _user = results[0] as UserModel;
         _currencies = results[1] as List<CurrencyModel>;
+        _reputation = results[2] as ReputationModel?;
         _loading = false;
       });
       _animController.forward();
@@ -259,16 +268,39 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
                 const SizedBox(height: 16),
                 // Name
-                Text(
-                  user.name ?? 'No name set',
-                  style: TextStyle(
-                    color: user.name != null
-                        ? AppColors.white
-                        : AppColors.hintText,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ReputationBadgeWidget(
+                      level: _reputation?.level ?? 0,
+                      size: 18,
+                      showTooltip: true,
+                    ),
+                    if ((_reputation?.level ?? 0) > 0) const SizedBox(width: 6),
+                    Text(
+                      user.name ?? 'No name set',
+                      style: TextStyle(
+                        color: user.name != null
+                            ? AppColors.white
+                            : AppColors.hintText,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 4),
+                if (_reputation != null) ...[
+                  Text(
+                    '${_formatReps(_reputation!.totalReps)} Reps · ${_reputation!.levelName}',
+                    style: const TextStyle(
+                      color: AppColors.hintText,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                ],
                 const SizedBox(height: 4),
                 Text(
                   user.email,
@@ -342,6 +374,12 @@ class _ProfileScreenState extends State<ProfileScreen>
 
                 // vPT Balance card
                 if (user.isCreator) _buildVptBalanceCard(user),
+
+                // Reputation card
+                if (_reputation != null) ...[
+                  ReputationCard(reputation: _reputation!),
+                  const SizedBox(height: 16),
+                ],
 
                 // Currency preference
                 if (_currencies.isNotEmpty) _buildCurrencySelector(user),
@@ -549,7 +587,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildVptBalanceCard(UserModel user) {
-    final hasEnough = user.vptBalance >= 500;
+    final hasEnough = user.vpt >= 500;
     return GestureDetector(
       onTap: () => Navigator.pushNamed(context, '/digital-assets'),
       child: Container(
@@ -594,7 +632,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${_formatVpt(user.vptBalance)} vPT',
+                    '${_formatVpt(user.vpt)} vPT',
                     style: const TextStyle(
                       color: AppColors.white,
                       fontSize: 20,
@@ -602,7 +640,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                   ),
                   Text(
-                    '≈ ₦${_formatVpt(user.vptBalance * 750)}',
+                    '≈ ₦${_formatVpt(user.vpt * 750)}',
                     style: TextStyle(
                       color: AppColors.white,
                       fontSize: 11,
@@ -843,5 +881,12 @@ class _ProfileScreenState extends State<ProfileScreen>
       'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  String _formatReps(double v) {
+    if (v >= 1000) {
+      return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
+    }
+    return v.toStringAsFixed(0);
   }
 }

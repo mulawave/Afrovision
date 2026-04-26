@@ -91,7 +91,7 @@ class _TransferSheetState extends State<TransferSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final vptBal = widget.balances?['vpt_balance'] ?? 0;
+    final vptBal = widget.balances?['vpt'] ?? 0;
     final bnbBal = widget.balances?['bnb_balance'] ?? 0;
 
     return Container(

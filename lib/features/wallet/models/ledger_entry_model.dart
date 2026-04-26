@@ -55,7 +55,7 @@ class LedgerEntryModel {
       status: json['status'] as String? ?? 'pending',
       meta: json['meta'] as Map<String, dynamic>? ?? {},
       description: json['description'] as String?,
-      createdAt: json['created_at'] as int? ?? 0,
+      createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
     );
   }
 

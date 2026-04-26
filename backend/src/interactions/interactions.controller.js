@@ -11,6 +11,7 @@ const SettingsService = require('../admin/settings.service');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const NotificationService = require('../notifications/notification.service');
+const ReputationService = require('../reputation/reputation.service');
 
 // ─── Constants ───────────────────────────────────────────
 const SPLIT = { creator: 0.5, operations: 0.3, community: 0.2 };
@@ -128,25 +129,29 @@ async function uploadGiftImage(req, res) {
   }
 }
 
-function getGifts(req, res) {
-  const gifts = GiftModel.getActive();
+async function getGifts(req, res) {
+  const gifts = await GiftModel.getActive();
   res.json({ gifts });
 }
 
-function getAllGifts(req, res) {
+async function getAllGifts(req, res) {
   const user = User.findById(req.userId);
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin only' });
   }
-  res.json({ gifts: GiftModel.getAll() });
+  const gifts = await GiftModel.getAll();
+  res.json({ gifts });
 }
 
 // ─── Wallet ──────────────────────────────────────────────
 
 async function getMyGiftWallet(req, res) {
   try {
-    const user = User.findById(req.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    // Read user directly from Firestore — do not rely on the stale in-memory cache.
+    const db = getFirestore();
+    const userDoc = await db.collection('users').doc(req.userId).get();
+    if (!userDoc.exists) return res.status(404).json({ error: 'User not found' });
+    const user = userDoc.data();
 
     // blockchain_tokens is a very large integer stored as a Firestore number or string.
     // Return it as a string to avoid JavaScript Number precision loss.
@@ -242,7 +247,7 @@ async function sendGift(req, res) {
       return res.status(429).json({ error: 'Rate limit exceeded' });
     }
 
-    const gift = GiftModel.findById(gift_id);
+    const gift = await GiftModel.findById(gift_id);
     if (!gift || !gift.is_active) {
       return res.status(400).json({ error: 'Invalid or inactive gift' });
     }
@@ -315,6 +320,19 @@ async function sendGift(req, res) {
     // Register combo
     await _registerCombo(db, channel_id, req.userId, gift_id);
 
+    // Award reputation points to the sender (non-fatal — gift succeeds even if reps fail)
+    let senderRepLevel = 0;
+    try {
+      const repRecord = await ReputationService.awardReps(
+        req.userId,
+        gift.naira_value || 0,
+        gift.vpt_units || 0,
+      );
+      senderRepLevel = repRecord?.level ?? 0;
+    } catch (repErr) {
+      console.error('[Interactions] awardReps error:', repErr.message);
+    }
+
     // Get display name
     const displayName = getSenderDisplayName(req.userId, channel);
 
@@ -322,6 +340,7 @@ async function sendGift(req, res) {
       id: crypto.randomUUID(),
       type: 'gift',
       sender_name: displayName,
+      sender_rep_level: senderRepLevel,
       gift_name: gift.name,
       gift_icon: gift.icon,
       animation: gift.animation,
@@ -659,7 +678,7 @@ async function getChannelEvents(req, res) {
       ? docs.filter((doc) => (doc.data().created_at || 0) > after)
       : docs;
 
-    const events = filteredDocs.map((doc) => {
+    const events = await Promise.all(filteredDocs.map(async (doc) => {
       const d = doc.data();
       const senderName = isPrivate
         ? d.sender_alias || getSenderDisplayName(d.sender_uid, channel)
@@ -673,7 +692,7 @@ async function getChannelEvents(req, res) {
       };
 
       if (d.type === 'gift') {
-        const gift = GiftModel.findById(d.gift_id);
+        const gift = await GiftModel.findById(d.gift_id);
         event.gift_name = gift?.name || 'Gift';
         event.gift_icon = gift?.icon || '🎁';
         event.animation = gift?.animation || null;
@@ -683,7 +702,7 @@ async function getChannelEvents(req, res) {
       }
 
       return event;
-    });
+    }));
 
     res.json({ events });
   } catch (err) {

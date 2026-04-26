@@ -81,7 +81,6 @@ async function create({ email, passwordHash }) {
     subscription_status: 'inactive',
     subscription_expiry: null,
     preferred_currency: 'NGN',
-    vpt_balance: 0,
     vpt: 0,
     cash: 0,
     coins: 0,
@@ -162,14 +161,6 @@ async function setFirstSubscriptionAt(userId, firstSubscriptionAt) {
   const user = findById(userId);
   if (!user) return null;
   user.first_subscription_at = firstSubscriptionAt;
-  await persistUser(user);
-  return user;
-}
-
-async function adjustVptBalance(userId, delta) {
-  const user = findById(userId);
-  if (!user) return null;
-  user.vpt_balance = Math.round((user.vpt_balance + delta) * 100) / 100;
   await persistUser(user);
   return user;
 }
@@ -361,9 +352,8 @@ function findEmptyAccounts() {
     const hasName = (user.name && user.name.trim()) ||
                     (user.firstName && user.firstName.trim()) ||
                     (user.lastName && user.lastName.trim());
-    // Check ALL balance fields (backend vpt_balance + Flutter cash/coins/vpt/slots)
-    const hasBalance = (user.vpt_balance || 0) > 0 ||
-                       parseFloat(user.cash || 0) > 0 ||
+    // Check ALL balance fields (Flutter cash/coins/vpt/slots)
+    const hasBalance = parseFloat(user.cash || 0) > 0 ||
                        parseFloat(user.coins || 0) > 0 ||
                        parseFloat(user.vpt || 0) > 0 ||
                        parseFloat(user.slots || 0) > 0;
@@ -435,7 +425,6 @@ function toSafeUser(user) {
     subscription_status: user.subscription_status,
     subscription_expiry: user.subscription_expiry,
     preferred_currency: user.preferred_currency,
-    vpt_balance: Number(user.vpt_balance) || 0,
     vpt: Number(user.vpt) || 0,
     cash: Number(user.cash) || 0,
     coins: Number(user.coins) || 0,
@@ -490,6 +479,17 @@ function getAll(includeDeleted = false) {
   return users.filter((user) => !user.deleted_at);
 }
 
+async function reloadFromFirestore(userId) {
+  const db = getFirestore();
+  const doc = await db.collection(USERS_COLLECTION).doc(userId).get();
+  if (!doc.exists) return null;
+  const fresh = { ...doc.data(), id: doc.id };
+  const idx = users.findIndex((u) => u.id === userId);
+  if (idx >= 0) users[idx] = fresh;
+  else users.push(fresh);
+  return fresh;
+}
+
 module.exports = {
   init,
   reinit,
@@ -505,7 +505,6 @@ module.exports = {
   setKyc,
   setSubscription,
   setFirstSubscriptionAt,
-  adjustVptBalance,
   adjustVpt,
   adjustCash,
   adjustCoins,
@@ -528,4 +527,5 @@ module.exports = {
   deleteResetToken,
   toSafeUser,
   toDetailedUser,
+  reloadFromFirestore,
 };

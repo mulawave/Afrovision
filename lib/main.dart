@@ -42,6 +42,8 @@ import 'features/broadcast/screens/reminders_screen.dart';
 import 'features/kyc/screens/kyc_screen.dart';
 import 'features/channel/screens/channel_analytics_screen.dart';
 import 'features/payments/screens/checkout_screen.dart';
+import 'features/reputation/screens/reputation_screen.dart';
+import 'features/reputation/screens/leaderboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -138,6 +140,8 @@ class AfroVisionApp extends StatelessWidget {
         '/kyc': (_) => const KycScreen(),
         '/channel-analytics': (_) => const ChannelAnalyticsScreen(),
         '/checkout': (_) => const CheckoutScreen(),
+        '/reputation': (_) => const ReputationScreen(),
+        '/reputation/leaderboard': (_) => const LeaderboardScreen(),
       },
     );
   }

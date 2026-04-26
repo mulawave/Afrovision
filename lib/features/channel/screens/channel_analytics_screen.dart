@@ -742,7 +742,7 @@ class _ChannelAnalyticsScreenState extends State<ChannelAnalyticsScreen>
         (demo['top_countries'] as List<dynamic>?)
             ?.cast<Map<String, dynamic>>() ??
         [];
-    final totalIdentified = demo['total_identified'] as int? ?? 0;
+    final totalIdentified = (demo['total_identified'] as num?)?.toInt() ?? 0;
 
     return Container(
       padding: const EdgeInsets.all(18),

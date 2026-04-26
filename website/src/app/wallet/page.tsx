@@ -77,6 +77,10 @@ export default function WalletPage() {
       }
       if (connRes.status === "fulfilled" && connRes.value.ok && "connected" in connRes.value.data && connRes.value.data.connected) {
         setConnectedWallet(connRes.value.data.connected as ConnectedWallet);
+      } else if (giftRes.status === "fulfilled" && giftRes.value.ok && "wallet" in giftRes.value.data) {
+        const gw = giftRes.value.data.wallet as unknown as Record<string, unknown>;
+        const cw = gw?.connected_wallet as ConnectedWallet | null | undefined;
+        if (cw?.address) setConnectedWallet(cw);
       }
 
       setLoading(false);
@@ -171,7 +175,7 @@ export default function WalletPage() {
         ) : (
           <div className="space-y-5">
             <div className="grid gap-4 md:grid-cols-4">
-              <StatCard label="vPT Balance" value={`${(vptBalance ?? user?.vpt_balance ?? 0).toLocaleString()} VPT`} variant="orange" />
+              <StatCard label="vPT Balance" value={`${(vptBalance ?? user?.vpt ?? 0).toLocaleString()} VPT`} variant="orange" />
               <StatCard label="Off-chain vPT" value={`${giftWallet?.vpt?.toLocaleString() ?? 0} vPT`} variant="blue" />
               <StatCard label="Cash (NGN)" value={`₦${giftWallet?.cash?.toLocaleString() ?? 0}`} variant="green" />
               <StatCard label="Ravens" value={`${giftWallet?.coins?.toLocaleString() ?? 0} Ravens`} variant="lightOrange" />
@@ -228,7 +232,7 @@ export default function WalletPage() {
             )}
 
             <PortfolioValueCard
-              vptBalance={vptBalance ?? user?.vpt_balance ?? 0}
+              vptBalance={vptBalance ?? user?.vpt ?? 0}
               offChainVpt={giftWallet?.vpt ?? 0}
               cash={giftWallet?.cash ?? 0}
               ravens={giftWallet?.coins ?? 0}
@@ -704,7 +708,7 @@ function ExternalWalletCard({
               </div>
               <div className="rounded-lg border border-av-input-border/20 bg-av-input-fill/40 px-3 py-2">
                 <p className="text-[10px] uppercase tracking-wider text-av-hint">vPT</p>
-                <p className="text-sm font-bold text-av-white">{Number(connectedWallet!.balances!.vpt_balance).toLocaleString()} vPT</p>
+                <p className="text-sm font-bold text-av-white">{Number(connectedWallet!.balances!.vpt).toLocaleString()} vPT</p>
               </div>
             </div>
           )}

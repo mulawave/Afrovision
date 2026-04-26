@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_pagination_controls.dart';
+import '../../../core/widgets/reputation_badge.dart';
 import '../../auth/models/user_model.dart';
 import '../../auth/services/profile_service.dart';
+import '../../reputation/models/reputation_model.dart';
+import '../../reputation/services/reputation_service.dart';
+import '../../reputation/widgets/rep_progress_bar.dart';
 import '../models/ledger_entry_model.dart';
 import '../services/wallet_service.dart';
 import '../widgets/import_wallet_sheet.dart';
@@ -27,6 +31,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
   static const int _pageSize = 5;
 
   UserModel? _user;
+  ReputationModel? _reputation;
   List<LedgerEntryModel> _ledger = [];
   Map<String, dynamic>? _wallet;
   Map<String, dynamic>? _blockchainPreflight;
@@ -71,6 +76,10 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
         WalletService.getMyWallet(),
         WalletService.getGiftWalletBalance(),
         WalletService.getExchangeRates().catchError((_) => <String, dynamic>{}),
+        ReputationService.getMyReputation()
+            .then<ReputationModel?>((v) => v)
+            .catchError((_) => null),
+        WalletService.getConnectedWallet().catchError((_) => null),
       ]);
       Map<String, dynamic>? blockchainPreflight;
       String? blockchainPreflightError;
@@ -85,16 +94,18 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
 
       if (!mounted) return;
       final giftWallet = results[2] as Map<String, dynamic>?;
+      final connectedFromApi = results[5] as Map<String, dynamic>?;
       setState(() {
         _user = profile;
         _ledger = results[0] as List<LedgerEntryModel>;
         _wallet = results[1] as Map<String, dynamic>?;
         _giftWallet = giftWallet;
         _exchangeRates = (results[3] as Map<String, dynamic>?) ?? {};
-        _connectedWallet =
+        _connectedWallet = connectedFromApi ??
             giftWallet?['connected_wallet'] as Map<String, dynamic>?;
         _blockchainPreflight = blockchainPreflight;
         _blockchainPreflightError = blockchainPreflightError;
+        _reputation = results[4] as ReputationModel?;
         _activityPage = 0;
         _loading = false;
       });
@@ -139,7 +150,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
     return 0;
   }
 
-  double get _onChainVptBalance => _user?.vptBalance ?? 0;
+  double get _onChainVptBalance => _user?.vpt ?? 0;
 
   /// Off-chain vPT is the single ledger-facing vPT bucket shown to users.
   double get _offChainVptBalance => _giftWalletVptBalance;
@@ -314,6 +325,8 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                                 const SizedBox(height: 16),
                                 _buildBalanceCard(),
                                 const SizedBox(height: 16),
+                                if (_reputation != null) _buildReputationCard(),
+                                const SizedBox(height: 16),
                                 _stakeWalletRaw != null
                                     ? _buildStakeWalletCard()
                                     : _buildEmptyStakeWalletCard(),
@@ -394,6 +407,96 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
         ],
       ),
     );
+  }
+
+  // ─── Reputation Card ───────────────────────────────────
+
+  Widget _buildReputationCard() {
+    final rep = _reputation!;
+    final Color levelColor = rep.level == 0
+        ? AppColors.hintText
+        : rep.level == 1
+        ? AppColors.reputationBlue
+        : rep.level == 2
+        ? AppColors.reputationPurple
+        : AppColors.orange;
+
+    return GestureDetector(
+      onTap: () => Navigator.pushNamed(context, '/reputation'),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppColors.inputFill,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: levelColor.withValues(alpha: 0.35)),
+          boxShadow: [
+            BoxShadow(
+              color: levelColor.withValues(alpha: 0.07),
+              blurRadius: 16,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                ReputationBadgeWidget(level: rep.level, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        rep.levelName,
+                        style: TextStyle(
+                          color: rep.level == 0
+                              ? AppColors.hintText
+                              : levelColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${_formatReps(rep.totalReps)} Reps',
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: AppColors.hintText,
+                  size: 14,
+                ),
+              ],
+            ),
+            if (rep.level < 3) ...[
+              const SizedBox(height: 14),
+              RepProgressBar(
+                progress: rep.progressPercent,
+                currentReps: rep.totalReps,
+                targetReps: rep.nextLevelThreshold?.toDouble(),
+                level: rep.level,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatReps(double v) {
+    if (v >= 1000) {
+      return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
+    }
+    return v.toStringAsFixed(0);
   }
 
   // ─── Stake Wallet Card ──────────────────────────────────

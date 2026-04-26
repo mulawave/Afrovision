@@ -67,6 +67,18 @@ class _GiftSheetState extends State<GiftSheet> {
       );
       if (!mounted) return;
 
+      // Refresh wallet so the balance updates instantly
+      try {
+        final refreshedWallet = await InteractionService.getMyGiftWallet();
+        if (mounted) {
+          setState(() {
+            _wallet = refreshedWallet as GiftWalletModel?;
+          });
+        }
+      } catch (_) {
+        // Non-fatal: wallet refresh failure should not block gift success
+      }
+
       widget.onGiftSent?.call();
       Navigator.pop(context, result);
     } catch (e) {

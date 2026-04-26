@@ -231,12 +231,12 @@ const UPDATE_DEFAULTS = [
 ];
 
 const SOCIAL_LINK_DEFAULTS = [
-  { id: 'social-twitter', platform: 'twitter', label: 'Twitter / X', url: '', enabled: false, sort_order: 1 },
-  { id: 'social-instagram', platform: 'instagram', label: 'Instagram', url: '', enabled: false, sort_order: 2 },
-  { id: 'social-youtube', platform: 'youtube', label: 'YouTube', url: '', enabled: false, sort_order: 3 },
-  { id: 'social-tiktok', platform: 'tiktok', label: 'TikTok', url: '', enabled: false, sort_order: 4 },
-  { id: 'social-facebook', platform: 'facebook', label: 'Facebook', url: '', enabled: false, sort_order: 5 },
-  { id: 'social-linkedin', platform: 'linkedin', label: 'LinkedIn', url: '', enabled: false, sort_order: 6 },
+  { id: 'social-twitter', platform: 'twitter', label: 'Twitter / X', url: '', icon_url: null, enabled: false, sort_order: 1 },
+  { id: 'social-instagram', platform: 'instagram', label: 'Instagram', url: '', icon_url: null, enabled: false, sort_order: 2 },
+  { id: 'social-youtube', platform: 'youtube', label: 'YouTube', url: '', icon_url: null, enabled: false, sort_order: 3 },
+  { id: 'social-tiktok', platform: 'tiktok', label: 'TikTok', url: '', icon_url: null, enabled: false, sort_order: 4 },
+  { id: 'social-facebook', platform: 'facebook', label: 'Facebook', url: '', icon_url: null, enabled: false, sort_order: 5 },
+  { id: 'social-linkedin', platform: 'linkedin', label: 'LinkedIn', url: '', icon_url: null, enabled: false, sort_order: 6 },
 ];
 
 const DEFAULT_DESIGN = {
@@ -323,7 +323,10 @@ function cloneDefaults() {
 
 function sanitizeText(value, fallback = '', maxLength = 280) {
   if (typeof value !== 'string') return fallback;
-  return value.replace(/[<>]/g, '').trim().slice(0, maxLength);
+  let safe = value.replace(/<(script|style|object|embed|applet|noscript)[^>]*>[\s\S]*?<\/\1>/gi, '');
+  safe = safe.replace(/<\/?(?:script|style|iframe|object|embed|applet|form|input|button|textarea|select|option|meta|base|head|title|html|body|link)[^>]*>/gi, '');
+  safe = safe.replace(/\s+on[a-z]+\s*=\s*(["']).*?\1/gi, '');
+  return safe.trim().slice(0, maxLength);
 }
 
 function sanitizeHref(value, fallback = '/') {
@@ -433,26 +436,25 @@ function normalizeUpdates(items, defaults) {
     id: ensureId(item?.id, 'update'),
     enabled: normalizeBool(item?.enabled, true),
     sort_order: normalizeNumber(item?.sort_order, index + 1),
-    title: sanitizeText(item?.title, '', 180),
-    summary: sanitizeText(item?.summary, '', 320),
+    title: sanitizeText(item?.title, '', 240),
+    summary: sanitizeText(item?.summary, '', 700),
     date: sanitizeText(item?.date, '', 80),
     icon: sanitizeText(item?.icon, '✨', 32),
     tag: sanitizeText(item?.tag, '', 80),
   })));
 }
 
-const ALLOWED_PLATFORMS = ['twitter', 'instagram', 'youtube', 'tiktok', 'facebook', 'linkedin'];
-
 function normalizeSocialLinks(items, defaults) {
   const source = Array.isArray(items) ? items : defaults;
   return withOrder(source.map((item, index) => {
-    const platform = ALLOWED_PLATFORMS.includes(item?.platform) ? item.platform : 'twitter';
-    const defaultForPlatform = defaults.find((d) => d.platform === platform) || defaults[0];
+    const platform = sanitizeText(item?.platform, 'custom', 48).toLowerCase();
+    const defaultForPlatform = defaults.find((d) => d.platform === platform) || defaults[0] || { label: 'Custom' };
     return {
       id: ensureId(item?.id, 'social'),
       platform,
-      label: sanitizeText(item?.label, defaultForPlatform.label, 80),
+      label: sanitizeText(item?.label, defaultForPlatform.label || 'Custom', 80),
       url: sanitizeHref(item?.url, ''),
+      icon_url: sanitizeHref(item?.icon_url, '') || null,
       enabled: normalizeBool(item?.enabled, false),
       sort_order: normalizeNumber(item?.sort_order, index + 1),
     };
@@ -515,7 +517,7 @@ function normalizeDesign(input) {
       badge_text: sanitizeText(source.challenge?.badge_text, defaults.challenge.badge_text, 120),
       title: sanitizeText(source.challenge?.title, defaults.challenge.title, 120),
       highlight_text: sanitizeText(source.challenge?.highlight_text, defaults.challenge.highlight_text, 80),
-      description: sanitizeText(source.challenge?.description, defaults.challenge.description, 320),
+      description: sanitizeText(source.challenge?.description, defaults.challenge.description, 900),
       cta_label: sanitizeText(source.challenge?.cta_label, defaults.challenge.cta_label, 80),
       cta_href: sanitizeHref(source.challenge?.cta_href, defaults.challenge.cta_href),
       secondary_cta_label: sanitizeText(source.challenge?.secondary_cta_label, defaults.challenge.secondary_cta_label, 80),
@@ -856,6 +858,7 @@ async function getPublicHomepageContent() {
       platform: link.platform,
       label: link.label,
       url: link.url,
+      icon_url: link.icon_url || null,
     })),
     branding: design.branding || { logo_url: null, favicon_url: null },
   };

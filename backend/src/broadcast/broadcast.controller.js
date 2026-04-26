@@ -13,6 +13,7 @@ const SettingsService = require('../admin/settings.service');
 const crypto = require('crypto');
 const path = require('path');
 const { generateSignedUploadUrl } = require('../utils/gcs');
+const { getFirestore } = require('../utils/firestore');
 
 // ─── SIGNED UPLOAD URL (Direct-to-GCS) ──────────────────
 
@@ -355,25 +356,40 @@ async function scheduleSequential(req, res) {
 
 // ─── PLAYBACK (VIEWER) ──────────────────────────────────
 
-function getNowPlaying(req, res) {
+async function getNowPlaying(req, res) {
   const channelId = req.params.channelId;
   const serverTime = Date.now();
-  let program = Program.getCurrentProgram(channelId);
+  const db = getFirestore();
+
+  // Query ALL programs for this channel directly from Firestore.
+  const progSnap = await db.collection('channel_programs')
+    .where('channel_id', '==', channelId)
+    .get();
+  const allPrograms = progSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  // Find the currently-active program
+  const program = allPrograms.find(
+    (p) => p.start_time <= serverTime && p.end_time > serverTime
+  ) || null;
 
   // Auto-status: scheduled → live
   if (program && program.status === 'scheduled') {
-    Program.updateStatus(program.id, 'live');
+    await db.collection('channel_programs').doc(program.id).update({ status: 'live' });
   }
 
   if (program) {
-    const video = Video.findById(program.video_id);
-    if (!video) {
+    const videoDoc = await db.collection('videos').doc(program.video_id).get();
+    if (!videoDoc.exists) {
       return res.json({ now_playing: null, next_program: null, server_time: serverTime });
     }
+    const video = { id: videoDoc.id, ...videoDoc.data() };
 
     const positionMs = serverTime - program.start_time;
     const positionSec = Math.max(0, Math.floor(positionMs / 1000));
-    const upcoming = Program.getUpcoming(channelId, 1);
+    const upcoming = allPrograms
+      .filter((p) => p.start_time > serverTime)
+      .sort((a, b) => a.start_time - b.start_time)
+      .slice(0, 1);
 
     return res.json({
       now_playing: {
@@ -390,29 +406,37 @@ function getNowPlaying(req, res) {
         position: positionSec,
         is_loop: false,
       },
-      next_program: upcoming.length > 0 ? enrichProgram(upcoming[0]) : null,
+      next_program: upcoming.length > 0 ? await enrichProgram(upcoming[0], db) : null,
       server_time: serverTime,
     });
   }
 
   // No current program — check upcoming
-  const upcoming = Program.getUpcoming(channelId, 1);
+  const upcoming = allPrograms
+    .filter((p) => p.start_time > serverTime)
+    .sort((a, b) => a.start_time - b.start_time)
+    .slice(0, 1);
+
   if (upcoming.length > 0) {
     // Auto-status: mark past live programs as ended
-    _markEndedPrograms(channelId, serverTime);
+    await _markEndedPrograms(allPrograms, serverTime, db);
     return res.json({
       now_playing: null,
-      next_program: enrichProgram(upcoming[0]),
+      next_program: await enrichProgram(upcoming[0], db),
       server_time: serverTime,
     });
   }
 
   // No upcoming — fallback: loop last ended video
-  const lastEnded = Program.getLastEnded(channelId);
+  const endedPrograms = allPrograms
+    .filter((p) => p.end_time <= serverTime)
+    .sort((a, b) => b.end_time - a.end_time);
+  const lastEnded = endedPrograms.length > 0 ? endedPrograms[0] : null;
+
   if (lastEnded) {
-    const video = Video.findById(lastEnded.video_id);
-    if (video && video.duration > 0) {
-      // Wrap position around video duration for seamless loop
+    const videoDoc = await db.collection('videos').doc(lastEnded.video_id).get();
+    if (videoDoc.exists && videoDoc.data().duration > 0) {
+      const video = { id: videoDoc.id, ...videoDoc.data() };
       const elapsedMs = serverTime - lastEnded.end_time;
       const elapsedSec = Math.floor(elapsedMs / 1000);
       const loopPosition = elapsedSec % video.duration;
@@ -439,22 +463,22 @@ function getNowPlaying(req, res) {
   }
 
   // Truly nothing to play
-  _markEndedPrograms(channelId, serverTime);
+  await _markEndedPrograms(allPrograms, serverTime, db);
   res.json({ now_playing: null, next_program: null, server_time: serverTime });
 }
 
-// Helper: mark past live programs as ended
-function _markEndedPrograms(channelId, serverTime) {
-  const schedule = Program.getSchedule(channelId);
-  for (const p of schedule) {
+// Helper: mark past live programs as ended (operates on Firestore-fetched program list)
+async function _markEndedPrograms(programs, serverTime, db) {
+  for (const p of programs) {
     if (p.status === 'live' && serverTime >= p.end_time) {
-      Program.updateStatus(p.id, 'ended');
+      await db.collection('channel_programs').doc(p.id).update({ status: 'ended' });
     }
   }
 }
 
-function enrichProgram(program) {
-  const video = Video.findById(program.video_id);
+async function enrichProgram(program, db) {
+  const videoDoc = await db.collection('videos').doc(program.video_id).get();
+  const video = videoDoc.exists ? { id: videoDoc.id, ...videoDoc.data() } : null;
   return {
     program_id: program.id,
     video_title: video ? video.title : 'Unknown',

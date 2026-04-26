@@ -7,7 +7,7 @@
     "start": "node src/app.js",
     "doctor:firestore": "node scripts/firestore-doctor.js",
     "preflight:blockchain": "node scripts/blockchain-preflight.js",
-    "test": "node test/smoke.test.js",
+    "test": "node test/smoke.test.js && node test/static-pages-content.test.js && node test/homepage-design.test.js",
     "deploy:testnet": "hardhat run scripts/deploy.js --network bscTestnet",
     "add-liquidity": "node scripts/add-liquidity.js"
   },
@@ -16,6 +16,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google-cloud/recaptcha-enterprise": "^5.13.0",
     "@google-cloud/firestore": "^8.3.0",
     "@google-cloud/storage": "^7.19.0",
     "@sendgrid/mail": "^8.1.6",

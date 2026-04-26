@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/reputation_badge.dart';
 import '../models/interaction_models.dart';
 import '../services/interaction_service.dart';
 import '../services/live_chat_service.dart';
@@ -349,27 +350,48 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
                               ),
                             ],
                             Expanded(
-                              child: RichText(
-                                text: TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: '${message.senderName} ',
-                                      style: TextStyle(
-                                        color: _nameColor(message.senderName),
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (message.senderRepLevel > 0) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: 1,
+                                        right: 3,
                                       ),
-                                    ),
-                                    TextSpan(
-                                      text: message.text,
-                                      style: const TextStyle(
-                                        color: AppColors.white,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
+                                      child: ReputationBadgeWidget(
+                                        level: message.senderRepLevel,
+                                        size: 13,
                                       ),
                                     ),
                                   ],
-                                ),
+                                  Flexible(
+                                    child: RichText(
+                                      text: TextSpan(
+                                        children: [
+                                          TextSpan(
+                                            text: '${message.senderName} ',
+                                            style: TextStyle(
+                                              color: _nameColor(
+                                                message.senderName,
+                                              ),
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: message.text,
+                                            style: const TextStyle(
+                                              color: AppColors.white,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -389,9 +411,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
                   decoration: InputDecoration(
                     counterText: '',
                     hintText: 'Send a message...',
-                    hintStyle: TextStyle(
-                      color: AppColors.goldText,
-                    ),
+                    hintStyle: TextStyle(color: AppColors.goldText),
                     filled: true,
                     fillColor: AppColors.inputFill,
                     contentPadding: const EdgeInsets.symmetric(

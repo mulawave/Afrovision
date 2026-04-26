@@ -155,6 +155,7 @@ export interface HomepageSocialLink {
   platform: string;
   label: string;
   url: string;
+  icon_url?: string | null;
 }
 
 export interface HomepageBranding {
@@ -190,7 +191,7 @@ export async function getHomepageContent(): Promise<HomepageContent | null> {
     const timeout = setTimeout(() => controller.abort(), 4000);
 
     const response = await fetch(`${API_BASE}/home/content`, {
-      next: { revalidate: 60 },
+      cache: "no-store",
       signal: controller.signal,
     });
 

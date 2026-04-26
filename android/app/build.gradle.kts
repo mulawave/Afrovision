@@ -20,7 +20,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.afrovision.afrovision"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
 
     signingConfigs {
         create("release") {
@@ -50,8 +50,8 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion  // firebase_messaging requires minSdk 23
         targetSdk = flutter.targetSdkVersion
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
     }
 
     buildTypes {
@@ -77,4 +77,6 @@ dependencies {
     // RemoteMessage to Kotlin-native code compiled in this module directly.
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
+    // Play Integrity API — used instead of reCAPTCHA for the Android app
+    implementation("com.google.android.play:integrity:1.4.0")
 }

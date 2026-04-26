@@ -40,8 +40,8 @@ class VideoModel {
       description: json['description'] as String? ?? '',
       videoUrl: json['video_url'] as String? ?? '',
       thumbnailUrl: json['thumbnail_url'] as String?,
-      duration: json['duration'] as int? ?? 0,
-      createdAt: json['created_at'] as int? ?? 0,
+      duration: (json['duration'] as num?)?.toInt() ?? 0,
+      createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
     );
   }
 }

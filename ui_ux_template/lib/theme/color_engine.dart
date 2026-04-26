@@ -29,20 +29,15 @@ class PremiumTheme {
   // ── Singleton instances ────────────────────────────────────────────────────
 
   static PremiumColors _colors = _Defaults.colors;
-  static late PremiumGradients _gradients = PremiumGradients._fromColors(
-    _colors,
-  );
-  static late PremiumShadows _shadows = PremiumShadows._fromColors(_colors);
-  static late PremiumDecorations _decorations = PremiumDecorations._fromAll(
+  static PremiumGradients _gradients = PremiumGradients._fromColors(_colors);
+  static PremiumShadows _shadows = PremiumShadows._fromColors(_colors);
+  static PremiumDecorations _decorations = PremiumDecorations._fromAll(
     _colors,
     _gradients,
     _shadows,
   );
-  static late PremiumTextStyles _textStyles = PremiumTextStyles._fromColors(
-    _colors,
-  );
-  static late PremiumAnimationConfig _animations =
-      const PremiumAnimationConfig();
+  static PremiumTextStyles _textStyles = PremiumTextStyles._fromColors(_colors);
+  static PremiumAnimationConfig _animations = const PremiumAnimationConfig();
 
   // ── Public getters ─────────────────────────────────────────────────────────
 

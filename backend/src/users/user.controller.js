@@ -13,8 +13,8 @@ function normalizeAccountNumber(value) {
   return String(value || '').replace(/\D/g, '').trim();
 }
 
-function getProfile(req, res) {
-  const user = User.findById(req.userId);
+async function getProfile(req, res) {
+  const user = await User.reloadFromFirestore(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: User.toSafeUser(user) });
 }

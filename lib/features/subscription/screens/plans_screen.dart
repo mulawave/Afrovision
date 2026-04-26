@@ -5,6 +5,8 @@ import '../services/subscription_service.dart';
 import '../../currency/models/currency_model.dart';
 import '../../currency/currency_service.dart';
 import '../../auth/services/profile_service.dart';
+import '../../reputation/models/reputation_model.dart';
+import '../../reputation/services/reputation_service.dart';
 
 class PlansScreen extends StatefulWidget {
   const PlansScreen({super.key});
@@ -27,6 +29,7 @@ class _PlansScreenState extends State<PlansScreen>
   String _accountRole = 'viewer';
   String _paymentMethod = 'fiat';
   bool _yearlyBilling = false;
+  ReputationModel? _reputation;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late TabController _tabController;
@@ -56,17 +59,29 @@ class _PlansScreenState extends State<PlansScreen>
   bool get _isCreatorAccount =>
       _accountRole == 'creator' || _accountRole == 'admin';
 
+  int get _userRepLevel => _reputation?.level ?? 0;
+
+  static const Map<String, int> _planLevelGate = {
+    'plan_viewer_free': 0,
+    'plan_viewer_basic': 1,
+    'plan_viewer_pro': 2,
+    'plan_viewer_premium': 3,
+  };
+
   Future<void> _loadData() async {
     try {
       final profile = await ProfileService.getProfile();
       _selectedCurrency = profile.preferredCurrency;
       _isRenewal = profile.firstSubscriptionAt != null;
-      _vptBalance = profile.vptBalance;
+      _vptBalance = profile.vpt;
       _accountRole = profile.role;
 
       final results = await Future.wait([
         CurrencyService.getCurrencies(),
         SubscriptionService.getPlans(),
+        ReputationService.getMyReputation()
+            .then<ReputationModel?>((v) => v)
+            .catchError((_) => null),
       ]);
       final currencies = results[0] as List<CurrencyModel>;
       final plans = results[1] as List<PlanModel>;
@@ -75,6 +90,7 @@ class _PlansScreenState extends State<PlansScreen>
       setState(() {
         _currencies = currencies;
         _plans = plans;
+        _reputation = results[2] as ReputationModel?;
         _loading = false;
       });
       _animController.forward();
@@ -376,6 +392,49 @@ class _PlansScreenState extends State<PlansScreen>
                 'Watch more, earn more vPT rewards',
                 style: TextStyle(color: AppColors.goldText, fontSize: 14),
               ),
+              const SizedBox(height: 10),
+              if (!_isCreatorAccount) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.inputFill,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.inputBorder),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.shield_rounded,
+                        color: _reputation == null
+                            ? AppColors.hintText
+                            : _userRepLevel == 0
+                            ? AppColors.hintText
+                            : _userRepLevel == 1
+                            ? AppColors.reputationBlue
+                            : _userRepLevel == 2
+                            ? AppColors.reputationPurple
+                            : AppColors.orange,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _reputation == null
+                            ? 'Your level: Loading…'
+                            : 'Your level: ${_reputation!.levelName}',
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               _buildBillingToggle(),
               if (_currencies.length > 1) ...[
@@ -775,6 +834,8 @@ class _PlansScreenState extends State<PlansScreen>
     final period = _yearlyBilling ? '/year' : '/month';
     final multiplier = plan.rewardMultiplier;
     final isLockedForCreator = _isCreatorAccount && !isFree;
+    final requiredRepLevel = _planLevelGate[plan.id] ?? 0;
+    final isRepLocked = !isFree && _userRepLevel < requiredRepLevel;
 
     // Plan display name
     final displayName = isFree
@@ -998,7 +1059,7 @@ class _PlansScreenState extends State<PlansScreen>
           const SizedBox(height: 16),
           if (!isFree)
             GestureDetector(
-              onTap: isSubscribing || isLockedForCreator
+              onTap: isSubscribing || isLockedForCreator || isRepLocked
                   ? null
                   : () => _subscribe(plan),
               child: Container(
@@ -1007,18 +1068,18 @@ class _PlansScreenState extends State<PlansScreen>
                 decoration: BoxDecoration(
                   gradient: isSubscribing
                       ? AppColors.buttonDisabledGradient
-                      : isLockedForCreator
+                      : isLockedForCreator || isRepLocked
                       ? null
                       : isHighlighted
                       ? AppColors.buttonGradient
                       : null,
-                  color: isLockedForCreator
+                  color: isLockedForCreator || isRepLocked
                       ? AppColors.lightBlue.withValues(alpha: 0.25)
                       : isHighlighted
                       ? null
                       : AppColors.lightBlue,
                   borderRadius: BorderRadius.circular(12),
-                  border: isLockedForCreator
+                  border: isLockedForCreator || isRepLocked
                       ? Border.all(color: AppColors.inputBorder)
                       : isHighlighted
                       ? null
@@ -1037,6 +1098,26 @@ class _PlansScreenState extends State<PlansScreen>
                               AppColors.white,
                             ),
                           ),
+                        )
+                      : isRepLocked
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.lock_rounded,
+                              color: AppColors.hintText,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Requires Level $requiredRepLevel Reputation',
+                              style: const TextStyle(
+                                color: AppColors.hintText,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         )
                       : Text(
                           isLockedForCreator

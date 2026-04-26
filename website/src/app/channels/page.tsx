@@ -9,6 +9,8 @@ import { getChannelByNumberApi, getChannelsApi, getCategoriesApi, type Channel, 
 import { useAuth } from "@/lib/AuthContext";
 import { BannerAd } from "@/components/BannerAd";
 
+const CHANNELS_PER_PAGE = 12;
+
 export default function ChannelsPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -21,6 +23,7 @@ export default function ChannelsPage() {
   const [channelNumber, setChannelNumber] = useState("");
   const [numberLoading, setNumberLoading] = useState(false);
   const [numberError, setNumberError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +64,22 @@ export default function ChannelsPage() {
 
     return result;
   }, [channels, query, selectedCategory]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredChannels.length / CHANNELS_PER_PAGE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedChannels = useMemo(() => {
+    const start = (safeCurrentPage - 1) * CHANNELS_PER_PAGE;
+    return filteredChannels.slice(start, start + CHANNELS_PER_PAGE);
+  }, [filteredChannels, safeCurrentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query, selectedCategory]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   async function handleChannelNumberAccess(e: React.FormEvent) {
     e.preventDefault();
@@ -178,8 +197,9 @@ export default function ChannelsPage() {
             <p className="mt-3 text-sm text-av-light-orange">No public channels matched your search.</p>
           </div>
         ) : (
+          <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filteredChannels.map((channel) => (
+            {paginatedChannels.map((channel) => (
               <Link
                 key={channel.id}
                 href={`/live/${channel.id}`}
@@ -211,6 +231,54 @@ export default function ChannelsPage() {
               </Link>
             ))}
           </div>
+
+          {totalPages > 1 && (
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+              <button
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={safeCurrentPage === 1}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  safeCurrentPage === 1
+                    ? "border-av-input-border/20 text-av-light-orange/40 cursor-not-allowed"
+                    : "border-av-input-border/40 text-av-light-orange hover:text-av-white hover:border-av-orange/40"
+                }`}
+              >
+                Previous
+              </button>
+
+              {Array.from({ length: totalPages }, (_, index) => {
+                const page = index + 1;
+                const isActive = page === safeCurrentPage;
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`min-w-8 h-8 px-2 rounded-lg text-xs font-bold border inline-flex items-center justify-center transition-all ${
+                      isActive
+                        ? "bg-av-orange/20 border-av-orange/40 text-av-orange"
+                        : "border-av-input-border/40 text-av-light-orange hover:text-av-white hover:border-av-orange/40"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={safeCurrentPage === totalPages}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  safeCurrentPage === totalPages
+                    ? "border-av-input-border/20 text-av-light-orange/40 cursor-not-allowed"
+                    : "border-av-input-border/40 text-av-light-orange hover:text-av-white hover:border-av-orange/40"
+                }`}
+              >
+                Next
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
     </main>

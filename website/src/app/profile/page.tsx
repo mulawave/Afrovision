@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { getMeApi, type StoredUser } from "@/lib/api";
+import { getMeApi, getMyReputationApi, type StoredUser, type Reputation } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { PremiumBadge } from "@/components/PremiumBadge";
+import { ReputationBadge } from "@/components/ReputationBadge";
 
 function formatDate(value: string | null) {
   if (!value) return "Not available";
@@ -19,6 +20,8 @@ function formatDate(value: string | null) {
 export default function ProfilePage() {
   const { isAuthenticated, user: authUser, logout, refreshUser } = useAuth();
   const [profile, setProfile] = useState<StoredUser | null>(null);
+  const [reputation, setReputation] = useState<Reputation | null>(null);
+  const [repLoading, setRepLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +32,7 @@ export default function ProfilePage() {
     }
 
     let cancelled = false;
-    // Refresh auth context user AND fetch fresh profile
+    // Refresh auth context user AND fetch fresh profile + reputation
     refreshUser();
     getMeApi().then((res) => {
       if (cancelled) return;
@@ -39,6 +42,14 @@ export default function ProfilePage() {
         setError("Failed to load profile");
       }
       setLoading(false);
+    });
+    setRepLoading(true);
+    getMyReputationApi().then((res) => {
+      if (cancelled) return;
+      if (res.ok && "reputation" in res.data) {
+        setReputation(res.data.reputation);
+      }
+      setRepLoading(false);
     });
 
     return () => {
@@ -98,6 +109,7 @@ export default function ProfilePage() {
                     <div className="flex items-center gap-3 flex-wrap">
                       <h2 className="text-xl font-semibold text-av-white">{profile.name || "Unnamed member"}</h2>
                       <PremiumBadge user={profile} size="md" />
+                      <ReputationBadge reputation={reputation} size="md" loading={repLoading} />
                     </div>
                     <p className="text-sm text-av-light-orange">{profile.email}</p>
                     <Link href="/profile/edit" className="mt-2 inline-block text-xs font-semibold text-av-orange hover:text-av-light-orange">
@@ -115,9 +127,12 @@ export default function ProfilePage() {
                 </div>
               </section>
 
+              {/* Reputation card */}
+              <ReputationBadge reputation={reputation} size="lg" loading={repLoading} />
+
               <section className="grid gap-4 sm:grid-cols-2">
                 <InfoCard label="Preferred Currency" value={profile.preferred_currency} />
-                <InfoCard label="vPT Balance" value={`${profile.vpt_balance.toLocaleString()} VPT`} />
+                <InfoCard label="vPT Balance" value={`${profile.vpt.toLocaleString()} VPT`} />
                 <InfoCard label="Plan" value={profile.subscription_plan || "No active plan"} />
                 <InfoCard label="Member Since" value={formatDate(profile.created_at)} />
               </section>
@@ -129,6 +144,7 @@ export default function ProfilePage() {
                 <div className="mt-4 space-y-3">
                   <QuickLink href="/notifications" label="Notifications" note="Review go-live alerts, admin notices, and account updates" />
                   <QuickLink href="/wallet" label="Wallet" note="View balances, ledger, and creator wallet status" />
+                  <QuickLink href="/leaderboard" label="Leaderboard" note="See your reputation rank and the top gifters" />
                   <QuickLink href="/referrals" label="Referrals" note="Track your referral earnings and network" />
                   {(profile.role === "creator" || profile.role === "admin") ? <QuickLink href="/create-channel" label="Create Channel" note="Launch a new public or private channel with media" /> : null}
                   {(profile.role === "creator" || profile.role === "admin") ? <QuickLink href="/creator-studio" label="Creator Studio" note="Upload videos and manage the broadcast schedule" /> : null}

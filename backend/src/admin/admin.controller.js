@@ -440,7 +440,7 @@ async function reconstructHardDeleted(req, res) {
       kyc_status: 'none',
       is_premium_creator: false,
       subscription_status: 'inactive',
-      vpt_balance: 0,
+      vpt: 0,
       created_at: null,
       recovered_at: new Date().toISOString(),
       _recovered: true,

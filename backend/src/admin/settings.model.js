@@ -250,6 +250,12 @@ const SETTING_DEFINITIONS = {
     sensitive: true,
     defaultValue: null,
   },
+  RECAPTCHA_ENTERPRISE_API_KEY: {
+    category: 'system',
+    description: 'Google reCAPTCHA Enterprise API key used for assessments endpoint',
+    sensitive: true,
+    defaultValue: null,
+  },
   AD_BREAK_BUFFER_SECONDS: {
     category: 'system',
     description: 'Seconds of buffer added between programs for ad breaks (pre-roll + brief). Set to 0 to disable.',

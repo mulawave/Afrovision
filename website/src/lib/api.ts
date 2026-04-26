@@ -50,6 +50,8 @@ export async function api<T = unknown>(
     method,
     headers: requestHeaders,
     body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store",
+    next: { revalidate: 0 },
   });
 
   const data = await res.json().catch(() => ({}));
@@ -80,6 +82,8 @@ export async function apiFormData<T = unknown>(
     method,
     headers: requestHeaders,
     body,
+    cache: "no-store",
+    next: { revalidate: 0 },
   });
 
   const data = await res.json().catch(() => ({}));
@@ -137,7 +141,7 @@ export interface StoredUser {
   subscription_expiry: string | null;
   avatar_url: string | null;
   preferred_currency: string;
-  vpt_balance: number;
+  vpt: number;
   bsc_address: string | null;
   first_subscription_at: string | null;
   following_creator_ids?: string[];
@@ -348,6 +352,38 @@ export async function exchangeAssetsApi(from: "ravens" | "vpt", to: "ravens" | "
   );
 }
 
+// ── Reputation API ─────────────────────────────────────────
+
+export interface Reputation {
+  user_id: string;
+  total_reps: number;
+  level: number;
+  total_gifting_ngn: number;
+  total_gifting_vpt: number;
+  community_pool_eligible: boolean;
+  leaderboard_rank: number | null;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  user_id: string;
+  name: string;
+  total_reps: number;
+  level: number;
+}
+
+export async function getMyReputationApi() {
+  return api<{ reputation: Reputation } | ErrorResponse>("/reputation/me", {
+    requireAuth: true,
+  });
+}
+
+export async function getLeaderboardApi(limit = 50, offset = 0) {
+  return api<{ leaderboard: LeaderboardEntry[]; limit: number; offset: number }>(
+    `/reputation/leaderboard?limit=${limit}&offset=${offset}`
+  );
+}
+
 export async function sendGiftApi(channelId: string, giftId: string) {
   return api<{
     message: string;
@@ -374,6 +410,7 @@ export interface ChannelEvent {
   id: string;
   type: "reaction" | "gift";
   sender_name: string;
+  sender_rep_level?: number;
   created_at: number;
   emoji?: string;
   gift_name?: string;
@@ -651,11 +688,11 @@ export async function createWalletApi() {
 export interface ConnectedWallet {
   address: string;
   type: string;
-  balances?: { bnb_balance: number; vpt_balance: number; vpt_balance_raw: string; address: string; token_address: string | null; token_configured: boolean };
+  balances?: { bnb_balance: number; vpt: number; vpt_raw: string; address: string; token_address: string | null; token_configured: boolean };
 }
 
 export async function scanWalletBalanceApi(address: string) {
-  return api<{ address: string; vpt_balance_raw: string; vpt_balance: number; bnb_balance: string } | ErrorResponse>(
+  return api<{ address: string; vpt_raw: string; vpt: number; bnb_balance: string } | ErrorResponse>(
     `/wallet/scan-balance/${encodeURIComponent(address)}`,
     { requireAuth: true }
   );

@@ -3,7 +3,10 @@ const { authenticateToken, optionalAuth } = require('../utils/jwt');
 const Channel = require('./channel.model');
 const User = require('../users/user.model');
 const Ledger = require('../vpt/ledger.model');
+const PoolService = require('../vpt/pool.service');
 const designCtrl = require('../design/homepage-design.controller');
+const challengeContentCtrl = require('../design/challenge-content.controller');
+const staticPagesContentCtrl = require('../design/static-pages-content.controller');
 const SettingsService = require('../admin/settings.service');
 const adminCtrl = require('../admin/admin.controller');
 
@@ -12,17 +15,27 @@ const router = Router();
 // GET /home/content — public homepage design/content payload for website rendering
 router.get('/content', designCtrl.getHomepageContent);
 
+// GET /home/challenge-content — public challenge page content payload
+router.get('/challenge-content', challengeContentCtrl.getPublicChallengeContent);
+
+// GET /home/page-content/:slug — public static page content payload
+router.get('/page-content/:slug', staticPagesContentCtrl.getPublicPageContent);
+
+// GET /home/page-content-slugs — public list of supported static page slugs
+router.get('/page-content-slugs', staticPagesContentCtrl.listPageSlugs);
+
 // GET /home/marquee — public, returns active marquee/ticker topics
 router.get('/marquee', adminCtrl.getActiveMarqueeTopics);
 
 // GET /home/captcha-key — public, returns reCAPTCHA site key for client-side use
 router.get('/captcha-key', async (req, res) => {
+  const fallbackSiteKey = process.env.RECAPTCHA_SITE_KEY || '6LeuIsEsAAAAAO6xD7D08pQAraweXcxw9pHBg94k';
   try {
     const siteKey = await SettingsService.get('RECAPTCHA_SITE_KEY');
-    res.json({ siteKey: siteKey || '' });
+    res.json({ siteKey: siteKey || fallbackSiteKey });
   } catch (err) {
     console.error('[Home] captcha-key error:', err);
-    res.json({ siteKey: '' });
+    res.json({ siteKey: fallbackSiteKey });
   }
 });
 
@@ -96,25 +109,9 @@ router.get('/stats', optionalAuth, async (req, res) => {
     if (stored && Number(stored) > 0) vptToNaira = Number(stored);
   } catch (_) { /* use default */ }
 
-  // Community pool balance = sum of (community_pool - vpt_extraction) from all SPLIT entries
-  // i.e., the 70% that stays in the pool, converted to vPT at market rate
-  const splits = Ledger.getAll().filter((e) => e.type === 'SPLIT' && e.status === 'success');
-  let communityPoolNgn = 0;
-  for (const s of splits) {
-    const fullPool = (s.meta && s.meta.community_pool) || 0;
-    const extracted = s.amount_ngn || 0; // the 30% that went to vPT queue
-    communityPoolNgn += (fullPool - extracted); // 70% remains
-  }
-  const communityPoolVpt = Math.round((communityPoolNgn / vptToNaira) * 100) / 100;
-
-  // Total distributed from pool (VPT_DISTRIBUTION entries)
-  const distributions = Ledger.getAll().filter((e) => e.type === 'VPT_DISTRIBUTION' && e.status === 'success');
-  const totalDistributedVpt = distributions.reduce((sum, e) => sum + (e.amount_vpt || 0), 0);
-  const totalDistributedNgn = Math.round(totalDistributedVpt * vptToNaira * 100) / 100;
-
-  // Total beneficiaries = unique users who received a distribution
-  const beneficiarySet = new Set(distributions.map((e) => e.uid).filter(Boolean));
-  const totalBeneficiaries = beneficiarySet.size;
+  // Community pool — recalculated from actual confirmed subscription records
+  const poolStats = await PoolService.getPoolStats();
+  const pool = poolStats.pool;
 
   // Recent public channels (top 10)
   const recentChannels = Channel.getRecentPublic(10).map((ch) => {
@@ -150,13 +147,13 @@ router.get('/stats', optionalAuth, async (req, res) => {
 
   res.json({
     community_pool: {
-      total_vpt: communityPoolVpt,
-      total_ngn: communityPoolNgn,
+      total_vpt: pool.balance_vpt,
+      total_ngn: pool.balance_ngn,
       vpt_rate: vptToNaira,
-      naira_equivalent: communityPoolNgn,
-      total_distributed_vpt: Math.round(totalDistributedVpt * 100) / 100,
-      total_distributed_ngn: totalDistributedNgn,
-      total_beneficiaries: totalBeneficiaries,
+      naira_equivalent: pool.balance_ngn,
+      total_distributed_vpt: pool.total_distributed_vpt,
+      total_distributed_ngn: pool.total_distributed,
+      total_beneficiaries: pool.total_beneficiaries,
     },
     recent_channels: recentChannels,
     promoted_channels: promoted,

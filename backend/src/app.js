@@ -33,6 +33,8 @@ const adRoutes = require('./ads/ad.routes');
 const ChallengeModel = require('./challenge/challenge.model');
 const KycModel = require('./kyc/kyc.model');
 const RenewalWorker = require('./subscriptions/renewal.worker');
+const reputationRoutes = require('./reputation/reputation.routes');
+const ReputationService = require('./reputation/reputation.service');
 const ChannelAccessModel = require('./channels/channel_access.model');
 const CreatorSubscriptionModel = require('./subscriptions/creator_subscription.model');
 const ReferralModel = require('./referrals/referral.model');
@@ -66,7 +68,8 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 
 app.use(helmet());
-app.use(rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false }));
+// Global rate limit removed — admin panel was being throttled by shared Cloud Run IP
+// Auth endpoints have their own per-IP/email limiter in auth.routes.js
 
 if (!process.env.ALLOWED_ORIGINS) {
   console.error('[FATAL] ALLOWED_ORIGINS environment variable is required. Set it to a comma-separated list of allowed origins.');
@@ -113,6 +116,7 @@ app.use('/copyright', copyrightRoutes);
 app.use('/challenge', challengeRoutes);
 app.use('/kyc', kycRoutes);
 app.use('/ads', adRoutes);
+app.use('/reputation', reputationRoutes);
 
 // Promo modal — public endpoint (no auth required)
 const promoModalCtrl = require('./promo/promo-modal.controller');
@@ -245,6 +249,7 @@ async function startServer() {
     PoolService.init(),
     AdModel.init(),
     AdImpressionModel.init(),
+    ReputationService.init(),
   ]);
 
   // Start the renewal worker AFTER models are initialized

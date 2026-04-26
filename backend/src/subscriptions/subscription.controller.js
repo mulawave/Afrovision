@@ -9,6 +9,7 @@ const SettingsService = require('../admin/settings.service');
 const ReferralModel = require('../referrals/referral.model');
 const { distributeReferralEarnings } = require('../referrals/referral.controller');
 const NotificationService = require('../notifications/notification.service');
+const ReputationService = require('../reputation/reputation.service');
 
 function getPlans(req, res) {
   const plans = Plan.getAll();
@@ -141,6 +142,18 @@ async function activatePlatformPlan({
     });
   }
 
+  // Credit operations pool (50%)
+  const operationsPool = Math.floor(subscriptionAmount * 0.50);
+  if (operationsPool > 0) {
+    await PoolService.creditOperationsPool(operationsPool, 'subscription', {
+      plan_id: plan.id,
+      plan_name: plan.name,
+      plan_type: plan.type,
+      billing_cycle: billingCycle,
+      user_id: userId,
+    });
+  }
+
   let walletCreated = false;
   if (plan.type === 'creator') {
     try {
@@ -200,6 +213,16 @@ async function subscribe(req, res) {
     return res.status(400).json({ error: eligibilityError });
   }
 
+  // Reputation gate: viewer plans above free tier require a minimum rep level
+  if (plan.type === 'viewer' && plan.id !== 'plan_viewer_free') {
+    if (!ReputationService.canSubscribeToPlan(req.userId, plan.id)) {
+      return res.status(403).json({
+        error: 'REPUTATION_GATE',
+        message: 'Your reputation level is too low for this plan. Keep gifting to level up!',
+      });
+    }
+  }
+
   // Payment rules: first subscription = fiat only, renewals for creators can use vPT
   const isRenewal = user.first_subscription_at !== null;
   const method = paymentMethod || 'fiat';
@@ -214,11 +237,11 @@ async function subscribe(req, res) {
     if (!isRenewal) {
       return res.status(400).json({ error: 'First subscription must be paid with fiat' });
     }
-    if (user.vpt_balance < plan.price) {
+    if (user.vpt < plan.price) {
       return res.status(400).json({ error: 'Insufficient vPT balance' });
     }
     // Deduct vPT
-    await User.adjustVptBalance(req.userId, -plan.price);
+    await User.adjustVpt(req.userId, -plan.price);
     await Vpt.create({
       userId: req.userId,
       type: 'subscription_payment',

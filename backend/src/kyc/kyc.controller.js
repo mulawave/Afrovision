@@ -12,6 +12,7 @@
  */
 const KycModel = require('./kyc.model');
 const UserModel = require('../users/user.model');
+const ReputationService = require('../reputation/reputation.service');
 
 /* ── User-facing ──────────────────────────────────────────────── */
 
@@ -168,6 +169,11 @@ async function adminReviewKyc(req, res) {
 
     // Sync user KYC status
     await UserModel.setKyc(record.user_id, status === 'verified' ? 'verified' : 'none');
+
+    // Refresh stored community_pool_eligible so it reflects the new KYC status immediately
+    ReputationService.refreshEligibility(record.user_id).catch((err) =>
+      console.error('[KYC] refreshEligibility error:', err.message),
+    );
 
     res.json(record);
   } catch (err) {

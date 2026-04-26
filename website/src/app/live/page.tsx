@@ -2,17 +2,19 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getChannelsApi, type Channel } from "@/lib/api";
-import type { Metadata } from "next";
 
 // metadata must be exported from a server component, but this is client
 // — we set the title via <title> in the head instead for this page
 
+const CHANNELS_PER_PAGE = 12;
+
 export default function LivePage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,6 +27,18 @@ export default function LivePage() {
     });
     return () => { cancelled = true; };
   }, []);
+
+  const totalPages = Math.max(1, Math.ceil(channels.length / CHANNELS_PER_PAGE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedChannels = useMemo(() => {
+    const start = (safeCurrentPage - 1) * CHANNELS_PER_PAGE;
+    return channels.slice(start, start + CHANNELS_PER_PAGE);
+  }, [channels, safeCurrentPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   return (
     <>
@@ -76,8 +90,9 @@ export default function LivePage() {
               </Link>
             </div>
           ) : (
+            <>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {channels.map((ch) => (
+              {paginatedChannels.map((ch) => (
                 <Link
                   key={ch.id}
                   href={`/live/${ch.id}`}
@@ -104,6 +119,54 @@ export default function LivePage() {
                 </Link>
               ))}
             </div>
+
+            {totalPages > 1 && (
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={safeCurrentPage === 1}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                    safeCurrentPage === 1
+                      ? "border-av-input-border/20 text-av-light-orange/40 cursor-not-allowed"
+                      : "border-av-input-border/40 text-av-light-orange hover:text-av-white hover:border-av-orange/40"
+                  }`}
+                >
+                  Previous
+                </button>
+
+                {Array.from({ length: totalPages }, (_, index) => {
+                  const page = index + 1;
+                  const isActive = page === safeCurrentPage;
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      aria-current={isActive ? "page" : undefined}
+                      className={`min-w-8 h-8 px-2 rounded-lg text-xs font-bold border inline-flex items-center justify-center transition-all ${
+                        isActive
+                          ? "bg-av-orange/20 border-av-orange/40 text-av-orange"
+                          : "border-av-input-border/40 text-av-light-orange hover:text-av-white hover:border-av-orange/40"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={safeCurrentPage === totalPages}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                    safeCurrentPage === totalPages
+                      ? "border-av-input-border/20 text-av-light-orange/40 cursor-not-allowed"
+                      : "border-av-input-border/40 text-av-light-orange hover:text-av-white hover:border-av-orange/40"
+                  }`}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+            </>
           )}
         </div>
       </main>

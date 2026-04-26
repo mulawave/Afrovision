@@ -75,10 +75,12 @@ class PremiumPasswordStrength extends StatelessWidget {
     int met = 0;
     if (password.contains(RegExp(r'[A-Z]'))) met++;
     if (password.contains(RegExp(r'[a-zA-Z]')) &&
-        password.contains(RegExp(r'[0-9]')))
+        password.contains(RegExp(r'[0-9]'))) {
       met++;
-    if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/~`]')))
+    }
+    if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/~`]'))) {
       met++;
+    }
     if (password.length > 6) met++;
 
     final strength = _PwStrength.values[met];

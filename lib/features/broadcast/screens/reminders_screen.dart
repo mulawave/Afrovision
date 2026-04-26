@@ -323,7 +323,7 @@ class _RemindersScreenState extends State<RemindersScreen>
           final title = reminder['video_title'] as String? ?? 'Unknown Program';
           final channelName =
               reminder['channel_name'] as String? ?? 'Unknown Channel';
-          final sendAtMs = reminder['send_at'] as int? ?? 0;
+          final sendAtMs = (reminder['send_at'] as num?)?.toInt() ?? 0;
           final programId = reminder['program_id'] as String? ?? '';
           final sendAt = DateTime.fromMillisecondsSinceEpoch(sendAtMs);
           final now = DateTime.now();

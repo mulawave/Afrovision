@@ -88,7 +88,7 @@ export function LiveStream({ id }: { id: string }) {
   const hideFlash = useCallback(() => setFlashType(null), []);
 
   // Use real VPT balance if authenticated, otherwise demo balance
-  const walletBalance = isAuthenticated && user ? user.vpt_balance : 0;
+  const walletBalance = isAuthenticated && user ? user.vpt : 0;
 
   // Immediately fetch now-playing + schedule (used on program transitions)
   const refreshNowPlaying = useCallback(async () => {
@@ -552,7 +552,16 @@ export function LiveStream({ id }: { id: string }) {
                   {events.slice(-5).reverse().map((event) => (
                     <div key={event.id} className="flex items-center justify-between gap-3 rounded-lg bg-av-input-fill/40 px-3 py-2 text-xs">
                       <p className="text-av-light-orange min-w-0 flex-1 truncate">
-                        <span className="font-semibold text-av-white">{event.sender_name}</span>{" "}
+                        <span className="font-semibold text-av-white">{event.sender_name}</span>
+                        {(event.sender_rep_level ?? 0) > 0 && (
+                          <span className={`ml-1 inline-flex px-1 py-0 rounded text-[8px] font-bold uppercase text-white ${
+                            event.sender_rep_level === 3 ? "bg-orange-500/80"
+                              : event.sender_rep_level === 2 ? "bg-purple-500/80"
+                              : "bg-blue-500/80"
+                          }`}>
+                            L{event.sender_rep_level}
+                          </span>
+                        )}{" "}
                         {event.type === "gift"
                           ? `sent ${event.gift_icon || "🎁"} ${event.gift_name || "a gift"}`
                           : `reacted ${event.emoji || "🔥"}`}

@@ -14,6 +14,9 @@ import '../../../core/utils/app_rating.dart';
 import '../../../core/utils/kyc_gender_checker.dart';
 import '../../../core/services/notification_service.dart';
 import '../../promo/widgets/promo_modal_dialog.dart';
+import '../../reputation/models/reputation_model.dart';
+import '../../reputation/services/reputation_service.dart';
+import '../../../core/widgets/reputation_badge.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   UserModel? _user;
   HomeStats? _stats;
+  ReputationModel? _reputation;
   bool _loading = true;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -117,12 +121,16 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
         NotificationInboxService.getUnreadCount().catchError((_) => 0),
+        ReputationService.getMyReputation()
+            .then<ReputationModel?>((v) => v)
+            .catchError((_) => null),
       ]);
       if (!mounted) return;
       setState(() {
         _user = results[0] as UserModel;
         _stats = results[1] as HomeStats;
         _unreadNotifications = results[2] as int;
+        _reputation = results[3] as ReputationModel?;
         _loading = false;
       });
       // Sync app icon badge with current unread count
@@ -228,6 +236,13 @@ class _HomeScreenState extends State<HomeScreen>
     if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
     if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
     return n.toStringAsFixed(n == n.roundToDouble() ? 0 : 2);
+  }
+
+  String _formatReps(double v) {
+    if (v >= 1000) {
+      return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
+    }
+    return v.toStringAsFixed(0);
   }
 
   String _formatNaira(double n) {
@@ -343,6 +358,26 @@ class _HomeScreenState extends State<HomeScreen>
                     role: _user!.role,
                     isPremiumCreator: _user!.isPremiumCreator,
                     subscriptionPlan: _user!.subscriptionPlan,
+                  ),
+                ],
+                if (_reputation != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      ReputationBadgeWidget(
+                        level: _reputation!.level,
+                        size: 13,
+                      ),
+                      if (_reputation!.level > 0) const SizedBox(width: 4),
+                      Text(
+                        '${_formatReps(_reputation!.totalReps)} Reps \u00b7 ${_reputation!.levelName}',
+                        style: const TextStyle(
+                          color: AppColors.hintText,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ],
@@ -1553,7 +1588,7 @@ class _HomeScreenState extends State<HomeScreen>
                   _highlightStat(
                     Icons.toll_rounded,
                     'Your vPT',
-                    _formatNumber(_user?.vptBalance ?? 0),
+                    _formatNumber(_user?.vpt ?? 0),
                   ),
                   const SizedBox(height: 10),
                   _highlightStat(

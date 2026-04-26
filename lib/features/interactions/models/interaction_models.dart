@@ -28,10 +28,10 @@ class GiftModel {
       icon: json['icon'] as String? ?? '🎁',
       animation: json['animation'] as String?,
       currency: json['currency'] as String? ?? 'vpt',
-      vptUnits: json['vpt_units'] as int? ?? 0,
+      vptUnits: (json['vpt_units'] as num?)?.toInt() ?? 0,
       nairaValue: (json['naira_value'] as num?)?.toDouble() ?? 0,
       isActive: json['is_active'] as bool? ?? true,
-      sortOrder: json['sort_order'] as int? ?? 0,
+      sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -79,6 +79,7 @@ class ChannelEventModel {
   final String id;
   final String type; // 'reaction' | 'gift'
   final String senderName;
+  final int senderRepLevel;
   final String? emoji;
   final String? giftName;
   final String? giftIcon;
@@ -89,6 +90,7 @@ class ChannelEventModel {
     required this.id,
     required this.type,
     required this.senderName,
+    this.senderRepLevel = 0,
     this.emoji,
     this.giftName,
     this.giftIcon,
@@ -101,11 +103,12 @@ class ChannelEventModel {
       id: json['id'] as String? ?? '',
       type: json['type'] as String? ?? '',
       senderName: json['sender_name'] as String? ?? '',
+      senderRepLevel: (json['sender_rep_level'] as num?)?.toInt() ?? 0,
       emoji: json['emoji'] as String?,
       giftName: json['gift_name'] as String?,
       giftIcon: json['gift_icon'] as String?,
       animation: json['animation'] as String?,
-      createdAt: json['created_at'] as int? ?? 0,
+      createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -114,6 +117,7 @@ class LiveChatMessageModel {
   final String id;
   final String channelId;
   final String senderName;
+  final int senderRepLevel;
   final String? badge;
   final String text;
   final int createdAt;
@@ -123,6 +127,7 @@ class LiveChatMessageModel {
     required this.id,
     required this.channelId,
     required this.senderName,
+    this.senderRepLevel = 0,
     this.badge,
     required this.text,
     required this.createdAt,
@@ -134,6 +139,7 @@ class LiveChatMessageModel {
       id: json['id'] as String? ?? '',
       channelId: json['channel_id'] as String? ?? '',
       senderName: json['sender_name'] as String? ?? 'Anonymous',
+      senderRepLevel: (json['sender_rep_level'] as num?)?.toInt() ?? 0,
       badge: json['badge'] as String?,
       text: json['text'] as String? ?? '',
       createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
@@ -157,7 +163,7 @@ class LeaderboardEntry {
 
   factory LeaderboardEntry.fromJson(Map<String, dynamic> json) {
     return LeaderboardEntry(
-      rank: json['rank'] as int? ?? 0,
+      rank: (json['rank'] as num?)?.toInt() ?? 0,
       uid: json['uid'] as String? ?? '',
       displayName: json['display_name'] as String? ?? '',
       total: json['total'] as num? ?? 0,

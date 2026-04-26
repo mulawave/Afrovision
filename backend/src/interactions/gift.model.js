@@ -41,22 +41,29 @@ async function create({ name, icon, imageUrl, animation, currency, vptUnits, nai
   return gift;
 }
 
-function findById(id) {
-  return gifts.find((g) => g.id === id);
+async function findById(id) {
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  return doc.exists ? doc.data() : null;
 }
 
-function getActive() {
-  return gifts
-    .filter((g) => g.is_active)
-    .sort((a, b) => a.sort_order - b.sort_order);
+async function getActive() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('is_active', '==', true)
+    .orderBy('sort_order')
+    .get();
+  return snapshot.docs.map((doc) => doc.data());
 }
 
-function getAll() {
-  return gifts.sort((a, b) => a.sort_order - b.sort_order);
+async function getAll() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).orderBy('sort_order').get();
+  return snapshot.docs.map((doc) => doc.data());
 }
 
 async function update(id, fields) {
-  const gift = findById(id);
+  const gift = await findById(id);
   if (!gift) return null;
   if (fields.name !== undefined) gift.name = fields.name;
   if (fields.icon !== undefined) gift.icon = fields.icon;
@@ -68,13 +75,20 @@ async function update(id, fields) {
   if (fields.sort_order !== undefined) gift.sort_order = fields.sort_order;
   if (fields.is_active !== undefined) gift.is_active = fields.is_active;
   await persist(gift);
+
+  // sync in-memory cache
+  const idx = gifts.findIndex((g) => g.id === id);
+  if (idx !== -1) gifts[idx] = gift;
+  else gifts.push(gift);
+
   return gift;
 }
 
 async function remove(id) {
+  const gift = await findById(id);
+  if (!gift) return false;
   const idx = gifts.findIndex((g) => g.id === id);
-  if (idx === -1) return false;
-  gifts.splice(idx, 1);
+  if (idx !== -1) gifts.splice(idx, 1);
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).delete();
   return true;

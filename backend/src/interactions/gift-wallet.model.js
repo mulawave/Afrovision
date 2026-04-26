@@ -56,8 +56,7 @@ function getAll() {
 }
 
 async function reloadFromFirestore(uid) {
-  // User model is in-memory + Firestore-persisted, just return current state
-  const user = User.findById(uid);
+  const user = await User.reloadFromFirestore(uid);
   if (!user) return null;
   return _toWalletShape(user);
 }

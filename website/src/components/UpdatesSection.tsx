@@ -140,7 +140,7 @@ export function UpdatesSection({ section }: { section?: HomepageUpdatesSection }
                 <h3 className="text-sm font-semibold text-av-white mb-1.5 group-hover:text-av-orange transition-colors">
                   {u.title}
                 </h3>
-                <p className="text-xs text-av-light-orange leading-relaxed mb-3 line-clamp-2">
+                <p className="text-xs text-av-light-orange leading-relaxed mb-3">
                   {u.summary}
                 </p>
                 <time className="text-[10px] text-av-light-orange uppercase tracking-wider font-medium">

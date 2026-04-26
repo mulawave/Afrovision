@@ -1,26 +1,100 @@
 /**
- * Google reCAPTCHA v2 server-side verification.
+ * Google reCAPTCHA verification.
+ *
+ * Uses reCAPTCHA Enterprise assessments through the official Google client.
+ * Falls back to v2 siteverify only when Enterprise is not configured.
  */
+const { RecaptchaEnterpriseServiceClient } = require('@google-cloud/recaptcha-enterprise');
 const SettingsService = require('../admin/settings.service');
 
+const DEFAULT_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'raven-ai-6ff76';
+const DEFAULT_SITE_KEY = process.env.RECAPTCHA_SITE_KEY || '6LeuIsEsAAAAAO6xD7D08pQAraweXcxw9pHBg94k';
+const MIN_ENTERPRISE_SCORE = Number(process.env.RECAPTCHA_MIN_SCORE || 0.3);
+
+let enterpriseClient = null;
+
+function getEnterpriseClient() {
+  if (!enterpriseClient) {
+    enterpriseClient = new RecaptchaEnterpriseServiceClient();
+  }
+  return enterpriseClient;
+}
+
+async function getSettingWithTimeout(key, timeoutMs = 3000) {
+  return Promise.race([
+    SettingsService.get(key),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
+  ]);
+}
+
+async function verifyCaptchaEnterprise(token, expectedAction, siteKey, projectId) {
+  const client = getEnterpriseClient();
+  const parent = client.projectPath(projectId);
+
+  const [response] = await client.createAssessment({
+    parent,
+    assessment: {
+      event: {
+        token,
+        siteKey,
+      },
+    },
+  });
+
+  const tokenProps = response?.tokenProperties || {};
+  if (!tokenProps.valid) {
+    const invalidReason = tokenProps.invalidReason || 'UNKNOWN';
+    return { success: false, error: `CAPTCHA token invalid (${invalidReason})` };
+  }
+
+  if (expectedAction && tokenProps.action !== expectedAction) {
+    return { success: false, error: 'CAPTCHA action mismatch' };
+  }
+
+  const score = Number(response?.riskAnalysis?.score || 0);
+  if (score < MIN_ENTERPRISE_SCORE) {
+    return { success: false, error: 'CAPTCHA risk check failed' };
+  }
+
+  return { success: true, score };
+}
+
 /**
- * Verify a reCAPTCHA response token with Google's API.
+ * Verify a reCAPTCHA response token with Google's APIs.
  * Returns { success: true } or { success: false, error: string }.
  *
  * If no secret key is configured, verification is skipped (returns success).
  * This allows dev/staging environments to work without CAPTCHA keys.
  */
-async function verifyCaptcha(token) {
+async function verifyCaptcha(token, expectedAction = 'LOGIN') {
   let secretKey;
+  let siteKey;
+  let environment;
   try {
-    // Use a timeout to avoid hanging if Firestore is unavailable
-    secretKey = await Promise.race([
-      SettingsService.get('RECAPTCHA_SECRET_KEY'),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+    [secretKey, siteKey, environment] = await Promise.all([
+      getSettingWithTimeout('RECAPTCHA_SECRET_KEY'),
+      getSettingWithTimeout('RECAPTCHA_SITE_KEY'),
+      getSettingWithTimeout('ENVIRONMENT').catch(() => 'production'),
     ]);
   } catch {
-    // Settings not available or timed out — skip verification
-    return { success: true };
+    // If settings are unreachable in production, do not bypass checks.
+    return { success: false, error: 'CAPTCHA service unavailable' };
+  }
+
+  const effectiveSiteKey = siteKey || DEFAULT_SITE_KEY;
+  const effectiveProjectId = DEFAULT_PROJECT_ID;
+
+  if (effectiveSiteKey) {
+    if (!token) return { success: false, error: 'CAPTCHA verification is required' };
+    try {
+      return await verifyCaptchaEnterprise(token, expectedAction, effectiveSiteKey, effectiveProjectId);
+    } catch (err) {
+      console.error('[CAPTCHA] Enterprise verification error:', err.message);
+      if (String(environment || '').toLowerCase() !== 'staging') {
+        return { success: false, error: 'CAPTCHA verification unavailable' };
+      }
+      // In staging only, continue to v2 fallback path below where configured.
+    }
   }
 
   // If no secret key configured, skip verification (allows dev/staging to work)

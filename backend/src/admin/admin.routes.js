@@ -5,6 +5,8 @@ const premiumCtrl = require('../channels/premium_stream.controller');
 const creatorSubCtrl = require('../subscriptions/creator_subscription.controller');
 const creatorAnalyticsCtrl = require('../analytics/creator_analytics.controller');
 const designCtrl = require('../design/homepage-design.controller');
+const challengeContentCtrl = require('../design/challenge-content.controller');
+const staticPagesContentCtrl = require('../design/static-pages-content.controller');
 const referralCtrl = require('../referrals/referral.controller');
 const promoModalCtrl = require('../promo/promo-modal.controller');
 const { upload, uploadSingleToGCS } = require('../utils/upload');
@@ -49,6 +51,14 @@ router.get('/design/homepage', authenticateToken, designCtrl.getHomepageDesign);
 router.patch('/design/homepage', authenticateToken, designCtrl.updateHomepageDesign);
 router.post('/design/homepage/assets', authenticateToken, upload.single('file'), uploadSingleToGCS, designCtrl.uploadHomepageAsset);
 router.post('/design/homepage/branding', authenticateToken, upload.single('file'), uploadSingleToGCS, designCtrl.uploadBrandingAsset);
+
+// Challenge page content management
+router.get('/content/challenge', authenticateToken, challengeContentCtrl.getAdminChallengeContent);
+router.patch('/content/challenge', authenticateToken, challengeContentCtrl.updateAdminChallengeContent);
+
+// Static website pages content management
+router.get('/content/pages/:slug', authenticateToken, staticPagesContentCtrl.getAdminPageContent);
+router.patch('/content/pages/:slug', authenticateToken, staticPagesContentCtrl.updateAdminPageContent);
 
 // User management
 router.get('/users', authenticateToken, ctrl.listUsers);

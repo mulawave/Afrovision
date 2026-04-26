@@ -27,4 +27,10 @@ router.get('/admin/pool/distributions', authenticateToken, ctrl.getPoolDistribut
 router.get('/admin/pool/distributions/:id', authenticateToken, ctrl.getPoolDistribution);
 router.post('/admin/pool/distribute', authenticateToken, ctrl.triggerViewerRewards);
 
+// Operations Pool endpoints
+router.get('/admin/pool/operations', authenticateToken, ctrl.getOperationsPoolStats);
+
+// RBD Pool endpoints
+router.get('/admin/pool/rbd', authenticateToken, ctrl.getRbdPoolStats);
+
 module.exports = router;

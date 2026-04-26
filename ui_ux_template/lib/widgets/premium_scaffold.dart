@@ -80,7 +80,6 @@ class _PremiumScaffoldState extends State<PremiumScaffold>
 
   @override
   Widget build(BuildContext context) {
-    final t = PremiumTheme.colors;
     final g = PremiumTheme.gradients;
     final ts = PremiumTheme.textStyles;
 

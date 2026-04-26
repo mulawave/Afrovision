@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.afrovision.afrovision",
+      "sha256_cert_fingerprints": [
+        "A9:54:46:1C:3D:DF:4D:10:95:65:43:2B:63:A9:1F:79:4E:A5:EC:45:3A:1D:C3:A7:DE:2F:C0:33:FA:EB:72:44"
+      ]
+    }
+  }
+]

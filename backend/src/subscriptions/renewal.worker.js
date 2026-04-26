@@ -14,6 +14,7 @@ const Ledger = require('../vpt/ledger.model');
 const User = require('../users/user.model');
 const ReferralModel = require('../referrals/referral.model');
 const { distributeReferralEarnings } = require('../referrals/referral.controller');
+const PoolService = require('../vpt/pool.service');
 
 const RENEWAL_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -45,11 +46,13 @@ async function processRenewals() {
       }
 
       // Correct payout split: 50% ops, 15% subscriber vPT, 15% referral, 20% community
+      const opsPool = Math.floor(amount * 0.50);
       const subscriberVptNgn = Math.floor(amount * 0.15);
       const subscriberVptUnits = parseFloat(
         (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),
       );
       const referralPool = Math.floor(amount * 0.15);
+      const communityPool = amount - opsPool - subscriberVptNgn - referralPool; // remainder ≈ 20%
 
       // Credit subscriber vPT reward
       if (subscriberVptUnits > 0) {
@@ -79,6 +82,30 @@ async function processRenewals() {
           subscriptionId: sub.id,
           creatorUid: sub.creator_uid,
         }).catch((err) => console.error('[RenewalWorker] referral distribution error:', err.message));
+      }
+
+      // Credit community pool (20%)
+      if (communityPool > 0) {
+        PoolService.creditPool(communityPool, 'creator_subscription_renewal', {
+          creator_uid: sub.creator_uid,
+          subscriber_uid: sub.subscriber_uid,
+          subscription_id: sub.id,
+          currency: sub.currency,
+          amount,
+          renewal_count: sub.renewal_count,
+        }).catch((err) => console.error('[RenewalWorker] community pool credit error:', err.message));
+      }
+
+      // Credit operations pool (50%)
+      if (opsPool > 0) {
+        PoolService.creditOperationsPool(opsPool, 'creator_subscription_renewal', {
+          creator_uid: sub.creator_uid,
+          subscriber_uid: sub.subscriber_uid,
+          subscription_id: sub.id,
+          currency: sub.currency,
+          amount,
+          renewal_count: sub.renewal_count,
+        }).catch((err) => console.error('[RenewalWorker] operations pool credit error:', err.message));
       }
 
       await CreatorSub.markRenewed(sub.id);

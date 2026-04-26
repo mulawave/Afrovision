@@ -6,6 +6,7 @@ const { generateToken } = require('../utils/jwt');
 const { getFirestore } = require('../utils/firestore');
 const ReferralModel = require('../referrals/referral.model');
 const { verifyCaptcha } = require('../utils/captcha');
+const { verifyPlayIntegrity } = require('../utils/play_integrity');
 const SmtpService = require('../admin/smtp.service');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -15,7 +16,7 @@ const STRONG_PASSWORD = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 async function register(req, res, next) {
   try {
-    const { email, password, captchaToken } = req.body;
+    const { email, password, captchaToken, integrityToken, client } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
@@ -27,10 +28,20 @@ async function register(req, res, next) {
       return res.status(400).json({ error: 'Password must be at least 8 characters with uppercase, lowercase, and a digit' });
     }
 
-    // Verify CAPTCHA after basic field validation
-    const captchaResult = await verifyCaptcha(captchaToken);
-    if (!captchaResult.success) {
-      return res.status(400).json({ error: captchaResult.error || 'CAPTCHA verification failed' });
+    // Mobile app (client === 'mobile') bypasses both Play Integrity and reCAPTCHA.
+    // Mobile app sends integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
+    if (client !== 'mobile') {
+      if (integrityToken) {
+        const integrityResult = await verifyPlayIntegrity(integrityToken, email);
+        if (!integrityResult.success) {
+          return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });
+        }
+      } else {
+        const captchaResult = await verifyCaptcha(captchaToken, 'REGISTER');
+        if (!captchaResult.success) {
+          return res.status(400).json({ error: captchaResult.error || 'CAPTCHA verification failed' });
+        }
+      }
     }
 
     if (User.findByEmail(email)) {
@@ -68,20 +79,32 @@ async function register(req, res, next) {
 }
 
 async function login(req, res, next) {
-  const { email, password, captchaToken } = req.body;
+  const { email, password, captchaToken, integrityToken, client } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
   try {
-    // Verify CAPTCHA after basic field validation
-    const captchaResult = await verifyCaptcha(captchaToken);
-    if (!captchaResult.success) {
-      return res.status(400).json({ error: captchaResult.error || 'CAPTCHA verification failed' });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = User.findByEmail(normalizedEmail);
+
+    // Admin logins and mobile app logins (client === 'mobile') bypass all verification.
+    // Mobile app sends integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
+    if ((!user || user.role !== 'admin') && client !== 'mobile') {
+      if (integrityToken) {
+        const integrityResult = await verifyPlayIntegrity(integrityToken, normalizedEmail);
+        if (!integrityResult.success) {
+          return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });
+        }
+      } else {
+        const captchaResult = await verifyCaptcha(captchaToken, 'LOGIN');
+        if (!captchaResult.success) {
+          return res.status(400).json({ error: captchaResult.error || 'CAPTCHA verification failed' });
+        }
+      }
     }
 
-    const user = User.findByEmail(email);
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -98,8 +121,8 @@ async function login(req, res, next) {
   }
 }
 
-function me(req, res) {
-  const user = User.findById(req.userId);
+async function me(req, res) {
+  const user = await User.reloadFromFirestore(req.userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
@@ -405,7 +428,7 @@ async function pakLogin(req, res) {
       subscription_status: existing?.subscription_status ?? 'inactive',
       subscription_expiry: existing?.subscription_expiry ?? null,
       preferred_currency: existing?.preferred_currency ?? (profile.currency || 'NGN'),
-      vpt_balance: existing?.vpt_balance ?? 0,
+      vpt: existing?.vpt ?? 0,
       first_subscription_at: existing?.first_subscription_at ?? null,
       following_creator_ids: existing?.following_creator_ids ?? [],
       fcm_tokens: existing?.fcm_tokens ?? [],

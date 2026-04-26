@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
@@ -49,6 +51,11 @@ export default async function RootLayout({
     >
       <head>
         <link rel="icon" href={branding.favicon_url || "/favicon.png"} />
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1470400062955743"
+          crossOrigin="anonymous"
+        />
       </head>
       <body className="min-h-full flex flex-col">
         <AuthProvider>

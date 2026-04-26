@@ -272,7 +272,7 @@ class _ImportWalletSheetState extends State<ImportWalletSheet> {
   }
 
   Widget _buildScanResults() {
-    final vptBalance = _scanResult?['vpt_balance'] ?? 0;
+    final vptBalance = _scanResult?['vpt'] ?? 0;
     final bnbBalance = _scanResult?['bnb_balance'] ?? 0;
     final tokenConfigured = _scanResult?['token_configured'] == true;
 

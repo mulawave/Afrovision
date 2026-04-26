@@ -10,6 +10,7 @@ const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const { serializeCreatorSubscriptionForAdmin } = require('../admin/admin.presenter');
 const NotificationService = require('../notifications/notification.service');
+const PoolService = require('../vpt/pool.service');
 
 // Default creator subscription prices (configurable per-creator in future)
 const DEFAULT_NGN_PRICE = 2000; // ₦2,000 / month
@@ -120,6 +121,28 @@ async function subscribe(req, res) {
         subscriptionId: sub.id,
         creatorUid,
       }).catch((err) => console.error('[CreatorSub] referral distribution error:', err.message));
+    }
+
+    // Credit community pool (20%)
+    if (communityPool > 0) {
+      PoolService.creditPool(communityPool, 'creator_subscription', {
+        creator_uid: creatorUid,
+        subscriber_uid: subscriberUid,
+        subscription_id: sub.id,
+        currency: selectedCurrency,
+        amount,
+      }).catch((err) => console.error('[CreatorSub] community pool credit error:', err.message));
+    }
+
+    // Credit operations pool (50%)
+    if (opsPool > 0) {
+      PoolService.creditOperationsPool(opsPool, 'creator_subscription', {
+        creator_uid: creatorUid,
+        subscriber_uid: subscriberUid,
+        subscription_id: sub.id,
+        currency: selectedCurrency,
+        amount,
+      }).catch((err) => console.error('[CreatorSub] operations pool credit error:', err.message));
     }
 
     await Ledger.create({

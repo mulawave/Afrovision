@@ -200,7 +200,7 @@ async function distribute(batch) {
       const tx = await SwapService.sendVPT(wallet.bsc_address, vptAmountWeiString);
 
       // Update in-app vPT balance
-      await User.adjustVptBalance(item.creator_uid, vptAmount);
+      await User.adjustVpt(item.creator_uid, vptAmount);
 
       // Log vPT transaction record
       await Vpt.create({

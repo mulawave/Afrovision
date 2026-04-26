@@ -17,6 +17,14 @@ class AppColors {
   static const Color softBlue = Color(0xFF64B5F6);
   static const Color cardBg = Color(0xFF0A1040);
 
+  // Reputation level colors
+  static const Color reputationBlue = Color(
+    0xFF7B9EC8,
+  ); // Level 1 — dull blue shield
+  static const Color reputationPurple = Color(
+    0xFF7B2FBE,
+  ); // Level 2 — royal purple
+
   static const LinearGradient primaryGradient = LinearGradient(
     colors: [lightBlue, darkBlue],
     begin: Alignment.topCenter,

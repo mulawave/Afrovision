@@ -42,8 +42,8 @@ class WithdrawalModel {
       amount: (json['amount'] as num?)?.toDouble() ?? 0,
       currency: json['currency'] as String? ?? 'ngn',
       status: json['status'] as String? ?? 'pending',
-      createdAt: json['created_at'] as int? ?? 0,
-      processedAt: json['processed_at'] as int?,
+      createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
+      processedAt: (json['processed_at'] as num?)?.toInt(),
       bankName:
           (json['bank_details'] as Map<String, dynamic>?)?['bank_name']
               as String?,

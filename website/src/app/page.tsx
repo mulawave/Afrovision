@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { Suspense } from "react";
 import { HeroSlider } from "@/components/HeroSlider";
 import { FeaturedChannels } from "@/components/FeaturedChannels";

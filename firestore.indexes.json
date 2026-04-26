@@ -1,0 +1,19 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "gifts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "is_active",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "sort_order",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

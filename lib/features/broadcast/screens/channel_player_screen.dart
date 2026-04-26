@@ -188,12 +188,12 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       _nextProgram = data['next_program'] as Map<String, dynamic>?;
 
       if (_nowPlaying != null) {
-        final startTime = _nowPlaying!['start_time'] as int? ?? 0;
-        final endTime = _nowPlaying!['end_time'] as int? ?? 0;
-        _duration = _nowPlaying!['duration'] as int? ?? 0;
+        final startTime = (_nowPlaying!['start_time'] as num?)?.toInt() ?? 0;
+        final endTime = (_nowPlaying!['end_time'] as num?)?.toInt() ?? 0;
+        _duration = (_nowPlaying!['duration'] as num?)?.toInt() ?? 0;
         _videoTitle = _nowPlaying!['video_title'] as String? ?? '';
         _isLoop = _nowPlaying!['is_loop'] as bool? ?? false;
-        final positionSec = _nowPlaying!['position'] as int? ?? 0;
+        final positionSec = (_nowPlaying!['position'] as num?)?.toInt() ?? 0;
         final videoUrl = _nowPlaying!['video_url'] as String? ?? '';
         // Use video URL directly if it's already a full URL (GCS),
         // otherwise prepend the backend base URL
@@ -303,6 +303,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
               giftName: event.giftName ?? 'Gift',
               giftIcon: event.giftIcon ?? '🎁',
               combo: 1,
+              senderRepLevel: event.senderRepLevel,
             );
           }
           if (event.createdAt > _lastEventAt) {
@@ -1596,7 +1597,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     final title = _nextProgram!['video_title'] as String? ?? 'Unknown';
     final description = _nextProgram!['video_description'] as String? ?? '';
     final programId = _nextProgram!['program_id'] as String? ?? '';
-    final startMs = _nextProgram!['start_time'] as int? ?? 0;
+    final startMs = (_nextProgram!['start_time'] as num?)?.toInt() ?? 0;
     final dt = DateTime.fromMillisecondsSinceEpoch(startMs);
     final timeStr =
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
@@ -1803,7 +1804,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         senderName: result['sender_name'] as String? ?? 'You',
         giftName: result['gift_name'] as String? ?? 'Gift',
         giftIcon: result['gift_icon'] as String? ?? '🎁',
-        combo: result['combo'] as int? ?? 1,
+        combo: (result['combo'] as num?)?.toInt() ?? 1,
+        senderRepLevel: (result['sender_rep_level'] as num?)?.toInt() ?? 0,
       );
     }
   }
@@ -1876,7 +1878,8 @@ class _FullscreenGiftPanelState extends State<_FullscreenGiftPanel> {
         senderName: result['sender_name'] as String? ?? 'You',
         giftName: result['gift_name'] as String? ?? 'Gift',
         giftIcon: result['gift_icon'] as String? ?? '🎁',
-        combo: result['combo'] as int? ?? 1,
+        combo: (result['combo'] as num?)?.toInt() ?? 1,
+        senderRepLevel: (result['sender_rep_level'] as num?)?.toInt() ?? 0,
       );
       widget.onClose();
     } catch (e) {

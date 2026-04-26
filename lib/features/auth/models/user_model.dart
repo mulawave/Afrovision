@@ -18,6 +18,8 @@ class UserModel {
   final String? avatarUrl;
   final String? firstSubscriptionAt;
   final String createdAt;
+  final int reputationLevel;
+  final double totalReps;
 
   UserModel({
     required this.id,
@@ -39,6 +41,8 @@ class UserModel {
     this.avatarUrl,
     this.firstSubscriptionAt,
     required this.createdAt,
+    this.reputationLevel = 0,
+    this.totalReps = 0,
   });
 
   bool get isViewer => role == 'viewer';
@@ -74,7 +78,7 @@ class UserModel {
       subscriptionStatus: json['subscription_status'] as String? ?? 'inactive',
       subscriptionExpiry: json['subscription_expiry'] as String?,
       preferredCurrency: json['preferred_currency'] as String? ?? 'NGN',
-      vptBalance: _toDouble(json['vpt_balance']),
+      vptBalance: _toDouble(json['vpt_balance'] ?? json['vpt']),
       vpt: _toDouble(json['vpt']),
       cash: _toDouble(json['cash']),
       coins: _toDouble(json['coins']),
@@ -82,6 +86,8 @@ class UserModel {
       avatarUrl: json['avatar_url'] as String?,
       firstSubscriptionAt: json['first_subscription_at'] as String?,
       createdAt: (json['created_at'] ?? '') as String,
+      reputationLevel: (json['reputation_level'] as num?)?.toInt() ?? 0,
+      totalReps: _toDouble(json['total_reps']),
     );
   }
 }

@@ -9,7 +9,11 @@ class AuthService {
     String password, {
     String? referralCode,
   }) async {
-    final body = <String, dynamic>{'email': email, 'password': password};
+    final body = <String, dynamic>{
+      'email': email,
+      'password': password,
+      'client': 'mobile',
+    };
     if (referralCode != null && referralCode.isNotEmpty) {
       body['referral_code'] = referralCode;
     }
@@ -24,6 +28,7 @@ class AuthService {
     final data = await ApiService.post('/auth/login', {
       'email': email,
       'password': password,
+      'client': 'mobile',
     });
     await AuthStorage.saveToken(data['token'] as String);
     // Re-register FCM token on every login (token may have rotated)

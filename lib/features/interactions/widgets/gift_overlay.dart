@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/reputation_badge.dart';
 
 /// Floating reaction and gift animation overlay.
 /// Place as a Stack child over the video player area.
@@ -45,6 +46,7 @@ class GiftOverlayState extends State<GiftOverlay> {
     required String giftName,
     required String giftIcon,
     int combo = 0,
+    int senderRepLevel = 0,
   }) {
     final id = _bannerId++;
     setState(() {
@@ -55,6 +57,7 @@ class GiftOverlayState extends State<GiftOverlay> {
           giftName: giftName,
           giftIcon: giftIcon,
           combo: combo,
+          senderRepLevel: senderRepLevel,
         ),
       );
     });
@@ -174,12 +177,14 @@ class _GiftBanner {
   final String giftName;
   final String giftIcon;
   final int combo;
+  final int senderRepLevel;
   _GiftBanner({
     required this.id,
     required this.senderName,
     required this.giftName,
     required this.giftIcon,
     required this.combo,
+    this.senderRepLevel = 0,
   });
 }
 
@@ -249,13 +254,25 @@ class _GiftBannerWidgetState extends State<_GiftBannerWidget>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    '${widget.data.senderName} sent ${widget.data.giftIcon} ${widget.data.giftName}',
-                    style: const TextStyle(
-                      color: AppColors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.data.senderRepLevel > 0) ...[
+                        ReputationBadgeWidget(
+                          level: widget.data.senderRepLevel,
+                          size: 13,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        '${widget.data.senderName} sent ${widget.data.giftIcon} ${widget.data.giftName}',
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                   if (widget.data.combo > 1)
                     Text(

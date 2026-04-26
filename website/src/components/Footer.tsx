@@ -57,7 +57,7 @@ const SOCIAL_ICONS: Record<string, React.ReactNode> = {
   ),
 };
 
-async function getSocialLinks(): Promise<{ platform: string; label: string; url: string }[]> {
+async function getSocialLinks(): Promise<{ platform: string; label: string; url: string; icon_url?: string | null }[]> {
   try {
     const content = await getHomepageContent();
     if (content?.social_links && content.social_links.length > 0) {
@@ -106,7 +106,9 @@ export async function Footer({ logoUrl }: { logoUrl?: string | null }) {
                     aria-label={s.label}
                     className="w-9 h-9 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-orange hover:border-av-orange/40 transition-all"
                   >
-                    {SOCIAL_ICONS[s.platform] ?? (
+                    {s.icon_url ? (
+                      <img src={s.icon_url} alt={s.label} className="w-5 h-5 object-contain" />
+                    ) : SOCIAL_ICONS[s.platform] ?? (
                       <span className="text-xs font-bold">{s.label.charAt(0)}</span>
                     )}
                   </a>

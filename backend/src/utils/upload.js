@@ -6,12 +6,12 @@ const { uploadToGCS } = require('./gcs');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
+  const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.ico'];
   const ext = path.extname(file.originalname).toLowerCase();
   if (allowed.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('Only jpg, png, and webp files are allowed'));
+    cb(new Error('Only jpg, jpeg, png, webp, and ico files are allowed'));
   }
 };
 

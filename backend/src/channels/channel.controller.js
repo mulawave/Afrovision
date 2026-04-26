@@ -80,7 +80,7 @@ async function updateChannel(req, res) {
 
   // vPT edit gating: creators need ≥500 vPT balance to edit
   const user = User.findById(req.userId);
-  if (user && user.role === 'creator' && user.vpt_balance < 500) {
+  if (user && user.role === 'creator' && user.vpt < 500) {
     return res.status(403).json({ error: 'Insufficient vPT balance. You need at least ₦500 vPT to edit a channel.' });
   }
 

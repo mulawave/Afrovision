@@ -52,7 +52,7 @@ class InteractionService {
     final data = await ApiService.get(
       '/interactions/combo?channel_id=$channelId&gift_id=$giftId',
     );
-    return data['combo'] as int? ?? 0;
+    return (data['combo'] as num?)?.toInt() ?? 0;
   }
 
   // ─── Leaderboard ───────────────────────────────────────

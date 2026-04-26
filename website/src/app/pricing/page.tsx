@@ -485,7 +485,7 @@ export default function PricingPage() {
                 <h3 className="text-sm font-bold text-av-white">vPT Tokens</h3>
               </div>
               <p className="text-xs text-av-light-orange leading-relaxed">
-                vPT (Virtual Points Token) can be used to subscribe to creators, tip during live streams, unlock premium content, and trade on-chain via BSC.
+                vPT (Virtual Points Token) can be used to subscribe to creators, tip during live streams, unlock premium content and staked for ecosystem-wide equity shares.
               </p>
             </div>
 
@@ -509,7 +509,7 @@ export default function PricingPage() {
             Ready to Start Earning?
           </h2>
           <p className="text-av-light-orange text-sm max-w-lg mx-auto mb-6">
-            Join thousands of viewers and creators on Africa&apos;s premier streaming platform. Watch, earn, and connect.
+            Join thousands of viewers and creators on Africa&apos;s premier Digital hybrid platform. Watch, earn, connect and build
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link

@@ -10,6 +10,7 @@ const SettingsService = require('../admin/settings.service');
 
 const POOL_DOC = 'pools/community';
 const RBD_POOL_DOC = 'pools/rbd'; // Referral Base Dump pool
+const OPS_POOL_DOC = 'pools/operations'; // Operations pool (50% of subscriptions)
 const DISTRIBUTIONS_COLLECTION = 'pool_distributions';
 
 let distributions = [];
@@ -66,6 +67,13 @@ async function init() {
       balance_ngn: 0, total_collected: 0,
       total_refunded: 0, transaction_count: 0, updated_at: Date.now(),
     });
+  }
+
+  // Ensure pools/operations doc exists (50% operations pool)
+  const opsRef = db.doc(OPS_POOL_DOC);
+  const opsDoc = await opsRef.get();
+  if (!opsDoc.exists) {
+    await opsRef.set({ balance_ngn: 0, total_credited: 0, updated_at: Date.now() });
   }
 
   return distributions;
@@ -152,6 +160,40 @@ async function getRbdPoolBalance() {
     balance_vpt: data.balance_vpt || 0,
     total_credited_ngn: data.total_credited_ngn || 0,
     total_credited_vpt: data.total_credited_vpt || 0,
+    updated_at: data.updated_at || null,
+  };
+}
+
+// ─── OPERATIONS POOL ────────────────────────────────────
+
+/**
+ * Credit funds into the operations pool (50% of subscriptions).
+ */
+async function creditOperationsPool(amountNGN, source, meta = {}) {
+  const db = getFirestore();
+  const opsRef = db.doc(OPS_POOL_DOC);
+  await opsRef.set(
+    {
+      balance_ngn: FieldValue.increment(amountNGN),
+      total_credited: FieldValue.increment(amountNGN),
+      updated_at: Date.now(),
+    },
+    { merge: true }
+  );
+  return { credited_ngn: amountNGN, source };
+}
+
+/**
+ * Get current operations pool balance.
+ */
+async function getOperationsPoolBalance() {
+  const db = getFirestore();
+  const doc = await db.doc(OPS_POOL_DOC).get();
+  if (!doc.exists) return { balance_ngn: 0, total_credited: 0 };
+  const data = doc.data();
+  return {
+    balance_ngn: data.balance_ngn || 0,
+    total_credited: data.total_credited || 0,
     updated_at: data.updated_at || null,
   };
 }
@@ -243,8 +285,8 @@ async function distributeViewerRewards() {
     try {
       // Credit user's vPT balance
       const userBefore = User.findById(viewer.userId);
-      const balanceBefore = userBefore?.vpt_balance || 0;
-      await User.adjustVptBalance(viewer.userId, shareVPT);
+      const balanceBefore = userBefore?.vpt || 0;
+      await User.adjustVpt(viewer.userId, shareVPT);
       const balanceAfter = balanceBefore + shareVPT;
 
       // Create vPT transaction record
@@ -362,8 +404,53 @@ function getDistributionById(id) {
 }
 
 async function getPoolStats() {
-  const pool = await getPoolBalance();
+  const vptPriceNGN = (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750;
   const rewardPercent = ((await SettingsService.getNumber('VIEWER_REWARD_PERCENT')) || 10);
+
+  // ── Recalculate from actual ledger entries (source of truth) ──
+  const allEntries = Ledger.getAll();
+
+  // Sum 20% community share from every confirmed subscription payment
+  const subTypes = ['PLAN_PAYMENT', 'SUBSCRIPTION_PAYMENT', 'SUBSCRIPTION_RENEWAL'];
+  let totalCreditedNgn = 0;
+  let totalCreditedVptDirect = 0; // vPT-paid creator subs contribute vPT directly
+
+  for (const e of allEntries) {
+    if (!subTypes.includes(e.type) || e.status !== 'success') continue;
+
+    const ngnAmt = e.amount_ngn || 0;
+    const vptAmt = e.amount_vpt_units || 0;
+
+    if (ngnAmt > 0) {
+      // NGN-paid subscription: take 20% community share in NGN
+      const share = (e.meta && e.meta.split && e.meta.split.community_pool != null)
+        ? e.meta.split.community_pool
+        : Math.floor(ngnAmt * 0.20);
+      totalCreditedNgn += share;
+    } else if (vptAmt > 0) {
+      // vPT-paid subscription: take 20% community share in vPT units
+      const share = (e.meta && e.meta.split && e.meta.split.community_pool != null)
+        ? e.meta.split.community_pool
+        : Math.floor(vptAmt * 0.20);
+      totalCreditedVptDirect += share;
+    }
+  }
+
+  // Convert NGN credits to vPT and combine with direct vPT credits
+  const totalCreditedVptFromNgn = parseFloat((totalCreditedNgn / vptPriceNGN).toFixed(4));
+  const totalCreditedVpt = parseFloat((totalCreditedVptFromNgn + totalCreditedVptDirect).toFixed(4));
+  const totalCreditedNgnEquiv = totalCreditedNgn + Math.round(totalCreditedVptDirect * vptPriceNGN);
+
+  // Sum total distributed to viewers (VIEWER_REWARD entries)
+  const distributed = allEntries.filter((e) => e.type === 'VIEWER_REWARD' && e.status === 'success');
+  const totalDistributedVpt = distributed.reduce((sum, e) => sum + (e.amount_vpt || e.amount_vpt_units || 0), 0);
+  const totalDistributedNgn = Math.round(totalDistributedVpt * vptPriceNGN);
+
+  const balanceVpt = parseFloat((totalCreditedVpt - totalDistributedVpt).toFixed(4));
+  const balanceNgn = Math.round(balanceVpt * vptPriceNGN);
+
+  // Beneficiaries
+  const beneficiarySet = new Set(distributed.map((e) => e.uid).filter(Boolean));
 
   // Count eligible viewers
   const allUsers = User.getAll();
@@ -382,17 +469,60 @@ async function getPoolStats() {
     tierCounts[plan.name] = (tierCounts[plan.name] || 0) + 1;
   }
 
-  const nextDistributionVPT = pool.balance_vpt * (rewardPercent / 100);
+  const nextDistributionVPT = balanceVpt * (rewardPercent / 100);
 
   return {
-    pool,
+    pool: {
+      balance_ngn: balanceNgn,
+      balance_vpt: balanceVpt,
+      total_credited: totalCreditedNgnEquiv,
+      total_credited_vpt: totalCreditedVpt,
+      total_distributed: totalDistributedNgn,
+      total_distributed_vpt: Math.round(totalDistributedVpt * 100) / 100,
+      total_beneficiaries: beneficiarySet.size,
+    },
+    vpt_price_ngn: vptPriceNGN,
     eligible_viewers: eligibleCount,
     total_multipliers: totalMultipliers,
     tier_counts: tierCounts,
     reward_percent: rewardPercent,
     next_distribution_vpt: parseFloat(nextDistributionVPT.toFixed(4)),
+    next_distribution_ngn: Math.round(nextDistributionVPT * vptPriceNGN),
     recent_distributions: getDistributionHistory(5),
   };
+}
+
+/**
+ * Recalculate operations pool balance from confirmed subscription ledger entries.
+ * 50% of every subscription amount.
+ */
+async function getRecalculatedOperationsPool() {
+  const vptPriceNGN = (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750;
+  const allEntries = Ledger.getAll();
+  const subTypes = ['PLAN_PAYMENT', 'SUBSCRIPTION_PAYMENT', 'SUBSCRIPTION_RENEWAL'];
+  let totalNgn = 0;
+  let totalVptDirect = 0;
+
+  for (const e of allEntries) {
+    if (!subTypes.includes(e.type) || e.status !== 'success') continue;
+    const ngnAmt = e.amount_ngn || 0;
+    const vptAmt = e.amount_vpt_units || 0;
+
+    if (ngnAmt > 0) {
+      const share = (e.meta && e.meta.split && e.meta.split.ops_pool != null)
+        ? e.meta.split.ops_pool
+        : Math.floor(ngnAmt * 0.50);
+      totalNgn += share;
+    } else if (vptAmt > 0) {
+      const share = (e.meta && e.meta.split && e.meta.split.ops_pool != null)
+        ? e.meta.split.ops_pool
+        : Math.floor(vptAmt * 0.50);
+      totalVptDirect += share;
+    }
+  }
+
+  const totalNgnEquiv = totalNgn + Math.round(totalVptDirect * vptPriceNGN);
+  return { balance_ngn: totalNgnEquiv, total_credited: totalNgnEquiv };
 }
 
 // ─── CRON ───────────────────────────────────────────────
@@ -433,6 +563,9 @@ module.exports = {
   getPoolBalance,
   creditRbdPool,
   getRbdPoolBalance,
+  creditOperationsPool,
+  getOperationsPoolBalance,
+  getRecalculatedOperationsPool,
   distributeViewerRewards,
   getDistributionHistory,
   getDistributionById,

@@ -1,22 +1,15 @@
 ﻿"use client";
 
-import { useState, useEffect, Suspense, useCallback, useRef } from "react";
+import { useState, useEffect, Suspense, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
+import { executeRecaptchaEnterprise } from "@/lib/recaptcha-enterprise";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const FALLBACK_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "6LeuIsEsAAAAAO6xD7D08pQAraweXcxw9pHBg94k";
 
-declare global {
-  interface Window {
-    grecaptcha?: {
-      render: (container: string | HTMLElement, params: Record<string, unknown>) => number;
-      getResponse: (widgetId?: number) => string;
-      reset: (widgetId?: number) => void;
-    };
-    onRecaptchaLoad?: () => void;
-  }
-}
+type CaptchaStatus = "loading" | "ready" | "unavailable";
 
 function LoginContent() {
   const router = useRouter();
@@ -29,53 +22,52 @@ function LoginContent() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [captchaToken, setCaptchaToken] = useState("");
   const [captchaSiteKey, setCaptchaSiteKey] = useState("");
-  const captchaRef = useRef<HTMLDivElement>(null);
-  const widgetIdRef = useRef<number | null>(null);
+  const [captchaStatus, setCaptchaStatus] = useState<CaptchaStatus>("loading");
 
   const redirect = searchParams.get("redirect") || "/";
   const expired = searchParams.get("expired") === "1";
   const registered = searchParams.get("registered") === "1";
 
-  // Redirect if already authenticated
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       router.replace(redirect);
     }
-  }, [isAuthenticated, authLoading, redirect, router]);
+  }, [authLoading, isAuthenticated, redirect, router]);
 
-  // Fetch captcha site key
-  useEffect(() => {
-    fetch(`${API_BASE}/home/captcha-key`)
-      .then((r) => r.json())
-      .then((d) => { if (d.siteKey) setCaptchaSiteKey(d.siteKey); })
-      .catch(() => {});
+  const loadCaptchaSiteKey = useCallback(async () => {
+    setCaptchaStatus("loading");
+
+    try {
+      const response = await fetch(`${API_BASE}/home/captcha-key`, { cache: "no-store" });
+      const data = await response.json();
+      const siteKeyFromApi = typeof data?.siteKey === "string" ? data.siteKey.trim() : "";
+      const siteKey = siteKeyFromApi || FALLBACK_SITE_KEY;
+
+      if (!siteKey) {
+        setCaptchaSiteKey("");
+        setCaptchaStatus("unavailable");
+        return false;
+      }
+
+      setCaptchaSiteKey(siteKey);
+      setCaptchaStatus("ready");
+      return true;
+    } catch {
+      if (FALLBACK_SITE_KEY) {
+        setCaptchaSiteKey(FALLBACK_SITE_KEY);
+        setCaptchaStatus("ready");
+        return true;
+      }
+      setCaptchaSiteKey("");
+      setCaptchaStatus("unavailable");
+      return false;
+    }
   }, []);
 
-  // Load reCAPTCHA script & render widget
-  const renderCaptcha = useCallback(() => {
-    if (!captchaSiteKey || !captchaRef.current || !window.grecaptcha) return;
-    if (widgetIdRef.current !== null) return;
-    widgetIdRef.current = window.grecaptcha.render(captchaRef.current, {
-      sitekey: captchaSiteKey,
-      callback: (token: string) => setCaptchaToken(token),
-      "expired-callback": () => setCaptchaToken(""),
-      theme: "dark",
-    });
-  }, [captchaSiteKey]);
-
   useEffect(() => {
-    if (!captchaSiteKey) return;
-    if (window.grecaptcha) { renderCaptcha(); return; }
-    window.onRecaptchaLoad = renderCaptcha;
-    const script = document.createElement("script");
-    script.src = "https://www.google.com/recaptcha/api.js?onload=onRecaptchaLoad&render=explicit";
-    script.async = true;
-    script.defer = true;
-    document.head.appendChild(script);
-    return () => { window.onRecaptchaLoad = undefined; };
-  }, [captchaSiteKey, renderCaptcha]);
+    loadCaptchaSiteKey();
+  }, [loadCaptchaSiteKey]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,18 +78,40 @@ function LoginContent() {
       return;
     }
 
+    if (captchaStatus === "loading") {
+      setError("Security check is still loading. Please wait a moment and try again.");
+      return;
+    }
+
+    if (!captchaSiteKey) {
+      const loaded = await loadCaptchaSiteKey();
+      if (!loaded) {
+        setError("Security check is unavailable right now. Retry in a moment.");
+        return;
+      }
+    }
+
     setIsSubmitting(true);
-    const result = await login(email.trim(), password, captchaToken || undefined);
+
+    let captchaToken: string;
+    try {
+      captchaToken = await executeRecaptchaEnterprise(captchaSiteKey, "LOGIN");
+      if (!captchaToken) {
+        throw new Error("empty_captcha_token");
+      }
+    } catch {
+      setIsSubmitting(false);
+      setError("Security check could not be completed. Please retry.");
+      return;
+    }
+
+    const result = await login(email.trim(), password, captchaToken);
     setIsSubmitting(false);
 
     if (result.ok) {
       router.replace(redirect);
     } else {
       setError(result.error || "Invalid credentials");
-      if (window.grecaptcha && widgetIdRef.current !== null) {
-        window.grecaptcha.reset(widgetIdRef.current);
-        setCaptchaToken("");
-      }
     }
   };
 
@@ -113,14 +127,12 @@ function LoginContent() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-6 py-24">
-      {/* Background decorations */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-av-orange/5 blur-3xl" />
         <div className="absolute -bottom-60 -left-40 w-[400px] h-[400px] rounded-full bg-av-light-blue/15 blur-3xl" />
       </div>
 
       <div className="relative w-full max-w-md animate-fade-in-up">
-        {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2 group">
             <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center font-bold text-av-dark-blue text-xl transition-transform group-hover:scale-110">
@@ -135,31 +147,26 @@ function LoginContent() {
           <p className="text-sm text-av-light-orange mt-1">Sign in to continue watching and earning</p>
         </div>
 
-        {/* Card */}
         <div className="rounded-2xl bg-av-card border border-av-input-border/30 p-6 sm:p-8">
-          {/* Session expired banner */}
-          {expired && (
+          {expired ? (
             <div className="mb-5 px-4 py-3 rounded-xl bg-av-orange/10 border border-av-orange/30 text-xs text-av-orange font-medium">
               ⏱ Your session expired. Please sign in again.
             </div>
-          )}
+          ) : null}
 
-          {/* Registration success banner */}
-          {registered && (
+          {registered ? (
             <div className="mb-5 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30 text-xs text-green-400 font-medium">
               ✓ Account created! Sign in to get started.
             </div>
-          )}
+          ) : null}
 
-          {/* Error */}
-          {error && (
+          {error ? (
             <div className="mb-5 px-4 py-3 rounded-xl bg-av-error/10 border border-av-error/30 text-xs text-av-error font-medium">
               {error}
             </div>
-          )}
+          ) : null}
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email */}
             <div>
               <label htmlFor="email" className="block text-xs font-semibold text-av-light-orange mb-1.5">
                 Email address
@@ -177,16 +184,12 @@ function LoginContent() {
               />
             </div>
 
-            {/* Password */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label htmlFor="password" className="text-xs font-semibold text-av-light-orange">
                   Password
                 </label>
-                <Link
-                  href="/forgot-password"
-                  className="text-[11px] text-av-orange hover:text-av-light-orange transition-colors"
-                >
+                <Link href="/forgot-password" className="text-[11px] text-av-orange hover:text-av-light-orange transition-colors">
                   Forgot password?
                 </Link>
               </div>
@@ -221,7 +224,6 @@ function LoginContent() {
               </div>
             </div>
 
-            {/* Terms & Policies */}
             <label className="flex items-start gap-3 cursor-pointer group">
               <input
                 type="checkbox"
@@ -231,24 +233,35 @@ function LoginContent() {
                 className="mt-0.5 w-4 h-4 rounded border-av-input-border/40 bg-av-input-fill text-av-orange focus:ring-av-orange/40 accent-av-orange"
               />
               <span className="text-xs text-av-light-orange leading-relaxed group-hover:text-av-light-orange transition-colors">
-                I agree to the{" "}
-                <Link href="/terms" target="_blank" className="text-av-orange hover:underline">Terms of Service</Link>,{" "}
-                <Link href="/privacy" target="_blank" className="text-av-orange hover:underline">Privacy Policy</Link>, and{" "}
-                <Link href="/cookies" target="_blank" className="text-av-orange hover:underline">Cookie Policy</Link>.
+                I agree to the <Link href="/terms" target="_blank" className="text-av-orange hover:underline">Terms of Service</Link>, <Link href="/privacy" target="_blank" className="text-av-orange hover:underline">Privacy Policy</Link>, and <Link href="/cookies" target="_blank" className="text-av-orange hover:underline">Cookie Policy</Link>.
               </span>
             </label>
 
-            {/* reCAPTCHA */}
-            {captchaSiteKey && (
-              <div className="flex justify-center">
-                <div ref={captchaRef} />
-              </div>
-            )}
+            {captchaStatus === "loading" ? (
+              <p className="text-[11px] text-av-light-orange/80 text-center">Loading security check...</p>
+            ) : null}
 
-            {/* Submit */}
+            {captchaStatus === "ready" ? (
+              <p className="text-[11px] text-av-light-orange/80 text-center">This form is protected by reCAPTCHA Enterprise.</p>
+            ) : null}
+
+            {captchaStatus === "unavailable" ? (
+              <div className="rounded-xl border border-av-error/30 bg-av-error/10 px-4 py-3 text-center">
+                <p className="text-[11px] text-av-error">Security check is unavailable right now.</p>
+                <button
+                  type="button"
+                  onClick={loadCaptchaSiteKey}
+                  disabled={isSubmitting}
+                  className="mt-2 text-[11px] font-semibold text-av-orange hover:text-av-light-orange disabled:opacity-50"
+                >
+                  Retry security check
+                </button>
+              </div>
+            ) : null}
+
             <button
               type="submit"
-              disabled={isSubmitting || !agreedToTerms || (captchaSiteKey ? !captchaToken : false)}
+              disabled={isSubmitting || !agreedToTerms || captchaStatus !== "ready"}
               className="w-full h-12 rounded-xl bg-gradient-to-r from-av-orange to-av-light-orange text-sm font-bold text-av-dark-blue hover:shadow-lg hover:shadow-av-orange/25 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {isSubmitting ? (
@@ -262,14 +275,12 @@ function LoginContent() {
             </button>
           </form>
 
-          {/* Divider */}
           <div className="flex items-center gap-3 my-6">
             <div className="flex-1 h-px bg-av-input-border/30" />
             <span className="text-[10px] text-av-light-orange uppercase tracking-widest">or</span>
             <div className="flex-1 h-px bg-av-input-border/30" />
           </div>
 
-          {/* PAK login */}
           <Link
             href={`/pak-login${redirect !== "/" ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
             className="flex items-center justify-center gap-2 w-full h-11 rounded-xl border border-av-light-orange/30 text-sm font-semibold text-av-light-orange hover:border-av-light-orange/60 hover:bg-av-light-orange/5 transition-all"
@@ -280,33 +291,24 @@ function LoginContent() {
             Login with PAK
           </Link>
 
-          {/* Register link */}
           <p className="text-center text-sm text-av-light-orange mt-5">
-            Don&apos;t have an account?{" "}
-            <Link
-              href={`/register${redirect !== "/" ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
-              className="text-av-orange font-semibold hover:text-av-light-orange transition-colors"
-            >
-              Create one
-            </Link>
+            Don&apos;t have an account? <Link href={`/register${redirect !== "/" ? `?redirect=${encodeURIComponent(redirect)}` : ""}`} className="text-av-orange font-semibold hover:text-av-light-orange transition-colors">Create one</Link>
           </p>
         </div>
 
-        {/* Back to home */}
         <p className="text-center mt-6">
           <Link href="/" className="text-xs text-av-light-orange hover:text-av-white transition-colors">
             ← Back to AfroVision
           </Link>
         </p>
 
-        {/* Content Ratings */}
         <div className="mt-6 flex flex-col items-center gap-2">
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="PEGI 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#C62828"/><text x="16" y="10" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="6" fill="#FFF">PEGI</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="16" fill="#FFF">18</text></svg></span>
-            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="IARC 18+"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#C62828"/><text x="16" y="10" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="5" fill="#FFF">IARC</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="14" fill="#FFF">18+</text></svg></span>
-            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="ESRB Mature"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#1A1A1A"/><text x="16" y="14" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="7" fill="#FFF">RATED</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="12" fill="#FFF">M</text></svg></span>
-            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="USK 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><circle cx="16" cy="16" r="14" fill="#E65100" stroke="#C62828" strokeWidth="2"/><text x="16" y="14" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="5" fill="#FFF">USK</text><text x="16" y="24" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="12" fill="#FFF">18</text></svg></span>
-            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="GRAC 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><circle cx="16" cy="16" r="14" fill="none" stroke="#1A1A1A" strokeWidth="2"/><text x="16" y="22" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="16" fill="#1A1A1A">18</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="PEGI 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#C62828" /><text x="16" y="10" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="6" fill="#FFF">PEGI</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="16" fill="#FFF">18</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="IARC 18+"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#C62828" /><text x="16" y="10" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="5" fill="#FFF">IARC</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="14" fill="#FFF">18+</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="ESRB Mature"><svg viewBox="0 0 32 32" className="h-5 w-5"><rect width="32" height="32" rx="3" fill="#1A1A1A" /><text x="16" y="14" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="7" fill="#FFF">RATED</text><text x="16" y="26" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="12" fill="#FFF">M</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="USK 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><circle cx="16" cy="16" r="14" fill="#E65100" stroke="#C62828" strokeWidth="2" /><text x="16" y="14" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="5" fill="#FFF">USK</text><text x="16" y="24" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="12" fill="#FFF">18</text></svg></span>
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded bg-white/90" aria-label="GRAC 18"><svg viewBox="0 0 32 32" className="h-5 w-5"><circle cx="16" cy="16" r="14" fill="none" stroke="#1A1A1A" strokeWidth="2" /><text x="16" y="22" textAnchor="middle" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="16" fill="#1A1A1A">18</text></svg></span>
           </div>
           <p className="text-[9px] text-av-light-orange/50">Rated by IARC</p>
         </div>
@@ -320,14 +322,14 @@ export default function LoginPage() {
     <>
       <title>Sign In — AfroVision</title>
       <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="w-8 h-8 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
-        </div>
-      }
-    >
-      <LoginContent />
-    </Suspense>
+        fallback={
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
+          </div>
+        }
+      >
+        <LoginContent />
+      </Suspense>
     </>
   );
 }
