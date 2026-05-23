@@ -56,7 +56,7 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
     try {
       final channel = await ChannelService.getChannelByNumber(number);
       if (!mounted) return;
-      Navigator.pushNamed(context, '/channel-player', arguments: channel.id);
+      Navigator.pushNamed(context, '/channel-view', arguments: channel);
       setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;

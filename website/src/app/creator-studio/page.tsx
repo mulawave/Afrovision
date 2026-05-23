@@ -10,9 +10,14 @@ import {
   getChannelScheduleApi,
   getMyChannelsApi,
   getMyVideosApi,
-  getVideoUploadUrlApi,
-  uploadFileToGCS,
-  registerUploadedVideoApi,
+  createVideoResumableSessionApi,
+  cancelVideoUploadSessionApi,
+  completeVideoResumableSessionApi,
+  getMyVideoUploadSessionsApi,
+  updateVideoUploadSessionProgressApi,
+  getGCSResumableUploadOffset,
+  uploadFileToGCSResumable,
+  uploadVideoApi,
   scheduleProgramApi,
   scheduleSequentialApi,
   resolveSourceApi,
@@ -23,6 +28,7 @@ import {
   type Channel,
   type ChannelVideo,
   type ScheduleProgram,
+  type VideoUploadSession,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
@@ -130,6 +136,10 @@ export default function CreatorStudioPage() {
   // ── Multi-upload state
   const [uploadEntries, setUploadEntries] = useState<UploadEntry[]>([]);
   const [uploadingAll, setUploadingAll] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [recentUploadSessions, setRecentUploadSessions] = useState<VideoUploadSession[]>([]);
+  const [loadingUploadSessions, setLoadingUploadSessions] = useState(false);
+  const [cancelingSessionId, setCancelingSessionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Auto-schedule state
@@ -157,7 +167,7 @@ export default function CreatorStudioPage() {
   const [schedulePage, setSchedulePage] = useState(1);
 
   // ── External stream source state (AV-STR-003)
-  const [extSourceMode, setExtSourceMode] = useState<string>("external_url");
+  const [extSourceMode, setExtSourceMode] = useState<string>("native");
   const [extSourceUrl, setExtSourceUrl] = useState("");
   const [extValidating, setExtValidating] = useState(false);
   const [extUrlValidation, setExtUrlValidation] = useState<{ ok: boolean; message: string } | null>(null);
@@ -206,6 +216,15 @@ export default function CreatorStudioPage() {
     }
   }, []);
 
+  const loadUploadSessions = useCallback(async (channelId?: string) => {
+    setLoadingUploadSessions(true);
+    const res = await getMyVideoUploadSessionsApi(channelId);
+    if (res.ok && "sessions" in res.data) {
+      setRecentUploadSessions(res.data.sessions);
+    }
+    setLoadingUploadSessions(false);
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) return;
     const timeoutId = window.setTimeout(() => {
@@ -218,16 +237,31 @@ export default function CreatorStudioPage() {
     if (!selectedChannelId) return;
     const timeoutId = window.setTimeout(() => {
       void loadSchedule(selectedChannelId);
+      void loadUploadSessions(selectedChannelId);
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [selectedChannelId, loadSchedule]);
+  }, [selectedChannelId, loadSchedule, loadUploadSessions]);
+
+  useEffect(() => {
+    if (!selectedChannelId) return;
+    const hasActiveSessions = recentUploadSessions.some((session) =>
+      ["initiated", "uploading", "paused", "failed"].includes(session.status),
+    );
+    if (!uploadingAll && !hasActiveSessions) return;
+
+    const intervalId = window.setInterval(() => {
+      void loadUploadSessions(selectedChannelId);
+    }, 8000);
+
+    return () => window.clearInterval(intervalId);
+  }, [selectedChannelId, uploadingAll, recentUploadSessions, loadUploadSessions]);
 
   // Sync stream source fields when selected channel changes
   useEffect(() => {
     const ch = channels.find((c) => c.id === selectedChannelId);
     if (!ch) return;
     const timeoutId = window.setTimeout(() => {
-      setExtSourceMode(ch.stream_source_mode ?? "external_url");
+      setExtSourceMode(ch.stream_source_mode ?? "native");
       setExtSourceUrl(ch.external_url ?? "");
       setExtUrlValidation(null);
     }, 0);
@@ -302,6 +336,24 @@ export default function CreatorStudioPage() {
     setUploadEntries((prev) => prev.filter((e) => e.id !== id));
   }
 
+  function retryFailedEntries() {
+    setUploadEntries((prev) =>
+      prev.map((entry) =>
+        entry.error
+          ? {
+              ...entry,
+              error: null,
+              progress: -1,
+            }
+          : entry,
+      ),
+    );
+  }
+
+  function clearCompletedEntries() {
+    setUploadEntries((prev) => prev.filter((entry) => entry.progress !== 101));
+  }
+
   /* ── Drag to reorder ───────────────────────────────── */
 
   function handleDragStart(index: number) {
@@ -335,65 +387,207 @@ export default function CreatorStudioPage() {
 
     setUploadingAll(true);
     setError(null);
+    setUploadNotice(
+      "We are processing your uploads now. You can continue other activities; once each upload completes, you will receive a notification.",
+    );
 
     for (const entry of pending) {
-      try {
-        // Step 1: Get signed URL
-        updateEntry(entry.id, { progress: 0 });
-        const urlRes = await getVideoUploadUrlApi({
-          contentType: entry.file.type || "video/mp4",
-          fileName: entry.file.name,
+      const title = entry.title.trim() || titleFromFilename(entry.file.name);
+      const description = entry.description.trim();
+      let sessionIdForFailure: string | null = null;
+      let uploadedBytesForFailure = 0;
+
+      const syncSessionProgress = async (
+        sessionId: string,
+        input: {
+          uploadedBytes: number;
+          status: "uploading" | "paused" | "failed";
+          error?: string | null;
+        },
+      ) => {
+        try {
+          await updateVideoUploadSessionProgressApi(sessionId, input);
+        } catch {
+          // Progress sync should not block the upload pipeline.
+        }
+      };
+
+      const fallbackToDirectUpload = async () => {
+        updateEntry(entry.id, { progress: 5, error: null });
+        const directRes = await uploadVideoApi({
+          channelId: selectedChannelId,
+          title,
+          description,
+          duration: entry.duration,
+          file: entry.file,
         });
-        if (!urlRes.ok || !("signed_url" in urlRes.data)) {
+
+        if (!directRes.ok || !("video" in directRes.data)) {
           updateEntry(entry.id, {
-            error: "Failed to get upload URL",
+            error:
+              "error" in directRes.data
+                ? directRes.data.error
+                : "Direct upload failed",
             progress: -1,
           });
+          if (sessionIdForFailure) {
+            await syncSessionProgress(sessionIdForFailure, {
+              uploadedBytes: uploadedBytesForFailure,
+              status: "failed",
+              error:
+                "error" in directRes.data
+                  ? directRes.data.error
+                  : "Direct upload failed",
+            });
+          }
+          return;
+        }
+
+        updateEntry(entry.id, {
+          progress: 101,
+          registeredVideoId: directRes.data.video.id,
+          error: null,
+        });
+      };
+
+      try {
+        // Step 1: Reuse an existing resumable session when possible.
+        updateEntry(entry.id, { progress: 0, error: null });
+        const matchingSession = recentUploadSessions.find((session) =>
+          session.channel_id === selectedChannelId
+          && session.file_name === entry.file.name
+          && session.total_bytes === entry.file.size
+          && session.content_type === (entry.file.type || "video/mp4")
+          && !["completed", "canceled", "finalizing"].includes(session.status)
+          && Number(session.expires_at || 0) > Date.now()
+          && Boolean(session.upload_url),
+        );
+
+        let uploadSession = matchingSession ?? null;
+        if (!uploadSession) {
+          const sessionRes = await createVideoResumableSessionApi({
+            channelId: selectedChannelId,
+            title,
+            description,
+            duration: entry.duration,
+            fileName: entry.file.name,
+            fileSize: entry.file.size,
+            contentType: entry.file.type || "video/mp4",
+          });
+
+          if (!sessionRes.ok || !("session" in sessionRes.data) || !sessionRes.data.session.upload_url) {
+            await fallbackToDirectUpload();
+            continue;
+          }
+          uploadSession = sessionRes.data.session;
+        }
+
+        if (!uploadSession.upload_url) {
+          await fallbackToDirectUpload();
           continue;
         }
 
-        const { signed_url, public_url } = urlRes.data;
+        sessionIdForFailure = uploadSession.id;
 
-        // Step 2: Upload to GCS
-        await uploadFileToGCS(signed_url, entry.file, (pct) => {
-          updateEntry(entry.id, { progress: pct });
+        await syncSessionProgress(uploadSession.id, {
+          uploadedBytes: 0,
+          status: "uploading",
+          error: null,
         });
 
-        // Step 3: Register
-        const regRes = await registerUploadedVideoApi({
-          channelId: selectedChannelId,
-          title: entry.title.trim() || titleFromFilename(entry.file.name),
-          description: entry.description.trim(),
-          duration: entry.duration,
-          videoUrl: public_url,
+        // Step 2: Chunked resumable upload with retry and offset recovery.
+        let attempts = 0;
+        let committedOffset = 0;
+        while (attempts < 3) {
+          try {
+            const offset = await getGCSResumableUploadOffset(uploadSession.upload_url, entry.file.size);
+            committedOffset = offset;
+            uploadedBytesForFailure = offset;
+
+            await uploadFileToGCSResumable(uploadSession.upload_url, entry.file, {
+              startOffset: offset,
+              chunkSizeBytes: 8 * 1024 * 1024,
+              onProgress: (pct) => {
+                updateEntry(entry.id, { progress: pct, error: null });
+              },
+              onOffsetChange: (nextOffset) => {
+                committedOffset = nextOffset;
+                uploadedBytesForFailure = nextOffset;
+              },
+            });
+            break;
+          } catch (uploadErr) {
+            attempts += 1;
+            const isLastAttempt = attempts >= 3;
+            if (isLastAttempt) {
+              await syncSessionProgress(uploadSession.id, {
+                uploadedBytes: committedOffset,
+                status: "failed",
+                error: uploadErr instanceof Error ? uploadErr.message : "Resumable upload failed",
+              });
+              throw uploadErr;
+            }
+          }
+        }
+
+        await syncSessionProgress(uploadSession.id, {
+          uploadedBytes: entry.file.size,
+          status: "uploading",
+          error: null,
         });
 
-        if (!regRes.ok) {
+        // Step 3: Finalize and register uploaded video
+        const completeRes = await completeVideoResumableSessionApi(uploadSession.id);
+
+        if (!completeRes.ok || !("video" in completeRes.data)) {
+          if (completeRes.status === 409) {
+            const sessionRefresh = await getMyVideoUploadSessionsApi(selectedChannelId);
+            if (sessionRefresh.ok && "sessions" in sessionRefresh.data) {
+              const refreshedSession = sessionRefresh.data.sessions.find((session) => session.id === uploadSession.id);
+              if (refreshedSession?.status === "completed" && refreshedSession.video_id) {
+                updateEntry(entry.id, {
+                  progress: 101,
+                  registeredVideoId: refreshedSession.video_id,
+                  error: null,
+                });
+                continue;
+              }
+            }
+          }
+
           updateEntry(entry.id, {
             error:
-              "error" in regRes.data
-                ? regRes.data.error
+              "error" in completeRes.data
+                ? completeRes.data.error
                 : "Registration failed",
             progress: -1,
           });
+          await syncSessionProgress(uploadSession.id, {
+            uploadedBytes: uploadedBytesForFailure,
+            status: "failed",
+            error:
+              "error" in completeRes.data
+                ? completeRes.data.error
+                : "Registration failed",
+          });
         } else {
-          const vid = "video" in regRes.data ? regRes.data.video : null;
+          const vid = completeRes.data.video;
           updateEntry(entry.id, {
             progress: 101,
             registeredVideoId: vid?.id ?? null,
+            error: null,
           });
         }
-      } catch (err: unknown) {
-        updateEntry(entry.id, {
-          error: err instanceof Error ? err.message : "Upload failed",
-          progress: -1,
-        });
+      } catch {
+        await fallbackToDirectUpload();
       }
     }
 
     await loadStudio();
     await loadSchedule(selectedChannelId);
+    await loadUploadSessions(selectedChannelId);
     setUploadingAll(false);
+    setUploadNotice(null);
 
     // Check if any succeeded — offer auto-schedule
     const updated = uploadEntries.filter(
@@ -651,10 +845,24 @@ export default function CreatorStudioPage() {
     setDeletingBulk(false);
   }
 
+  async function handleCancelUploadSession(sessionId: string) {
+    setCancelingSessionId(sessionId);
+    const res = await cancelVideoUploadSessionApi(sessionId);
+    setCancelingSessionId(null);
+
+    if (!res.ok) {
+      setError("error" in res.data ? res.data.error : "Failed to cancel upload session.");
+      return;
+    }
+
+    await loadUploadSessions(selectedChannelId || undefined);
+  }
+
   /* ── derived ───────────────────────────────────────── */
 
   const pendingUploads = uploadEntries.filter((e) => e.progress === -1);
   const completedUploads = uploadEntries.filter((e) => e.progress === 101);
+  const failedUploads = uploadEntries.filter((e) => !!e.error);
   const totalUploadDuration = uploadEntries.reduce(
     (s, e) => s + e.duration,
     0,
@@ -668,6 +876,10 @@ export default function CreatorStudioPage() {
 
   async function handleExtValidateUrl() {
     const url = extSourceUrl.trim();
+    if (extSourceMode === "native") {
+      setExtUrlValidation({ ok: true, message: "Uploads mode is active. External URL is disabled." });
+      return;
+    }
     if (!url) return;
     if (extSourceMode === "external_url") {
       setExtUrlValidation({ ok: true, message: "URL accepted. Validation is not required for External URL mode." });
@@ -690,10 +902,23 @@ export default function CreatorStudioPage() {
     if (!selectedChannelId) return;
     setExtSaving(true);
     setError(null);
-    const res = await updateExternalSourceApi(selectedChannelId, {
-      stream_source_mode: extSourceMode,
-      external_url: extSourceUrl.trim(),
-    });
+    const res = await updateExternalSourceApi(
+      selectedChannelId,
+      extSourceMode === "native"
+        ? {
+            stream_source_mode: "native",
+            external_url: null,
+            external_provider: null,
+            resolved_playback_url: null,
+            stream_status: "unknown",
+            last_checked_at: null,
+            provider_metadata: null,
+          }
+        : {
+            stream_source_mode: extSourceMode,
+            external_url: extSourceUrl.trim(),
+          },
+    );
     setExtSaving(false);
     if (res.ok && "channel" in res.data) {
       const updatedChannel = res.data.channel;
@@ -1159,56 +1384,68 @@ export default function CreatorStudioPage() {
                       )}
 
                       {/* Source mode selector */}
-                      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {(["external_url", "external_youtube", "external_hls", "external_dash"] as const).map((mode) => (
+                      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                        {(["native", "external_url", "external_youtube", "external_hls", "external_dash"] as const).map((mode) => (
                           <button
                             key={mode}
                             type="button"
-                            onClick={() => { setExtSourceMode(mode); setExtUrlValidation(null); }}
+                            onClick={() => {
+                              setExtSourceMode(mode);
+                              if (mode === "native") setExtSourceUrl("");
+                              setExtUrlValidation(null);
+                            }}
                             className={`rounded-xl border px-3 py-2 text-left text-xs transition-all ${
                               extSourceMode === mode
                                 ? "border-av-orange/60 bg-av-orange/10 text-av-white font-bold"
                                 : "border-av-input-border/30 text-av-light-orange hover:border-av-orange/30"
                             }`}
                           >
-                            {mode === "external_url" ? "External URL" : mode === "external_youtube" ? "YouTube Live" : mode === "external_hls" ? "HLS Stream" : "DASH Stream"}
+                            {mode === "native" ? "Uploads" : mode === "external_url" ? "External URL" : mode === "external_youtube" ? "YouTube Live" : mode === "external_hls" ? "HLS Stream" : "DASH Stream"}
                           </button>
                         ))}
                       </div>
 
                       {/* URL input */}
                       <div className="mb-4">
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-av-light-orange">
-                          {extSourceMode === "external_url" ? "External URL" : extSourceMode === "external_youtube" ? "YouTube URL" : extSourceMode === "external_hls" ? "HLS Manifest URL (.m3u8)" : "DASH Manifest URL (.mpd)"}
-                        </p>
-                        <div className="flex gap-2">
-                          <input
-                            value={extSourceUrl}
-                            onChange={(e) => { setExtSourceUrl(e.target.value); setExtUrlValidation(null); }}
-                            placeholder={extSourceMode === "external_url" ? "https://example.com/live/channel-link" : extSourceMode === "external_youtube" ? "https://www.youtube.com/watch?v=..." : "https://example.com/stream.m3u8"}
-                            className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
-                          />
-                          {extSourceMode !== "external_url" && (
-                            <button
-                              type="button"
-                              onClick={handleExtValidateUrl}
-                              disabled={extValidating || !extSourceUrl.trim()}
-                              className="h-10 rounded-xl border border-av-orange/30 bg-av-orange/10 px-3 text-xs font-bold text-av-orange hover:bg-av-orange/20 disabled:opacity-40"
-                            >
-                              {extValidating ? "…" : "Validate"}
-                            </button>
-                          )}
-                        </div>
-                        {extUrlValidation && (
-                          <p className={`mt-1.5 text-xs ${extUrlValidation.ok ? "text-green-400" : "text-red-400"}`}>
-                            {extUrlValidation.ok ? "✓" : "✗"} {extUrlValidation.message}
-                          </p>
+                        {extSourceMode === "native" ? (
+                          <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
+                            Uploads mode selected. External link source will be cleared when you save.
+                          </div>
+                        ) : (
+                          <>
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-av-light-orange">
+                              {extSourceMode === "external_url" ? "External URL" : extSourceMode === "external_youtube" ? "YouTube URL" : extSourceMode === "external_hls" ? "HLS Manifest URL (.m3u8)" : "DASH Manifest URL (.mpd)"}
+                            </p>
+                            <div className="flex gap-2">
+                              <input
+                                value={extSourceUrl}
+                                onChange={(e) => { setExtSourceUrl(e.target.value); setExtUrlValidation(null); }}
+                                placeholder={extSourceMode === "external_url" ? "https://example.com/live/channel-link" : extSourceMode === "external_youtube" ? "https://www.youtube.com/watch?v=..." : "https://example.com/stream.m3u8"}
+                                className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
+                              />
+                              {extSourceMode !== "external_url" && (
+                                <button
+                                  type="button"
+                                  onClick={handleExtValidateUrl}
+                                  disabled={extValidating || !extSourceUrl.trim()}
+                                  className="h-10 rounded-xl border border-av-orange/30 bg-av-orange/10 px-3 text-xs font-bold text-av-orange hover:bg-av-orange/20 disabled:opacity-40"
+                                >
+                                  {extValidating ? "…" : "Validate"}
+                                </button>
+                              )}
+                            </div>
+                            {extUrlValidation && (
+                              <p className={`mt-1.5 text-xs ${extUrlValidation.ok ? "text-green-400" : "text-red-400"}`}>
+                                {extUrlValidation.ok ? "✓" : "✗"} {extUrlValidation.message}
+                              </p>
+                            )}
+                            <p className="mt-1.5 text-[10px] text-av-light-orange/60">
+                              {extSourceMode === "external_url"
+                                ? "External URL mode accepts simple links directly with no strict validation."
+                                : "Use Validate to classify and check source health before saving."}
+                            </p>
+                          </>
                         )}
-                        <p className="mt-1.5 text-[10px] text-av-light-orange/60">
-                          {extSourceMode === "external_url"
-                            ? "External URL mode accepts simple links directly with no strict validation."
-                            : "Use Validate to classify and check source health before saving."}
-                        </p>
                       </div>
 
                       <div className="flex gap-2">
@@ -1258,6 +1495,69 @@ export default function CreatorStudioPage() {
                       </div>
                     )}
 
+                    {uploadNotice && (
+                      <div className="mb-4 rounded-2xl border border-green-500/30 bg-green-500/10 p-4">
+                        <p className="text-xs text-green-300">{uploadNotice}</p>
+                      </div>
+                    )}
+
+                    {recentUploadSessions.length > 0 && (
+                      <div className="mb-4 rounded-2xl border border-av-input-border/25 bg-av-input-fill/20 p-4">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-av-light-orange">
+                            Upload Session Status
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void loadUploadSessions(selectedChannelId)}
+                            disabled={loadingUploadSessions}
+                            className="rounded-lg border border-av-input-border/30 px-2.5 py-1 text-[10px] font-semibold text-av-light-orange hover:border-av-orange/30 hover:text-av-white disabled:opacity-40"
+                          >
+                            {loadingUploadSessions ? "Refreshing..." : "Refresh"}
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {recentUploadSessions.slice(0, 6).map((session) => (
+                            <div key={session.id} className="flex items-center justify-between rounded-xl border border-av-input-border/20 bg-av-input-fill/20 px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-semibold text-av-white">{session.title}</p>
+                                <p className="text-[10px] text-av-light-orange/70">
+                                  {session.total_bytes > 0
+                                    ? `${Math.round((session.uploaded_bytes / session.total_bytes) * 100)}% uploaded`
+                                    : "Processing"}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                                  session.status === "completed"
+                                    ? "bg-green-500/15 text-green-400"
+                                    : session.status === "failed"
+                                      ? "bg-red-500/15 text-red-300"
+                                      : session.status === "canceled"
+                                        ? "bg-slate-500/20 text-slate-300"
+                                        : session.status === "finalizing"
+                                          ? "bg-cyan-500/20 text-cyan-300"
+                                          : "bg-av-orange/15 text-av-orange"
+                                }`}>
+                                  {session.status}
+                                </span>
+                                {session.status !== "completed" && session.status !== "canceled" && session.status !== "finalizing" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleCancelUploadSession(session.id)}
+                                    disabled={cancelingSessionId === session.id}
+                                    className="rounded-md border border-red-500/35 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+                                  >
+                                    {cancelingSessionId === session.id ? "..." : "Cancel"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* File picker */}
                     {!isContinuousUrlChannel && (
                       <>
@@ -1293,6 +1593,9 @@ export default function CreatorStudioPage() {
                           </p>
                           <p className="mt-1 text-xs text-av-light-orange">
                             Choose multiple files at once · Duration auto-detected
+                          </p>
+                          <p className="mt-1 text-[11px] text-av-light-orange/80">
+                            Re-selecting the same file resumes its existing upload session when available.
                           </p>
                         </button>
                       </>
@@ -1470,6 +1773,31 @@ export default function CreatorStudioPage() {
                               `Upload ${pendingUploads.length} video${pendingUploads.length > 1 ? "s" : ""} to library`
                             )}
                           </button>
+                        )}
+
+                        {(failedUploads.length > 0 || completedUploads.length > 0) && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {failedUploads.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={retryFailedEntries}
+                                disabled={uploadingAll}
+                                className="rounded-full border border-av-orange/30 bg-av-orange/10 px-4 py-2 text-xs font-semibold text-av-orange hover:bg-av-orange/20 disabled:opacity-50"
+                              >
+                                Retry failed ({failedUploads.length})
+                              </button>
+                            )}
+                            {completedUploads.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={clearCompletedEntries}
+                                disabled={uploadingAll}
+                                className="rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-light-orange hover:border-av-orange/30 hover:text-av-white disabled:opacity-50"
+                              >
+                                Clear completed ({completedUploads.length})
+                              </button>
+                            )}
+                          </div>
                         )}
 
                         {/* Auto-schedule panel (appears after uploads complete) */}

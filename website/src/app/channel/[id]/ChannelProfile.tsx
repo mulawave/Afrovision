@@ -20,6 +20,7 @@ import {
   subscribeToChannelApi,
   cancelChannelSubApi,
   checkChannelAccessApi,
+  getExclusiveAccessStatusApi,
   getChannelFollowStatusApi,
   followChannelApi,
   unfollowChannelApi,
@@ -78,6 +79,7 @@ export function ChannelProfile({ id }: { id: string }) {
   const [subId, setSubId] = useState<string | null>(null);
   const [subLoading, setSubLoading] = useState(false);
   const [hasAccess, setHasAccess] = useState(true);
+  const [exclusiveGateReason, setExclusiveGateReason] = useState<null | "login" | "kyc" | "entitlement">(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
@@ -126,20 +128,58 @@ export function ChannelProfile({ id }: { id: string }) {
         }
       });
 
-      // Check premium access (non-blocking)
-      checkChannelAccessApi(id).then((res) => {
-        if (cancelled) return;
-        if (res.ok && "has_access" in res.data) {
-          setHasAccess(res.data.has_access);
+      if (channelRes.data.channel.type === "exclusive") {
+        const isOwner = !!user && user.id === channelRes.data.channel.owner_id;
+        if (!isOwner) {
+          if (!isAuthenticated) {
+            setHasAccess(false);
+            setExclusiveGateReason("login");
+            router.replace(`/channel/${id}/exclusive-access`);
+            return;
+          }
+
+          const statusRes = await getExclusiveAccessStatusApi(id);
+          if (cancelled) return;
+
+          if (statusRes.ok && "eligibleByKyc" in statusRes.data) {
+            const allowed = statusRes.data.eligibleByKyc && statusRes.data.hasActiveEntitlement;
+            setHasAccess(allowed);
+            if (!allowed) {
+              if (!statusRes.data.eligibleByKyc) {
+                setExclusiveGateReason("kyc");
+              } else {
+                setExclusiveGateReason("entitlement");
+              }
+              router.replace(`/channel/${id}/exclusive-access`);
+              return;
+            }
+            setExclusiveGateReason(null);
+          } else {
+            setHasAccess(false);
+            setExclusiveGateReason("entitlement");
+            router.replace(`/channel/${id}/exclusive-access`);
+            return;
+          }
+        } else {
+          setHasAccess(true);
+          setExclusiveGateReason(null);
         }
-      });
+      } else {
+        // Check premium access (non-blocking)
+        checkChannelAccessApi(id).then((res) => {
+          if (cancelled) return;
+          if (res.ok && "has_access" in res.data) {
+            setHasAccess(res.data.has_access);
+          }
+        });
+      }
 
       setLoading(false);
     }
 
     load();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, isAuthenticated, router, user]);
 
   // Check subscription status
   useEffect(() => {
@@ -268,7 +308,7 @@ export function ChannelProfile({ id }: { id: string }) {
   const isExternalSource = !!channel?.stream_source_mode && channel.stream_source_mode !== "native";
   const extStreamStatus = channel?.stream_status ?? "unknown";
   const isExternalLive = isExternalSource && (extStreamStatus === "live" || extStreamStatus === "valid");
-  const canWatchLive = isLive || isExternalLive;
+  const isExclusive = channel?.type === "exclusive";
   const ownerDetailsVisible = channel?.owner_details_visible !== false;
   const ownerDisplayMode = channel?.owner_display_mode || "show_owner";
   const publicOwnerName = channel?.public_owner_name || channel?.owner_name || "";
@@ -280,6 +320,7 @@ export function ChannelProfile({ id }: { id: string }) {
   const watchLiveLabel = isExternalSource
     ? extStreamStatus === "live" ? "Watch Live" : extStreamStatus === "scheduled" ? "Tune In (Scheduled)" : "Open Channel"
     : "Watch Live";
+  const watchTarget = isExclusive && !hasAccess ? `/channel/${id}/exclusive-access` : `/live/${id}`;
   const canManageChannel = !!user && (user.role === "admin" || user.id === channel?.owner_id);
 
   const TABS: { key: Tab; label: string }[] = [
@@ -383,10 +424,10 @@ export function ChannelProfile({ id }: { id: string }) {
               </div>
               <p className="text-sm text-av-light-orange mt-0.5">
                 #{channel.channel_number} · {channel.category}
-                {channel.type === "private" && (
+                {(channel.type === "private" || channel.type === "exclusive") && (
                   <>
                     <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold text-av-orange bg-av-orange/10 border border-av-orange/20">
-                      PREMIUM
+                      {channel.type === "exclusive" ? "EXCLUSIVE" : "PREMIUM"}
                     </span>
                     <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold border ${hasAccess ? "text-emerald-300 bg-emerald-400/10 border-emerald-400/20" : "text-av-light-orange bg-av-input-fill/60 border-av-input-border/30"}`}>
                       {hasAccess ? "ACCESS ACTIVE" : "LOCKED"}
@@ -401,15 +442,15 @@ export function ChannelProfile({ id }: { id: string }) {
 
             {/* Action buttons */}
             <div className="flex items-center gap-3 flex-shrink-0">
-              {canWatchLive && (
+              {(isLive || isExternalLive || (isExclusive && !hasAccess)) && (
                 <button
-                  onClick={() => router.push(`/live/${id}`)}
+                  onClick={() => router.push(watchTarget)}
                   className="inline-flex items-center gap-2 px-6 py-3 text-sm font-bold rounded-full bg-av-error text-white hover:shadow-xl hover:shadow-av-error/30 hover:scale-105 active:scale-95 transition-all"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M8 5v14l11-7z" />
                   </svg>
-                  {watchLiveLabel}
+                  {isExclusive && !hasAccess ? "Unlock Exclusive Access" : watchLiveLabel}
                 </button>
               )}
               {channel.owner_id && ownerDetailsVisible && (
@@ -454,7 +495,7 @@ export function ChannelProfile({ id }: { id: string }) {
         {/* ===== LIVE BANNER CTA (if live) ===== */}
         {isLive && nowPlaying && (
           <button
-            onClick={() => router.push(`/live/${id}`)}
+            onClick={() => router.push(watchTarget)}
             className="w-full mb-8 rounded-xl bg-gradient-to-r from-av-error/15 via-av-card to-av-error/10 border border-av-error/30 p-4 flex items-center gap-4 hover:border-av-error/50 transition-all group cursor-pointer"
           >
             <div className="w-14 h-14 rounded-xl bg-av-error/15 border border-av-error/30 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
@@ -471,9 +512,25 @@ export function ChannelProfile({ id }: { id: string }) {
               </p>
             </div>
             <span className="px-4 py-2 rounded-full bg-av-error text-xs font-bold text-white group-hover:shadow-lg group-hover:shadow-av-error/30 transition-all flex-shrink-0">
-              Join →
+              {isExclusive && !hasAccess ? "Unlock →" : "Join →"}
             </span>
           </button>
+        )}
+
+        {isExclusive && !hasAccess && (
+          <div className="mb-8 rounded-xl border border-av-orange/30 bg-av-card p-4 text-sm text-av-light-orange">
+            <p>
+              {exclusiveGateReason === "login" && "Sign in to continue with exclusive access."}
+              {exclusiveGateReason === "kyc" && "Adult KYC verification is required before this channel can be opened."}
+              {exclusiveGateReason === "entitlement" && "You need an active exclusive entitlement for this channel."}
+            </p>
+            <button
+              onClick={() => router.push(`/channel/${id}/exclusive-access`)}
+              className="mt-3 rounded-xl bg-gradient-to-r from-av-orange to-av-light-orange px-4 py-2 text-sm font-semibold text-av-dark-blue"
+            >
+              Open Exclusive Access
+            </button>
+          </div>
         )}
 
         {/* ===== TABS ===== */}

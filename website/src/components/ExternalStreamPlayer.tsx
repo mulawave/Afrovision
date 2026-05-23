@@ -133,6 +133,21 @@ export function ExternalStreamPlayer({
   const hlsRef = useRef<any>(null);
   const subtitleTrackRef = useRef<HTMLTrackElement | null>(null);
 
+  // Restore fullscreen after a channel-surfer navigation
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const shouldRestore = sessionStorage.getItem("av_restore_fullscreen");
+    if (!shouldRestore) return;
+    sessionStorage.removeItem("av_restore_fullscreen");
+    const timer = setTimeout(() => {
+      const el = containerRef.current;
+      if (el && !document.fullscreenElement) {
+        void el.requestFullscreen().catch(() => {});
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, []);
+
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [activePlaybackUrl, setActivePlaybackUrl] = useState<string | null>(playbackUrl);
   const [httpFallbackTried, setHttpFallbackTried] = useState(false);
@@ -392,14 +407,6 @@ export function ExternalStreamPlayer({
           );
 
           hls.on(HlsCtor.Events.LEVEL_SWITCHED, () => {
-            try {
-              const currentLevel = typeof hls.currentLevel === "number" ? hls.currentLevel : -1;
-              if (currentLevel >= 0) {
-                setActiveQualityLevel(currentLevel);
-              }
-            } catch {
-              // ignore level read errors
-            }
             if (!recoveringRef.current) return;
             setRecovering(false);
             setPlaybackError(null);
@@ -535,10 +542,15 @@ export function ExternalStreamPlayer({
     if (!hlsRef.current || runtimeMode !== "hls") return;
     try {
       if (activeQualityLevel < 0) {
+        // Keep ABR in fully automatic mode by default and on explicit Auto selection.
         hlsRef.current.currentLevel = -1;
         hlsRef.current.nextLevel = -1;
+        if (typeof hlsRef.current.loadLevel === "number") {
+          hlsRef.current.loadLevel = -1;
+        }
       } else {
         hlsRef.current.currentLevel = activeQualityLevel;
+        hlsRef.current.nextLevel = activeQualityLevel;
       }
     } catch {
       // ignore quality switch errors

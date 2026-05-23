@@ -4,6 +4,7 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 let passed = 0;
 let failed = 0;
 
@@ -113,6 +114,29 @@ test('wallet routes register without error', () => {
 test('admin routes register without error', () => {
   const adminRoutes = require('../src/admin/admin.routes');
   assert(adminRoutes && typeof adminRoutes === 'function', 'admin routes is not an express router');
+});
+
+test('default npm test chain includes critical suites', () => {
+  const packageJsonPath = path.join(__dirname, '..', 'package.json');
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  const testScript = String(packageJson?.scripts?.test || '');
+
+  const requiredSuites = [
+    'test/smoke.test.js',
+    'test/static-pages-content.test.js',
+    'test/homepage-design.test.js',
+    'test/broadcast-resumable-upload.test.js',
+    'test/exclusive-security-abuse.test.js',
+    'test/exclusive-rollout-controls.test.js',
+    'test/exclusive-go-live-docs.test.js',
+  ];
+
+  for (const suite of requiredSuites) {
+    assert(
+      testScript.includes(suite),
+      `npm test must include ${suite}`,
+    );
+  }
 });
 
 // ─── Summary ─────────────────────────────────────────────

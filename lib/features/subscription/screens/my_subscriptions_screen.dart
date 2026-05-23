@@ -286,7 +286,7 @@ class _MySubscriptionsScreenState extends State<MySubscriptionsScreen>
                                       onCancel: () => _cancel(sub),
                                       onWatchNow: () => Navigator.pushNamed(
                                         context,
-                                        '/channel-player',
+                                        '/channel-view',
                                         arguments: sub.channelId,
                                       ),
                                     );

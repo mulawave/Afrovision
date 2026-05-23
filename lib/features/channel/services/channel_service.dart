@@ -20,6 +20,80 @@ class FollowStatusModel {
   }
 }
 
+class ExclusiveAccessStatusModel {
+  final bool eligibleByKyc;
+  final bool hasActiveEntitlement;
+  final bool renewalRequired;
+  final String? expiresAt;
+  final double monthlyFeeNgn;
+
+  const ExclusiveAccessStatusModel({
+    required this.eligibleByKyc,
+    required this.hasActiveEntitlement,
+    required this.renewalRequired,
+    required this.expiresAt,
+    required this.monthlyFeeNgn,
+  });
+
+  factory ExclusiveAccessStatusModel.fromJson(Map<String, dynamic> json) {
+    return ExclusiveAccessStatusModel(
+      eligibleByKyc: json['eligibleByKyc'] as bool? ?? false,
+      hasActiveEntitlement: json['hasActiveEntitlement'] as bool? ?? false,
+      renewalRequired: json['renewalRequired'] as bool? ?? false,
+      expiresAt: json['expiresAt'] as String?,
+      monthlyFeeNgn: (json['monthlyFeeNgn'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+class ExclusivePurchaseResultModel {
+  final bool hasAccess;
+  final String? accessId;
+  final String? expiresAt;
+  final String? personalIdentifierCode;
+  final bool alreadyActive;
+
+  const ExclusivePurchaseResultModel({
+    required this.hasAccess,
+    required this.accessId,
+    required this.expiresAt,
+    required this.personalIdentifierCode,
+    required this.alreadyActive,
+  });
+
+  factory ExclusivePurchaseResultModel.fromJson(Map<String, dynamic> json) {
+    return ExclusivePurchaseResultModel(
+      hasAccess: json['has_access'] as bool? ?? false,
+      accessId: json['access_id'] as String?,
+      expiresAt: json['expires_at'] as String?,
+      personalIdentifierCode: json['personal_identifier_code'] as String?,
+      alreadyActive: json['already_active'] as bool? ?? false,
+    );
+  }
+}
+
+class ExclusivePicVerificationResultModel {
+  final bool valid;
+  final String? expiresAt;
+  final String? accessId;
+
+  const ExclusivePicVerificationResultModel({
+    required this.valid,
+    required this.expiresAt,
+    required this.accessId,
+  });
+
+  factory ExclusivePicVerificationResultModel.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return ExclusivePicVerificationResultModel(
+      valid: json['valid'] as bool? ?? false,
+      expiresAt: json['expires_at'] as String?,
+      accessId: json['access_id'] as String?,
+    );
+  }
+}
+
 class ChannelService {
   static Future<List<CategoryModel>> getCategories() async {
     final data = await ApiService.get('/categories');
@@ -174,5 +248,45 @@ class ChannelService {
       'monthly_fee_ngn': monthlyFeeNgn,
     });
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
+  }
+
+  static Future<ExclusiveAccessStatusModel> getExclusiveAccessStatus(
+    String channelId,
+  ) async {
+    final data = await ApiService.get(
+      '/channels/$channelId/exclusive/access-status',
+    );
+    return ExclusiveAccessStatusModel.fromJson(data);
+  }
+
+  static Future<ExclusivePurchaseResultModel> purchaseExclusiveAccess(
+    String channelId,
+  ) async {
+    final data = await ApiService.post(
+      '/channels/$channelId/exclusive/purchase',
+      {},
+    );
+    return ExclusivePurchaseResultModel.fromJson(data);
+  }
+
+  static Future<ExclusivePurchaseResultModel> renewExclusiveAccess(
+    String channelId,
+  ) async {
+    final data = await ApiService.post(
+      '/channels/$channelId/exclusive/renew',
+      {},
+    );
+    return ExclusivePurchaseResultModel.fromJson(data);
+  }
+
+  static Future<ExclusivePicVerificationResultModel> verifyExclusivePic(
+    String channelId, {
+    required String pic,
+  }) async {
+    final data = await ApiService.post(
+      '/channels/$channelId/exclusive/verify-pic',
+      {'pic': pic},
+    );
+    return ExclusivePicVerificationResultModel.fromJson(data);
   }
 }

@@ -28,6 +28,7 @@ import {
   getChannelApi,
   getChannelScheduleApi,
   checkChannelAccessApi,
+  getExclusiveAccessStatusApi,
   getChannelsApi,
   payForAccessApi,
   getChannelFollowStatusApi,
@@ -55,6 +56,8 @@ type AccessState = {
   access_duration_minutes?: number;
 };
 
+type ExclusiveGateReason = "login" | "kyc" | "entitlement" | null;
+
 type LiveDataSnapshot = {
   nowPlaying: NowPlaying | null;
   schedule: ScheduleProgram[] | null;
@@ -76,6 +79,7 @@ export function LiveStream({ id }: { id: string }) {
   const [channel, setChannel] = useState<Channel | null>(null);
   const [surferChannels, setSurferChannels] = useState<Channel[]>([]);
   const [access, setAccess] = useState<AccessState>({ checked: false, has_access: true });
+  const [exclusiveGateReason, setExclusiveGateReason] = useState<ExclusiveGateReason>(null);
   const [payLoading, setPayLoading] = useState(false);
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
   const [schedule, setSchedule] = useState<ScheduleProgram[]>([]);
@@ -217,7 +221,32 @@ export function LiveStream({ id }: { id: string }) {
       applyLiveDataSnapshot(liveData);
 
       // Set access state from backend
-      if (accessRes.ok && "has_access" in accessRes.data) {
+      if (channelRes.ok && "channel" in channelRes.data && channelRes.data.channel.type === "exclusive") {
+        if (!isAuthenticated) {
+          setExclusiveGateReason("login");
+          setAccess({ checked: true, has_access: false });
+        } else {
+          const exRes = await getExclusiveAccessStatusApi(id);
+          if (exRes.ok && "eligibleByKyc" in exRes.data) {
+            const allowed = exRes.data.eligibleByKyc && exRes.data.hasActiveEntitlement;
+            setAccess({ checked: true, has_access: allowed });
+            if (!exRes.data.eligibleByKyc) {
+              setExclusiveGateReason("kyc");
+            } else if (!exRes.data.hasActiveEntitlement) {
+              setExclusiveGateReason("entitlement");
+            } else {
+              setExclusiveGateReason(null);
+            }
+            if (allowed) {
+              recordChannelViewApi(id).catch(() => {});
+            }
+          } else {
+            setExclusiveGateReason("entitlement");
+            setAccess({ checked: true, has_access: false });
+          }
+        }
+      } else if (accessRes.ok && "has_access" in accessRes.data) {
+        setExclusiveGateReason(null);
         setAccess({
           checked: true,
           has_access: accessRes.data.has_access,
@@ -226,11 +255,11 @@ export function LiveStream({ id }: { id: string }) {
           entry_fee_ngn: accessRes.data.entry_fee_ngn,
           access_duration_minutes: accessRes.data.access_duration_minutes,
         });
-        // Record view event for analytics
         if (accessRes.data.has_access) {
           recordChannelViewApi(id).catch(() => {});
         }
       } else {
+        setExclusiveGateReason(null);
         setAccess({ checked: true, has_access: true });
         recordChannelViewApi(id).catch(() => {});
       }
@@ -268,7 +297,7 @@ export function LiveStream({ id }: { id: string }) {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [id, applyLiveDataSnapshot, fetchLiveDataSnapshot]);
+  }, [id, isAuthenticated, applyLiveDataSnapshot, fetchLiveDataSnapshot]);
 
   // Precision timer: auto-refresh exactly when the current program ends
   useEffect(() => {
@@ -378,6 +407,10 @@ export function LiveStream({ id }: { id: string }) {
   const handleSelectSurferChannel = useCallback((channelId: string) => {
     if (channelId === id || pendingChannelId) return;
     setPendingChannelId(channelId);
+    // Preserve fullscreen: flag it for restoration on the new page
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      sessionStorage.setItem("av_restore_fullscreen", "1");
+    }
     router.prefetch(`/live/${channelId}`);
     router.push(`/live/${channelId}`);
   }, [id, pendingChannelId, router]);
@@ -434,8 +467,41 @@ export function LiveStream({ id }: { id: string }) {
     );
   }
 
-  // Paywall: access denied for premium channels
+  // Paywall: access denied for premium/exclusive channels
   if (access.checked && !access.has_access) {
+    if (channel?.type === "exclusive") {
+      return (
+        <main className="min-h-screen pt-16 flex items-center justify-center px-4">
+          <div className="max-w-md w-full rounded-2xl bg-av-card border border-av-input-border/30 p-8 text-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center mx-auto mb-5">
+              <svg className="w-8 h-8 text-av-dark-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-white mb-2">Exclusive Channel</h2>
+            <p className="text-av-light-orange text-sm mb-2">{channelName}</p>
+            <p className="text-av-light-orange text-sm mb-6">
+              {exclusiveGateReason === "login" && "Sign in to continue with exclusive access."}
+              {exclusiveGateReason === "kyc" && "Adult KYC verification is required before access can be granted."}
+              {exclusiveGateReason === "entitlement" && "You need active entitlement for this channel."}
+            </p>
+            <button
+              onClick={() => router.push(`/channel/${id}/exclusive-access`)}
+              className="w-full py-3 rounded-xl font-semibold text-av-dark-blue bg-gradient-to-r from-av-orange to-av-light-orange hover:brightness-110 transition-all"
+            >
+              Open Exclusive Access
+            </button>
+            <Link
+              href={`/channel/${id}`}
+              className="block mt-4 text-sm text-av-light-orange hover:text-av-orange transition-colors"
+            >
+              ← Back to channel
+            </Link>
+          </div>
+        </main>
+      );
+    }
+
     const feeDisplay = access.entry_fee_type === 'vpt'
       ? `${access.entry_fee_vpt_units?.toLocaleString()} VPT`
       : `₦${access.entry_fee_ngn?.toLocaleString()}`;

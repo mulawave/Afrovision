@@ -1052,7 +1052,7 @@ class _HomeScreenState extends State<HomeScreen>
                 onTap: () async {
                   await Navigator.pushNamed(
                     context,
-                    '/channel-player',
+                    '/channel-view',
                     arguments: ch.id,
                   );
                   _loadData();
@@ -1259,7 +1259,7 @@ class _HomeScreenState extends State<HomeScreen>
                 onTap: () async {
                   await Navigator.pushNamed(
                     context,
-                    '/channel-player',
+                    '/channel-view',
                     arguments: channelId,
                   );
                   _loadData();
@@ -2044,7 +2044,7 @@ class _HomeScreenState extends State<HomeScreen>
               return GestureDetector(
                 onTap: () => Navigator.pushNamed(
                   context,
-                  '/channel-player',
+                  '/channel-view',
                   arguments: entry.id,
                 ),
                 child: Container(

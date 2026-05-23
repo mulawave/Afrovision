@@ -856,6 +856,56 @@ export async function updateExclusiveSettingsApi(
   );
 }
 
+export interface ExclusiveAccessStatusResponse {
+  eligibleByKyc: boolean;
+  hasActiveEntitlement: boolean;
+  renewalRequired: boolean;
+  expiresAt: string | null;
+  monthlyFeeNgn?: number;
+}
+
+export interface ExclusivePurchaseResponse {
+  has_access: boolean;
+  access_id?: string;
+  expires_at?: string;
+  personal_identifier_code?: string;
+  already_active?: boolean;
+}
+
+export interface ExclusivePicVerifyResponse {
+  valid: boolean;
+  expires_at?: string;
+  access_id?: string;
+}
+
+export async function getExclusiveAccessStatusApi(channelId: string) {
+  return api<ExclusiveAccessStatusResponse | ErrorResponse>(
+    `/channels/${channelId}/exclusive/access-status`,
+    { requireAuth: true },
+  );
+}
+
+export async function purchaseExclusiveAccessApi(channelId: string) {
+  return api<ExclusivePurchaseResponse | ErrorResponse>(
+    `/channels/${channelId}/exclusive/purchase`,
+    { method: "POST", requireAuth: true },
+  );
+}
+
+export async function renewExclusiveAccessApi(channelId: string) {
+  return api<ExclusivePurchaseResponse | ErrorResponse>(
+    `/channels/${channelId}/exclusive/renew`,
+    { method: "POST", requireAuth: true },
+  );
+}
+
+export async function verifyExclusivePicApi(channelId: string, pic: string) {
+  return api<ExclusivePicVerifyResponse | ErrorResponse>(
+    `/channels/${channelId}/exclusive/verify-pic`,
+    { method: "POST", body: { pic }, requireAuth: true },
+  );
+}
+
 // ── External stream source API (AV-STR-002 / AV-STR-004) ──────────────────
 
 /** Validates a URL against the resolver without persisting anything. */
@@ -878,7 +928,15 @@ export async function resolveSourceApi(url: string) {
  *  and probes the URL, returning the enriched channel record. */
 export async function updateExternalSourceApi(
   channelId: string,
-  input: { stream_source_mode: string; external_url?: string; external_provider?: string },
+  input: {
+    stream_source_mode: string;
+    external_url?: string | null;
+    external_provider?: string | null;
+    resolved_playback_url?: string | null;
+    stream_status?: string | null;
+    last_checked_at?: string | null;
+    provider_metadata?: Record<string, unknown> | null;
+  },
 ) {
   return api<{ channel: Channel } | ErrorResponse>(
     `/channels/${channelId}/external-source`,
@@ -1149,6 +1207,191 @@ export async function getVideoUploadUrlApi(input: {
       requireAuth: true,
     }
   );
+}
+
+export interface VideoUploadSession {
+  id: string;
+  creator_uid: string;
+  channel_id: string;
+  title: string;
+  description: string;
+  duration: number;
+  file_name: string | null;
+  content_type: string;
+  filename: string;
+  public_url: string;
+  upload_url: string | null;
+  total_bytes: number;
+  uploaded_bytes: number;
+  status: "initiated" | "uploading" | "paused" | "failed" | "finalizing" | "completed" | "canceled";
+  error: string | null;
+  video_id: string | null;
+  created_at: number;
+  updated_at: number;
+  expires_at: number;
+  completed_at?: number;
+}
+
+export async function createVideoResumableSessionApi(input: {
+  channelId: string;
+  title: string;
+  description: string;
+  duration?: number;
+  fileName: string;
+  fileSize: number;
+  contentType: string;
+}) {
+  return api<{ session: VideoUploadSession } | ErrorResponse>(
+    "/broadcast/videos/resumable-session",
+    {
+      method: "POST",
+      body: {
+        channel_id: input.channelId,
+        title: input.title,
+        description: input.description,
+        duration: input.duration || 0,
+        file_name: input.fileName,
+        file_size: input.fileSize,
+        content_type: input.contentType,
+      },
+      requireAuth: true,
+    },
+  );
+}
+
+export async function completeVideoResumableSessionApi(sessionId: string) {
+  return api<{ session: VideoUploadSession; video: ChannelVideo } | ErrorResponse>(
+    "/broadcast/videos/resumable-complete",
+    {
+      method: "POST",
+      body: { session_id: sessionId },
+      requireAuth: true,
+    },
+  );
+}
+
+export async function updateVideoUploadSessionProgressApi(
+  sessionId: string,
+  input: { uploadedBytes: number; status: "uploading" | "paused" | "failed"; error?: string | null },
+) {
+  return api<{ session: VideoUploadSession } | ErrorResponse>(
+    `/broadcast/videos/upload-sessions/${sessionId}/progress`,
+    {
+      method: "PATCH",
+      body: {
+        uploaded_bytes: input.uploadedBytes,
+        status: input.status,
+        error: input.error ?? null,
+      },
+      requireAuth: true,
+    },
+  );
+}
+
+export async function getMyVideoUploadSessionsApi(channelId?: string) {
+  const query = channelId ? `?channel_id=${encodeURIComponent(channelId)}` : "";
+  return api<{ sessions: VideoUploadSession[] } | ErrorResponse>(
+    `/broadcast/videos/upload-sessions${query}`,
+    {
+      requireAuth: true,
+    },
+  );
+}
+
+export async function cancelVideoUploadSessionApi(sessionId: string) {
+  return api<{ session: VideoUploadSession } | ErrorResponse>(
+    `/broadcast/videos/upload-sessions/${sessionId}`,
+    {
+      method: "DELETE",
+      requireAuth: true,
+    },
+  );
+}
+
+function parseResumableRangeHeader(rangeHeader: string | null): number {
+  if (!rangeHeader) return 0;
+  const match = /bytes=0-(\d+)/i.exec(rangeHeader);
+  if (!match) return 0;
+  const end = parseInt(match[1], 10);
+  if (!Number.isFinite(end) || end < 0) return 0;
+  return end + 1;
+}
+
+export async function getGCSResumableUploadOffset(sessionUrl: string, totalBytes: number): Promise<number> {
+  const res = await fetch(sessionUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Range": `bytes */${totalBytes}`,
+      "Content-Length": "0",
+    },
+  });
+
+  if (res.status === 200 || res.status === 201) return totalBytes;
+  if (res.status === 308) {
+    const rangeHeader = res.headers.get("Range") ?? res.headers.get("range");
+    return parseResumableRangeHeader(rangeHeader);
+  }
+
+  throw new Error(`Unable to query resumable offset (${res.status})`);
+}
+
+export async function uploadFileToGCSResumable(
+  sessionUrl: string,
+  file: File,
+  options?: {
+    chunkSizeBytes?: number;
+    startOffset?: number;
+    signal?: AbortSignal;
+    onProgress?: (percent: number) => void;
+    onOffsetChange?: (offset: number) => void;
+  },
+): Promise<void> {
+  const chunkSize = Math.max(256 * 1024, options?.chunkSizeBytes ?? 8 * 1024 * 1024);
+  let offset = options?.startOffset ?? 0;
+
+  if (offset <= 0) {
+    offset = await getGCSResumableUploadOffset(sessionUrl, file.size);
+  }
+
+  if (options?.onProgress) {
+    options.onProgress(file.size <= 0 ? 0 : Math.round((offset / file.size) * 100));
+  }
+  if (options?.onOffsetChange) {
+    options.onOffsetChange(offset);
+  }
+
+  while (offset < file.size) {
+    const endExclusive = Math.min(offset + chunkSize, file.size);
+    const chunk = file.slice(offset, endExclusive);
+    const contentRange = `bytes ${offset}-${endExclusive - 1}/${file.size}`;
+
+    const res = await fetch(sessionUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "Content-Range": contentRange,
+      },
+      body: chunk,
+      signal: options?.signal,
+    });
+
+    if (res.status === 308) {
+      const rangeHeader = res.headers.get("Range") ?? res.headers.get("range");
+      const confirmedOffset = parseResumableRangeHeader(rangeHeader);
+      offset = Math.max(confirmedOffset, endExclusive);
+    } else if (res.status === 200 || res.status === 201) {
+      offset = endExclusive;
+    } else {
+      throw new Error(`Resumable upload failed (${res.status})`);
+    }
+
+    if (options?.onOffsetChange) {
+      options.onOffsetChange(offset);
+    }
+    if (options?.onProgress) {
+      options.onProgress(Math.round((offset / file.size) * 100));
+    }
+  }
 }
 
 /**

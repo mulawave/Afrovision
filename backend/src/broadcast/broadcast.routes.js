@@ -17,6 +17,11 @@ router.get('/upcoming', ctrl.getUpcomingAll);
 
 // Video management (creator)
 router.post('/videos/upload-url', authenticateToken, ctrl.getVideoUploadUrl);
+router.post('/videos/resumable-session', authenticateToken, ctrl.createVideoResumableSession);
+router.patch('/videos/upload-sessions/:sessionId/progress', authenticateToken, ctrl.updateVideoUploadSessionProgress);
+router.delete('/videos/upload-sessions/:sessionId', authenticateToken, ctrl.cancelVideoUploadSession);
+router.post('/videos/resumable-complete', authenticateToken, ctrl.completeVideoResumableSession);
+router.get('/videos/upload-sessions', authenticateToken, ctrl.getMyVideoUploadSessions);
 router.post('/videos/register', authenticateToken, ctrl.registerUploadedVideo);
 router.post('/videos', authenticateToken, videoUpload.single('video'), uploadVideoToGCS, ctrl.uploadVideo);
 router.get('/videos/me', authenticateToken, ctrl.getMyVideos);

@@ -54,6 +54,22 @@ export function LivePlayer({
 }: LivePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Restore fullscreen after a channel-surfer navigation
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const shouldRestore = sessionStorage.getItem("av_restore_fullscreen");
+    if (!shouldRestore) return;
+    sessionStorage.removeItem("av_restore_fullscreen");
+    const timer = setTimeout(() => {
+      const el = containerRef.current;
+      if (el && !document.fullscreenElement) {
+        void el.requestFullscreen().catch(() => {});
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, []);
+
   const [elapsed, setElapsed] = useState(0);
   const [volume, setVolume] = useState(100);
   const [showControls, setShowControls] = useState(true);

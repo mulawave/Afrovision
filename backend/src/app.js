@@ -25,6 +25,8 @@ const RenewalWorker = require('./subscriptions/renewal.worker');
 const reputationRoutes = require('./reputation/reputation.routes');
 const ReputationService = require('./reputation/reputation.service');
 const ReminderWorker = require('./broadcast/reminder.worker');
+const ExclusiveLifecycleWorker = require('./channels/exclusive_lifecycle.worker');
+const ExclusiveReconciliationService = require('./channels/exclusive_reconciliation.service');
 const SwapService = require('./vpt/swap.service');
 const PoolService = require('./vpt/pool.service');
 const creatorSubscriptionRoutes = require('./subscriptions/creator_subscription.routes');
@@ -192,6 +194,44 @@ app.post('/ops/run-reminders', async (req, res) => {
   }
 });
 
+app.post('/ops/run-exclusive-lifecycle', async (req, res) => {
+  const { secret, force } = req.body || {};
+  const opsSecret = getOpsSecret();
+  if (!opsSecret || secret !== opsSecret) {
+    return res.status(403).json({ error: 'Invalid secret' });
+  }
+
+  try {
+    const result = await ExclusiveLifecycleWorker.runScheduledExclusiveLifecycle({
+      trigger: 'ops-http',
+      force: force === true,
+    });
+    return res.json({ result });
+  } catch (error) {
+    console.error('[ExclusiveLifecycleWorker] HTTP trigger error:', error.message);
+    return res.status(500).json({ error: error.message || 'Exclusive lifecycle run failed' });
+  }
+});
+
+app.post('/ops/run-exclusive-reconciliation', async (req, res) => {
+  const { secret, lookbackHours } = req.body || {};
+  const opsSecret = getOpsSecret();
+  if (!opsSecret || secret !== opsSecret) {
+    return res.status(403).json({ error: 'Invalid secret' });
+  }
+
+  try {
+    const result = await ExclusiveReconciliationService.runScheduledExclusiveReconciliation({
+      trigger: 'ops-http',
+      lookbackHours: Number(lookbackHours || 72),
+    });
+    return res.json({ result });
+  } catch (error) {
+    console.error('[ExclusiveReconciliation] HTTP trigger error:', error.message);
+    return res.status(500).json({ error: error.message || 'Exclusive reconciliation failed' });
+  }
+});
+
 app.get('/', (req, res) => {
   res.json({ status: 'AfroVision API running' });
 });
@@ -285,6 +325,7 @@ async function startServer() {
 
   console.log('[Pool Cron] Waiting for external distribution trigger ownership');
   console.log('[ReminderWorker] Waiting for external reminder trigger ownership');
+  console.log('[ExclusiveLifecycleWorker] Waiting for external lifecycle trigger ownership');
 
   // Seed default admin user (skipped if one already exists)
   await ensureAdminSeed();

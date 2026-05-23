@@ -143,11 +143,6 @@ export default function CreateChannelPage() {
         return;
       }
     }
-    if (!externalUrl.trim()) {
-      setError("A stream URL is required for the selected source mode.");
-      return;
-    }
-
     setSaving(true);
     setError(null);
     setSuccessLink(null);
@@ -332,7 +327,8 @@ export default function CreateChannelPage() {
                     </select>
                   </Field>
                   <Field label="Visibility">
-                    <div className="grid grid-cols-3 gap-2 rounded-xl border border-av-input-border/30 bg-av-input-fill p-1">
+                    <div className="w-full overflow-hidden rounded-xl border border-av-input-border/30 bg-av-input-fill p-1">
+                      <div className="grid w-full grid-cols-3 gap-2">
                       {(["public", "private", "exclusive"] as const).map((value) => (
                         <button
                           key={value}
@@ -348,6 +344,7 @@ export default function CreateChannelPage() {
                           {value}
                         </button>
                       ))}
+                      </div>
                     </div>
                   </Field>
                 </div>
@@ -430,6 +427,9 @@ export default function CreateChannelPage() {
                         </button>
                       )}
                     </div>
+                    <p className="mt-2 text-[11px] text-av-light-orange/75">
+                      Optional at creation. You can set or change stream source later in Creator Studio.
+                    </p>
                     {urlValidation && (
                       <p
                         className={`mt-2 text-xs ${

@@ -115,6 +115,7 @@ router.post('/features', authenticateToken, ctrl.setFeatureFlag);
 // Dashboard
 router.get('/dashboard', authenticateToken, ctrl.getDashboard);
 router.get('/dashboard/trend', authenticateToken, ctrl.getDashboardTrend);
+router.get('/dashboard/exclusive-ops', authenticateToken, ctrl.getExclusiveOpsDashboard);
 router.post('/renewals/run', authenticateToken, ctrl.runRenewals);
 
 // Analytics

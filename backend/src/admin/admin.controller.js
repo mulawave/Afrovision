@@ -1307,6 +1307,15 @@ async function adminBackfillChannelDefaults(req, res) {
 // --- Feature Flags ---
 
 const FEATURES_COLLECTION = 'features';
+const OPS_SUMMARIES_COLLECTION = 'ops_summaries';
+const EXCLUSIVE_SUMMARY_DOC = 'exclusive_lifecycle';
+const EXCLUSIVE_ACCESS_COLLECTION = 'exclusive_channel_access';
+
+function safeCountFromSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot.data !== 'function') return 0;
+  const data = snapshot.data() || {};
+  return Number(data.count || 0);
+}
 
 async function getFeatureFlags(req, res) {
   if (!requireAdmin(req, res)) return;
@@ -1476,6 +1485,123 @@ async function runRenewals(req, res) {
     res.json({ result });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to run renewals' });
+  }
+}
+
+async function getExclusiveOpsDashboard(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  try {
+    const db = getFirestore();
+
+    const [
+      totalExclusiveChannelsSnap,
+      activeExclusiveChannelsSnap,
+      activeEntitlementsSnap,
+      expiredEntitlementsSnap,
+      lifecycleSummaryDoc,
+      rolloutEnabledRaw,
+      rolloutPercentRaw,
+      rolloutAllowlistRaw,
+    ] = await Promise.all([
+      db.collection('channels').where('type', '==', 'exclusive').count().get(),
+      db.collection('channels').where('type', '==', 'exclusive').where('is_active', '==', true).count().get(),
+      db.collection(EXCLUSIVE_ACCESS_COLLECTION).where('status', '==', 'active').count().get(),
+      db.collection(EXCLUSIVE_ACCESS_COLLECTION).where('status', '==', 'expired').count().get(),
+      db.collection(OPS_SUMMARIES_COLLECTION).doc(EXCLUSIVE_SUMMARY_DOC).get(),
+      SettingsService.get('EXCLUSIVE_ROLLOUT_ENABLED').catch(() => 'true'),
+      SettingsService.get('EXCLUSIVE_ROLLOUT_PERCENT').catch(() => '100'),
+      SettingsService.get('EXCLUSIVE_ROLLOUT_ALLOWLIST_USER_IDS').catch(() => ''),
+    ]);
+
+    const totalExclusiveChannels = safeCountFromSnapshot(totalExclusiveChannelsSnap);
+    const activeExclusiveChannels = safeCountFromSnapshot(activeExclusiveChannelsSnap);
+    const activeEntitlements = safeCountFromSnapshot(activeEntitlementsSnap);
+    const expiredEntitlements = safeCountFromSnapshot(expiredEntitlementsSnap);
+    const disabledExclusiveChannels = Math.max(0, totalExclusiveChannels - activeExclusiveChannels);
+
+    const lifecycleSummary = lifecycleSummaryDoc && lifecycleSummaryDoc.exists
+      ? (lifecycleSummaryDoc.data() || {})
+      : null;
+
+    const scanned = Number(lifecycleSummary?.scanned_active || 0);
+    const errorCount = Number(lifecycleSummary?.error_count || 0);
+    const anomalyCount = Number(lifecycleSummary?.anomaly_count || 0);
+    const reminderSent = Number(lifecycleSummary?.user_reminders_sent || 0);
+    const expirySent = Number(lifecycleSummary?.user_expiry_sent || 0);
+
+    const schedulerRunHealthy = lifecycleSummary
+      ? (errorCount === 0 && anomalyCount === 0)
+      : null;
+
+    const schedulerErrorRate = scanned > 0 ? (errorCount / scanned) : 0;
+    const schedulerAnomalyRate = scanned > 0 ? (anomalyCount / scanned) : 0;
+
+    const sloTargets = {
+      scheduler_error_rate_max: 0.01,
+      scheduler_anomaly_rate_max: 0.03,
+      purchase_success_rate_min: 0.995,
+      reminder_dispatch_success_rate_min: 0.99,
+    };
+
+    const allowlistCount = String(rolloutAllowlistRaw || '')
+      .split(/[,;\s]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean).length;
+
+    return res.json({
+      dashboard: {
+        generated_at: Date.now(),
+        exclusive: {
+          channels: {
+            total: totalExclusiveChannels,
+            active: activeExclusiveChannels,
+            disabled: disabledExclusiveChannels,
+          },
+          entitlements: {
+            active: activeEntitlements,
+            expired: expiredEntitlements,
+          },
+          lifecycle: {
+            summary_available: Boolean(lifecycleSummary),
+            last_run: lifecycleSummary ? {
+              trigger: lifecycleSummary.trigger || null,
+              started_at: lifecycleSummary.started_at || null,
+              finished_at: lifecycleSummary.finished_at || null,
+              scanned_active: scanned,
+              user_reminders_sent: reminderSent,
+              user_expiry_sent: expirySent,
+              error_count: errorCount,
+              anomaly_count: anomalyCount,
+              ops_alerts_sent: Number(lifecycleSummary.ops_alerts_sent || 0),
+              healthy: schedulerRunHealthy,
+            } : null,
+          },
+          rollout: {
+            enabled: String(rolloutEnabledRaw || '').toLowerCase() === 'true',
+            percent: Number(rolloutPercentRaw || 0),
+            allowlist_count: allowlistCount,
+          },
+        },
+        slo: {
+          targets: sloTargets,
+          current: {
+            scheduler_error_rate: schedulerErrorRate,
+            scheduler_anomaly_rate: schedulerAnomalyRate,
+            reminder_dispatch_success_rate: scanned > 0
+              ? ((scanned - errorCount) / scanned)
+              : 1,
+          },
+        },
+        runbook: {
+          path: 'backend/ops/exclusive-ops-slo-runbook.md',
+          escalation: 'Follow P1/P2/P3 escalation matrix and ownership map in runbook.',
+        },
+      },
+    });
+  } catch (error) {
+    return res.status(getAdminDataErrorStatus(error)).json({ error: error.message });
   }
 }
 
@@ -2227,6 +2353,7 @@ module.exports = {
   adminBackfillChannelDefaults,
   getFeatureFlags,
   setFeatureFlag,
+  getExclusiveOpsDashboard,
   getDashboard,
   getDashboardTrend,
   runRenewals,

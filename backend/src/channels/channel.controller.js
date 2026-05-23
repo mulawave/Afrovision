@@ -5,6 +5,7 @@ const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const ExclusiveAccess = require('./exclusive_access.model');
 const { isAdultKycVerified } = require('./exclusive_policy.service');
+const { isExclusiveRolloutEnabledForUser } = require('./exclusive_rollout.service');
 const { getFirestore } = require('../utils/firestore');
 const crypto = require('crypto');
 const StreamResolver = require('./stream_resolver.service');
@@ -73,7 +74,14 @@ async function createChannel(req, res) {
 
 async function getPublicChannels(req, res) {
   const channels = await Channel.getAll();
-  const canSeeExclusive = req.userId ? await isAdultKycVerified(req.userId) : false;
+  let canSeeExclusive = false;
+  if (req.userId) {
+    const [eligibleByKyc, rolloutEnabled] = await Promise.all([
+      isAdultKycVerified(req.userId),
+      isExclusiveRolloutEnabledForUser(req.userId),
+    ]);
+    canSeeExclusive = eligibleByKyc && rolloutEnabled;
+  }
 
   const visibleChannels = channels.filter((channel) => {
     if (channel.type === 'public') return true;
@@ -100,21 +108,32 @@ async function getChannelById(req, res) {
       });
     }
 
-    const eligibleByKyc = await isAdultKycVerified(req.userId);
-    if (!eligibleByKyc) {
-      return res.status(403).json({
-        error: 'Adult KYC verification is required for exclusive channels',
-        requires_kyc: true,
-      });
-    }
+    const isOwner = channel.owner_id === req.userId;
+    if (!isOwner) {
+      const rolloutEnabled = await isExclusiveRolloutEnabledForUser(req.userId);
+      if (!rolloutEnabled) {
+        return res.status(403).json({
+          error: 'Exclusive channels are not available for your account yet',
+          rollout_blocked: true,
+        });
+      }
 
-    const access = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
-    if (!access) {
-      return res.status(403).json({
-        error: 'Personal identifier code access required',
-        requires_pic: true,
-        requires_payment: true,
-      });
+      const eligibleByKyc = await isAdultKycVerified(req.userId);
+      if (!eligibleByKyc) {
+        return res.status(403).json({
+          error: 'Adult KYC verification is required for exclusive channels',
+          requires_kyc: true,
+        });
+      }
+
+      const access = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
+      if (!access) {
+        return res.status(403).json({
+          error: 'Personal identifier code access required',
+          requires_pic: true,
+          requires_payment: true,
+        });
+      }
     }
   }
 
@@ -127,21 +146,32 @@ async function getChannelByNumber(req, res) {
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
   if (channel.type === 'exclusive') {
-    const eligibleByKyc = await isAdultKycVerified(req.userId);
-    if (!eligibleByKyc) {
-      return res.status(403).json({
-        error: 'Adult KYC verification is required for exclusive channels',
-        requires_kyc: true,
-      });
-    }
+    const isOwner = channel.owner_id === req.userId;
+    if (!isOwner) {
+      const rolloutEnabled = await isExclusiveRolloutEnabledForUser(req.userId);
+      if (!rolloutEnabled) {
+        return res.status(403).json({
+          error: 'Exclusive channels are not available for your account yet',
+          rollout_blocked: true,
+        });
+      }
 
-    const access = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
-    if (!access) {
-      return res.status(403).json({
-        error: 'Personal identifier code access required',
-        requires_pic: true,
-        requires_payment: true,
-      });
+      const eligibleByKyc = await isAdultKycVerified(req.userId);
+      if (!eligibleByKyc) {
+        return res.status(403).json({
+          error: 'Adult KYC verification is required for exclusive channels',
+          requires_kyc: true,
+        });
+      }
+
+      const access = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
+      if (!access) {
+        return res.status(403).json({
+          error: 'Personal identifier code access required',
+          requires_pic: true,
+          requires_payment: true,
+        });
+      }
     }
   }
 
@@ -267,6 +297,21 @@ async function updateExternalSource(req, res) {
 
   // external_url must be a non-empty string when source mode is not native
   const effectiveMode = stream_source_mode || channel.stream_source_mode || 'native';
+  if (effectiveMode === 'native') {
+    const updated = await Channel.updateExternalSource(req.params.id, {
+      stream_source_mode: 'native',
+      external_provider: null,
+      external_url: null,
+      resolved_playback_url: null,
+      stream_status: 'unknown',
+      last_checked_at: null,
+      provider_metadata: null,
+    });
+
+    const owner = await getOwnerSafely(updated.owner_id);
+    return res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
+  }
+
   if (effectiveMode !== 'native' && external_url !== undefined && typeof external_url === 'string') {
     const trimmed = external_url.trim();
     if (trimmed.length === 0) {

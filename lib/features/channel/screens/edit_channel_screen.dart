@@ -21,6 +21,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
   final _descController = TextEditingController();
   final _categoryController = TextEditingController();
   final _externalUrlController = TextEditingController();
+  final _exclusiveFeeController = TextEditingController();
   bool _saving = false;
   String? _error;
   ChannelModel? _channel;
@@ -63,6 +64,9 @@ class _EditChannelScreenState extends State<EditChannelScreen>
         _categoryController.text = args.category ?? '';
         _streamSourceMode = args.streamSourceMode;
         _externalUrlController.text = args.externalUrl ?? '';
+        _exclusiveFeeController.text = args.exclusiveMonthlyFeeNgn > 0
+            ? args.exclusiveMonthlyFeeNgn.toStringAsFixed(0)
+            : '';
         _animController.forward();
       }
     }
@@ -74,6 +78,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
     _descController.dispose();
     _categoryController.dispose();
     _externalUrlController.dispose();
+    _exclusiveFeeController.dispose();
     _animController.dispose();
     super.dispose();
   }
@@ -90,6 +95,13 @@ class _EditChannelScreenState extends State<EditChannelScreen>
         () => _error = 'A stream URL is required for the selected source mode',
       );
       return;
+    }
+    if (_channel?.isExclusive == true) {
+      final fee = double.tryParse(_exclusiveFeeController.text.trim()) ?? 0;
+      if (fee <= 0) {
+        setState(() => _error = 'Exclusive monthly fee must be greater than 0');
+        return;
+      }
     }
     setState(() {
       _error = null;
@@ -122,6 +134,19 @@ class _EditChannelScreenState extends State<EditChannelScreen>
         if (!mounted) return;
         setState(() => _channel = updated);
       }
+
+      if (_channel?.isExclusive == true) {
+        final fee = double.tryParse(_exclusiveFeeController.text.trim()) ?? 0;
+        if (fee > 0) {
+          final updated = await ChannelService.updateExclusiveSettings(
+            _channel!.id,
+            monthlyFeeNgn: fee,
+          );
+          if (!mounted) return;
+          setState(() => _channel = updated);
+        }
+      }
+
       if (!mounted) return;
       Navigator.pop(context, true);
     } catch (e) {
@@ -364,6 +389,74 @@ class _EditChannelScreenState extends State<EditChannelScreen>
                             prefixIcon: Icons.category_rounded,
                           ),
                           const SizedBox(height: 24),
+
+                          if (_channel?.isExclusive == true) ...[
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: AppColors.orange.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: AppColors.orange.withValues(
+                                    alpha: 0.25,
+                                  ),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(7),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.orange.withValues(
+                                            alpha: 0.12,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.verified_user_rounded,
+                                          color: AppColors.orange,
+                                          size: 16,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      const Text(
+                                        'EXCLUSIVE ACCESS FEE',
+                                        style: TextStyle(
+                                          color: AppColors.goldText,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 1.2,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 14),
+                                  AppTextField(
+                                    controller: _exclusiveFeeController,
+                                    label: 'MONTHLY FEE (NGN)',
+                                    hint: 'Set the monthly entrance fee',
+                                    prefixIcon: Icons.payments_rounded,
+                                    keyboardType: TextInputType.number,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'This fee is charged every 30 days to keep access active.',
+                                    style: TextStyle(
+                                      color: AppColors.hintText,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
 
                           // ── External stream source section ────────────────
                           _buildSourceSection(),

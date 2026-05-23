@@ -124,8 +124,8 @@ class _ChannelListScreenState extends State<ChannelListScreen>
           Navigator.pop(context);
           await Navigator.pushNamed(
             context,
-            '/channel-player',
-            arguments: channel.id,
+            '/channel-view',
+            arguments: channel,
           );
           _loadChannels();
         },
@@ -465,14 +465,17 @@ class _ChannelListScreenState extends State<ChannelListScreen>
   Widget _buildChannelCard(ChannelModel channel) {
     final hasBanner = channel.bannerUrl != null;
     final hasLogo = channel.logoUrl != null;
+    final badgeLabel = channel.isExclusive ? 'EXCLUSIVE' : 'PUBLIC';
+    final badgeColor = channel.isExclusive
+        ? AppColors.orange
+        : AppColors.successGreen;
+    final badgeIcon = channel.isExclusive
+        ? Icons.verified_user_rounded
+        : Icons.public_rounded;
 
     return GestureDetector(
       onTap: () async {
-        await Navigator.pushNamed(
-          context,
-          '/channel-player',
-          arguments: channel.id,
-        );
+        await Navigator.pushNamed(context, '/channel-view', arguments: channel);
         _loadChannels();
       },
       child: Container(
@@ -547,22 +550,18 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                         color: AppColors.darkBlue.withValues(alpha: 0.75),
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
-                          color: const Color(0xFF4CAF50).withValues(alpha: 0.4),
+                          color: badgeColor.withValues(alpha: 0.4),
                         ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
-                            Icons.public_rounded,
-                            size: 9,
-                            color: Color(0xFF4CAF50),
-                          ),
+                          Icon(badgeIcon, size: 9, color: badgeColor),
                           const SizedBox(width: 3),
-                          const Text(
-                            'PUBLIC',
+                          Text(
+                            badgeLabel,
                             style: TextStyle(
-                              color: Color(0xFF4CAF50),
+                              color: badgeColor,
                               fontSize: 8,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.5,

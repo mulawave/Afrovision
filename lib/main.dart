@@ -36,6 +36,7 @@ import 'features/broadcast/screens/channel_player_screen.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/notifications/screens/notifications_screen.dart';
 import 'features/channel/screens/premium_stream_paywall_screen.dart';
+import 'features/channel/screens/exclusive_access_paywall_screen.dart';
 import 'features/subscription/screens/creator_subscription_screen.dart';
 import 'features/referral/screens/referral_screen.dart';
 import 'features/auth/screens/pak_login_screen.dart';
@@ -136,6 +137,7 @@ class AfroVisionApp extends StatelessWidget {
         '/admin-panel': (_) => const AdminDashboardScreen(),
         '/notifications': (_) => const NotificationsScreen(),
         '/premium-stream': (_) => const PremiumStreamPaywallScreen(),
+        '/exclusive-access': (_) => const ExclusiveAccessPaywallScreen(),
         '/creator-subscription': (_) => const CreatorSubscriptionScreen(),
         '/my-subscriptions': (_) => const MySubscriptionsScreen(),
         '/referral': (_) => const ReferralScreen(),

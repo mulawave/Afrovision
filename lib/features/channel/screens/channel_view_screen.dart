@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
+import '../../auth/services/auth_service.dart';
 import '../../subscription/models/channel_subscription_model.dart';
 import '../../subscription/services/channel_subscription_service.dart';
 
@@ -18,6 +19,8 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     with SingleTickerProviderStateMixin {
   ChannelModel? _channel;
   bool _loading = true;
+  bool _exclusiveBlocked = false;
+  String? _blockedChannelId;
   bool _followLoading = false;
   bool _isFollowing = false;
   int _followersCount = 0;
@@ -70,6 +73,52 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   Future<void> _loadChannel(String id) async {
     try {
       final channel = await ChannelService.getChannelById(id);
+
+      if (channel.isExclusive) {
+        try {
+          final me = await AuthService.getCurrentUser();
+          final isOwner = me.id == channel.ownerId;
+          if (!isOwner) {
+            final status = await ChannelService.getExclusiveAccessStatus(
+              channel.id,
+            );
+            if (!status.eligibleByKyc || !status.hasActiveEntitlement) {
+              if (!mounted) return;
+              setState(() {
+                _exclusiveBlocked = true;
+                _blockedChannelId = channel.id;
+                _loading = false;
+              });
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted || _blockedChannelId == null) return;
+                Navigator.pushReplacementNamed(
+                  context,
+                  '/exclusive-access',
+                  arguments: _blockedChannelId!,
+                );
+              });
+              return;
+            }
+          }
+        } catch (_) {
+          if (!mounted) return;
+          setState(() {
+            _exclusiveBlocked = true;
+            _blockedChannelId = channel.id;
+            _loading = false;
+          });
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || _blockedChannelId == null) return;
+            Navigator.pushReplacementNamed(
+              context,
+              '/exclusive-access',
+              arguments: _blockedChannelId!,
+            );
+          });
+          return;
+        }
+      }
+
       FollowStatusModel? followStatus;
       try {
         followStatus = await ChannelService.getFollowStatus(channel.ownerId);
@@ -88,6 +137,8 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       }
       if (!mounted) return;
       setState(() {
+        _exclusiveBlocked = false;
+        _blockedChannelId = null;
         _channel = channel;
         _followersCount =
             followStatus?.followersCount ?? channel.followersCount;
@@ -195,6 +246,15 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   }
 
   Future<void> _watchLive(ChannelModel ch) async {
+    if (ch.isExclusive) {
+      final granted = await Navigator.pushNamed(
+        context,
+        '/exclusive-access',
+        arguments: ch,
+      );
+      if (granted != true || !mounted) return;
+    }
+
     if (ch.requiresPayment) {
       final granted = await Navigator.pushNamed(
         context,
@@ -364,6 +424,21 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_exclusiveBlocked) {
+      return Scaffold(
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
+          child: const Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.orange),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -590,6 +665,17 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                   ),
                 ),
                 const SizedBox(height: 24),
+
+                if (ch.isExclusive) ...[
+                  _buildInfoCard(
+                    icon: Icons.payments_rounded,
+                    label: 'Exclusive Monthly Fee',
+                    value:
+                        'NGN ${ch.exclusiveMonthlyFeeNgn.toStringAsFixed(0)}',
+                    valueColor: AppColors.orange,
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 // Info cards
                 _buildInfoCard(

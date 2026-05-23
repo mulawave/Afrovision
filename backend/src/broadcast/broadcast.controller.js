@@ -12,7 +12,11 @@ const { generateFlashAudio } = require('../utils/tts');
 const SettingsService = require('../admin/settings.service');
 const crypto = require('crypto');
 const path = require('path');
-const { generateSignedUploadUrl } = require('../utils/gcs');
+const {
+  generateSignedUploadUrl,
+  createResumableUploadSession,
+  getGCSObjectMetadata,
+} = require('../utils/gcs');
 const { getFirestore } = require('../utils/firestore');
 
 // ─── SIGNED UPLOAD URL (Direct-to-GCS) ──────────────────
@@ -25,9 +29,43 @@ const ALLOWED_VIDEO_TYPES = {
   'video/webm': '.webm',
 };
 
+const UPLOAD_SESSIONS_COLLECTION = 'broadcast_upload_sessions';
+
+function buildUploadSessionResponse(session) {
+  const isActive = ['initiated', 'uploading', 'paused', 'failed'].includes(session.status);
+  return {
+    ...session,
+    upload_url: isActive ? session.upload_url : null,
+  };
+}
+
+async function ensureCreatorAndChannelOwner(userId, channelId) {
+  const user = await User.findById(userId);
+  if (!user) return { error: { status: 404, message: 'User not found' } };
+  if (user.role !== 'creator' && user.role !== 'admin') {
+    return { error: { status: 403, message: 'Only creators can upload videos' } };
+  }
+
+  const channel = await Channel.findById(channelId);
+  if (!channel) return { error: { status: 404, message: 'Channel not found' } };
+  if (channel.owner_id !== userId) {
+    return { error: { status: 403, message: 'Not channel owner' } };
+  }
+  if (channel.stream_source_mode === 'external_url') {
+    return {
+      error: {
+        status: 400,
+        message: 'URL channels stream continuously and do not support scheduling',
+      },
+    };
+  }
+
+  return { user, channel };
+}
+
 async function getVideoUploadUrl(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.role !== 'creator' && user.role !== 'admin') {
       return res.status(403).json({ error: 'Only creators can upload videos' });
@@ -49,13 +87,14 @@ async function getVideoUploadUrl(req, res) {
 
     res.json({ signed_url: signedUrl, public_url: publicUrl, filename });
   } catch (err) {
+    console.error('[Broadcast] getVideoUploadUrl error:', err.message);
     res.status(500).json({ error: err.message });
   }
 }
 
 async function registerUploadedVideo(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.role !== 'creator' && user.role !== 'admin') {
       return res.status(403).json({ error: 'Only creators can upload videos' });
@@ -93,8 +132,342 @@ async function registerUploadedVideo(req, res) {
       duration: duration ? parseInt(duration, 10) : 0,
     });
 
+    await NotificationService.notifyUser(req.userId, {
+      title: 'Upload completed',
+      body: `Your video "${title}" was uploaded and added to your library.`,
+      type: 'creator_upload_completed',
+      link: '/creator-studio',
+      data: {
+        video_id: video.id,
+        channel_id: channel_id,
+      },
+    });
+
     res.status(201).json({ video });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function createVideoResumableSession(req, res) {
+  try {
+    const {
+      channel_id,
+      title,
+      description,
+      duration,
+      file_name,
+      content_type,
+      file_size,
+    } = req.body;
+
+    if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
+    if (!title) return res.status(400).json({ error: 'title is required' });
+    if (!description || !description.trim()) return res.status(400).json({ error: 'description is required' });
+    if (!content_type) return res.status(400).json({ error: 'content_type is required' });
+    if (!ALLOWED_VIDEO_TYPES[content_type]) {
+      return res.status(400).json({
+        error: `Unsupported video type: ${content_type}. Allowed: ${Object.keys(ALLOWED_VIDEO_TYPES).join(', ')}`,
+      });
+    }
+
+    const ownerCheck = await ensureCreatorAndChannelOwner(req.userId, channel_id);
+    if (ownerCheck.error) {
+      return res.status(ownerCheck.error.status).json({ error: ownerCheck.error.message });
+    }
+
+    const ext = ALLOWED_VIDEO_TYPES[content_type] || path.extname(file_name || '').toLowerCase() || '.mp4';
+    const filename = `videos/${crypto.randomUUID()}${ext}`;
+    const { sessionUrl, publicUrl } = await createResumableUploadSession(filename, content_type);
+    const now = Date.now();
+    const sessionId = crypto.randomUUID();
+    const totalBytes = Number.isFinite(Number(file_size)) ? Math.max(0, parseInt(file_size, 10)) : 0;
+
+    const session = {
+      id: sessionId,
+      creator_uid: req.userId,
+      channel_id,
+      title,
+      description: description.trim(),
+      duration: duration ? parseInt(duration, 10) : 0,
+      file_name: file_name || null,
+      content_type,
+      filename,
+      public_url: publicUrl,
+      upload_url: sessionUrl,
+      total_bytes: totalBytes,
+      uploaded_bytes: 0,
+      status: 'initiated',
+      error: null,
+      video_id: null,
+      created_at: now,
+      updated_at: now,
+      expires_at: now + 24 * 60 * 60 * 1000,
+    };
+
+    const db = getFirestore();
+    await db.collection(UPLOAD_SESSIONS_COLLECTION).doc(sessionId).set(session);
+
+    res.status(201).json({ session: buildUploadSessionResponse(session) });
+  } catch (err) {
+    console.error('[Broadcast] createVideoResumableSession error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function updateVideoUploadSessionProgress(req, res) {
+  try {
+    const sessionId = req.params.sessionId;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+
+    const db = getFirestore();
+    const ref = db.collection(UPLOAD_SESSIONS_COLLECTION).doc(sessionId);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: 'Upload session not found' });
+
+    const session = snap.data();
+    if (!session || session.creator_uid !== req.userId) {
+      return res.status(403).json({ error: 'Not upload owner' });
+    }
+    if (Number(session.expires_at || 0) > 0 && Number(session.expires_at) < Date.now()) {
+      return res.status(410).json({ error: 'Upload session expired. Create a new upload session.' });
+    }
+
+    const nextStatus = req.body?.status;
+    const allowedStatuses = new Set(['uploading', 'paused', 'failed']);
+    const uploadedBytesRaw = req.body?.uploaded_bytes;
+    const uploadedBytes = Number.isFinite(Number(uploadedBytesRaw))
+      ? Math.max(0, parseInt(uploadedBytesRaw, 10))
+      : session.uploaded_bytes || 0;
+
+    const patch = {
+      uploaded_bytes: uploadedBytes,
+      updated_at: Date.now(),
+    };
+
+    if (typeof nextStatus === 'string' && allowedStatuses.has(nextStatus)) {
+      patch.status = nextStatus;
+    }
+    if (typeof req.body?.error === 'string') {
+      patch.error = req.body.error.slice(0, 500);
+    } else if (patch.status === 'uploading') {
+      patch.error = null;
+    }
+
+    await ref.update(patch);
+    const updated = { ...session, ...patch };
+    res.json({ session: buildUploadSessionResponse(updated) });
+  } catch (err) {
+    console.error('[Broadcast] updateVideoUploadSessionProgress error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function completeVideoResumableSession(req, res) {
+  let acquiredFinalizingLock = false;
+  try {
+    const sessionId = req.body?.session_id;
+    if (!sessionId) return res.status(400).json({ error: 'session_id is required' });
+
+    const db = getFirestore();
+    const ref = db.collection(UPLOAD_SESSIONS_COLLECTION).doc(sessionId);
+    const lockResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) {
+        return { mode: 'not-found' };
+      }
+
+      const currentSession = snap.data();
+      if (!currentSession || currentSession.creator_uid !== req.userId) {
+        return { mode: 'forbidden' };
+      }
+
+      if (Number(currentSession.expires_at || 0) > 0 && Number(currentSession.expires_at) < Date.now()) {
+        return { mode: 'expired', session: currentSession };
+      }
+
+      if (currentSession.status === 'canceled') {
+        return { mode: 'canceled', session: currentSession };
+      }
+
+      if (currentSession.status === 'finalizing') {
+        return { mode: 'in-progress', session: currentSession };
+      }
+
+      if (currentSession.status === 'completed' && currentSession.video_id) {
+        return { mode: 'completed', session: currentSession };
+      }
+
+      tx.update(ref, {
+        status: 'finalizing',
+        updated_at: Date.now(),
+        error: null,
+      });
+      return {
+        mode: 'acquired',
+        session: {
+          ...currentSession,
+          status: 'finalizing',
+          error: null,
+        },
+      };
+    });
+
+    if (lockResult.mode === 'not-found') {
+      return res.status(404).json({ error: 'Upload session not found' });
+    }
+    if (lockResult.mode === 'forbidden') {
+      return res.status(403).json({ error: 'Not upload owner' });
+    }
+    if (lockResult.mode === 'expired') {
+      return res.status(410).json({ error: 'Upload session expired. Create a new upload session.' });
+    }
+    if (lockResult.mode === 'canceled') {
+      return res.status(409).json({ error: 'Upload session was canceled and cannot be completed.' });
+    }
+    if (lockResult.mode === 'in-progress') {
+      return res.status(409).json({ error: 'Upload finalization already in progress. Please retry shortly.' });
+    }
+
+    const session = lockResult.session;
+    acquiredFinalizingLock = lockResult.mode === 'acquired';
+
+    if (lockResult.mode === 'completed' && session?.video_id) {
+      const existingCompletedVideo = await Video.findById(session.video_id);
+      if (existingCompletedVideo) {
+        return res.json({ video: existingCompletedVideo, session: buildUploadSessionResponse(session) });
+      }
+    }
+
+    const ownerCheck = await ensureCreatorAndChannelOwner(req.userId, session.channel_id);
+    if (ownerCheck.error) {
+      return res.status(ownerCheck.error.status).json({ error: ownerCheck.error.message });
+    }
+
+    if (session.video_id) {
+      const existingVideo = await Video.findById(session.video_id);
+      if (existingVideo) {
+        return res.json({ video: existingVideo, session: buildUploadSessionResponse(session) });
+      }
+    }
+
+    const metadata = await getGCSObjectMetadata(session.filename);
+    if (!metadata) {
+      return res.status(409).json({ error: 'Upload is not complete yet. Please retry shortly.' });
+    }
+
+    const bytes = Number.isFinite(Number(metadata.size)) ? parseInt(metadata.size, 10) : (session.uploaded_bytes || 0);
+    const video = await Video.create({
+      creatorUid: req.userId,
+      channelId: session.channel_id,
+      title: session.title,
+      description: session.description,
+      videoUrl: session.public_url,
+      thumbnailUrl: null,
+      duration: session.duration ? parseInt(session.duration, 10) : 0,
+    });
+
+    const patch = {
+      status: 'completed',
+      uploaded_bytes: bytes,
+      video_id: video.id,
+      completed_at: Date.now(),
+      updated_at: Date.now(),
+      error: null,
+      upload_url: null,
+    };
+    await ref.update(patch);
+
+    await NotificationService.notifyUser(req.userId, {
+      title: 'Upload completed',
+      body: `Your video "${session.title}" was uploaded and added to your library.`,
+      type: 'creator_upload_completed',
+      link: '/creator-studio',
+      data: {
+        video_id: video.id,
+        channel_id: session.channel_id,
+      },
+    });
+
+    res.json({ video, session: buildUploadSessionResponse({ ...session, ...patch }) });
+  } catch (err) {
+    if (acquiredFinalizingLock && req.body?.session_id) {
+      try {
+        const db = getFirestore();
+        await db.collection(UPLOAD_SESSIONS_COLLECTION).doc(req.body.session_id).update({
+          status: 'failed',
+          error: err.message,
+          updated_at: Date.now(),
+        });
+      } catch {
+        // Ignore cleanup errors.
+      }
+    }
+    console.error('[Broadcast] completeVideoResumableSession error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function cancelVideoUploadSession(req, res) {
+  try {
+    const sessionId = req.params.sessionId;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+
+    const db = getFirestore();
+    const ref = db.collection(UPLOAD_SESSIONS_COLLECTION).doc(sessionId);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: 'Upload session not found' });
+
+    const session = snap.data();
+    if (!session || session.creator_uid !== req.userId) {
+      return res.status(403).json({ error: 'Not upload owner' });
+    }
+
+    if (session.status === 'completed' || session.video_id) {
+      return res.status(409).json({ error: 'Completed upload sessions cannot be canceled.' });
+    }
+    if (session.status === 'finalizing') {
+      return res.status(409).json({ error: 'Upload finalization in progress. Try again shortly.' });
+    }
+
+    if (session.status === 'canceled') {
+      return res.json({ session: buildUploadSessionResponse(session) });
+    }
+
+    const patch = {
+      status: 'canceled',
+      error: null,
+      upload_url: null,
+      updated_at: Date.now(),
+    };
+    await ref.update(patch);
+
+    res.json({ session: buildUploadSessionResponse({ ...session, ...patch }) });
+  } catch (err) {
+    console.error('[Broadcast] cancelVideoUploadSession error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function getMyVideoUploadSessions(req, res) {
+  try {
+    const channelId = typeof req.query.channel_id === 'string' ? req.query.channel_id : null;
+    const db = getFirestore();
+    const snap = await db
+      .collection(UPLOAD_SESSIONS_COLLECTION)
+      .where('creator_uid', '==', req.userId)
+      .get();
+
+    const sessions = snap.docs
+      .map((doc) => ({ ...doc.data(), id: doc.id }))
+      .filter((session) => !channelId || session.channel_id === channelId)
+      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
+      .slice(0, 100)
+      .map((session) => buildUploadSessionResponse(session));
+
+    res.json({ sessions });
+  } catch (err) {
+    console.error('[Broadcast] getMyVideoUploadSessions error:', err.message);
     res.status(500).json({ error: err.message });
   }
 }
@@ -103,7 +476,7 @@ async function registerUploadedVideo(req, res) {
 
 async function uploadVideo(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.role !== 'creator' && user.role !== 'admin') {
       return res.status(403).json({ error: 'Only creators can upload videos' });
@@ -133,6 +506,17 @@ async function uploadVideo(req, res) {
       videoUrl,
       thumbnailUrl: null,
       duration: duration ? parseInt(duration, 10) : 0,
+    });
+
+    await NotificationService.notifyUser(req.userId, {
+      title: 'Upload completed',
+      body: `Your video "${title}" was uploaded and added to your library.`,
+      type: 'creator_upload_completed',
+      link: '/creator-studio',
+      data: {
+        video_id: video.id,
+        channel_id: channel_id,
+      },
     });
 
     res.status(201).json({ video });
@@ -200,7 +584,7 @@ async function _getAdBufferMs() {
 
 async function scheduleProgram(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const { channel_id, video_id, start_time } = req.body;
@@ -295,7 +679,7 @@ async function deleteProgram(req, res) {
 
 async function scheduleSequential(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const { channel_id, video_ids, start_time } = req.body;
@@ -488,7 +872,7 @@ async function enrichProgram(program) {
  */
 async function goLive(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.role !== 'creator' && user.role !== 'admin') {
       return res.status(403).json({ error: 'Only creators can go live' });
@@ -633,6 +1017,11 @@ async function getFlashAudio(req, res) {
 
 module.exports = {
   getVideoUploadUrl,
+  createVideoResumableSession,
+  updateVideoUploadSessionProgress,
+  completeVideoResumableSession,
+  getMyVideoUploadSessions,
+  cancelVideoUploadSession,
   registerUploadedVideo,
   uploadVideo,
   uploadThumbnail,

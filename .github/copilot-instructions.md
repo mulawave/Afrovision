@@ -28,6 +28,33 @@
 
 7. **Example Standard**: If implementing header notifications, the implementation must include the notification icon, badge counter, dropdown or panel, read and unread distinction, clear notification list presentation, mark all as read, links from each notification to relevant content, and a fully wired notifications page with controls such as mark as read, archive, delete, select all, delete all, and any other necessary management actions.
 
+## Implementation Preparation Hook (MANDATORY BLOCKER)
+
+All new implementation requests must pass a preparation gate before coding starts.
+
+Required process:
+
+1. Create or use a tracker file named `*-end-to-end-implementation-tracker.md`.
+2. Tracker must follow `.github/templates/new-feature-end-to-end-implementation-template.md`.
+3. The following sections must be explicitly present before implementation begins:
+	- completion contract
+	- business rules
+	- domain model changes
+	- API contracts
+	- user flows
+	- security and observability
+	- acceptance criteria and test matrix
+
+Blocking rule:
+
+- If a new implementation task does not use this process and template, agents must stop and return: `Blocked by Implementation Preparation Hook`.
+- Agents may proceed only after the tracker and checklist are complete.
+
+Enforcement reference:
+
+- `.github/prompts/implementation-guard.prompt.md`
+- `.github/prompts/implementation-completeness-review.prompt.md`
+
 ## Brand Colors
 - Dark Blue: `#050A30`
 - Light Blue: `#173A6D`

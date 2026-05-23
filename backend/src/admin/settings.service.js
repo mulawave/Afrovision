@@ -32,6 +32,13 @@ function validateValue(key, value) {
   if (key === 'ENVIRONMENT' && !VALID_ENVIRONMENTS.has(value)) {
     throw new Error('ENVIRONMENT must be one of: staging, production');
   }
+
+  if (key === 'EXCLUSIVE_ROLLOUT_PERCENT') {
+    const asNumber = Number(value);
+    if (!Number.isFinite(asNumber) || asNumber < 0 || asNumber > 100) {
+      throw new Error('EXCLUSIVE_ROLLOUT_PERCENT must be a number between 0 and 100');
+    }
+  }
 }
 
 function shouldApplyDefault(existingData, definition) {

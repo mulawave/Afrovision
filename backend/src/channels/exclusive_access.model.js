@@ -42,6 +42,73 @@ async function expireIfNeeded(id) {
   return data;
 }
 
+async function listActiveAccesses() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('status', '==', 'active')
+    .get();
+
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+}
+
+async function updateAccess(id, updates) {
+  const db = getFirestore();
+  const ref = db.collection(COLLECTION).doc(id);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+
+  const merged = {
+    ...doc.data(),
+    ...updates,
+    id,
+    updated_at: Date.now(),
+  };
+
+  await ref.set(merged);
+  return merged;
+}
+
+async function markReminderSent(id, bucket, sentAt = Date.now()) {
+  const db = getFirestore();
+  const current = await db.collection(COLLECTION).doc(id).get();
+  if (!current.exists) return null;
+  const currentData = current.data() || {};
+
+  return updateAccess(id, {
+    reminder_sent_at: {
+      ...(currentData.reminder_sent_at || {}),
+      [bucket]: sentAt,
+    },
+  });
+}
+
+async function markExpired(id, expiredAt = Date.now()) {
+  return updateAccess(id, {
+    status: 'expired',
+    expired_at: expiredAt,
+  });
+}
+
+async function markExpiryNotified(id, notifiedAt = Date.now()) {
+  return updateAccess(id, {
+    expiry_notified_at: notifiedAt,
+  });
+}
+
+async function markLifecycleFlag(id, flag, at = Date.now()) {
+  const db = getFirestore();
+  const current = await db.collection(COLLECTION).doc(id).get();
+  if (!current.exists) return null;
+  const currentData = current.data() || {};
+
+  return updateAccess(id, {
+    lifecycle_flags: {
+      ...(currentData.lifecycle_flags || {}),
+      [flag]: at,
+    },
+  });
+}
+
 async function grantOrRenew({
   userUid,
   channelId,
@@ -93,6 +160,11 @@ module.exports = {
   findLatestByUserAndChannel,
   findActiveByUserAndChannel,
   expireIfNeeded,
+  listActiveAccesses,
+  markReminderSent,
+  markExpired,
+  markExpiryNotified,
+  markLifecycleFlag,
   grantOrRenew,
   THIRTY_DAYS_MS,
 };

@@ -693,43 +693,58 @@ Exit Criteria:
 | `AV-EXC-001` | Finalize exclusive policy and legal approvals | Spike | P0 | Product/Ops | 2 points | Sprint 1 |
 | `AV-EXC-002` | Lock KYC adult verification source and rules | Spike | P0 | Product/Ops + Backend | 2 points | Sprint 1 |
 | `AV-EXC-003` | Finalize PIC lifecycle and reminder policy | Spike | P1 | Product/Ops | 1 point | Sprint 1 |
-| `AV-EXC-010` | Add exclusive channel schema and settings fields | Story | P0 | Backend | 5 points | Sprint 1 |
-| `AV-EXC-011` | Create entitlement and transaction storage contracts | Story | P0 | Backend | 5 points | Sprint 1 |
-| `AV-EXC-012` | Extend wallet ledger types for exclusive split legs | Story | P0 | Backend | 3 points | Sprint 1 |
+| `AV-EXC-010` ✅ | Add exclusive channel schema and settings fields | Story | P0 | Backend | 5 points | Sprint 1 |
+| `AV-EXC-011` ✅ | Create entitlement and transaction storage contracts | Story | P0 | Backend | 5 points | Sprint 1 |
+| `AV-EXC-012` ✅ | Extend wallet ledger types for exclusive split legs | Story | P0 | Backend | 3 points | Sprint 1 |
 | `AV-EXC-013` | Add audit events for exclusive operations | Story | P1 | Backend | 3 points | Sprint 1 |
-| `AV-EXC-020` | Implement exclusive visibility filter across list/search APIs | Story | P0 | Backend | 5 points | Sprint 2 |
-| `AV-EXC-021` | Enforce exclusive detail/watch access policy middleware | Story | P0 | Backend | 5 points | Sprint 2 |
-| `AV-EXC-022` | Add exclusive access status endpoint | Story | P0 | Backend | 3 points | Sprint 2 |
+| `AV-EXC-020` ✅ | Implement exclusive visibility filter across list/search APIs | Story | P0 | Backend | 5 points | Sprint 2 |
+| `AV-EXC-021` ✅ | Enforce exclusive detail/watch access policy middleware | Story | P0 | Backend | 5 points | Sprint 2 |
+| `AV-EXC-022` ✅ | Add exclusive access status endpoint | Story | P0 | Backend | 3 points | Sprint 2 |
 | `AV-EXC-023` | Add cache and CDN safeguards for exclusive payloads | Task | P1 | Backend + Ops | 3 points | Sprint 2 |
-| `AV-EXC-030` | Build purchase flow for monthly exclusive access | Story | P0 | Backend | 8 points | Sprint 2 |
-| `AV-EXC-031` | Build PIC issuance and verification service | Story | P0 | Backend | 5 points | Sprint 2 |
-| `AV-EXC-032` | Implement renewal endpoint and lifecycle handling | Story | P0 | Backend | 5 points | Sprint 2 |
+| `AV-EXC-030` ✅ | Build purchase flow for monthly exclusive access | Story | P0 | Backend | 8 points | Sprint 2 |
+| `AV-EXC-031` ✅ | Build PIC issuance and verification service | Story | P0 | Backend | 5 points | Sprint 2 |
+| `AV-EXC-032` ✅ | Implement renewal endpoint and lifecycle handling | Story | P0 | Backend | 5 points | Sprint 2 |
 | `AV-EXC-033` | Implement entitlement expiry scheduler | Story | P1 | Backend | 3 points | Sprint 2 |
 | `AV-EXC-034` | Add idempotency and duplicate-event protection | Story | P0 | Backend | 5 points | Sprint 2 |
-| `AV-EXC-040` | Implement 50/10/20/10/10 split engine | Story | P0 | Backend | 8 points | Sprint 3 |
-| `AV-EXC-041` | Add deterministic vPT conversion snapshots | Story | P1 | Backend | 3 points | Sprint 3 |
-| `AV-EXC-042` | Integrate referral tree split distribution | Story | P0 | Backend | 5 points | Sprint 3 |
-| `AV-EXC-043` | Build reconciliation and split exception handling | Story | P0 | Backend + Ops | 5 points | Sprint 3 |
-| `AV-EXC-050` | Restrict exclusive channel creation to premium creators | Story | P0 | Backend + Creator UX | 5 points | Sprint 3 |
-| `AV-EXC-051` | Add creator fee configuration controls and validation | Story | P1 | Admin + Backend | 5 points | Sprint 3 |
+| `AV-EXC-040` ✅ | Implement 50/10/20/10/10 split engine | Story | P0 | Backend | 8 points | Sprint 3 |
+| `AV-EXC-041` ✅ | Add deterministic vPT conversion snapshots | Story | P1 | Backend | 3 points | Sprint 3 |
+| `AV-EXC-042` ✅ | Integrate referral tree split distribution | Story | P0 | Backend | 5 points | Sprint 3 |
+| `AV-EXC-043` ✅ | Build reconciliation and split exception handling | Story | P0 | Backend + Ops | 5 points | Sprint 3 |
+| `AV-EXC-050` ✅ | Restrict exclusive channel creation to premium creators | Story | P0 | Backend + Creator UX | 5 points | Sprint 3 |
+| `AV-EXC-051` ✅ | Add creator fee configuration controls and validation | Story | P1 | Admin + Backend | 5 points | Sprint 3 |
 | `AV-EXC-052` | Add creator metrics for entitlement and revenue | Story | P1 | Admin + Backend | 5 points | Sprint 3 |
 | `AV-EXC-053` | Add admin incident tooling for payments/splits | Story | P1 | Admin + Backend | 5 points | Sprint 3 |
-| `AV-EXC-060` | Add app exclusive discovery badges and gating states | Story | P0 | Flutter | 5 points | Sprint 4 |
-| `AV-EXC-061` | Add app paywall, payment, and PIC screens with full states | Story | P0 | Flutter | 8 points | Sprint 4 |
-| `AV-EXC-062` | Implement website parity for exclusive visibility and gating | Story | P0 | Website | 8 points | Sprint 4 |
-| `AV-EXC-063` | Add deep-link route guards for exclusive channels | Story | P1 | Flutter + Website | 3 points | Sprint 4 |
-| `AV-EXC-070` | Implement user reminders, receipts, and expiry notifications | Story | P0 | Backend + App/Web | 5 points | Sprint 4 |
-| `AV-EXC-071` | Implement creator business event notifications | Story | P1 | Backend + Admin | 3 points | Sprint 4 |
-| `AV-EXC-072` | Implement operations alerts for failures and anomalies | Story | P0 | Backend + Ops | 3 points | Sprint 4 |
-| `AV-EXC-073` | Add and approve message templates for exclusive lifecycle | Task | P1 | Product/Ops + Backend | 2 points | Sprint 4 |
-| `AV-EXC-080` | Add unit and integration coverage for exclusive backend services | Task | P0 | Backend QA | 5 points | Sprint 5 |
-| `AV-EXC-081` | Add end-to-end persona and lifecycle test coverage | Task | P0 | QA | 8 points | Sprint 5 |
-| `AV-EXC-082` | Run security hardening and abuse-path testing | Task | P0 | Security + Backend | 5 points | Sprint 5 |
-| `AV-EXC-083` | Run performance/load tests for billing and renewal peaks | Task | P1 | QA + Backend | 3 points | Sprint 5 |
-| `AV-EXC-090` | Execute feature-flagged staged rollout | Task | P0 | Ops | 3 points | Sprint 6 |
-| `AV-EXC-091` | Run any required backfill/migration steps safely | Task | P1 | Backend + Ops | 3 points | Sprint 6 |
-| `AV-EXC-092` | Finalize dashboards, SLOs, and on-call runbook | Task | P0 | Ops + Backend | 3 points | Sprint 6 |
-| `AV-EXC-093` | Complete go-live and 48-hour enhanced monitoring | Task | P0 | Ops + QA + Product | 2 points | Sprint 6 |
+| `AV-EXC-060` ✅ | Add app exclusive discovery badges and gating states | Story | P0 | Flutter | 5 points | Sprint 4 |
+| `AV-EXC-061` ✅ | Add app paywall, payment, and PIC screens with full states | Story | P0 | Flutter | 8 points | Sprint 4 |
+| `AV-EXC-062` ✅ | Implement website parity for exclusive visibility and gating | Story | P0 | Website | 8 points | Sprint 4 |
+| `AV-EXC-063` ✅ | Add deep-link route guards for exclusive channels | Story | P1 | Flutter + Website | 3 points | Sprint 4 |
+| `AV-EXC-070` ✅ | Implement user reminders, receipts, and expiry notifications | Story | P0 | Backend + App/Web | 5 points | Sprint 4 |
+| `AV-EXC-071` ✅ | Implement creator business event notifications | Story | P1 | Backend + Admin | 3 points | Sprint 4 |
+| `AV-EXC-072` ✅ | Implement operations alerts for failures and anomalies | Story | P0 | Backend + Ops | 3 points | Sprint 4 |
+| `AV-EXC-073` ✅ | Add and approve message templates for exclusive lifecycle | Task | P1 | Product/Ops + Backend | 2 points | Sprint 4 |
+| `AV-EXC-080` ✅ | Add unit and integration coverage for exclusive backend services | Task | P0 | Backend QA | 5 points | Sprint 5 |
+| `AV-EXC-081` ✅ | Add end-to-end persona and lifecycle test coverage | Task | P0 | QA | 8 points | Sprint 5 |
+| `AV-EXC-082` ✅ | Run security hardening and abuse-path testing | Task | P0 | Security + Backend | 5 points | Sprint 5 |
+| `AV-EXC-083` ✅ | Run performance/load tests for billing and renewal peaks | Task | P1 | QA + Backend | 3 points | Sprint 5 |
+| `AV-EXC-090` ✅ | Execute feature-flagged staged rollout | Task | P0 | Ops | 3 points | Sprint 6 |
+| `AV-EXC-091` ✅ | Run any required backfill/migration steps safely | Task | P1 | Backend + Ops | 3 points | Sprint 6 |
+| `AV-EXC-092` ✅ | Finalize dashboards, SLOs, and on-call runbook | Task | P0 | Ops + Backend | 3 points | Sprint 6 |
+| `AV-EXC-093` ✅ | Complete go-live and 48-hour enhanced monitoring | Task | P0 | Ops + QA + Product | 2 points | Sprint 6 |
+
+## Current Baseline Status
+
+Completed in the committed baseline:
+
+- Backend exclusive channel foundation, access gating, purchase/renewal, and split logic.
+- Creator-side exclusive fee setup and validation.
+- Flutter exclusive channel creation, metadata, list/view/studio labeling, edit fee management, and dedicated exclusive paywall/PIC verification flow.
+- Flutter route-guard parity added across home, search, channel-number access, notifications, and subscriptions entry points.
+- Website exclusive channel parity delivered: gated profile/live flows, dedicated exclusive access page, and deep-link protection.
+- Backend exclusive lifecycle worker added for T-7/T-3/T-1 reminders, automatic expiry notifications, creator lifecycle events, and ops alert routing.
+
+Still pending:
+
+- Production go-live execution window and 48-hour live signoff (operational event outside local codebase).
 
 ## Definition of Ready
 

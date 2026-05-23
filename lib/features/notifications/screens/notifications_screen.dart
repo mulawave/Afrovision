@@ -164,7 +164,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     if (item.type == 'creator_live' &&
         channelId != null &&
         channelId.isNotEmpty) {
-      Navigator.pushNamed(context, '/channel-player', arguments: channelId);
+      Navigator.pushNamed(context, '/channel-view', arguments: channelId);
       return;
     }
 
@@ -314,10 +314,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           const SizedBox(height: 10),
           Text(
             'Unread notifications: $_unreadCount',
-            style: TextStyle(
-              color: AppColors.goldText,
-              fontSize: 13,
-            ),
+            style: TextStyle(color: AppColors.goldText, fontSize: 13),
           ),
           const SizedBox(height: 16),
           AppButton(

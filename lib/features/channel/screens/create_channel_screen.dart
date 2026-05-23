@@ -159,13 +159,6 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         return;
       }
     }
-    if (_streamSourceMode != 'native' &&
-        _externalUrlController.text.trim().isEmpty) {
-      setState(
-        () => _error = 'A stream URL is required for the selected source mode',
-      );
-      return;
-    }
     setState(() {
       _error = null;
       _creating = true;
@@ -186,8 +179,9 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         await ChannelService.uploadBanner(channel.id, _bannerFile!);
       }
 
-      // Persist external source settings when a non-native mode was chosen
-      if (_streamSourceMode != 'native') {
+      // Persist external source settings only when user provides URL at creation.
+      if (_streamSourceMode != 'native' &&
+          _externalUrlController.text.trim().isNotEmpty) {
         await ChannelService.updateExternalSource(
           channel.id,
           streamSourceMode: _streamSourceMode,
@@ -523,56 +517,70 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 const SizedBox(height: 24),
 
                 // Type selector
-                Text(
-                  'CHANNEL TYPE',
-                  style: TextStyle(
-                    color: AppColors.goldText,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.2,
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.inputFill,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.inputBorder),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTypeOption(
-                        label: 'Public',
-                        icon: Icons.public_rounded,
-                        selected: _type == 'public',
-                        onTap: () => setState(() => _type = 'public'),
-                        enabled: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'CHANNEL TYPE',
+                        style: TextStyle(
+                          color: AppColors.goldText,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTypeOption(
-                        label: 'Private',
-                        icon: canPrivate
-                            ? Icons.lock_rounded
-                            : Icons.lock_outline_rounded,
-                        selected: _type == 'private',
-                        onTap: canPrivate
-                            ? () => setState(() => _type = 'private')
-                            : null,
-                        enabled: canPrivate,
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTypeOption(
+                              label: 'Public',
+                              icon: Icons.public_rounded,
+                              selected: _type == 'public',
+                              onTap: () => setState(() => _type = 'public'),
+                              enabled: true,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTypeOption(
+                              label: 'Private',
+                              icon: canPrivate
+                                  ? Icons.lock_rounded
+                                  : Icons.lock_outline_rounded,
+                              selected: _type == 'private',
+                              onTap: canPrivate
+                                  ? () => setState(() => _type = 'private')
+                                  : null,
+                              enabled: canPrivate,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTypeOption(
+                              label: 'Exclusive',
+                              icon: canExclusive
+                                  ? Icons.verified_user_rounded
+                                  : Icons.lock_outline_rounded,
+                              selected: _type == 'exclusive',
+                              onTap: canExclusive
+                                  ? () => setState(() => _type = 'exclusive')
+                                  : null,
+                              enabled: canExclusive,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTypeOption(
-                        label: 'Exclusive',
-                        icon: canExclusive
-                            ? Icons.verified_user_rounded
-                            : Icons.lock_outline_rounded,
-                        selected: _type == 'exclusive',
-                        onTap: canExclusive
-                            ? () => setState(() => _type = 'exclusive')
-                            : null,
-                        enabled: canExclusive,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 if (!canPrivate)
                   Padding(
@@ -1123,7 +1131,14 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                   ],
                 ),
               ),
-          ],
+          ] else
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Optional at creation. You can configure source later in Edit Channel or Creator Studio.',
+                style: TextStyle(color: AppColors.hintText, fontSize: 11),
+              ),
+            ),
         ],
       ),
     );

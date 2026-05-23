@@ -325,6 +325,18 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                         ),
                       ],
                     ),
+                    if (channel.isExclusive &&
+                        channel.exclusiveMonthlyFeeNgn > 0) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Monthly fee: NGN ${channel.exclusiveMonthlyFeeNgn.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          color: AppColors.lightOrange.withValues(alpha: 0.85),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

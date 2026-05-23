@@ -17,6 +17,7 @@ import '../../interactions/models/interaction_models.dart';
 import '../../channel/models/channel_model.dart';
 import '../../channel/services/channel_service.dart';
 import '../../channel/services/premium_stream_service.dart';
+import '../../../core/api/api_service.dart';
 
 class ChannelPlayerScreen extends StatefulWidget {
   const ChannelPlayerScreen({super.key});
@@ -248,6 +249,28 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         _animCtrl.forward();
       }
     } catch (e) {
+      if (e is ApiException && _channelId != null) {
+        final msg = e.message.toLowerCase();
+        final looksExclusiveBlocked =
+            msg.contains('exclusive channels') ||
+            msg.contains('personal identifier code access required') ||
+            msg.contains('adult kyc verification is required');
+
+        if (looksExclusiveBlocked) {
+          if (!mounted) return;
+          final granted = await Navigator.pushNamed(
+            context,
+            '/exclusive-access',
+            arguments: _channelId,
+          );
+
+          if (granted == true && mounted) {
+            await _fetchNowPlaying();
+            return;
+          }
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _error = e.toString();

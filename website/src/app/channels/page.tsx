@@ -104,7 +104,7 @@ export default function ChannelsPage() {
     setNumberLoading(false);
 
     if (res.ok && "channel" in res.data) {
-      router.push(`/live/${res.data.channel.id}`);
+      router.push(`/channel/${res.data.channel.id}`);
       return;
     }
 
@@ -217,7 +217,7 @@ export default function ChannelsPage() {
             {paginatedChannels.map((channel) => (
               <Link
                 key={channel.id}
-                href={`/live/${channel.id}`}
+                href={`/channel/${channel.id}`}
                 className="group rounded-2xl border border-av-input-border/30 bg-av-card overflow-hidden transition-all hover:border-av-orange/40 hover:-translate-y-1 hover:shadow-lg hover:shadow-av-orange/10"
               >
                 <div className="relative h-36 bg-gradient-to-br from-av-light-blue/40 via-av-dark-blue to-av-dark-blue">

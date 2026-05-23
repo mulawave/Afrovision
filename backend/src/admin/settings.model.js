@@ -118,6 +118,24 @@ const SETTING_DEFINITIONS = {
     sensitive: false,
     defaultValue: 'true',
   },
+  EXCLUSIVE_ROLLOUT_ENABLED: {
+    category: 'system',
+    description: 'Global kill-switch for exclusive channel access rollout (true/false).',
+    sensitive: false,
+    defaultValue: 'true',
+  },
+  EXCLUSIVE_ROLLOUT_PERCENT: {
+    category: 'system',
+    description: 'Percentage (0-100) of eligible users included in exclusive channel rollout.',
+    sensitive: false,
+    defaultValue: '100',
+  },
+  EXCLUSIVE_ROLLOUT_ALLOWLIST_USER_IDS: {
+    category: 'system',
+    description: 'Optional comma-separated user IDs always included in exclusive rollout regardless of percent.',
+    sensitive: false,
+    defaultValue: '',
+  },
   WALLET_SECRET: {
     category: 'blockchain',
     description: 'AES-256-CBC wallet encryption secret',
