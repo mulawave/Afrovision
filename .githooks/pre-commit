@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Mobile-only enforcement guard for this parity program.
+# Blocks staged edits in forbidden services and optionally enforces exact mobile scope.
+
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+if [ -z "$staged_files" ]; then
+  exit 0
+fi
+
+forbidden_matches=()
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+  case "$file" in
+    website/*|admin/*|backend/*)
+      forbidden_matches+=("$file")
+      ;;
+  esac
+done <<< "$staged_files"
+
+if [ ${#forbidden_matches[@]} -gt 0 ]; then
+  echo ""
+  echo "BLOCKED: Forbidden service edits detected."
+  echo "This execution is mobile-facing only."
+  echo "Do NOT edit website/, admin/, or backend/."
+  echo ""
+  echo "Blocked files:"
+  for file in "${forbidden_matches[@]}"; do
+    echo "  - $file"
+  done
+  echo ""
+  echo "If changes are needed in forbidden services, document the request only in challenge-website-mobile-discrepancies.md and wait for explicit user approval."
+  echo "Autopilot approval is invalid for forbidden services."
+  echo ""
+  exit 1
+fi
+
+# Optional strict scope mode:
+# If .mobile-scope-allowlist.txt exists, each staged mobile file must match one listed prefix/path.
+allowlist_file=".mobile-scope-allowlist.txt"
+if [ -f "$allowlist_file" ]; then
+  mapfile -t allowlist < <(grep -vE '^\s*#|^\s*$' "$allowlist_file" || true)
+
+  if [ ${#allowlist[@]} -eq 0 ]; then
+    echo ""
+    echo "BLOCKED: $allowlist_file exists but has no allowlist entries."
+    echo "Add one path/prefix per line before committing."
+    echo ""
+    exit 1
+  fi
+
+  out_of_scope=()
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+
+    # Documentation and hook files are allowed.
+    case "$file" in
+      challenge-website-mobile-discrepancies.md|.mobile-scope-allowlist.txt|.githooks/*)
+        continue
+        ;;
+    esac
+
+    # Enforce all code edits to mobile app directories only.
+    case "$file" in
+      lib/*|assets/*|test/*|pubspec.yaml|analysis_options.yaml|devtools_options.yaml)
+        ;;
+      *)
+        out_of_scope+=("$file")
+        continue
+        ;;
+    esac
+
+    matched="false"
+    for prefix in "${allowlist[@]}"; do
+      case "$file" in
+        "$prefix"|"$prefix"/*)
+          matched="true"
+          break
+          ;;
+      esac
+    done
+
+    if [ "$matched" != "true" ]; then
+      out_of_scope+=("$file")
+    fi
+  done <<< "$staged_files"
+
+  if [ ${#out_of_scope[@]} -gt 0 ]; then
+    echo ""
+    echo "BLOCKED: Out-of-scope changes detected for current mobile task."
+    echo "Allowed scope is controlled by $allowlist_file."
+    echo ""
+    echo "Out-of-scope files:"
+    for file in "${out_of_scope[@]}"; do
+      echo "  - $file"
+    done
+    echo ""
+    exit 1
+  fi
+fi
+
+exit 0
