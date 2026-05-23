@@ -8,6 +8,7 @@ import { Footer } from "@/components/Footer";
 import { CommunityPoolBar } from "@/components/CommunityPoolBar";
 import { MarqueeTicker } from "@/components/MarqueeTicker";
 import { KycAlertBanner } from "@/components/KycAlertBanner";
+import { DevApiIndicator } from "@/components/DevApiIndicator";
 import { AuthProvider } from "@/lib/AuthContext";
 import { getBranding } from "@/lib/homepage";
 
@@ -47,6 +48,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
+      data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
@@ -66,6 +68,7 @@ export default async function RootLayout({
           <KycAlertBanner />
           <main className="flex-1">{children}</main>
           <Footer logoUrl={branding.logo_url} />
+          <DevApiIndicator />
         </AuthProvider>
       </body>
     </html>

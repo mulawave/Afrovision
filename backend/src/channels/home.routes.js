@@ -1,14 +1,11 @@
 const { Router } = require('express');
 const { authenticateToken, optionalAuth } = require('../utils/jwt');
-const Channel = require('./channel.model');
-const User = require('../users/user.model');
-const Ledger = require('../vpt/ledger.model');
-const PoolService = require('../vpt/pool.service');
 const designCtrl = require('../design/homepage-design.controller');
 const challengeContentCtrl = require('../design/challenge-content.controller');
 const staticPagesContentCtrl = require('../design/static-pages-content.controller');
 const SettingsService = require('../admin/settings.service');
 const adminCtrl = require('../admin/admin.controller');
+const HomeStatsService = require('./home-stats.service');
 
 const router = Router();
 
@@ -100,68 +97,19 @@ router.get('/app-links', async (req, res) => {
   }
 });
 
-// GET /home/stats — community pool, recent channels, total counts
+// GET /home/community-pool — lightweight public pool stats payload
+router.get('/community-pool', optionalAuth, async (req, res) => {
+  res.json(await HomeStatsService.getCommunityPoolStats());
+});
+
+// GET /home/channel-highlights — recent/promoted channels plus public counters
+router.get('/channel-highlights', optionalAuth, async (req, res) => {
+  res.json(await HomeStatsService.getChannelHighlights());
+});
+
+// GET /home/stats — legacy combined payload for older clients
 router.get('/stats', optionalAuth, async (req, res) => {
-  // Use admin-configurable vPT price; fall back to 750
-  let vptToNaira = 750;
-  try {
-    const stored = await SettingsService.get('VPT_PRICE_NGN');
-    if (stored && Number(stored) > 0) vptToNaira = Number(stored);
-  } catch (_) { /* use default */ }
-
-  // Community pool — recalculated from actual confirmed subscription records
-  const poolStats = await PoolService.getPoolStats();
-  const pool = poolStats.pool;
-
-  // Recent public channels (top 10)
-  const recentChannels = Channel.getRecentPublic(10).map((ch) => {
-    const owner = User.findById(ch.owner_id);
-    return {
-      id: ch.id,
-      name: ch.name,
-      category: ch.category,
-      channel_number: ch.channel_number,
-      logo_url: ch.logo_url,
-      banner_url: ch.banner_url,
-      created_at: ch.created_at,
-      owner_name: owner?.name || owner?.email || 'Unknown',
-    };
-  });
-
-  // Promoted channels (for now: public channels with banners)
-  const promoted = Channel.getPublicChannels()
-    .filter((ch) => ch.banner_url)
-    .slice(0, 5)
-    .map((ch) => ({
-      id: ch.id,
-      name: ch.name,
-      category: ch.category,
-      channel_number: ch.channel_number,
-      logo_url: ch.logo_url,
-      banner_url: ch.banner_url,
-    }));
-
-  const allUsers = User.getAll();
-  const totalChannels = Channel.getAll().length;
-  const totalMembers = allUsers.length;
-
-  res.json({
-    community_pool: {
-      total_vpt: pool.balance_vpt,
-      total_ngn: pool.balance_ngn,
-      vpt_rate: vptToNaira,
-      naira_equivalent: pool.balance_ngn,
-      total_distributed_vpt: pool.total_distributed_vpt,
-      total_distributed_ngn: pool.total_distributed,
-      total_beneficiaries: pool.total_beneficiaries,
-    },
-    recent_channels: recentChannels,
-    promoted_channels: promoted,
-    stats: {
-      total_channels: totalChannels,
-      total_members: totalMembers,
-    },
-  });
+  res.json(await HomeStatsService.getLegacyHomeStats());
 });
 
 module.exports = router;

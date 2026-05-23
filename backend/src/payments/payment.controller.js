@@ -37,7 +37,7 @@ async function getProviders(req, res) {
 
 async function initializeCheckout(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const {
@@ -62,7 +62,7 @@ async function initializeCheckout(req, res) {
     let payment;
 
     if (purpose === 'platform_plan') {
-      const plan = Plan.findById(planId);
+      const plan = await Plan.findById(planId);
       if (!plan) return res.status(404).json({ error: 'Plan not found' });
       const eligibilityError = getPlanEligibilityError(user, plan);
       if (eligibilityError) {
@@ -133,7 +133,7 @@ async function initializeCheckout(req, res) {
 
 async function verifyCheckout(req, res) {
   try {
-    const payment = Payment.findById(req.params.id);
+    const payment = await Payment.findById(req.params.id);
     if (!payment) return res.status(404).json({ error: 'Payment not found' });
     if (payment.uid !== req.userId) {
       return res.status(403).json({ error: 'Not authorized to verify this payment' });

@@ -21,6 +21,9 @@ router.get('/following', authenticateToken, ctrl.getFollowingCreators);
 router.get('/follows/:creatorId', authenticateToken, ctrl.getFollowStatus);
 router.post('/follows/:creatorId', authenticateToken, ctrl.followCreator);
 router.delete('/follows/:creatorId', authenticateToken, ctrl.unfollowCreator);
+router.get('/channel-follows/:channelId', authenticateToken, ctrl.getChannelFollowStatus);
+router.post('/channel-follows/:channelId', authenticateToken, ctrl.followChannel);
+router.delete('/channel-follows/:channelId', authenticateToken, ctrl.unfollowChannel);
 
 // ── Account Deletion ──
 router.post('/delete-account', authenticateToken, ctrl.requestAccountDeletion);

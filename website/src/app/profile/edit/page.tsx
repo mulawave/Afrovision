@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { api, apiFormData, getMeApi, type StoredUser, type ErrorResponse } from "@/lib/api";
 
 export default function EditProfilePage() {
-  const { isAuthenticated, user: authUser, isLoading, refreshUser } = useAuth();
+  const { isAuthenticated, isLoading, refreshUser } = useAuth();
   const [profile, setProfile] = useState<StoredUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

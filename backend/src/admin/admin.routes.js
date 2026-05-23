@@ -9,7 +9,7 @@ const challengeContentCtrl = require('../design/challenge-content.controller');
 const staticPagesContentCtrl = require('../design/static-pages-content.controller');
 const referralCtrl = require('../referrals/referral.controller');
 const promoModalCtrl = require('../promo/promo-modal.controller');
-const { upload, uploadSingleToGCS } = require('../utils/upload');
+const { upload, uploadSingleToGCS, uploadFieldsToGCS } = require('../utils/upload');
 
 const router = Router();
 
@@ -79,11 +79,29 @@ router.get('/wallets', authenticateToken, ctrl.listWallets);
 
 // Channel control
 router.get('/channels', authenticateToken, ctrl.listAllChannels);
+router.get('/channels/imported', authenticateToken, ctrl.adminListImportedChannels);
+router.post(
+	'/channels/import-with-media',
+	authenticateToken,
+	upload.fields([
+		{ name: 'logo', maxCount: 1 },
+		{ name: 'banner', maxCount: 1 },
+	]),
+	uploadFieldsToGCS,
+	ctrl.adminImportChannel,
+);
+router.post('/channels/bulk-recheck-sources', authenticateToken, ctrl.adminBulkRecheckSources);
+router.post('/channels/backfill-defaults', authenticateToken, ctrl.adminBackfillChannelDefaults);
 router.post('/channels/:id/disable', authenticateToken, ctrl.adminDisableChannel);
 router.post('/channels/:id/enable', authenticateToken, ctrl.adminEnableChannel);
+router.patch('/channels/:id/number', authenticateToken, ctrl.adminUpdateChannelNumber);
+router.post('/channels/:id/recheck-source', authenticateToken, ctrl.adminRecheckChannelSource);
+router.patch('/channels/:id/external-source', authenticateToken, ctrl.adminUpdateChannelExternalSource);
+router.patch('/channels/:id/owner-display', authenticateToken, ctrl.adminUpdateChannelOwnerDisplay);
 
 // Premium stream management (Module 11)
 router.get('/channels/premium', authenticateToken, premiumCtrl.adminListPremiumChannels);
+router.get('/channels/premium-requests', authenticateToken, premiumCtrl.adminListPendingPremiumRequests);
 router.patch('/channels/:id/premium', authenticateToken, premiumCtrl.adminSetPremium);
 
 // Creator subscription management (Module 11)
@@ -97,6 +115,7 @@ router.post('/features', authenticateToken, ctrl.setFeatureFlag);
 // Dashboard
 router.get('/dashboard', authenticateToken, ctrl.getDashboard);
 router.get('/dashboard/trend', authenticateToken, ctrl.getDashboardTrend);
+router.post('/renewals/run', authenticateToken, ctrl.runRenewals);
 
 // Analytics
 router.get('/analytics/creators/:uid/stats', authenticateToken, creatorAnalyticsCtrl.adminGetCreatorStats);
@@ -121,3 +140,7 @@ router.patch('/promo-modal', authenticateToken, promoModalCtrl.adminUpdatePromoM
 router.post('/promo-modal/image', authenticateToken, upload.single('file'), uploadSingleToGCS, promoModalCtrl.adminUploadPromoImage);
 
 module.exports = router;
+
+// Email broadcast (Communication page → Send Email using template)
+router.post('/email/send',      authenticateToken, ctrl.sendEmailToUser);
+router.post('/email/broadcast', authenticateToken, ctrl.broadcastEmail);

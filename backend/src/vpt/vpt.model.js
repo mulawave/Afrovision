@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'vpt_transactions';
-let transactions = [];
-let initialized = false;
 
 async function persist(transaction) {
   const db = getFirestore();
@@ -11,15 +9,11 @@ async function persist(transaction) {
 }
 
 async function init() {
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  transactions = snapshot.docs.map((doc) => doc.data());
-  initialized = true;
-  return transactions;
+  return [];
 }
 
 function isInitialized() {
-  return initialized;
+  return true;
 }
 
 async function create({ userId, type, amount, amountWei, description }) {
@@ -32,14 +26,17 @@ async function create({ userId, type, amount, amountWei, description }) {
     description: description || null,
     created_at: new Date().toISOString(),
   };
-  transactions.push(txn);
   await persist(txn);
   return txn;
 }
 
-function getByUser(userId) {
-  return transactions
-    .filter((t) => t.user_id === userId)
+async function getByUser(userId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('user_id', '==', userId)
+    .get();
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 

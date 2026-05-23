@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -7,6 +8,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { NotificationBell } from "@/components/NotificationBell";
 import { PremiumBadge } from "@/components/PremiumBadge";
 import { getMyReputationApi, type Reputation } from "@/lib/api";
+import { resolveWebsiteMediaUrl } from "@/lib/media";
 import { ReputationBadge } from "@/components/ReputationBadge";
 
 const NAV_LINKS = [
@@ -153,7 +155,15 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 group">
             {logoUrl ? (
-              <img src={logoUrl} alt="AfroVision" className="h-11 w-11 rounded-lg object-contain transition-transform group-hover:scale-110" />
+              <Image
+                src={resolveWebsiteMediaUrl(logoUrl)}
+                alt="AfroVision"
+                width={44}
+                height={44}
+                loading="eager"
+                unoptimized
+                className="h-11 w-11 rounded-lg object-contain transition-transform group-hover:scale-110"
+              />
             ) : (
               <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center font-bold text-av-dark-blue text-xl transition-transform group-hover:scale-110">
                 A
@@ -192,7 +202,14 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                     className="flex items-center gap-2 group"
                   >
                     {user.avatar_url ? (
-                      <img src={user.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover transition-transform group-hover:scale-110" />
+                      <Image
+                        src={resolveWebsiteMediaUrl(user.avatar_url)}
+                        alt=""
+                        width={36}
+                        height={36}
+                        unoptimized
+                        className="w-9 h-9 rounded-full object-cover transition-transform group-hover:scale-110"
+                      />
                     ) : (
                       <div className="w-9 h-9 rounded-full bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-sm font-bold text-av-dark-blue transition-transform group-hover:scale-110">
                         {userInitial}
@@ -275,6 +292,16 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                             <path d="M17 9V7a5 5 0 00-10 0v2M5 9h14l1 11H4L5 9z" />
                           </svg>
                           Withdrawals
+                        </Link>
+                        <Link
+                          href="/my-subscriptions"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-av-light-orange hover:text-av-white hover:bg-av-input-fill/50 transition-colors"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-av-light-orange">
+                            <path d="M20 8H4V6h16v2zm-2-6H6v2h12V2zm4 10v8c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2v-8c0-1.1.9-2 2-2h16c1.1 0 2 .9 2 2zm-6 4l-6-3.27v6.53L16 16z" />
+                          </svg>
+                          My Subscriptions
                         </Link>
                         <Link
                           href="/leaderboard"
@@ -633,7 +660,14 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
               <>
                 <div className="px-4 py-2 flex items-center gap-3">
                   {user.avatar_url ? (
-                    <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                    <Image
+                      src={resolveWebsiteMediaUrl(user.avatar_url)}
+                      alt=""
+                      width={32}
+                      height={32}
+                      unoptimized
+                      className="w-8 h-8 rounded-full object-cover"
+                    />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-xs font-bold text-av-dark-blue">
                       {userInitial}
@@ -660,6 +694,13 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                   className="block px-4 py-3 text-sm font-medium text-av-light-orange hover:text-av-white rounded-lg hover:bg-av-white/5 transition-colors"
                 >
                   Wallet
+                </Link>
+                <Link
+                  href="/my-subscriptions"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-4 py-3 text-sm font-medium text-av-light-orange hover:text-av-white rounded-lg hover:bg-av-white/5 transition-colors"
+                >
+                  My Subscriptions
                 </Link>
                 <Link
                   href="/leaderboard"

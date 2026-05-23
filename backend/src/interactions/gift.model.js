@@ -5,6 +5,14 @@ const COLLECTION = 'gifts';
 let gifts = [];
 let initialized = false;
 
+function cacheGift(gift) {
+  if (!gift) return null;
+  const idx = gifts.findIndex((entry) => entry.id === gift.id);
+  if (idx !== -1) gifts[idx] = gift;
+  else gifts.push(gift);
+  return gift;
+}
+
 async function persist(gift) {
   const db = getFirestore();
   await db.collection(COLLECTION).doc(gift.id).set(gift);
@@ -42,24 +50,79 @@ async function create({ name, icon, imageUrl, animation, currency, vptUnits, nai
 }
 
 async function findById(id) {
+  const cached = gifts.find((gift) => gift.id === id) || null;
+  if (cached) return cached;
+
   const db = getFirestore();
   const doc = await db.collection(COLLECTION).doc(id).get();
-  return doc.exists ? doc.data() : null;
+  if (!doc.exists) return null;
+
+  return cacheGift({ id: doc.id, ...doc.data() });
+}
+
+async function findManyByIds(ids = []) {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  const results = new Map();
+  if (uniqueIds.length === 0) return results;
+
+  const missingIds = [];
+  for (const id of uniqueIds) {
+    const cached = gifts.find((gift) => gift.id === id) || null;
+    if (cached) {
+      results.set(id, cached);
+    } else {
+      missingIds.push(id);
+    }
+  }
+
+  if (missingIds.length === 0) return results;
+
+  const db = getFirestore();
+  const refs = missingIds.map((id) => db.collection(COLLECTION).doc(id));
+  const docs = await db.getAll(...refs);
+  docs.forEach((doc, idx) => {
+    const id = missingIds[idx];
+    if (!doc.exists) {
+      results.set(id, null);
+      return;
+    }
+
+    const gift = cacheGift({ id: doc.id, ...doc.data() });
+    results.set(id, gift);
+  });
+
+  return results;
 }
 
 async function getActive() {
+  if (initialized) {
+    return gifts
+      .filter((gift) => gift.is_active)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  }
+
   const db = getFirestore();
   const snapshot = await db.collection(COLLECTION)
     .where('is_active', '==', true)
     .orderBy('sort_order')
     .get();
-  return snapshot.docs.map((doc) => doc.data());
+
+  gifts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  initialized = true;
+  return [...gifts];
 }
 
 async function getAll() {
+  if (initialized) {
+    return [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  }
+
   const db = getFirestore();
   const snapshot = await db.collection(COLLECTION).orderBy('sort_order').get();
-  return snapshot.docs.map((doc) => doc.data());
+
+  gifts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  initialized = true;
+  return [...gifts];
 }
 
 async function update(id, fields) {
@@ -99,6 +162,7 @@ module.exports = {
   isInitialized,
   create,
   findById,
+  findManyByIds,
   getActive,
   getAll,
   update,

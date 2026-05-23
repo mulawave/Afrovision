@@ -60,7 +60,6 @@ export default function PricingPage() {
 
   const viewerPlans = plans.filter((p) => p.type === "viewer");
   const creatorPlans = plans.filter((p) => p.type === "creator");
-  const activePlans = tab === "viewer" ? viewerPlans : creatorPlans;
   const isCreatorAccount = user?.role === "creator" || user?.role === "admin";
   const hasCreatorPlan = user?.subscription_plan_type === "creator";
 
@@ -104,12 +103,14 @@ export default function PricingPage() {
     setCheckoutBusy(true);
     setCheckoutError(null);
 
+    const canonicalOrigin = process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : undefined);
+    const returnUrl = canonicalOrigin ? `${canonicalOrigin.replace(/\/$/, "")}/checkout/result` : undefined;
     const res = await initializeCheckoutApi({
       purpose: "platform_plan",
       provider: checkoutProvider,
       planId: checkoutPlan.plan.id,
       billingCycle: checkoutPlan.billingCycle,
-      return_url: `${window.location.origin}/checkout/result`,
+      return_url: returnUrl,
     });
 
     if (!res.ok || !("payment" in res.data) || !res.data.payment.checkout_url) {

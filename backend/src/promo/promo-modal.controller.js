@@ -2,8 +2,8 @@ const User = require('../users/user.model');
 const PromoModalService = require('./promo-modal.service');
 const AuditService = require('../admin/audit.service');
 
-function requireAdmin(req, res) {
-  const caller = User.findById(req.userId);
+async function requireAdmin(req, res) {
+  const caller = await User.findById(req.userId);
   if (!caller || caller.role !== 'admin') {
     res.status(403).json({ error: 'Admin access required' });
     return null;
@@ -32,7 +32,7 @@ async function getPromoModal(req, res) {
 // ─── Admin: GET /admin/promo-modal ───────────────────────
 
 async function adminGetPromoModal(req, res) {
-  if (!requireAdmin(req, res)) return;
+  if (!(await requireAdmin(req, res))) return;
   try {
     const config = await PromoModalService.getConfig();
     res.json({ promo_modal: config });
@@ -45,7 +45,7 @@ async function adminGetPromoModal(req, res) {
 // ─── Admin: PATCH /admin/promo-modal ─────────────────────
 
 async function adminUpdatePromoModal(req, res) {
-  const caller = requireAdmin(req, res);
+  const caller = await requireAdmin(req, res);
   if (!caller) return;
   try {
     const saved = await PromoModalService.saveConfig(req.body, caller.id);
@@ -63,7 +63,7 @@ async function adminUpdatePromoModal(req, res) {
 // ─── Admin: POST /admin/promo-modal/image ────────────────
 
 async function adminUploadPromoImage(req, res) {
-  if (!requireAdmin(req, res)) return;
+  if (!(await requireAdmin(req, res))) return;
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file provided' });

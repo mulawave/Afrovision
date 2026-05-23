@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'kyc_records';
+const FIRESTORE_IN_LIMIT = 30;
 
 /* ── Status values ────────────────────────────────────────────── */
 const KYC_STATUSES = ['none', 'pending', 'under_review', 'verified', 'rejected', 'expired'];
@@ -22,8 +23,30 @@ const ID_TYPES = [
 ];
 
 /* ── In-memory cache ──────────────────────────────────────────── */
-let records = [];
-let initialized = false;
+const recordsById = new Map();
+const latestRecordIdByUser = new Map();
+
+function syncCache(record) {
+  if (!record || !record.id) return record;
+
+  recordsById.set(record.id, record);
+
+  const existingId = latestRecordIdByUser.get(record.user_id);
+  const existing = existingId ? recordsById.get(existingId) : null;
+  if (!existing || new Date(record.created_at) >= new Date(existing.created_at)) {
+    latestRecordIdByUser.set(record.user_id, record.id);
+  }
+
+  return record;
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
 
 async function persist(record) {
   const db = getFirestore();
@@ -31,10 +54,7 @@ async function persist(record) {
 }
 
 async function init() {
-  const db = getFirestore();
-  const snap = await db.collection(COLLECTION).get();
-  records = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
-  initialized = true;
+  return [];
 }
 
 /* ── CRUD ─────────────────────────────────────────────────────── */
@@ -76,13 +96,12 @@ async function submit(data) {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  records.push(record);
   await persist(record);
-  return record;
+  return syncCache(record);
 }
 
 async function update(id, fields) {
-  const rec = records.find((r) => r.id === id);
+  const rec = await findById(id);
   if (!rec) return null;
   const allowed = [
     'status', 'full_name', 'gender', 'date_of_birth', 'nationality', 'phone', 'address',
@@ -96,62 +115,130 @@ async function update(id, fields) {
   }
   rec.updated_at = new Date().toISOString();
   await persist(rec);
-  return rec;
+  return syncCache(rec);
 }
 
 /**
  * Update only the gender field on an existing KYC record.
  */
 async function updateGender(userId, gender) {
-  const rec = findByUserId(userId);
+  const rec = await findByUserId(userId);
   if (!rec) return null;
   rec.gender = gender;
   rec.updated_at = new Date().toISOString();
   await persist(rec);
-  return rec;
+  return syncCache(rec);
 }
 
-function findByUserId(userId) {
-  return records
-    .filter((r) => r.user_id === userId)
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null;
+async function findByUserId(userId) {
+  const cachedId = latestRecordIdByUser.get(userId);
+  if (cachedId) {
+    return recordsById.get(cachedId) || null;
+  }
+
+  const db = getFirestore();
+  const snap = await db.collection(COLLECTION)
+    .where('user_id', '==', userId)
+    .get();
+  if (snap.empty) return null;
+
+  const latest = snap.docs
+    .map((doc) => syncCache({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+  return latest || null;
 }
 
-function findById(id) {
-  return records.find((r) => r.id === id) || null;
+async function findById(id) {
+  if (recordsById.has(id)) {
+    return recordsById.get(id) || null;
+  }
+
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+
+  return syncCache({ id: doc.id, ...doc.data() });
 }
 
-function list({ status, limit = 50, offset = 0 }) {
-  let filtered = [...records];
-  if (status) filtered = filtered.filter((r) => r.status === status);
-  filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+async function list({ status, limit = 50, offset = 0 }) {
+  const db = getFirestore();
+  let query = db.collection(COLLECTION);
+  if (status) query = query.where('status', '==', status);
+
+  const snap = await query.get();
+  const filtered = snap.docs
+    .map((doc) => syncCache({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
   return {
     items: filtered.slice(offset, offset + limit),
     total: filtered.length,
   };
 }
 
-function getExpiringSoon(daysAhead = 30) {
+async function getExpiringSoon(daysAhead = 30) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() + daysAhead);
-  return records.filter((r) => {
+  const db = getFirestore();
+  const snap = await db.collection(COLLECTION)
+    .where('status', '==', 'verified')
+    .get();
+
+  return snap.docs
+    .map((doc) => syncCache({ id: doc.id, ...doc.data() }))
+    .filter((r) => {
     if (r.status !== 'verified' || !r.id_expiry_date) return false;
     return new Date(r.id_expiry_date) <= cutoff;
   });
 }
 
-function getExpired() {
+async function getExpired() {
   const now = new Date();
-  return records.filter((r) => {
+  const db = getFirestore();
+  const snap = await db.collection(COLLECTION)
+    .where('status', '==', 'verified')
+    .get();
+
+  return snap.docs
+    .map((doc) => syncCache({ id: doc.id, ...doc.data() }))
+    .filter((r) => {
     if (r.status !== 'verified' || !r.id_expiry_date) return false;
     return new Date(r.id_expiry_date) < now;
   });
 }
 
+async function findManyByUserIds(userIds) {
+  const uniqueIds = [...new Set((userIds || []).filter(Boolean))];
+  if (uniqueIds.length === 0) return new Map();
+
+  const db = getFirestore();
+  const records = [];
+  for (const batch of chunkArray(uniqueIds, FIRESTORE_IN_LIMIT)) {
+    const snap = await db.collection(COLLECTION)
+      .where('user_id', 'in', batch)
+      .get();
+    records.push(...snap.docs.map((doc) => syncCache({ id: doc.id, ...doc.data() })));
+  }
+
+  const latestByUser = new Map();
+  for (const record of records) {
+    const existing = latestByUser.get(record.user_id);
+    if (!existing || new Date(record.created_at) > new Date(existing.created_at)) {
+      latestByUser.set(record.user_id, record);
+    }
+  }
+
+  return latestByUser;
+}
+
 async function deleteRecord(id) {
-  const idx = records.findIndex((r) => r.id === id);
-  if (idx === -1) return null;
-  const removed = records.splice(idx, 1)[0];
+  const removed = await findById(id);
+  if (!removed) return null;
+  recordsById.delete(id);
+  if (latestRecordIdByUser.get(removed.user_id) === id) {
+    latestRecordIdByUser.delete(removed.user_id);
+  }
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).delete();
   return removed;
@@ -165,6 +252,7 @@ module.exports = {
   update,
   updateGender,
   findByUserId,
+  findManyByUserIds,
   findById,
   list,
   getExpiringSoon,

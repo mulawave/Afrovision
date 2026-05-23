@@ -9,6 +9,11 @@ const SETTINGS_COLLECTION = 'settings';
 const SETTINGS_AUDIT_COLLECTION = 'settings_audit';
 const VALID_ENVIRONMENTS = new Set(['staging', 'production']);
 
+// ── In-memory cache ──────────────────────────────
+let _definitionsEnsured = false;
+const _cache = new Map(); // key → { value, ts }
+const CACHE_TTL = 60_000; // 60 seconds
+
 function getDefinition(key) {
   return SETTING_DEFINITIONS[key] || null;
 }
@@ -42,6 +47,7 @@ function shouldApplyDefault(existingData, definition) {
 }
 
 async function ensureDefinitionsExist() {
+  if (_definitionsEnsured) return;
   const db = getFirestore();
 
   await Promise.all(
@@ -94,6 +100,7 @@ async function ensureDefinitionsExist() {
       });
     })
   );
+  _definitionsEnsured = true;
 }
 
 async function getStoredSettingsMap() {
@@ -141,6 +148,12 @@ async function get(key) {
     throw new Error(`Missing setting: ${key}`);
   }
 
+  // Return cached value if fresh
+  const cached = _cache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return cached.value;
+  }
+
   const db = getFirestore();
   await ensureDefinitionsExist();
   const doc = await db.collection(SETTINGS_COLLECTION).doc(key).get();
@@ -149,7 +162,9 @@ async function get(key) {
     throw new Error(`Missing setting: ${key}`);
   }
 
-  return normalizeStoredValue(doc.data());
+  const value = normalizeStoredValue(doc.data());
+  _cache.set(key, { value, ts: Date.now() });
+  return value;
 }
 
 async function getNumber(key) {
@@ -200,6 +215,7 @@ async function set(key, value, actor) {
     updated_by: actor || 'system',
   });
 
+  _cache.delete(key);
   await writeAuditEntry({ key, action: 'updated', performedBy: actor });
   return getOne(key);
 }
@@ -233,6 +249,7 @@ async function reset(key, actor) {
     updated_at: timestamp,
     updated_by: actor || 'system',
   });
+  _cache.delete(key);
   await writeAuditEntry({ key, action: 'reset', performedBy: actor });
 
   return getOne(key);

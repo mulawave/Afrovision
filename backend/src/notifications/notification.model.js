@@ -2,8 +2,33 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const NOTIFICATIONS_COLLECTION = 'notifications';
-let notifications = [];
-let initialized = false;
+const notificationsByUser = new Map();
+
+function getCachedUserNotifications(userId) {
+  return notificationsByUser.get(userId) || [];
+}
+
+function sortNotifications(notifications) {
+  return notifications.sort((a, b) => b.created_at - a.created_at);
+}
+
+async function loadUserNotifications(userId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(NOTIFICATIONS_COLLECTION)
+    .where('user_id', '==', userId)
+    .get();
+  const notifications = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  notificationsByUser.set(userId, sortNotifications(notifications));
+  return notificationsByUser.get(userId);
+}
+
+async function ensureUserLoaded(userId) {
+  if (notificationsByUser.has(userId)) {
+    return getCachedUserNotifications(userId);
+  }
+
+  return loadUserNotifications(userId);
+}
 
 async function persistNotification(notification) {
   const db = getFirestore();
@@ -16,25 +41,18 @@ async function deletePersistedNotification(id) {
 }
 
 async function init() {
-  const db = getFirestore();
-  const snapshot = await db.collection(NOTIFICATIONS_COLLECTION).get();
-  notifications = snapshot.docs.map((doc) => doc.data());
-  initialized = true;
-  return notifications;
+  return [];
 }
 
 function isInitialized() {
-  return initialized;
+  return true;
 }
 
-function findById(id) {
-  return notifications.find((notification) => notification.id === id);
-}
-
-function findByUser(userId, id) {
+async function findByUser(userId, id) {
+  const notifications = await ensureUserLoaded(userId);
   return notifications.find(
     (notification) => notification.id === id && notification.user_id === userId
-  );
+  ) || null;
 }
 
 async function create({
@@ -64,8 +82,15 @@ async function create({
     created_at: Date.now(),
   };
 
-  notifications.push(notification);
   await persistNotification(notification);
+
+  if (notificationsByUser.has(userId)) {
+    notificationsByUser.set(
+      userId,
+      sortNotifications([...getCachedUserNotifications(userId), notification]),
+    );
+  }
+
   return notification;
 }
 
@@ -74,8 +99,10 @@ async function createMany(userIds, payload) {
   return Promise.all(uniqueUserIds.map((userId) => create({ userId, ...payload })));
 }
 
-function listForUser(userId, { scope = 'inbox', unreadOnly = false, limit = 50 } = {}) {
+async function listForUser(userId, { scope = 'inbox', unreadOnly = false, limit = 50 } = {}) {
   const normalizedLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+  const notifications = await ensureUserLoaded(userId);
+
   return notifications
     .filter((notification) => notification.user_id === userId)
     .filter((notification) => {
@@ -88,7 +115,8 @@ function listForUser(userId, { scope = 'inbox', unreadOnly = false, limit = 50 }
     .slice(0, normalizedLimit);
 }
 
-function countUnread(userId) {
+async function countUnread(userId) {
+  const notifications = await ensureUserLoaded(userId);
   return notifications.filter(
     (notification) =>
       notification.user_id === userId && !notification.archived && !notification.is_read
@@ -98,25 +126,31 @@ function countUnread(userId) {
 async function update(notification, updates) {
   Object.assign(notification, updates);
   await persistNotification(notification);
+  if (notificationsByUser.has(notification.user_id)) {
+    notificationsByUser.set(
+      notification.user_id,
+      sortNotifications([...getCachedUserNotifications(notification.user_id)]),
+    );
+  }
   return notification;
 }
 
 async function markRead(userId, id) {
-  const notification = findByUser(userId, id);
+  const notification = await findByUser(userId, id);
   if (!notification) return null;
   if (notification.is_read) return notification;
   return update(notification, { is_read: true, read_at: Date.now() });
 }
 
 async function markUnread(userId, id) {
-  const notification = findByUser(userId, id);
+  const notification = await findByUser(userId, id);
   if (!notification) return null;
   if (!notification.is_read) return notification;
   return update(notification, { is_read: false, read_at: null });
 }
 
 async function archive(userId, id) {
-  const notification = findByUser(userId, id);
+  const notification = await findByUser(userId, id);
   if (!notification) return null;
   if (notification.archived) return notification;
   return update(notification, {
@@ -128,21 +162,27 @@ async function archive(userId, id) {
 }
 
 async function unarchive(userId, id) {
-  const notification = findByUser(userId, id);
+  const notification = await findByUser(userId, id);
   if (!notification) return null;
   if (!notification.archived) return notification;
   return update(notification, { archived: false, archived_at: null });
 }
 
 async function remove(userId, id) {
-  const notification = findByUser(userId, id);
+  const notification = await findByUser(userId, id);
   if (!notification) return false;
-  notifications = notifications.filter((entry) => entry.id !== id);
+  if (notificationsByUser.has(userId)) {
+    notificationsByUser.set(
+      userId,
+      getCachedUserNotifications(userId).filter((entry) => entry.id !== id),
+    );
+  }
   await deletePersistedNotification(id);
   return true;
 }
 
 async function markAllRead(userId) {
+  const notifications = await ensureUserLoaded(userId);
   const unread = notifications.filter(
     (notification) => notification.user_id === userId && !notification.archived && !notification.is_read
   );
@@ -172,12 +212,14 @@ async function bulkAction(userId, { ids = [], action }) {
 }
 
 async function clearArchived(userId) {
+  const notifications = await ensureUserLoaded(userId);
   const archivedIds = notifications
     .filter((notification) => notification.user_id === userId && notification.archived)
     .map((notification) => notification.id);
   await Promise.all(archivedIds.map((id) => deletePersistedNotification(id)));
-  notifications = notifications.filter(
-    (notification) => !(notification.user_id === userId && notification.archived)
+  notificationsByUser.set(
+    userId,
+    notifications.filter((notification) => !(notification.user_id === userId && notification.archived)),
   );
   return archivedIds.length;
 }
@@ -185,7 +227,6 @@ async function clearArchived(userId) {
 module.exports = {
   init,
   isInitialized,
-  findById,
   findByUser,
   create,
   createMany,

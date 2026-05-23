@@ -4,6 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
+import '../../subscription/models/channel_subscription_model.dart';
+import '../../subscription/services/channel_subscription_service.dart';
 
 class ChannelViewScreen extends StatefulWidget {
   const ChannelViewScreen({super.key});
@@ -19,6 +21,11 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   bool _followLoading = false;
   bool _isFollowing = false;
   int _followersCount = 0;
+
+  // Channel subscription state
+  bool _subLoading = false;
+  ChannelSubscriptionModel? _subscription;
+
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -69,12 +76,23 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       } catch (e) {
         debugPrint('[ChannelView] follow status error: $e');
       }
+      // Check channel subscription status
+      ChannelSubscriptionModel? sub;
+      try {
+        final result = await ChannelSubscriptionService.check(id);
+        if (result['success'] == true && result['subscription'] != null) {
+          sub = result['subscription'] as ChannelSubscriptionModel;
+        }
+      } catch (e) {
+        debugPrint('[ChannelView] subscription check error: $e');
+      }
       if (!mounted) return;
       setState(() {
         _channel = channel;
         _followersCount =
             followStatus?.followersCount ?? channel.followersCount;
         _isFollowing = followStatus?.followed ?? false;
+        _subscription = sub;
         _loading = false;
       });
       _animController.forward();
@@ -84,6 +102,66 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       if (!mounted) return;
       setState(() => _loading = false);
     }
+  }
+
+  Future<void> _toggleSubscription() async {
+    final ch = _channel;
+    if (ch == null) return;
+    setState(() => _subLoading = true);
+    try {
+      if (_subscription != null && _subscription!.isActive) {
+        final result = await ChannelSubscriptionService.cancel(
+          _subscription!.id,
+        );
+        if (!mounted) return;
+        if (result['success'] == true) {
+          setState(() {
+            _subscription = null;
+            _subLoading = false;
+          });
+          _showSnack('Unsubscribed from ${ch.name}');
+        } else {
+          setState(() => _subLoading = false);
+          _showSnack(
+            result['error'] as String? ?? 'Failed to unsubscribe',
+            isError: true,
+          );
+        }
+      } else {
+        final result = await ChannelSubscriptionService.subscribe(ch.id);
+        if (!mounted) return;
+        if (result['success'] == true) {
+          setState(() {
+            _subscription = result['subscription'] as ChannelSubscriptionModel?;
+            _subLoading = false;
+          });
+          _showSnack('Subscribed to ${ch.name}!');
+        } else {
+          setState(() => _subLoading = false);
+          _showSnack(
+            result['error'] as String? ?? 'Failed to subscribe',
+            isError: true,
+          );
+        }
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _subLoading = false);
+      _showSnack('Something went wrong. Please try again.', isError: true);
+    }
+  }
+
+  void _showSnack(String msg, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: const TextStyle(color: AppColors.white)),
+        backgroundColor: isError
+            ? AppColors.errorRed.withValues(alpha: 0.9)
+            : const Color(0xFF4CAF50).withValues(alpha: 0.9),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   Future<void> _toggleFollow() async {
@@ -128,6 +206,104 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
 
     if (!mounted) return;
     Navigator.pushNamed(context, '/channel-player', arguments: ch.id);
+  }
+
+  // ── External stream helpers (AV-STR-006) ──────────────────────────────────
+
+  /// True when the channel is safe to navigate into the player.
+  /// Blocked channels still open the player (which shows the error state).
+  bool _isStreamPlayable(ChannelModel ch) {
+    if (!ch.hasExternalSource) return true;
+    return ch.streamStatus != 'invalid' && ch.streamStatus != 'access_denied';
+  }
+
+  String _watchLiveLabel(ChannelModel ch) {
+    if (!ch.hasExternalSource) return 'Watch Live';
+    return switch (ch.streamStatus) {
+      'live' => 'Watch Live Now',
+      'offline' => 'Stream Offline',
+      'invalid' => 'Stream Unavailable',
+      'access_denied' => 'Stream Restricted',
+      'scheduled' => 'Watch Channel',
+      _ => 'Watch Live',
+    };
+  }
+
+  Widget _buildStreamStatusIndicator(ChannelModel ch) {
+    final status = ch.streamStatus;
+    if (status == 'unknown') return const SizedBox(height: 6);
+
+    final (color, label, icon) = switch (status) {
+      'live' => (AppColors.successGreen, 'LIVE', Icons.fiber_manual_record),
+      'valid' => (
+        AppColors.infoBlue,
+        'STREAM READY',
+        Icons.check_circle_rounded,
+      ),
+      'scheduled' => (
+        AppColors.lightOrange,
+        'SCHEDULED',
+        Icons.schedule_rounded,
+      ),
+      'offline' => (
+        AppColors.errorRed,
+        'STREAM OFFLINE',
+        Icons.wifi_off_rounded,
+      ),
+      'invalid' => (
+        AppColors.errorRed,
+        'STREAM UNAVAILABLE',
+        Icons.cancel_rounded,
+      ),
+      'access_denied' => (
+        AppColors.errorRed,
+        'ACCESS RESTRICTED',
+        Icons.lock_rounded,
+      ),
+      _ => (AppColors.hintText, 'CHECKING...', Icons.hourglass_empty_rounded),
+    };
+
+    final providerLabel = switch (ch.streamSourceMode) {
+      'external_youtube' => ' · YouTube',
+      'external_hls' => ' · HLS',
+      'external_dash' => ' · DASH',
+      _ => '',
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 6),
+          Text(
+            '$label$providerLabel',
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+            ),
+          ),
+          if (ch.lastCheckedAt != null) ...[
+            const Spacer(),
+            Text(
+              _formatTimeAgo(ch.lastCheckedAt),
+              style: TextStyle(color: AppColors.hintText, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatTimeAgo(String? isoString) {
+    if (isoString == null) return 'Never';
+    final diff = DateTime.now().difference(DateTime.parse(isoString));
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   Future<void> _deleteChannel() async {
@@ -284,7 +460,12 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                     margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.inputBorder),
+                      border: Border.all(
+                        color: ch.isPremiumChannel
+                            ? const Color(0xFFFFD700).withAlpha(120)
+                            : AppColors.inputBorder,
+                        width: ch.isPremiumChannel ? 1.5 : 1,
+                      ),
                       image: DecorationImage(
                         image: NetworkImage(AppConfig.mediaUrl(ch.bannerUrl!)),
                         fit: BoxFit.cover,
@@ -298,14 +479,23 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: ch.logoUrl == null
-                        ? LinearGradient(
-                            colors: [
-                              AppColors.orange.withValues(alpha: 0.25),
-                              AppColors.lightOrange.withValues(alpha: 0.1),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          )
+                        ? (ch.isPremiumChannel
+                              ? const LinearGradient(
+                                  colors: [
+                                    Color(0xFFFFD700),
+                                    Color(0xFFB8860B),
+                                  ],
+                                )
+                              : LinearGradient(
+                                  colors: [
+                                    AppColors.orange.withValues(alpha: 0.25),
+                                    AppColors.lightOrange.withValues(
+                                      alpha: 0.1,
+                                    ),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ))
                         : null,
                     border: Border.all(
                       color: AppColors.orange.withValues(alpha: 0.4),
@@ -348,12 +538,16 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                     vertical: 5,
                   ),
                   decoration: BoxDecoration(
-                    color: ch.isPrivate
+                    color: ch.isExclusive
+                        ? AppColors.orange.withValues(alpha: 0.12)
+                        : ch.isPrivate
                         ? AppColors.errorRed.withValues(alpha: 0.12)
                         : const Color(0xFF4CAF50).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: ch.isPrivate
+                      color: ch.isExclusive
+                          ? AppColors.orange.withValues(alpha: 0.4)
+                          : ch.isPrivate
                           ? AppColors.errorRed.withValues(alpha: 0.4)
                           : const Color(0xFF4CAF50).withValues(alpha: 0.4),
                     ),
@@ -362,19 +556,29 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        ch.isPrivate
+                        ch.isExclusive
+                            ? Icons.verified_user_rounded
+                            : ch.isPrivate
                             ? Icons.lock_rounded
                             : Icons.public_rounded,
-                        color: ch.isPrivate
+                        color: ch.isExclusive
+                            ? AppColors.orange
+                            : ch.isPrivate
                             ? AppColors.errorRed
                             : const Color(0xFF4CAF50),
                         size: 14,
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        ch.isPrivate ? 'PRIVATE' : 'PUBLIC',
+                        ch.isExclusive
+                            ? 'EXCLUSIVE'
+                            : ch.isPrivate
+                            ? 'PRIVATE'
+                            : 'PUBLIC',
                         style: TextStyle(
-                          color: ch.isPrivate
+                          color: ch.isExclusive
+                              ? AppColors.orange
+                              : ch.isPrivate
                               ? AppColors.errorRed
                               : const Color(0xFF4CAF50),
                           fontSize: 12,
@@ -516,6 +720,96 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                 ),
                 const SizedBox(height: 14),
 
+                // Subscribe / Unsubscribe button
+                GestureDetector(
+                  onTap: _subLoading ? null : _toggleSubscription,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    decoration: BoxDecoration(
+                      gradient:
+                          ch.isPremiumChannel &&
+                              !(_subscription != null &&
+                                  _subscription!.isActive)
+                          ? const LinearGradient(
+                              colors: [Color(0xFFFFD700), Color(0xFFB8860B)],
+                            )
+                          : (_subscription != null && _subscription!.isActive
+                                ? LinearGradient(
+                                    colors: [
+                                      const Color(
+                                        0xFF4CAF50,
+                                      ).withValues(alpha: 0.25),
+                                      const Color(
+                                        0xFF4CAF50,
+                                      ).withValues(alpha: 0.1),
+                                    ],
+                                  )
+                                : AppColors.buttonGradient),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color:
+                              ch.isPremiumChannel &&
+                                  !(_subscription != null &&
+                                      _subscription!.isActive)
+                              ? const Color(0xFFFFD700).withAlpha(80)
+                              : AppColors.orange.withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _subLoading
+                              ? Icons.hourglass_top
+                              : (_subscription != null &&
+                                        _subscription!.isActive
+                                    ? Icons.favorite_rounded
+                                    : Icons.favorite_border_rounded),
+                          color:
+                              ch.isPremiumChannel &&
+                                  !(_subscription != null &&
+                                      _subscription!.isActive)
+                              ? AppColors.darkBlue
+                              : AppColors.white,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _subLoading
+                              ? 'Updating...'
+                              : (_subscription != null &&
+                                        _subscription!.isActive
+                                    ? (ch.isPremiumChannel
+                                          ? 'Subscribed Premium'
+                                          : 'Subscribed')
+                                    : (ch.isPremiumChannel
+                                          ? 'Subscribe Premium'
+                                          : 'Subscribe Free')),
+                          style: TextStyle(
+                            color:
+                                ch.isPremiumChannel &&
+                                    !(_subscription != null &&
+                                        _subscription!.isActive)
+                                ? AppColors.darkBlue
+                                : AppColors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // External stream status indicator (AV-STR-006)
+                if (ch.hasExternalSource) _buildStreamStatusIndicator(ch),
+
                 // Watch Live button
                 GestureDetector(
                   onTap: () => _watchLive(ch),
@@ -523,29 +817,45 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 15),
                     decoration: BoxDecoration(
-                      gradient: AppColors.buttonGradient,
+                      gradient: _isStreamPlayable(ch)
+                          ? AppColors.buttonGradient
+                          : null,
+                      color: _isStreamPlayable(ch)
+                          ? null
+                          : AppColors.inputBorder,
                       borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.orange.withValues(alpha: 0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                      boxShadow: _isStreamPlayable(ch)
+                          ? [
+                              BoxShadow(
+                                color: AppColors.orange.withValues(alpha: 0.3),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ]
+                          : null,
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          Icons.play_circle_filled,
-                          color: AppColors.white,
+                          ch.hasExternalSource &&
+                                  (ch.streamStatus == 'offline' ||
+                                      ch.streamStatus == 'invalid' ||
+                                      ch.streamStatus == 'access_denied')
+                              ? Icons.tv_off_rounded
+                              : Icons.play_circle_filled,
+                          color: _isStreamPlayable(ch)
+                              ? AppColors.white
+                              : AppColors.hintText,
                           size: 22,
                         ),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Text(
-                          'Watch Live',
+                          _watchLiveLabel(ch),
                           style: TextStyle(
-                            color: AppColors.white,
+                            color: _isStreamPlayable(ch)
+                                ? AppColors.white
+                                : AppColors.hintText,
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                           ),

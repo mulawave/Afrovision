@@ -9,6 +9,9 @@ import { ChallengeSection } from "@/components/ChallengeSection";
 import { UpdatesSection } from "@/components/UpdatesSection";
 import { BannerAd } from "@/components/BannerAd";
 import { PromoModal } from "@/components/PromoModal";
+import { MySubscriptionsRow } from "@/components/MySubscriptionsRow";
+import { RecentlyViewedRow } from "@/components/RecentlyViewedRow";
+import { HeroToggleWrapper } from "@/components/HeroToggleWrapper";
 import { getHomepageContent, type HomepageSection } from "@/lib/homepage";
 
 function renderSection(section: HomepageSection) {
@@ -98,8 +101,12 @@ async function HomepageContent() {
   if (!homepage?.sections?.length) {
     return (
       <>
-        <HeroSlider />
+        <HeroToggleWrapper>
+          <HeroSlider />
+        </HeroToggleWrapper>
         <FeaturedChannels />
+        <MySubscriptionsRow />
+        <RecentlyViewedRow />
         <div className="max-w-7xl mx-auto px-6 lg:px-8 py-4"><BannerAd placement="home" /></div>
         <LiveNowRow />
         <UpcomingShows />
@@ -117,7 +124,17 @@ async function HomepageContent() {
     <>
       {sorted.map((section, i) => (
         <div key={section.key}>
-          {renderSection(section)}
+          {section.key === "hero" ? (
+            <HeroToggleWrapper>{renderSection(section)}</HeroToggleWrapper>
+          ) : (
+            renderSection(section)
+          )}
+          {section.key === "featured_channels" && (
+            <>
+              <MySubscriptionsRow />
+              <RecentlyViewedRow />
+            </>
+          )}
           {i === 1 && <div className="max-w-7xl mx-auto px-6 lg:px-8 py-4"><BannerAd placement="home" /></div>}
         </div>
       ))}

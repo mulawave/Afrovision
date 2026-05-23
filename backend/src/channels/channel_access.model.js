@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'channel_access';
-let records = [];
-let initialized = false;
 
 async function persist(record) {
   const db = getFirestore();
@@ -11,25 +9,30 @@ async function persist(record) {
 }
 
 async function init() {
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  records = snapshot.docs.map((doc) => doc.data());
-  initialized = true;
-  return records;
+  return [];
 }
 
 function isInitialized() {
-  return initialized;
+  return true;
 }
 
 /**
  * Returns a non-expired access record for this uid+channel, or undefined.
  */
-function findActiveAccess(uid, channelId) {
+async function findActiveAccess(uid, channelId) {
   const now = Date.now();
-  return records.find(
-    (r) => r.user_uid === uid && r.channel_id === channelId && r.expires_at > now,
-  );
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('user_uid', '==', uid)
+    .where('channel_id', '==', channelId)
+    .get();
+
+  const active = snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
+    .filter((record) => record.expires_at > now)
+    .sort((a, b) => b.granted_at - a.granted_at);
+
+  return active[0];
 }
 
 /**
@@ -48,27 +51,40 @@ async function grant({ uid, channelId, durationMinutes }) {
     expires_at: now + durationMinutes * 60_000,
     granted_at: now,
   };
-  records.push(record);
   await persist(record);
   return record;
 }
 
-function getByUser(uid) {
+async function getByUser(uid) {
   const now = Date.now();
-  return records
-    .filter((r) => r.user_uid === uid && r.expires_at > now)
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('user_uid', '==', uid)
+    .get();
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
+    .filter((r) => r.expires_at > now)
     .sort((a, b) => b.granted_at - a.granted_at);
 }
 
-function getByChannel(channelId) {
+async function getByChannel(channelId) {
   const now = Date.now();
-  return records
-    .filter((r) => r.channel_id === channelId && r.expires_at > now)
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .get();
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
+    .filter((r) => r.expires_at > now)
     .sort((a, b) => b.granted_at - a.granted_at);
 }
 
-function getAll() {
-  return records.sort((a, b) => b.granted_at - a.granted_at);
+async function getAll() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
+    .sort((a, b) => b.granted_at - a.granted_at);
 }
 
 module.exports = {

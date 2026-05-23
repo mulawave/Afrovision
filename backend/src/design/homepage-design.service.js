@@ -561,28 +561,33 @@ function formatViewers(count) {
   return Math.max(0, Math.round(normalizeNumber(count, 0)));
 }
 
-function pickChannel(channelId) {
+async function pickChannel(channelId) {
   if (!channelId) return null;
-  return Channel.getEvery().find((channel) => channel.id === channelId && channel.is_active) || null;
+  return await Channel.findById(channelId);
 }
 
 function getChannelBanner(channel, fallbackThumbnail) {
   return fallbackThumbnail || channel?.banner_url || null;
 }
 
-function getLiveContext(channelId) {
-  const channel = pickChannel(channelId);
+async function getLiveContext(channelId, contextCache) {
+  const channel = await pickChannel(channelId);
   if (!channel) return null;
 
-  const activeStream = StreamStats.getActiveByChannel(channel.id);
-  const currentProgram = Program.getCurrentProgram(channel.id);
-  const nextProgram = Program.getUpcoming(channel.id, 1)[0] || null;
-  const latestVideo = currentProgram
-    ? Video.findById(currentProgram.video_id)
-    : Video.getByChannel(channel.id)[0] || null;
-  const currentVideo = currentProgram ? Video.findById(currentProgram.video_id) : latestVideo;
+  if (contextCache?.has(channel.id)) {
+    return contextCache.get(channel.id);
+  }
 
-  return {
+  const activeStream = await StreamStats.getActiveByChannel(channel.id);
+  const currentProgram = await Program.getCurrentProgram(channel.id);
+  const nextPrograms = await Program.getUpcoming(channel.id, 1);
+  const nextProgram = nextPrograms[0] || null;
+  const latestVideo = currentProgram
+    ? await Video.findById(currentProgram.video_id)
+    : (await Video.getByChannel(channel.id))[0] || null;
+  const currentVideo = currentProgram ? await Video.findById(currentProgram.video_id) : latestVideo;
+
+  const context = {
     channel,
     activeStream,
     currentProgram,
@@ -591,18 +596,23 @@ function getLiveContext(channelId) {
     viewers: formatViewers(activeStream?.peak_viewers || activeStream?.total_viewers || 0),
     isLive: Boolean(activeStream || currentProgram),
   };
+
+  contextCache?.set(channel.id, context);
+  return context;
 }
 
-function fallbackFeaturedChannels() {
-  return Channel.getPublicChannels()
-    .map((channel) => {
-      const liveContext = getLiveContext(channel.id);
-      return {
-        channel,
-        viewers: liveContext?.viewers || 0,
-        isLive: liveContext?.isLive || false,
-      };
-    })
+async function fallbackFeaturedChannels(contextCache) {
+  const publicChannels = await Channel.getPublicChannels();
+  const decorated = await Promise.all(publicChannels.map(async (channel) => {
+    const liveContext = await getLiveContext(channel.id, contextCache);
+    return {
+      channel,
+      viewers: liveContext?.viewers || 0,
+      isLive: liveContext?.isLive || false,
+    };
+  }));
+
+  return decorated
     .sort((left, right) => {
       if (left.isLive !== right.isLive) return left.isLive ? -1 : 1;
       if (left.viewers !== right.viewers) return right.viewers - left.viewers;
@@ -612,10 +622,10 @@ function fallbackFeaturedChannels() {
     .map(({ channel }) => ({ channel_id: channel.id, enabled: true }));
 }
 
-function fallbackLiveChannels() {
-  const publicChannels = Channel.getPublicChannels();
-  const liveCandidates = publicChannels
-    .map((channel) => ({ channel, context: getLiveContext(channel.id) }))
+async function fallbackLiveChannels(contextCache) {
+  const publicChannels = await Channel.getPublicChannels();
+  const liveCandidates = (await Promise.all(publicChannels
+    .map(async (channel) => ({ channel, context: await getLiveContext(channel.id, contextCache) }))))
     .filter(({ context }) => context?.isLive)
     .sort((left, right) => (right.context?.viewers || 0) - (left.context?.viewers || 0));
 
@@ -628,7 +638,7 @@ function fallbackLiveChannels() {
     }));
   }
 
-  return fallbackFeaturedChannels().slice(0, 8).map((item) => ({
+  return (await fallbackFeaturedChannels(contextCache)).slice(0, 8).map((item) => ({
     ...item,
     emoji: '🎬',
     title_override: '',
@@ -651,9 +661,9 @@ function categoryEmoji(category) {
   return map[key] || '🎬';
 }
 
-function resolveHeroSlides(section) {
-  return pickEnabled(section.slides).map((slide) => {
-    const liveContext = slide.linked_channel_id ? getLiveContext(slide.linked_channel_id) : null;
+async function resolveHeroSlides(section, contextCache) {
+  return Promise.all(pickEnabled(section.slides).map(async (slide) => {
+    const liveContext = slide.linked_channel_id ? await getLiveContext(slide.linked_channel_id, contextCache) : null;
     const channel = liveContext?.channel || null;
 
     return {
@@ -678,18 +688,18 @@ function resolveHeroSlides(section) {
       viewers: slide.viewers ?? liveContext?.viewers ?? null,
       channel_name: slide.channel_name || channel?.name || '',
     };
-  });
+  }));
 }
 
-function resolveFeaturedItems(section) {
+async function resolveFeaturedItems(section, contextCache) {
   const configuredItems = pickEnabled(section.items);
-  const sourceItems = configuredItems.length > 0 ? configuredItems : fallbackFeaturedChannels();
+  const sourceItems = configuredItems.length > 0 ? configuredItems : await fallbackFeaturedChannels(contextCache);
 
-  return shuffleIfNeeded(sourceItems, section.shuffle_items)
-    .map((item) => {
-      const channel = pickChannel(item.channel_id);
+  const resolved = await Promise.all(shuffleIfNeeded(sourceItems, section.shuffle_items)
+    .map(async (item) => {
+      const channel = await pickChannel(item.channel_id);
       if (!channel) return null;
-      const liveContext = getLiveContext(channel.id);
+      const liveContext = await getLiveContext(channel.id, contextCache);
 
       return {
         id: item.id || channel.id,
@@ -702,18 +712,19 @@ function resolveFeaturedItems(section) {
         banner_url: getChannelBanner(channel, null),
         logo_url: channel.logo_url || null,
       };
-    })
-    .filter(Boolean);
+    }));
+
+  return resolved.filter(Boolean);
 }
 
-function resolveLiveItems(section) {
+async function resolveLiveItems(section, contextCache) {
   const configuredItems = pickEnabled(section.items);
-  const sourceItems = configuredItems.length > 0 ? configuredItems : fallbackLiveChannels();
+  const sourceItems = configuredItems.length > 0 ? configuredItems : await fallbackLiveChannels(contextCache);
 
-  return shuffleIfNeeded(sourceItems, section.shuffle_items)
-    .map((item) => {
-      const liveContext = getLiveContext(item.channel_id);
-      const channel = liveContext?.channel || pickChannel(item.channel_id);
+  const resolved = await Promise.all(shuffleIfNeeded(sourceItems, section.shuffle_items)
+    .map(async (item) => {
+      const liveContext = await getLiveContext(item.channel_id, contextCache);
+      const channel = liveContext?.channel || await pickChannel(item.channel_id);
       if (!channel) return null;
 
       return {
@@ -728,8 +739,9 @@ function resolveLiveItems(section) {
         banner_url: getChannelBanner(channel, liveContext?.video?.thumbnail_url),
         logo_url: channel.logo_url || null,
       };
-    })
-    .filter(Boolean);
+    }));
+
+  return resolved.filter(Boolean);
 }
 
 function resolveUpcomingItems(section) {
@@ -791,6 +803,7 @@ async function saveHomepageDesign(design, actor = 'system') {
 
 async function getPublicHomepageContent() {
   const design = await getAdminHomepageDesign();
+  const contextCache = new Map();
 
   return {
     updated_at: Date.now(),
@@ -800,7 +813,7 @@ async function getPublicHomepageContent() {
         enabled: design.hero.enabled,
         sort_order: design.hero.sort_order,
         auto_rotate_ms: design.hero.auto_rotate_ms,
-        slides: resolveHeroSlides(design.hero),
+        slides: await resolveHeroSlides(design.hero, contextCache),
       },
       {
         key: 'featured_channels',
@@ -812,7 +825,7 @@ async function getPublicHomepageContent() {
         cta_href: design.featured_channels.cta_href,
         auto_slide: design.featured_channels.auto_slide,
         shuffle_items: design.featured_channels.shuffle_items,
-        items: resolveFeaturedItems(design.featured_channels),
+        items: await resolveFeaturedItems(design.featured_channels, contextCache),
       },
       {
         key: 'live_now',
@@ -825,7 +838,7 @@ async function getPublicHomepageContent() {
         cta_href: design.live_now.cta_href,
         auto_slide: design.live_now.auto_slide,
         shuffle_items: design.live_now.shuffle_items,
-        items: resolveLiveItems(design.live_now),
+        items: await resolveLiveItems(design.live_now, contextCache),
       },
       {
         key: 'upcoming_shows',

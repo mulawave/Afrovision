@@ -10,7 +10,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ENV NEXT_PUBLIC_API_URL=https://afrovision-backend-134538542038.us-central1.run.app
+ENV NEXT_PUBLIC_API_URL=https://afrovision-backend-zoeqld5lsa-uc.a.run.app
 
 RUN npm run build
 
@@ -19,7 +19,7 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
-ENV NEXT_PUBLIC_API_URL=https://afrovision-backend-134538542038.us-central1.run.app
+ENV NEXT_PUBLIC_API_URL=https://afrovision-backend-zoeqld5lsa-uc.a.run.app
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 

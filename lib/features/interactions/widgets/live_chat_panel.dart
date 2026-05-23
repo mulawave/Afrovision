@@ -23,9 +23,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
   final _scrollController = ScrollController();
   final List<LiveChatMessageModel> _messages = [];
 
-  StreamSubscription<LiveChatMessageModel>? _messageSub;
-  StreamSubscription<int>? _viewerSub;
-  StreamSubscription<LiveChatStatus>? _statusSub;
+  StreamSubscription<LiveChatSnapshot>? _snapshotSub;
 
   bool _loading = true;
   bool _connected = false;
@@ -41,9 +39,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
 
   @override
   void dispose() {
-    _messageSub?.cancel();
-    _viewerSub?.cancel();
-    _statusSub?.cancel();
+    _snapshotSub?.cancel();
     _service.dispose();
     _inputController.dispose();
     _scrollController.dispose();
@@ -56,34 +52,30 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
       _error = null;
     });
 
-    _messageSub = _service.messages.listen((message) {
+    _snapshotSub = _service.snapshots.listen((snapshot) {
+      var appendedMessage = false;
       if (!mounted) return;
       setState(() {
-        if (_messages.any((item) => item.id == message.id)) return;
-        _messages.add(message);
-        if (_messages.length > 100) {
-          _messages.removeRange(0, _messages.length - 100);
+        if (snapshot.message != null &&
+            !_messages.any((item) => item.id == snapshot.message!.id)) {
+          _messages.add(snapshot.message!);
+          if (_messages.length > 100) {
+            _messages.removeRange(0, _messages.length - 100);
+          }
+          appendedMessage = true;
         }
-      });
-      _scrollToBottom();
-    });
-
-    _viewerSub = _service.viewerCounts.listen((viewerCount) {
-      if (!mounted) return;
-      setState(() => _viewerCount = viewerCount);
-    });
-
-    _statusSub = _service.statuses.listen((status) {
-      if (!mounted) return;
-      setState(() {
-        _connected = status.connected;
-        if (status.connected) {
+        _viewerCount = snapshot.viewerCount;
+        _connected = snapshot.connected;
+        if (snapshot.connected) {
           _error = null;
         }
-        if (status.error != null && status.error!.isNotEmpty) {
-          _error = status.error;
+        if (snapshot.error != null && snapshot.error!.isNotEmpty) {
+          _error = snapshot.error;
         }
       });
+      if (appendedMessage) {
+        _scrollToBottom();
+      }
     });
 
     try {

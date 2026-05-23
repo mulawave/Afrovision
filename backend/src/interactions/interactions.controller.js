@@ -9,6 +9,7 @@ const { emitChannelEvent } = require('../realtime/socket.service');
 const { getSenderDisplayName } = require('./live_identity');
 const SettingsService = require('../admin/settings.service');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
+const CreatorSupporter = require('../analytics/creator_supporter.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const NotificationService = require('../notifications/notification.service');
 const ReputationService = require('../reputation/reputation.service');
@@ -16,6 +17,124 @@ const ReputationService = require('../reputation/reputation.service');
 // ─── Constants ───────────────────────────────────────────
 const SPLIT = { creator: 0.5, operations: 0.3, community: 0.2 };
 const COMBO_WINDOW = 3000;
+const LEADERBOARD_COLLECTION = 'channel_leaderboards';
+
+function getLeaderboardCollections(channelId) {
+  const root = getFirestore().collection(LEADERBOARD_COLLECTION).doc(channelId);
+  return {
+    public: root.collection('public'),
+    private: root.collection('private'),
+  };
+}
+
+function getPrivateLeaderboardKey(senderAlias) {
+  return crypto.createHash('sha1').update(senderAlias).digest('hex');
+}
+
+function updateLeaderboardEntries(tx, db, { channelId, senderUid, senderAlias, total }) {
+  const admin = require('firebase-admin');
+  const collections = getLeaderboardCollections(channelId);
+
+  if (senderUid) {
+    tx.set(collections.public.doc(senderUid), {
+      channel_id: channelId,
+      sender_uid: senderUid,
+      total: admin.firestore.FieldValue.increment(total),
+      updated_at: Date.now(),
+    }, { merge: true });
+  }
+
+  const privateAlias = senderAlias || 'Anonymous';
+  tx.set(collections.private.doc(getPrivateLeaderboardKey(privateAlias)), {
+    channel_id: channelId,
+    sender_alias: privateAlias,
+    total: admin.firestore.FieldValue.increment(total),
+    updated_at: Date.now(),
+  }, { merge: true });
+}
+
+async function backfillLeaderboard(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection('gift_stats')
+    .where('channel_id', '==', channelId)
+    .get();
+
+  if (snapshot.empty) return;
+
+  const publicTotals = new Map();
+  const privateTotals = new Map();
+  snapshot.forEach((doc) => {
+    const data = doc.data();
+    const total = data.vpt_units || data.naira || 0;
+    if (total <= 0) return;
+
+    if (data.sender_uid) {
+      const existing = publicTotals.get(data.sender_uid) || { total: 0 };
+      existing.total += total;
+      publicTotals.set(data.sender_uid, existing);
+    }
+
+    const privateAlias = data.sender_alias || 'Anonymous';
+    const privateExisting = privateTotals.get(privateAlias) || { total: 0 };
+    privateExisting.total += total;
+    privateTotals.set(privateAlias, privateExisting);
+  });
+
+  const collections = getLeaderboardCollections(channelId);
+  let batch = db.batch();
+  let batchCount = 0;
+
+  const commitBatch = async () => {
+    if (batchCount === 0) return;
+    await batch.commit();
+    batch = db.batch();
+    batchCount = 0;
+  };
+
+  for (const [senderUid, entry] of publicTotals.entries()) {
+    batch.set(collections.public.doc(senderUid), {
+      channel_id: channelId,
+      sender_uid: senderUid,
+      total: entry.total,
+      updated_at: Date.now(),
+    }, { merge: true });
+    batchCount += 1;
+    if (batchCount >= 400) await commitBatch();
+  }
+
+  for (const [senderAlias, entry] of privateTotals.entries()) {
+    batch.set(collections.private.doc(getPrivateLeaderboardKey(senderAlias)), {
+      channel_id: channelId,
+      sender_alias: senderAlias,
+      total: entry.total,
+      updated_at: Date.now(),
+    }, { merge: true });
+    batchCount += 1;
+    if (batchCount >= 400) await commitBatch();
+  }
+
+  await commitBatch();
+}
+
+async function getLeaderboardSnapshot(channelId, isPrivate) {
+  const collections = getLeaderboardCollections(channelId);
+  const targetCollection = isPrivate ? collections.private : collections.public;
+
+  let snapshot = await targetCollection
+    .orderBy('total', 'desc')
+    .limit(10)
+    .get();
+
+  if (!snapshot.empty) {
+    return snapshot;
+  }
+
+  await backfillLeaderboard(channelId);
+  return targetCollection
+    .orderBy('total', 'desc')
+    .limit(10)
+    .get();
+}
 
 // ─── Admin: Gift CRUD ────────────────────────────────────
 
@@ -135,7 +254,7 @@ async function getMyGiftWallet(req, res) {
     let connectedWallet = null;
     try {
       const WalletModel = require('../wallet/wallet.model');
-      const walletRecord = WalletModel.findByUserId(req.userId);
+      const walletRecord = await WalletModel.findByUserId(req.userId);
       if (walletRecord && walletRecord.connected_wallet_address) {
         connectedWallet = {
           address: walletRecord.connected_wallet_address,
@@ -169,7 +288,7 @@ async function sendReaction(req, res) {
       return res.status(400).json({ error: 'channel_id and emoji are required' });
     }
 
-    const channel = Channel.findById(channel_id);
+    const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     const senderAlias = channel.type === 'private'
       ? getSenderDisplayName(req.userId, channel)
@@ -217,7 +336,7 @@ async function sendGift(req, res) {
       return res.status(400).json({ error: 'Invalid or inactive gift' });
     }
 
-    const channel = Channel.findById(channel_id);
+    const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     const senderAlias = channel.type === 'private'
       ? getSenderDisplayName(req.userId, channel)
@@ -232,20 +351,24 @@ async function sendGift(req, res) {
 
     let analyticsShare;
     if (gift.currency === 'vpt') {
+      const channelType = channel.type;
       analyticsShare = await _sendVptGift(
         db,
         req.userId,
         creatorUid,
         channel_id,
+        channelType,
         gift,
         senderAlias,
       );
     } else if (gift.currency === 'ngn') {
+      const channelType = channel.type;
       analyticsShare = await _sendNgnGift(
         db,
         req.userId,
         creatorUid,
         channel_id,
+        channelType,
         gift,
         senderAlias,
       );
@@ -255,7 +378,7 @@ async function sendGift(req, res) {
 
     try {
       await CreatorDailyStats.incrementGifts(creatorUid, analyticsShare);
-      const activeStream = StreamStats.getActiveByChannel(channel_id);
+      const activeStream = await StreamStats.getActiveByChannel(channel_id);
       if (activeStream) {
         await StreamStats.addGifts(activeStream.id, analyticsShare);
       }
@@ -331,7 +454,7 @@ async function sendGift(req, res) {
   }
 }
 
-async function _sendVptGift(db, senderUid, creatorUid, channelId, gift, senderAlias = null) {
+async function _sendVptGift(db, senderUid, creatorUid, channelId, channelType, gift, senderAlias = null) {
   const senderRef = db.collection('users').doc(senderUid);
   const creatorRef = db.collection('users').doc(creatorUid);
 
@@ -416,6 +539,22 @@ async function _sendVptGift(db, senderUid, creatorUid, channelId, gift, senderAl
       vpt_units: cost,
       created_at: Date.now(),
     });
+
+    updateLeaderboardEntries(tx, db, {
+      channelId,
+      senderUid,
+      senderAlias,
+      total: cost,
+    });
+
+    CreatorSupporter.applyGiftDelta(tx, db, {
+      creatorUid,
+      channelId,
+      channelType,
+      senderUid,
+      senderAlias,
+      vpt: creatorShare,
+    });
   });
 
   // Reload wallet caches from Firestore (authoritative source)
@@ -425,7 +564,7 @@ async function _sendVptGift(db, senderUid, creatorUid, channelId, gift, senderAl
   return { ngn: 0, vpt: creatorShare };
 }
 
-async function _sendNgnGift(db, senderUid, creatorUid, channelId, gift, senderAlias = null) {
+async function _sendNgnGift(db, senderUid, creatorUid, channelId, channelType, gift, senderAlias = null) {
   const senderRef = db.collection('users').doc(senderUid);
   const creatorRef = db.collection('users').doc(creatorUid);
 
@@ -510,6 +649,22 @@ async function _sendNgnGift(db, senderUid, creatorUid, channelId, gift, senderAl
       naira: cost,
       created_at: Date.now(),
     });
+
+    updateLeaderboardEntries(tx, db, {
+      channelId,
+      senderUid,
+      senderAlias,
+      total: cost,
+    });
+
+    CreatorSupporter.applyGiftDelta(tx, db, {
+      creatorUid,
+      channelId,
+      channelType,
+      senderUid,
+      senderAlias,
+      ngn: creatorShare,
+    });
   });
 
   // Reload wallet caches from Firestore (authoritative source)
@@ -569,47 +724,24 @@ async function getLeaderboard(req, res) {
     const channelId = req.params.channelId;
     if (!channelId) return res.status(400).json({ error: 'Channel ID required' });
 
-    const channel = Channel.findById(channelId);
+    const channel = await Channel.findById(channelId);
     const isPrivate = channel?.type === 'private';
 
-    const db = getFirestore();
-    const snapshot = await db.collection('gift_stats')
-      .where('channel_id', '==', channelId)
-      .get();
+    const snapshot = await getLeaderboardSnapshot(channelId, isPrivate);
+    const leaderboard = snapshot.docs.map((doc, idx) => {
+      const entry = doc.data();
+      const uid = isPrivate ? '' : (entry.sender_uid || '');
+      const displayName = isPrivate
+        ? entry.sender_alias || 'Anonymous'
+        : getSenderDisplayName(uid, { ...channel, type: 'public' });
 
-    const totals = {};
-    snapshot.forEach((doc) => {
-      const d = doc.data();
-      const alias = d.sender_alias || 'Anonymous';
-      const key = isPrivate
-        ? `anon:${channelId}:${alias}`
-        : d.sender_uid;
-      if (!key) return;
-
-      if (!totals[key]) {
-        totals[key] = {
-          uid: isPrivate ? '' : d.sender_uid,
-          display_name: isPrivate ? alias : null,
-          total: 0,
-        };
-      }
-      totals[key].total += d.vpt_units || d.naira || 0;
+      return {
+        rank: idx + 1,
+        uid,
+        display_name: displayName,
+        total: entry.total || 0,
+      };
     });
-
-    const leaderboard = Object.values(totals)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 10)
-      .map((entry, idx) => {
-        const displayName = isPrivate
-          ? entry.display_name || 'Anonymous'
-          : getSenderDisplayName(entry.uid, { ...channel, type: 'public' });
-        return {
-          rank: idx + 1,
-          uid: isPrivate ? '' : entry.uid,
-          display_name: displayName,
-          total: entry.total,
-        };
-      });
 
     res.json({ leaderboard });
   } catch (err) {
@@ -629,19 +761,38 @@ async function getChannelEvents(req, res) {
     const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 100);
 
     const db = getFirestore();
-    const snapshot = await db.collection('channel_events')
-      .where('channel_id', '==', channelId)
-      .orderBy('created_at', 'desc')
-      .limit(limit)
-      .get();
+    let snapshot;
+    if (after > 0) {
+      snapshot = await db.collection('channel_events')
+        .where('channel_id', '==', channelId)
+        .where('created_at', '>', after)
+        .orderBy('created_at', 'asc')
+        .limit(limit)
+        .get();
+    } else {
+      snapshot = await db.collection('channel_events')
+        .where('channel_id', '==', channelId)
+        .orderBy('created_at', 'desc')
+        .limit(limit)
+        .get();
+    }
 
-    const channel = Channel.findById(channelId);
+    const channel = await Channel.findById(channelId);
     const isPrivate = channel?.type === 'private';
 
-    const docs = [...snapshot.docs].reverse();
     const filteredDocs = after > 0
-      ? docs.filter((doc) => (doc.data().created_at || 0) > after)
-      : docs;
+      ? snapshot.docs
+      : [...snapshot.docs].reverse();
+
+    const giftIds = [...new Set(
+      filteredDocs
+        .map((doc) => {
+          const data = doc.data();
+          return data.type === 'gift' ? data.gift_id : null;
+        })
+        .filter(Boolean),
+    )];
+    const giftsById = await GiftModel.findManyByIds(giftIds);
 
     const events = await Promise.all(filteredDocs.map(async (doc) => {
       const d = doc.data();
@@ -657,7 +808,7 @@ async function getChannelEvents(req, res) {
       };
 
       if (d.type === 'gift') {
-        const gift = await GiftModel.findById(d.gift_id);
+        const gift = giftsById.get(d.gift_id) || null;
         event.gift_name = gift?.name || 'Gift';
         event.gift_icon = gift?.icon || '🎁';
         event.animation = gift?.animation || null;
@@ -693,7 +844,7 @@ async function exchangeAssets(req, res) {
 
     const vptRavenRate = (await SettingsService.getNumber('VPT_RAVEN_RATE')) || 75;
     const uid = req.userId;
-    const user = User.findById(uid);
+    const user = await User.findById(uid);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const db = getFirestore();
@@ -720,10 +871,10 @@ async function exchangeAssets(req, res) {
       });
 
       // Sync in-memory cache
-      User.adjustCoins(uid, -ravensUsed);
-      User.adjustVpt(uid, vptGained);
+      await User.adjustCoins(uid, -ravensUsed);
+      await User.adjustVpt(uid, vptGained);
       // Re-read to fix any rounding drift between Firestore tx and in-memory
-      const updated = User.findById(uid);
+      const updated = await User.findById(uid);
 
       return res.json({
         message: `Converted ${ravensUsed} Ravens → ${vptGained} vPT`,
@@ -748,9 +899,9 @@ async function exchangeAssets(req, res) {
       });
     });
 
-    User.adjustVpt(uid, -vptToSpend);
-    User.adjustCoins(uid, ravensGained);
-    const updated = User.findById(uid);
+    await User.adjustVpt(uid, -vptToSpend);
+    await User.adjustCoins(uid, ravensGained);
+    const updated = await User.findById(uid);
 
     return res.json({
       message: `Converted ${vptToSpend} vPT → ${ravensGained} Ravens`,

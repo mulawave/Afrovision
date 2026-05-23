@@ -41,7 +41,7 @@ async function decrypt(text) {
  * Uses ethers random wallet generation for staging/production environments.
  */
 async function createWallet(userId) {
-  const existing = Wallet.findByUserId(userId);
+  const existing = await Wallet.findByUserId(userId);
   if (existing) {
     return existing;
   }
@@ -80,7 +80,7 @@ async function createWallet(userId) {
  * Get or create wallet for user. Returns ethers Wallet instance.
  */
 async function getWallet(userId) {
-  let walletRecord = Wallet.findByUserId(userId);
+  let walletRecord = await Wallet.findByUserId(userId);
 
   if (!walletRecord) {
     walletRecord = await createWallet(userId);
@@ -116,7 +116,7 @@ async function getProvider(ethers) {
  * Get wallet address for a user (safe — no private key exposed).
  */
 async function getWalletAddress(userId) {
-  let walletRecord = Wallet.findByUserId(userId);
+  let walletRecord = await Wallet.findByUserId(userId);
   if (!walletRecord) {
     walletRecord = await createWallet(userId);
   }
@@ -173,7 +173,7 @@ async function scanAddressBalance(address) {
  */
 async function importExternalAddress(userId, address) {
   const User = require('../users/user.model');
-  const user = User.findById(userId);
+  const user = await User.findById(userId);
   if (!user) throw new Error('User not found');
 
   // Validate BSC address format
@@ -182,7 +182,7 @@ async function importExternalAddress(userId, address) {
   if (!ethers.isAddress(address)) throw new Error('Invalid BSC address format');
 
   // Check if address is already used by another user
-  const existingWallet = Wallet.findByAddress(address);
+  const existingWallet = await Wallet.findByAddress(address);
   if (existingWallet && existingWallet.user_id !== userId) {
     throw new Error('This wallet address is already linked to another account');
   }
@@ -191,10 +191,10 @@ async function importExternalAddress(userId, address) {
   const balances = await scanAddressBalance(address);
 
   // Create or update wallet record
-  let walletRecord = Wallet.findByUserId(userId);
+  let walletRecord = await Wallet.findByUserId(userId);
   if (walletRecord) {
     await Wallet.updateBscAddress(userId, address);
-    walletRecord = Wallet.findByUserId(userId);
+    walletRecord = await Wallet.findByUserId(userId);
   } else {
     // Create a wallet record without a private key (external wallet)
     walletRecord = await Wallet.create({

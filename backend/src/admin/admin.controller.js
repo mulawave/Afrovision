@@ -9,12 +9,22 @@ const Withdrawal = require('../wallet/withdrawal.model');
 const Wallet = require('../wallet/wallet.model');
 const AuditService = require('./audit.service');
 const SmtpService = require('./smtp.service');
+const RenewalWorker = require('../subscriptions/renewal.worker');
 const { serializeChannelForAdmin } = require('./admin.presenter');
 const { getFirestore } = require('../utils/firestore');
 const { getAuth } = require('firebase-admin/auth');
+const {
+  parseMaintenanceRequest,
+  getMaintenanceConfirmationMessage,
+} = require('../utils/maintenance');
 
 const VALID_ROLES = ['viewer', 'creator', 'admin'];
 const VALID_KYC = ['none', 'pending', 'verified'];
+
+function sanitize(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/[<>]/g, '').trim();
+}
 
 function requireAdmin(req, res) {
   const caller = User.findById(req.userId);
@@ -62,10 +72,10 @@ async function setKyc(req, res) {
 
 // --- Plan Management ---
 
-function listPlans(req, res) {
+async function listPlans(req, res) {
   if (!requireAdmin(req, res)) return;
   const type = req.query.type;
-  const plans = type ? Plan.getAllByType(type) : Plan.getAll();
+  const plans = type ? await Plan.getAllByType(type) : await Plan.getAll();
   res.json({ plans });
 }
 
@@ -109,10 +119,10 @@ async function removeFeatureFromPlan(req, res) {
 
 // --- Viewer Plan Management ---
 
-function listViewerPlans(req, res) {
+async function listViewerPlans(req, res) {
   if (!requireAdmin(req, res)) return;
   const includeInactive = req.query.all === 'true';
-  const plans = includeInactive ? Plan.getAllByType('viewer') : Plan.getByType('viewer');
+  const plans = includeInactive ? await Plan.getAllByType('viewer') : await Plan.getByType('viewer');
   res.json({ plans });
 }
 
@@ -137,7 +147,7 @@ async function createViewerPlan(req, res) {
 
 async function updateViewerPlan(req, res) {
   if (!requireAdmin(req, res)) return;
-  const existing = Plan.findById(req.params.id);
+  const existing = await Plan.findById(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Plan not found' });
   if (existing.type !== 'viewer') return res.status(400).json({ error: 'This endpoint only manages viewer plans' });
   const fields = { ...req.body };
@@ -151,7 +161,7 @@ async function updateViewerPlan(req, res) {
 
 async function deleteViewerPlan(req, res) {
   if (!requireAdmin(req, res)) return;
-  const existing = Plan.findById(req.params.id);
+  const existing = await Plan.findById(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Plan not found' });
   if (existing.type !== 'viewer') return res.status(400).json({ error: 'This endpoint only manages viewer plans' });
   const removed = await Plan.remove(req.params.id);
@@ -161,7 +171,7 @@ async function deleteViewerPlan(req, res) {
 
 async function toggleViewerPlanActive(req, res) {
   if (!requireAdmin(req, res)) return;
-  const existing = Plan.findById(req.params.id);
+  const existing = await Plan.findById(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Plan not found' });
   if (existing.type !== 'viewer') return res.status(400).json({ error: 'This endpoint only manages viewer plans' });
   const plan = await Plan.update(req.params.id, { is_active: !existing.is_active });
@@ -170,9 +180,9 @@ async function toggleViewerPlanActive(req, res) {
 
 // --- Category Management ---
 
-function getCategories(req, res) {
+async function getCategories(req, res) {
   if (!requireAdmin(req, res)) return;
-  const categories = Category.getAll(true);
+  const categories = await Category.getAll(true);
   res.json({ categories });
 }
 
@@ -328,14 +338,36 @@ async function testSmtpSettings(req, res) {
 
 // --- User Management ---
 
-function listUsers(req, res) {
+async function listUsers(req, res) {
   if (!requireAdmin(req, res)) return;
-  const users = User.getAll().map((u) => ({
+
+  const requestedLimit = parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100;
+  const cursor = String(req.query.cursor || '').trim();
+  const includeDeleted = req.query.include_deleted === 'true';
+
+  const db = getFirestore();
+  let query = db.collection('users').orderBy('__name__').limit(limit);
+  if (cursor) {
+    query = query.startAfter(cursor);
+  }
+
+  const snapshot = await query.get();
+  let users = snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((user) => includeDeleted || !user.deleted_at)
+    .map((u) => ({
     ...User.toSafeUser(u),
     deviceToken: u.deviceToken || null,
     fcm_tokens: Array.isArray(u.fcm_tokens) ? u.fcm_tokens : [],
   }));
-  res.json({ users });
+
+  if (!includeDeleted && users.length > limit) {
+    users = users.slice(0, limit);
+  }
+
+  const next_cursor = snapshot.size === limit ? snapshot.docs[snapshot.docs.length - 1].id : null;
+  res.json({ users, limit, next_cursor, has_more: Boolean(next_cursor) });
 }
 
 async function deleteUser(req, res) {
@@ -346,12 +378,12 @@ async function deleteUser(req, res) {
   if (!uid) return res.status(400).json({ error: 'uid is required' });
   if (uid === caller.id) return res.status(400).json({ error: 'You cannot delete your own admin account' });
 
-  const user = User.findById(uid);
+  const user = await User.findById(uid);
   if (!user || user.deleted_at) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  const activeOwnedChannels = Channel.getEvery().filter((channel) => channel.owner_id === uid && channel.is_active);
+  const activeOwnedChannels = (await Channel.getAllByOwner(uid)).filter((channel) => channel.is_active);
   for (const channel of activeOwnedChannels) {
     await Channel.disable(channel.id);
   }
@@ -372,12 +404,51 @@ async function recoverAccounts(req, res) {
   const caller = requireAdmin(req, res);
   if (!caller) return;
 
-  // Find all soft-deleted users in memory
-  const allUsers = User.getAll(true);
-  const softDeleted = allUsers.filter((u) => u.deleted_at);
+  const maintenance = parseMaintenanceRequest(req, {
+    confirmationToken: 'RECOVER_SOFT_DELETED',
+    defaultLimit: 100,
+    maxLimit: 500,
+  });
+  if (maintenance.error) {
+    return res.status(400).json({ error: maintenance.error });
+  }
+  if (!maintenance.dryRun && !maintenance.confirmed) {
+    return res.status(400).json({
+      error: getMaintenanceConfirmationMessage(maintenance.confirmationToken),
+      limit: maintenance.limit,
+    });
+  }
+
+  const db = getFirestore();
+  const softDeletedSnapshot = await db.collection('users')
+    .where('deleted_at', '>=', '')
+    .orderBy('deleted_at')
+    .limit(maintenance.limit)
+    .get();
+  const softDeleted = softDeletedSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
   if (softDeleted.length === 0) {
-    return res.json({ message: 'No soft-deleted accounts found to recover', recovered: 0, details: [] });
+    return res.json({
+      maintenance: true,
+      dry_run: maintenance.dryRun,
+      confirmation_token: maintenance.confirmationToken,
+      message: 'No soft-deleted accounts found to recover',
+      recovered: 0,
+      details: [],
+    });
+  }
+
+  if (maintenance.dryRun) {
+    return res.json({
+      maintenance: true,
+      dry_run: true,
+      confirmation_token: maintenance.confirmationToken,
+      preview: {
+        candidates: softDeleted.length,
+        ids: softDeleted.map((u) => u.id),
+      },
+      message: 'Dry run only. Re-send with confirmation=RECOVER_SOFT_DELETED to execute account recovery.',
+    });
   }
 
   const details = [];
@@ -489,8 +560,7 @@ async function reconstructHardDeleted(req, res) {
     await docRef.set(reconstructed);
 
     // Reload into in-memory store
-    const allUsers = User.getAll(true);
-    allUsers.push(reconstructed);
+    await User.reloadFromFirestore(uid);
 
     result.status = 'reconstructed';
     result.subcollections = subcollectionNames;
@@ -522,14 +592,51 @@ async function enrichRecoveredUsers(req, res) {
   const caller = requireAdmin(req, res);
   if (!caller) return;
 
+  const maintenance = parseMaintenanceRequest(req, {
+    confirmationToken: 'ENRICH_RECOVERED_USERS',
+    defaultLimit: 100,
+    maxLimit: 500,
+  });
+  if (maintenance.error) {
+    return res.status(400).json({ error: maintenance.error });
+  }
+  if (!maintenance.dryRun && !maintenance.confirmed) {
+    return res.status(400).json({
+      error: getMaintenanceConfirmationMessage(maintenance.confirmationToken),
+      limit: maintenance.limit,
+    });
+  }
+
   const db = getFirestore();
 
-  // Find all users with _recovered flag or with no email
-  const allUsers = User.getAll(true);
-  const targets = allUsers.filter((u) => u._recovered || (!u.email && !u.deleted_at));
+  // Process only explicitly recovered users in bounded windows.
+  const targetsSnapshot = await db.collection('users')
+    .where('_recovered', '==', true)
+    .limit(maintenance.limit)
+    .get();
+  const targets = targetsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
   if (targets.length === 0) {
-    return res.json({ message: 'No recovered users needing enrichment', enriched: 0 });
+    return res.json({
+      maintenance: true,
+      dry_run: maintenance.dryRun,
+      confirmation_token: maintenance.confirmationToken,
+      message: 'No recovered users needing enrichment',
+      enriched: 0,
+    });
+  }
+
+  if (maintenance.dryRun) {
+    return res.json({
+      maintenance: true,
+      dry_run: true,
+      confirmation_token: maintenance.confirmationToken,
+      preview: {
+        candidates: targets.length,
+        ids: targets.map((u) => u.id),
+      },
+      message: 'Dry run only. Re-send with confirmation=ENRICH_RECOVERED_USERS to execute enrichment.',
+    });
   }
 
   const results = [];
@@ -670,7 +777,7 @@ async function cleanupDuplicates(req, res) {
   const caller = requireAdmin(req, res);
   if (!caller) return;
 
-  const duplicateGroups = User.findDuplicateGroups();
+  const duplicateGroups = await User.findDuplicateGroups();
   if (duplicateGroups.size === 0) {
     return res.json({ message: 'No duplicate accounts found', removed: 0, details: [] });
   }
@@ -681,7 +788,7 @@ async function cleanupDuplicates(req, res) {
   for (const [email, group] of duplicateGroups) {
     const [original, ...dupes] = group;
     for (const dupe of dupes) {
-      const activeChannels = Channel.getEvery().filter((ch) => ch.owner_id === dupe.id && ch.is_active);
+      const activeChannels = (await Channel.getAllByOwner(dupe.id)).filter((ch) => ch.is_active);
       for (const ch of activeChannels) {
         await Channel.disable(ch.id);
       }
@@ -699,7 +806,7 @@ async function cleanupEmpty(req, res) {
   const caller = requireAdmin(req, res);
   if (!caller) return;
 
-  const empties = User.findEmptyAccounts();
+  const empties = await User.findEmptyAccounts();
   if (empties.length === 0) {
     return res.json({ message: 'No empty accounts found', removed: 0, details: [] });
   }
@@ -708,7 +815,7 @@ async function cleanupEmpty(req, res) {
   let removed = 0;
 
   for (const user of empties) {
-    const activeChannels = Channel.getEvery().filter((ch) => ch.owner_id === user.id && ch.is_active);
+    const activeChannels = (await Channel.getAllByOwner(user.id)).filter((ch) => ch.is_active);
     for (const ch of activeChannels) {
       await Channel.disable(ch.id);
     }
@@ -721,14 +828,14 @@ async function cleanupEmpty(req, res) {
   res.json({ message: `Removed ${removed} empty account${removed !== 1 ? 's' : ''}`, removed, details });
 }
 
-function getUserWallet(req, res) {
+async function getUserWallet(req, res) {
   if (!requireAdmin(req, res)) return;
 
   const { uid } = req.params;
-  const user = User.findById(uid);
+  const user = await User.findById(uid);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const wallet = Wallet.toSafe(Wallet.findByUserId(uid));
+  const wallet = Wallet.toSafe(await Wallet.findByUserId(uid));
 
   res.json({
     wallet: {
@@ -745,11 +852,29 @@ function getUserWallet(req, res) {
   });
 }
 
-function listWallets(req, res) {
+async function listWallets(req, res) {
   if (!requireAdmin(req, res)) return;
 
-  const users = User.getAll();
-  const blockchainWallets = new Map(Wallet.getAll().map((wallet) => [wallet.user_id, wallet]));
+  const requestedLimit = parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100;
+  const cursor = String(req.query.cursor || '').trim();
+
+  const db = getFirestore();
+  let query = db.collection('users').orderBy('__name__').limit(limit);
+  if (cursor) {
+    query = query.startAfter(cursor);
+  }
+
+  const snapshot = await query.get();
+  const users = snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((user) => !user.deleted_at);
+
+  const walletEntries = await Promise.all(users.map(async (user) => {
+    const wallet = await Wallet.findByUserId(user.id);
+    return [user.id, wallet];
+  }));
+  const blockchainWallets = new Map(walletEntries);
 
   const wallets = users.map((user) => {
     const blockchainWallet = blockchainWallets.get(user.id) || null;
@@ -768,14 +893,15 @@ function listWallets(req, res) {
     };
   });
 
-  res.json({ wallets });
+  const next_cursor = snapshot.size === limit ? snapshot.docs[snapshot.docs.length - 1].id : null;
+  res.json({ wallets, limit, next_cursor, has_more: Boolean(next_cursor) });
 }
 
 // --- Channel Control ---
 
-function listAllChannels(req, res) {
+async function listAllChannels(req, res) {
   if (!requireAdmin(req, res)) return;
-  const channels = Channel.getEvery().map((channel) => serializeChannelForAdmin(channel));
+  const channels = (await Channel.getEvery()).map((channel) => serializeChannelForAdmin(channel));
   res.json({ channels });
 }
 
@@ -795,6 +921,387 @@ async function adminEnableChannel(req, res) {
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   await AuditService.logAction(caller.id, 'enable_channel', req.params.id, { name: channel.name });
   res.json({ channel: serializeChannelForAdmin(channel) });
+}
+
+/**
+ * PATCH /admin/channels/:id/number
+ * Body: { channel_number: number | string }
+ */
+async function adminUpdateChannelNumber(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  const channel = await Channel.findAnyById(req.params.id);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+  const rawNumber = req.body?.channel_number ?? req.body?.number;
+  if (rawNumber === undefined || rawNumber === null || String(rawNumber).trim() === '') {
+    return res.status(422).json({ error: 'channel_number is required' });
+  }
+
+  try {
+    const updated = await Channel.updateChannelNumber(channel.id, rawNumber);
+    await AuditService.logAction(caller.id, 'update_channel_number', channel.id, {
+      old_channel_number: channel.channel_number,
+      channel_number: updated.channel_number,
+    });
+    res.json({ channel: serializeChannelForAdmin(updated) });
+  } catch (error) {
+    return res.status(422).json({ error: error.message || 'Could not update channel number' });
+  }
+}
+
+/**
+ * PATCH /admin/channels/:id/owner-display
+ * Body: { owner_display_mode: show_owner | hide_owner | brand_only, owner_brand_name?: string }
+ */
+async function adminUpdateChannelOwnerDisplay(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  const channel = await Channel.findAnyById(req.params.id);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+  const mode = req.body?.owner_display_mode;
+  const brandNameRaw = req.body?.owner_brand_name;
+
+  if (!mode || !Channel.ALLOWED_OWNER_DISPLAY_MODES.includes(mode)) {
+    return res.status(422).json({
+      error: `owner_display_mode must be one of: ${Channel.ALLOWED_OWNER_DISPLAY_MODES.join(', ')}`,
+    });
+  }
+
+  const normalizedBrandName = typeof brandNameRaw === 'string'
+    ? sanitize(brandNameRaw).trim()
+    : '';
+
+  if (mode === 'brand_only' && !normalizedBrandName) {
+    return res.status(422).json({ error: 'owner_brand_name is required for brand_only mode' });
+  }
+
+  const updated = await Channel.updateOwnerDisplay(channel.id, {
+    owner_display_mode: mode,
+    owner_brand_name: mode === 'brand_only' ? normalizedBrandName : null,
+  });
+
+  await AuditService.logAction(caller.id, 'update_channel_owner_display', channel.id, {
+    owner_display_mode: mode,
+    owner_brand_name: mode === 'brand_only' ? normalizedBrandName : null,
+  });
+
+  res.json({ channel: serializeChannelForAdmin(updated) });
+}
+
+// ── AV-STR-007: Free-to-Air Channel Import & Operations ──────────────────────
+
+const StreamResolver = require('../channels/stream_resolver.service');
+
+/**
+ * POST /admin/channels/import-with-media
+ * Create an admin-imported channel backed by an external playback source.
+ * Body: { name, description?, category?, source_url, stream_source_mode?, type? }
+ * Multipart fields (optional): logo, banner
+ */
+async function adminImportChannel(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  const {
+    name,
+    description,
+    category,
+    source_url,
+    stream_source_mode,
+    type,
+  } = req.body || {};
+
+  const allowedSourceModes = new Set([
+    'external_youtube',
+    'external_hls',
+    'external_dash',
+  ]);
+
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(422).json({ error: 'Channel name is required' });
+  }
+  if (!source_url || typeof source_url !== 'string' || source_url.trim().length === 0) {
+    return res.status(422).json({ error: 'source_url is required' });
+  }
+
+  if (typeof req.body?.logo_url === 'string' || typeof req.body?.banner_url === 'string') {
+    return res.status(422).json({
+      error: 'Image URLs are not allowed. Upload logo and banner files instead.',
+    });
+  }
+
+  const channelType = type || 'public';
+  if (!['public', 'private'].includes(channelType)) {
+    return res.status(422).json({ error: 'type must be public or private' });
+  }
+  if (stream_source_mode && !allowedSourceModes.has(stream_source_mode)) {
+    return res.status(422).json({
+      error: 'stream_source_mode must be one of external_youtube, external_hls, external_dash',
+    });
+  }
+
+  // Resolve & validate the source URL before creating anything
+  const resolved = await StreamResolver.resolveSource(source_url.trim());
+  if (!resolved.ok) {
+    return res.status(422).json({
+      error: resolved.error_message,
+      error_code: resolved.error_code,
+    });
+  }
+
+  if (
+    stream_source_mode &&
+    resolved.stream_source_mode !== stream_source_mode
+  ) {
+    return res.status(422).json({
+      error: `Selected source provider does not match URL. Expected ${stream_source_mode}, resolved ${resolved.stream_source_mode}.`,
+    });
+  }
+
+  // Create the channel with a system sentinel owner (no real Firebase user)
+  let channel;
+  try {
+    channel = await Channel.create({
+      ownerId: 'system_import',
+      name: name.trim(),
+      description: description ? description.trim() : null,
+      category: category || null,
+      type: channelType,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  // Apply logo / banner from uploaded files only.
+  const uploadedLogo = req.files?.logo?.[0]?.gcsUrl || null;
+  const uploadedBanner = req.files?.banner?.[0]?.gcsUrl || null;
+
+  if (uploadedLogo || uploadedBanner) {
+    try {
+      const db = require('../utils/firestore').getFirestore();
+      const logoUpdate = {};
+      if (uploadedLogo) logoUpdate.logo_url = uploadedLogo;
+      if (uploadedBanner) logoUpdate.banner_url = uploadedBanner;
+      await db.collection('channels').doc(channel.id).update(logoUpdate);
+      Object.assign(channel, logoUpdate);
+    } catch {
+      // non-fatal — logo/banner update failure should not block import
+    }
+  }
+
+  // Persist external source contract
+  channel = await Channel.updateExternalSource(channel.id, {
+    stream_source_mode: resolved.stream_source_mode,
+    external_provider: resolved.external_provider,
+    external_url: resolved.external_url,
+    resolved_playback_url: resolved.resolved_playback_url,
+    stream_status: resolved.stream_status,
+    last_checked_at: resolved.last_checked_at,
+    provider_metadata: resolved.provider_metadata,
+  });
+
+  await AuditService.logAction(caller.id, 'import_channel', channel.id, {
+    name: channel.name,
+    stream_source_mode: channel.stream_source_mode,
+    external_provider: channel.external_provider,
+  });
+
+  res.status(201).json({ channel: serializeChannelForAdmin(channel) });
+}
+
+/**
+ * GET /admin/channels/imported
+ * List all channels with a non-native stream source mode.
+ */
+async function adminListImportedChannels(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  const all = await Channel.getEvery();
+  const imported = all
+    .filter((ch) => ch.stream_source_mode && ch.stream_source_mode !== 'native')
+    .map((ch) => serializeChannelForAdmin(ch));
+
+  res.json({ channels: imported });
+}
+
+/**
+ * POST /admin/channels/:id/recheck-source
+ * Re-probe the external stream source and persist updated health state.
+ */
+async function adminRecheckChannelSource(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  const channel = await Channel.findAnyById(req.params.id);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+  if (channel.stream_source_mode === 'native' || !channel.resolved_playback_url) {
+    return res.status(422).json({ error: 'Channel does not have an external source configured' });
+  }
+
+  const health = await StreamResolver.recheckHealth(
+    channel.resolved_playback_url,
+    channel.stream_source_mode,
+  );
+
+  const updated = await Channel.updateExternalSource(channel.id, {
+    stream_status: health.stream_status,
+    last_checked_at: health.last_checked_at,
+    provider_metadata: {
+      ...(channel.provider_metadata || {}),
+      last_probe_http_status: health.probe_http_status,
+      last_probe_latency_ms: health.probe_latency_ms,
+      last_probe_method: health.probe_method || 'head',
+    },
+  });
+
+  await AuditService.logAction(caller.id, 'recheck_channel_source', channel.id, {
+    stream_status: health.stream_status,
+  });
+
+  res.json({ channel: serializeChannelForAdmin(updated) });
+}
+
+/**
+ * PATCH /admin/channels/:id/external-source
+ * Update an imported channel's source URL and re-resolve.
+ * Body: { source_url }
+ */
+async function adminUpdateChannelExternalSource(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  const channel = await Channel.findAnyById(req.params.id);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+  const { source_url } = req.body || {};
+  if (!source_url || typeof source_url !== 'string' || source_url.trim().length === 0) {
+    return res.status(422).json({ error: 'source_url is required' });
+  }
+
+  const resolved = await StreamResolver.resolveSource(source_url.trim());
+  if (!resolved.ok) {
+    return res.status(422).json({
+      error: resolved.error_message,
+      error_code: resolved.error_code,
+    });
+  }
+
+  const updated = await Channel.updateExternalSource(channel.id, {
+    stream_source_mode: resolved.stream_source_mode,
+    external_provider: resolved.external_provider,
+    external_url: resolved.external_url,
+    resolved_playback_url: resolved.resolved_playback_url,
+    stream_status: resolved.stream_status,
+    last_checked_at: resolved.last_checked_at,
+    provider_metadata: resolved.provider_metadata,
+  });
+
+  await AuditService.logAction(caller.id, 'update_channel_external_source', channel.id, {
+    stream_source_mode: resolved.stream_source_mode,
+    external_provider: resolved.external_provider,
+  });
+
+  res.json({ channel: serializeChannelForAdmin(updated) });
+}
+
+/**
+ * POST /admin/channels/bulk-recheck-sources
+ * Re-probe every channel that has an external source and persist the refreshed
+ * stream_status + last_checked_at.  This is intentionally sequential so we
+ * don't hammer third-party services with concurrent requests.
+ * Returns { checked, failed, total, results[] }
+ */
+async function adminBulkRecheckSources(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  try {
+    const all = await Channel.getEvery();
+    const external = all.filter(
+      (ch) => ch.stream_source_mode && ch.stream_source_mode !== 'native',
+    );
+
+    const results = [];
+    let checked = 0;
+    let failed = 0;
+
+    for (const channel of external) {
+      try {
+        const playbackUrl = channel.resolved_playback_url || channel.external_url;
+        if (!playbackUrl) {
+          failed += 1;
+          results.push({ id: channel.id, name: channel.name, error: 'no_playback_url' });
+          continue;
+        }
+
+        const health = await StreamResolver.recheckHealth(playbackUrl, channel.stream_source_mode);
+
+        const updatedMetadata = channel.provider_metadata
+          ? {
+              ...channel.provider_metadata,
+              probe_http_status: health.probe_http_status,
+              probe_latency_ms: health.probe_latency_ms,
+            }
+          : null;
+
+        await Channel.updateExternalSource(channel.id, {
+          stream_status: health.stream_status,
+          last_checked_at: health.last_checked_at,
+          ...(updatedMetadata !== null ? { provider_metadata: updatedMetadata } : {}),
+        });
+
+        results.push({
+          id: channel.id,
+          name: channel.name,
+          stream_status: health.stream_status,
+          last_checked_at: health.last_checked_at,
+        });
+        checked += 1;
+      } catch (err) {
+        failed += 1;
+        results.push({ id: channel.id, name: channel.name, error: err.message });
+      }
+    }
+
+    await AuditService.logAction(caller.id, 'bulk_recheck_sources', 'system', {
+      checked,
+      failed,
+      total: external.length,
+    });
+
+    res.json({
+      message: `Rechecked ${checked} channel${checked !== 1 ? 's' : ''}`,
+      checked,
+      failed,
+      total: external.length,
+      results,
+    });
+  } catch (err) {
+    console.error('[adminBulkRecheckSources]', err);
+    res.status(500).json({ error: 'Bulk recheck failed', detail: err.message });
+  }
+}
+
+/**
+ * POST /admin/channels/backfill-defaults
+ * Backfill legacy channel documents with external-source field defaults.
+ * Idempotent — only channels missing the fields are written.
+ */
+async function adminBackfillChannelDefaults(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  try {
+    const result = await Channel.backfillNativeDefaults();
+    await AuditService.logAction(caller.id, 'backfill_channel_defaults', 'system', result);
+    res.json({ message: 'Backfill complete', ...result });
+  } catch (err) {
+    console.error('[adminBackfillChannelDefaults]', err);
+    res.status(500).json({ error: 'Backfill failed', detail: err.message });
+  }
 }
 
 // --- Feature Flags ---
@@ -834,46 +1341,76 @@ async function setFeatureFlag(req, res) {
 
 // --- Dashboard ---
 
-function getDashboard(req, res) {
+async function getDashboard(req, res) {
   if (!requireAdmin(req, res)) return;
 
-  const users = User.getAll();
-  const channels = Channel.getEvery();
-  const ledgerStats = Ledger.getStats();
-  const pendingWithdrawals = Withdrawal.getPending();
+  const db = getFirestore();
+  const [
+    totalUsersSnap,
+    deletedUsersSnap,
+    adminUsersSnap,
+    creatorUsersSnap,
+    premiumUsersSnap,
+    totalChannelsSnap,
+    activeChannelsSnap,
+    publicChannelsSnap,
+    privateChannelsSnap,
+  ] = await Promise.all([
+    db.collection('users').count().get(),
+    db.collection('users').where('deleted_at', '>=', '').count().get(),
+    db.collection('users').where('role', '==', 'admin').count().get(),
+    db.collection('users').where('role', '==', 'creator').count().get(),
+    db.collection('users').where('is_premium_creator', '==', true).count().get(),
+    db.collection('channels').count().get(),
+    db.collection('channels').where('is_active', '==', true).count().get(),
+    db.collection('channels').where('type', '==', 'public').where('is_active', '==', true).count().get(),
+    db.collection('channels').where('type', '==', 'private').where('is_active', '==', true).count().get(),
+  ]);
 
-  const totalVpt = users.reduce((sum, u) => sum + (parseFloat(u.vpt) || 0), 0);
-  const totalCash = users.reduce((sum, u) => sum + (parseFloat(u.cash) || 0), 0);
-  const totalCoins = users.reduce((sum, u) => sum + (parseFloat(u.coins) || 0), 0);
+  const totalUsers = totalUsersSnap.data().count || 0;
+  const deletedUsers = deletedUsersSnap.data().count || 0;
+  const activeUsers = Math.max(0, totalUsers - deletedUsers);
+  const admins = adminUsersSnap.data().count || 0;
+  const creators = creatorUsersSnap.data().count || 0;
+  const viewers = Math.max(0, activeUsers - admins - creators);
+
+  const totalChannels = totalChannelsSnap.data().count || 0;
+  const activeChannels = activeChannelsSnap.data().count || 0;
+  const publicChannels = publicChannelsSnap.data().count || 0;
+  const privateChannels = privateChannelsSnap.data().count || 0;
+
+  const ledgerStats = await Ledger.getStats();
+  const pendingWithdrawals = await Withdrawal.getPending();
+  const totals = await User.getBalanceSummary();
 
   res.json({
     dashboard: {
       users: {
-        total: users.length,
-        admins: users.filter((u) => u.role === 'admin').length,
-        creators: users.filter((u) => u.role === 'creator').length,
-        viewers: users.filter((u) => u.role === 'viewer').length,
-        premium: users.filter((u) => u.is_premium_creator).length,
+        total: activeUsers,
+        admins,
+        creators,
+        viewers,
+        premium: premiumUsersSnap.data().count || 0,
       },
       channels: {
-        total: channels.length,
-        active: channels.filter((c) => c.is_active).length,
-        disabled: channels.filter((c) => !c.is_active).length,
-        public: channels.filter((c) => c.type === 'public' && c.is_active).length,
-        private: channels.filter((c) => c.type === 'private' && c.is_active).length,
+        total: totalChannels,
+        active: activeChannels,
+        disabled: Math.max(0, totalChannels - activeChannels),
+        public: publicChannels,
+        private: privateChannels,
       },
       financial: {
         ...ledgerStats,
-        total_vpt: totalVpt,
-        total_cash: totalCash,
-        total_ravens: totalCoins,
+        total_vpt: totals.total_vpt,
+        total_cash: totals.total_cash,
+        total_ravens: totals.total_coins,
         pending_withdrawals: pendingWithdrawals.length,
       },
     },
   });
 }
 
-function getDashboardTrend(req, res) {
+async function getDashboardTrend(req, res) {
   if (!requireAdmin(req, res)) return;
 
   const requestedDays = parseInt(req.query.days, 10);
@@ -892,7 +1429,13 @@ function getDashboardTrend(req, res) {
     revenueMap.set(key, 0);
   }
 
-  for (const entry of Ledger.getAll()) {
+  const entries = await Ledger.getSuccessfulDebitsInRange({
+    currency: 'ngn',
+    startMs: start.getTime(),
+    endMs: Date.now() + (24 * 60 * 60 * 1000),
+  });
+
+  for (const entry of entries) {
     if (entry.status !== 'success') continue;
     if (entry.currency !== 'ngn') continue;
     if (entry.direction !== 'debit') continue;
@@ -911,6 +1454,29 @@ function getDashboardTrend(req, res) {
   }));
 
   res.json({ trend });
+}
+
+async function runRenewals(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  try {
+    const force = req.body?.force === true;
+    const result = await RenewalWorker.runScheduledRenewals({
+      trigger: `admin:${caller.id}`,
+      force,
+    });
+
+    await AuditService.logAction(caller.id, 'run_subscription_renewals', null, {
+      force,
+      skipped: Boolean(result.skipped),
+      reason: result.reason || null,
+    });
+
+    res.json({ result });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to run renewals' });
+  }
 }
 
 // --- Audit Logs ---
@@ -976,7 +1542,7 @@ async function getUserDetail(req, res) {
 
     if (!userDoc.exists) {
       // Fall back to in-memory model
-      const memUser = User.findById(uid);
+      const memUser = await User.findById(uid);
       if (!memUser) return res.status(404).json({ error: 'User not found' });
       return res.json({ user: User.toDetailedUser(memUser), subcollections: {} });
     }
@@ -993,7 +1559,7 @@ async function getUserDetail(req, res) {
 
     // Lazy-load BSC address from wallet model
     try {
-      const wallet = Wallet.findByUserId(uid);
+      const wallet = await Wallet.findByUserId(uid);
       if (wallet) user.bsc_address = wallet.bsc_address;
     } catch { /* ignore */ }
 
@@ -1035,25 +1601,81 @@ async function recoverFromEmailIndex(req, res) {
   const caller = requireAdmin(req, res);
   if (!caller) return;
 
-  const db = getFirestore();
-  const results = { found: [], already_exist: [], reconstructed: [], errors: [] };
+  const maintenance = parseMaintenanceRequest(req, {
+    confirmationToken: 'RECOVER_FROM_INDEX',
+    defaultLimit: 100,
+    maxLimit: 500,
+  });
+  if (maintenance.error) {
+    return res.status(400).json({ error: maintenance.error });
+  }
+  if (!maintenance.dryRun && !maintenance.confirmed) {
+    return res.status(400).json({
+      error: getMaintenanceConfirmationMessage(maintenance.confirmationToken),
+      limit: maintenance.limit,
+    });
+  }
 
-  // 1. Scan email_index — each doc is {emailLower} with field {uid}
-  const emailIndexSnap = await db.collection('email_index').get();
-  const emailToUid = new Map();
+  const db = getFirestore();
+  const results = {
+    found: [],
+    already_exist: [],
+    reconstructed: [],
+    missing: [],
+    errors: [],
+    limit: maintenance.limit,
+    processed: 0,
+    remaining: 0,
+    total_email_index_entries: 0,
+  };
+
+  const totalEmailIndexSnapshot = await db.collection('email_index').count().get();
+  results.total_email_index_entries = totalEmailIndexSnapshot.data().count || 0;
+
+  // 1. Scan a bounded subset of email_index — each doc is {emailLower} with field {uid}
+  const emailIndexSnap = await db.collection('email_index').limit(maintenance.limit).get();
+  const emailEntries = [];
   for (const doc of emailIndexSnap.docs) {
     const data = doc.data();
     if (data.uid) {
-      emailToUid.set(doc.id, data.uid);
+      emailEntries.push([doc.id, data.uid]);
+    }
+  }
+  results.processed = emailEntries.length;
+  results.remaining = Math.max(0, results.total_email_index_entries - results.processed);
+
+  if (emailEntries.length === 0) {
+    return res.json({
+      maintenance: true,
+      dry_run: maintenance.dryRun,
+      confirmation_token: maintenance.confirmationToken,
+      message: 'No email_index entries found in the requested window.',
+      ...results,
+    });
+  }
+
+  const targetUids = [...new Set(emailEntries.map(([, uid]) => uid).filter(Boolean))];
+
+  const invitesByUid = new Map();
+  const referralsByUid = new Map();
+
+  async function loadByUid(collectionName, fieldName, onData) {
+    for (let index = 0; index < targetUids.length; index += 10) {
+      const batch = targetUids.slice(index, index + 10);
+      const snapshot = await db.collection(collectionName)
+        .where(fieldName, 'in', batch)
+        .get();
+      for (const doc of snapshot.docs) {
+        onData(doc);
+      }
     }
   }
 
-  // 2. Also scan invites for consumedByUid
-  const invitesSnap = await db.collection('invites').get();
-  const invitesByUid = new Map();
-  for (const doc of invitesSnap.docs) {
-    const data = doc.data();
-    if (data.consumedByUid) {
+  // 2. Load only invite/referral records relevant to the bounded uid set.
+  if (!maintenance.dryRun) {
+    await loadByUid('invites', 'consumedByUid', (doc) => {
+      const data = doc.data();
+      if (!data.consumedByUid) return;
       if (!invitesByUid.has(data.consumedByUid)) {
         invitesByUid.set(data.consumedByUid, []);
       }
@@ -1066,27 +1688,31 @@ async function recoverFromEmailIndex(req, res) {
         lname: data.ref_lname || null,
         phone: data.ref_phone || null,
       });
-    }
-  }
+    });
 
-  // 3. Scan referrals for additional data
-  const referralsSnap = await db.collection('referrals').get();
-  const referralsByUid = new Map();
-  for (const doc of referralsSnap.docs) {
-    const data = doc.data();
-    const uid = data.uid || data.referredUid || data.userId;
-    if (uid) {
-      referralsByUid.set(uid, data);
+    for (const fieldName of ['uid', 'referredUid', 'userId']) {
+      await loadByUid('referrals', fieldName, (doc) => {
+        const data = doc.data();
+        const uid = data.uid || data.referredUid || data.userId;
+        if (uid && !referralsByUid.has(uid)) {
+          referralsByUid.set(uid, data);
+        }
+      });
     }
   }
 
   // 4. Check each email_index entry — if user doc doesn't exist, reconstruct it
-  for (const [emailLower, uid] of emailToUid) {
+  for (const [emailLower, uid] of emailEntries) {
     results.found.push({ email: emailLower, uid });
 
     const userDoc = await db.collection('users').doc(uid).get();
     if (userDoc.exists) {
       results.already_exist.push({ email: emailLower, uid });
+      continue;
+    }
+
+    if (maintenance.dryRun) {
+      results.missing.push({ email: emailLower, uid });
       continue;
     }
 
@@ -1175,6 +1801,24 @@ async function recoverFromEmailIndex(req, res) {
     } catch (err) {
       results.errors.push({ email: emailLower, uid, error: err.message });
     }
+  }
+
+  if (maintenance.dryRun) {
+    await AuditService.logAction(caller.id, 'recover_from_email_index_dry_run', null, {
+      found: results.found.length,
+      already_exist: results.already_exist.length,
+      missing: results.missing.length,
+      processed: results.processed,
+      remaining: results.remaining,
+    });
+
+    return res.json({
+      maintenance: true,
+      dry_run: true,
+      confirmation_token: maintenance.confirmationToken,
+      message: `Dry run scanned ${results.processed} of ${results.total_email_index_entries} email_index entries and found ${results.missing.length} missing user documents. Re-send with confirmation=RECOVER_FROM_INDEX to execute reconstruction for this window.`,
+      ...results,
+    });
   }
 
   // 5. Reload in-memory store
@@ -1433,6 +2077,23 @@ async function pitrRestore(req, res) {
 //  MARQUEE / LIVE WIRE TOPICS
 // ──────────────────────────────────────────────────────────
 const MARQUEE_COLLECTION = 'live_wire_topics';
+const MARQUEE_CACHE_TTL_MS = 60_000;
+
+let marqueeCache = {
+  topics: null,
+  updatedAt: 0,
+};
+
+function sortMarqueeTopics(topics) {
+  return topics.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+}
+
+function invalidateMarqueeCache() {
+  marqueeCache = {
+    topics: null,
+    updatedAt: 0,
+  };
+}
 
 async function getMarqueeTopics(req, res) {
   if (!requireAdmin(req, res)) return;
@@ -1441,8 +2102,7 @@ async function getMarqueeTopics(req, res) {
     const snap = await db.collection(MARQUEE_COLLECTION).get();
     const topics = [];
     snap.forEach((doc) => topics.push({ id: doc.id, ...doc.data() }));
-    topics.sort((a, b) => (a.priority || 0) - (b.priority || 0));
-    res.json(topics);
+    res.json(sortMarqueeTopics(topics));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1462,6 +2122,7 @@ async function createMarqueeTopic(req, res) {
       updatedAt: new Date(),
     };
     await ref.set(topic);
+    invalidateMarqueeCache();
     res.json({ id: ref.id, ...topic });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1482,6 +2143,7 @@ async function updateMarqueeTopic(req, res) {
     if (priority !== undefined) updates.priority = priority;
     if (active !== undefined) updates.active = active;
     await ref.update(updates);
+    invalidateMarqueeCache();
     res.json({ id, ...doc.data(), ...updates });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1494,6 +2156,7 @@ async function deleteMarqueeTopic(req, res) {
     const { id } = req.params;
     const db = getFirestore();
     await db.collection(MARQUEE_COLLECTION).doc(id).delete();
+    invalidateMarqueeCache();
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1503,12 +2166,20 @@ async function deleteMarqueeTopic(req, res) {
 // Public endpoint — no auth required (website reads this)
 async function getActiveMarqueeTopics(req, res) {
   try {
+    if (marqueeCache.topics && Date.now() - marqueeCache.updatedAt < MARQUEE_CACHE_TTL_MS) {
+      return res.json(marqueeCache.topics);
+    }
+
     const db = getFirestore();
     const snap = await db.collection(MARQUEE_COLLECTION).where('active', '==', true).get();
     const topics = [];
     snap.forEach((doc) => topics.push({ id: doc.id, ...doc.data() }));
-    topics.sort((a, b) => (a.priority || 0) - (b.priority || 0));
-    res.json(topics);
+    const sortedTopics = sortMarqueeTopics(topics);
+    marqueeCache = {
+      topics: sortedTopics,
+      updatedAt: Date.now(),
+    };
+    res.json(sortedTopics);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1546,10 +2217,19 @@ module.exports = {
   listAllChannels,
   adminDisableChannel,
   adminEnableChannel,
+  adminUpdateChannelNumber,
+  adminUpdateChannelOwnerDisplay,
+  adminImportChannel,
+  adminListImportedChannels,
+  adminRecheckChannelSource,
+  adminUpdateChannelExternalSource,
+  adminBulkRecheckSources,
+  adminBackfillChannelDefaults,
   getFeatureFlags,
   setFeatureFlag,
   getDashboard,
   getDashboardTrend,
+  runRenewals,
   getAuditLogs,
   getUserDetail,
   reloadFromFirestore,
@@ -1568,3 +2248,87 @@ module.exports = {
   deleteViewerPlan,
   toggleViewerPlanActive,
 };
+
+// ─── Email Send / Broadcast ──────────────────────────────────────────────────
+
+/**
+ * POST /admin/email/send
+ * Body: { toEmail, subject, html }
+ * Sends a pre-rendered HTML email to a single address via SMTP.
+ */
+async function sendEmailToUser(req, res) {
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
+
+  const toEmail = String(req.body?.toEmail || '').trim();
+  const subject = String(req.body?.subject || '').trim();
+  const html    = String(req.body?.html    || '').trim();
+
+  if (!toEmail)  return res.status(400).json({ error: 'toEmail is required' });
+  if (!subject)  return res.status(400).json({ error: 'subject is required' });
+  if (!html)     return res.status(400).json({ error: 'html is required' });
+
+  try {
+    const result = await SmtpService.sendRawHtmlEmail({ toEmail, subject, html });
+    await AuditService.logAction(caller.id, 'send_email_template', toEmail, { subject });
+    res.json({ sent: 1, result });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to send email' });
+  }
+}
+
+/**
+ * POST /admin/email/broadcast
+ * Body: { subject, html }
+ * Personalises {{name}} and {{email}} tokens per-user, then sends to every
+ * non-deleted user that has an email address on record.
+ */
+async function broadcastEmail(req, res) {
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
+
+  const subject = String(req.body?.subject || '').trim();
+  const html    = String(req.body?.html    || '').trim();
+
+  if (!subject) return res.status(400).json({ error: 'subject is required' });
+  if (!html)    return res.status(400).json({ error: 'html is required' });
+
+  try {
+    const db = getFirestore();
+    const snapshot = await db.collection('users').get();
+    const users = snapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((u) => !u.deleted_at && u.email);
+
+    let sent = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const user of users) {
+      const personalised = html
+        .replace(/\{\{name\}\}/g,  user.displayName || user.name || user.email.split('@')[0])
+        .replace(/\{\{email\}\}/g, user.email);
+      try {
+        await SmtpService.sendRawHtmlEmail({ toEmail: user.email, subject, html: personalised });
+        sent++;
+      } catch (err) {
+        failed++;
+        errors.push({ email: user.email, error: err.message });
+      }
+    }
+
+    await AuditService.logAction(caller.id, 'broadcast_email_template', null, {
+      subject,
+      sent,
+      failed,
+      total: users.length,
+    });
+
+    res.json({ sent, failed, total: users.length, errors: errors.slice(0, 10) });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Broadcast failed' });
+  }
+}
+
+module.exports.sendEmailToUser  = sendEmailToUser;
+module.exports.broadcastEmail   = broadcastEmail;

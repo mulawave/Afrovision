@@ -54,10 +54,10 @@ async function queueVPT(creatorUid, ngnAmount, referenceId) {
  * Links each queue item to the batch via batch_id.
  */
 async function createBatch() {
-  const pending = DistQueue.getPending();
+  const pending = await DistQueue.getPending();
 
   // Also pick up retryable failed items
-  const retryable = DistQueue.getRetryable();
+  const retryable = await DistQueue.getRetryable();
   for (const item of retryable) {
     await DistQueue.resetForRetry(item.id);
   }
@@ -125,7 +125,7 @@ async function executeSwap(batch) {
     await Batch.setFailed(batch.id);
 
     // Mark all batch items as failed
-    const items = DistQueue.getByBatch(batch.id);
+    const items = await DistQueue.getByBatch(batch.id);
     for (const item of items) {
       await DistQueue.setFailed(item.id);
     }
@@ -154,7 +154,7 @@ async function executeSwap(batch) {
  * Per-item failure isolation — one fail doesn't block others.
  */
 async function distribute(batch) {
-  const items = DistQueue.getByBatch(batch.id);
+  const items = await DistQueue.getByBatch(batch.id);
   const totalVPT = batch.total_vpt;
   const totalVPTWei = BigInt(batch.total_vpt_wei || '0');
   let distributed = 0;
@@ -180,7 +180,7 @@ async function distribute(batch) {
     const vptAmountWeiString = vptAmountWei.toString();
 
     // Get creator's wallet address
-    const wallet = WalletModel.findByUserId(item.creator_uid);
+    const wallet = await WalletModel.findByUserId(item.creator_uid);
     if (!wallet || wallet.status !== 'active') {
       await DistQueue.setFailed(item.id);
       await Ledger.create({
@@ -291,7 +291,7 @@ async function processBatch() {
   console.log(`[Distribution] Swap complete: ${swapResult.vptAmount} vPT (tx: ${swapResult.txHash})`);
 
   // Step 3: Distribute vPT to creators
-  const distResult = await distribute(Batch.findById(batch.id));
+  const distResult = await distribute(await Batch.findById(batch.id));
 
   console.log(`[Distribution] Distributed: ${distResult.distributed}/${distResult.total}`);
 
@@ -311,14 +311,14 @@ async function processBatch() {
  * Retry a specific failed batch.
  */
 async function retryBatch(batchId) {
-  const batch = Batch.findById(batchId);
+  const batch = await Batch.findById(batchId);
   if (!batch) return { error: 'Batch not found' };
-  if (!Batch.canRetry(batchId)) return { error: 'Max retries exceeded' };
+  if (!await Batch.canRetry(batchId)) return { error: 'Max retries exceeded' };
 
   await Batch.resetForRetry(batchId);
 
   // Reset all failed items in this batch back to pending
-  const items = DistQueue.getByBatch(batchId);
+  const items = await DistQueue.getByBatch(batchId);
   for (const item of items) {
     if (item.status === 'failed') {
       await DistQueue.resetForRetry(item.id);
@@ -327,12 +327,12 @@ async function retryBatch(batchId) {
   }
 
   // Re-execute
-  const swapResult = await executeSwap(Batch.findById(batchId));
+  const swapResult = await executeSwap(await Batch.findById(batchId));
   if (swapResult.error) {
     return { error: swapResult.error, batch_id: batchId };
   }
 
-  const distResult = await distribute(Batch.findById(batchId));
+  const distResult = await distribute(await Batch.findById(batchId));
   return {
     batch_id: batchId,
     distributed: distResult.distributed,
@@ -343,22 +343,22 @@ async function retryBatch(batchId) {
 
 // ─── QUERIES ────────────────────────────────────────────
 
-function getCreatorQueue(creatorUid) {
+async function getCreatorQueue(creatorUid) {
   return DistQueue.getByCreator(creatorUid);
 }
 
-function getQueueStats() {
+async function getQueueStats() {
   return {
-    queue: DistQueue.getStats(),
-    batches: Batch.getStats(),
+    queue: await DistQueue.getStats(),
+    batches: await Batch.getStats(),
   };
 }
 
-function getBatchHistory(limit = 20) {
+async function getBatchHistory(limit = 20) {
   return Batch.getRecent(limit);
 }
 
-function getFailedBatches() {
+async function getFailedBatches() {
   return Batch.getFailed();
 }
 

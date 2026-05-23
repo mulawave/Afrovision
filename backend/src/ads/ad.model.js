@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'advertisements';
-const ads = [];
-let initialized = false;
 
 /**
  * Ad categories:
@@ -29,15 +27,7 @@ const MAX_DURATION = {
 };
 
 async function init() {
-  if (initialized) return;
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    data.id = doc.id;
-    ads.push(data);
-  });
-  initialized = true;
+  return [];
 }
 
 async function create({
@@ -81,25 +71,68 @@ async function create({
     updated_at: Date.now(),
   };
   await db.collection(COLLECTION).doc(id).set(ad);
-  ads.push(ad);
   return ad;
 }
 
-function findById(id) {
-  return ads.find((a) => a.id === id) || null;
+async function findById(id) {
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return { ...doc.data(), id: doc.id };
 }
 
-function getAll() {
-  return [...ads];
+async function getAll() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function getByAdvertiser(advertiserId) {
-  return ads.filter((a) => a.advertiser_id === advertiserId);
+async function listPage({ limit = 100, startAfterUpdatedAt = null, startAfterId = null, status = null } = {}) {
+  const db = getFirestore();
+  let query = db.collection(COLLECTION);
+  if (status) {
+    query = query.where('status', '==', status);
+  }
+
+  query = query.orderBy('updated_at', 'desc').orderBy('__name__', 'desc').limit(Math.max(1, Math.min(limit, 500)));
+
+  if (startAfterUpdatedAt != null && startAfterId) {
+    query = query.startAfter(startAfterUpdatedAt, startAfterId);
+  }
+
+  const snapshot = await query.get();
+  const ads = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+  const lastDoc = snapshot.docs[snapshot.docs.length - 1] || null;
+
+  return {
+    ads,
+    nextCursor: lastDoc
+      ? {
+        updated_at: Number(lastDoc.data().updated_at || 0),
+        id: lastDoc.id,
+      }
+      : null,
+  };
 }
 
-function getActiveByCategory(category) {
+async function getByAdvertiser(advertiserId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('advertiser_id', '==', advertiserId)
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+}
+
+async function getActiveByCategory(category) {
   const now = Date.now();
-  return ads.filter((a) =>
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('category', '==', category)
+    .where('status', '==', 'active')
+    .get();
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
+    .filter((a) =>
     a.category === category &&
     a.status === 'active' &&
     (!a.start_date || a.start_date <= now) &&
@@ -108,12 +141,20 @@ function getActiveByCategory(category) {
   );
 }
 
-function getApproved() {
-  return ads.filter((a) => a.status === 'approved');
+async function getApproved() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('status', '==', 'approved')
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function getPending() {
-  return ads.filter((a) => a.status === 'pending');
+async function getPending() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('status', '==', 'pending')
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
 const ALLOWED_UPDATE_FIELDS = [
@@ -123,7 +164,7 @@ const ALLOWED_UPDATE_FIELDS = [
 ];
 
 async function update(id, fields) {
-  const ad = findById(id);
+  const ad = await findById(id);
   if (!ad) return null;
   const db = getFirestore();
   const updates = {};
@@ -141,7 +182,7 @@ async function update(id, fields) {
 }
 
 async function recordImpression(id, cost) {
-  const ad = findById(id);
+  const ad = await findById(id);
   if (!ad) return null;
   const db = getFirestore();
   ad.impression_count += 1;
@@ -161,9 +202,8 @@ async function recordImpression(id, cost) {
 }
 
 async function remove(id) {
-  const idx = ads.findIndex((a) => a.id === id);
-  if (idx === -1) return false;
-  ads.splice(idx, 1);
+  const ad = await findById(id);
+  if (!ad) return false;
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).delete();
   return true;
@@ -177,6 +217,7 @@ module.exports = {
   create,
   findById,
   getAll,
+  listPage,
   getByAdvertiser,
   getActiveByCategory,
   getApproved,

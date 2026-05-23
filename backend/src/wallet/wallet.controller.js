@@ -4,10 +4,10 @@ const User = require('../users/user.model');
 
 async function getMyWallet(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const walletRecord = WalletModel.findByUserId(req.userId);
+    const walletRecord = await WalletModel.findByUserId(req.userId);
 
     if (!walletRecord) {
       // Auto-create wallet for creators
@@ -27,14 +27,14 @@ async function getMyWallet(req, res) {
 
 async function createMyWallet(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (user.role !== 'creator' && user.role !== 'admin') {
       return res.status(403).json({ error: 'Only creators can create wallets' });
     }
 
-    const existing = WalletModel.findByUserId(req.userId);
+    const existing = await WalletModel.findByUserId(req.userId);
     if (existing) {
       return res.status(409).json({
         error: 'Wallet already exists',
@@ -74,7 +74,7 @@ async function scanBalance(req, res) {
  */
 async function importAddress(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const { address } = req.body;
@@ -97,7 +97,7 @@ async function importAddress(req, res) {
  */
 async function connectExternal(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const { address, type } = req.body;
@@ -114,13 +114,13 @@ async function connectExternal(req, res) {
     }
 
     // Check if address is already used
-    const existing = WalletModel.findByAddress(address.trim());
+    const existing = await WalletModel.findByAddress(address.trim());
     if (existing && existing.user_id !== req.userId) {
       return res.status(409).json({ error: 'This wallet address is already linked to another account' });
     }
 
     // Get or create base wallet record
-    let walletRecord = WalletModel.findByUserId(req.userId);
+    let walletRecord = await WalletModel.findByUserId(req.userId);
     if (!walletRecord) {
       // Create a wallet record with the external address
       walletRecord = await WalletModel.create({
@@ -147,7 +147,7 @@ async function connectExternal(req, res) {
       await User.setBlockchainTokens(req.userId, balances.vpt_balance_raw);
     }
 
-    walletRecord = WalletModel.findByUserId(req.userId);
+    walletRecord = await WalletModel.findByUserId(req.userId);
     res.json({
       wallet: WalletModel.toSafe(walletRecord),
       connected: {
@@ -167,13 +167,13 @@ async function connectExternal(req, res) {
  */
 async function disconnectExternal(req, res) {
   try {
-    const walletRecord = WalletModel.findByUserId(req.userId);
+    const walletRecord = await WalletModel.findByUserId(req.userId);
     if (!walletRecord) {
       return res.status(404).json({ error: 'No wallet found' });
     }
 
     await WalletModel.clearConnectedWallet(req.userId);
-    const updated = WalletModel.findByUserId(req.userId);
+    const updated = await WalletModel.findByUserId(req.userId);
     res.json({ wallet: WalletModel.toSafe(updated) });
   } catch (err) {
     console.error('[WalletController] disconnectExternal error:', err.message);
@@ -186,15 +186,21 @@ async function disconnectExternal(req, res) {
  */
 async function getConnected(req, res) {
   try {
-    const walletRecord = WalletModel.findByUserId(req.userId);
+    const walletRecord = await WalletModel.findByUserId(req.userId);
     if (!walletRecord || !walletRecord.connected_wallet_address) {
       return res.json({ connected: null });
     }
 
+    // Return wallet info immediately — blockchain balance scan is slow (10-30s+)
+    // and causes mobile clients with timeouts to fail.
+    // Use ?scan=true query param to opt-in to the slow balance scan.
+    const wantScan = req.query.scan === 'true';
     let balances = null;
-    try {
-      balances = await WalletService.scanAddressBalance(walletRecord.connected_wallet_address);
-    } catch { /* non-fatal — RPC may be down */ }
+    if (wantScan) {
+      try {
+        balances = await WalletService.scanAddressBalance(walletRecord.connected_wallet_address);
+      } catch { /* non-fatal — RPC may be down */ }
+    }
 
     res.json({
       connected: {
@@ -216,7 +222,7 @@ async function getConnected(req, res) {
  */
 async function transfer(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const { asset, amount, to_address } = req.body;

@@ -50,7 +50,8 @@ class _GiftSheetState extends State<GiftSheet> {
         _wallet = results[1] as GiftWalletModel;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[GiftSheet] _load error: $e');
       if (!mounted) return;
       setState(() => _loading = false);
     }
@@ -59,6 +60,8 @@ class _GiftSheetState extends State<GiftSheet> {
   Future<void> _sendGift(GiftModel gift) async {
     if (_sendingId != null) return;
     setState(() => _sendingId = gift.id);
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
 
     try {
       final result = await InteractionService.sendGift(
@@ -79,13 +82,14 @@ class _GiftSheetState extends State<GiftSheet> {
         // Non-fatal: wallet refresh failure should not block gift success
       }
 
+      if (!mounted) return;
       widget.onGiftSent?.call();
-      Navigator.pop(context, result);
+      navigator.pop(result);
     } catch (e) {
       if (!mounted) return;
       setState(() => _sendingId = null);
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(
             e.toString().replaceAll('Exception: ', ''),
@@ -176,10 +180,7 @@ class _GiftSheetState extends State<GiftSheet> {
               padding: const EdgeInsets.all(40),
               child: Text(
                 'No gifts available',
-                style: TextStyle(
-                  color: AppColors.goldText,
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: AppColors.goldText, fontSize: 14),
               ),
             )
           else
@@ -191,7 +192,7 @@ class _GiftSheetState extends State<GiftSheet> {
                   crossAxisCount: 4,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
-                  childAspectRatio: 0.75,
+                  childAspectRatio: 0.85,
                 ),
                 itemCount: _gifts.length,
                 itemBuilder: (_, i) => _buildGiftTile(_gifts[i]),
@@ -206,9 +207,22 @@ class _GiftSheetState extends State<GiftSheet> {
 
   Widget _buildGiftTile(GiftModel gift) {
     final isSending = _sendingId == gift.id;
+    final walletVpt = _wallet?.vpt ?? 0;
+    final canAfford = walletVpt >= gift.vptUnits;
+
+    // Tier badge (matches website: ultra ≥500, premium ≥50)
+    final tierLabel = gift.currency == 'vpt' && gift.vptUnits >= 500
+        ? 'ULTRA'
+        : gift.currency == 'vpt' && gift.vptUnits >= 50
+        ? 'PREMIUM'
+        : null;
+    final tierBg = gift.vptUnits >= 500 ? AppColors.errorRed : AppColors.orange;
+
+    // Shrink long emoji strings to prevent overflow
+    final iconFontSize = gift.icon.length > 3 ? 20.0 : 28.0;
 
     return GestureDetector(
-      onTap: isSending ? null : () => _sendGift(gift),
+      onTap: isSending || !canAfford ? null : () => _sendGift(gift),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
@@ -222,42 +236,74 @@ class _GiftSheetState extends State<GiftSheet> {
                 : AppColors.inputBorder.withValues(alpha: 0.3),
           ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isSending)
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  color: AppColors.orange,
-                  strokeWidth: 2,
+        child: Opacity(
+          opacity: canAfford ? 1.0 : 0.35,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (isSending)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: AppColors.orange,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  else
+                    Text(gift.icon, style: TextStyle(fontSize: iconFontSize)),
+                  const SizedBox(height: 4),
+                  Text(
+                    gift.name,
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    gift.priceLabel,
+                    style: TextStyle(
+                      color: AppColors.goldText,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              if (tierLabel != null)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: tierBg.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      tierLabel,
+                      style: const TextStyle(
+                        color: AppColors.white,
+                        fontSize: 7,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ),
                 ),
-              )
-            else
-              Text(gift.icon, style: const TextStyle(fontSize: 28)),
-            const SizedBox(height: 6),
-            Text(
-              gift.name,
-              style: const TextStyle(
-                color: AppColors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              gift.priceLabel,
-              style: TextStyle(
-                color: AppColors.goldText,
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

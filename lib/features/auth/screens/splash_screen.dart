@@ -44,8 +44,10 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkAuth() async {
+    debugPrint('[Splash] Starting auth check...');
     await Future.delayed(const Duration(milliseconds: 2000));
     final token = await AuthStorage.getToken();
+    debugPrint('[Splash] Token present: ${token != null}');
     if (!mounted) return;
 
     if (token == null) {
@@ -54,7 +56,9 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     try {
+      debugPrint('[Splash] Calling getCurrentUser...');
       await AuthService.getCurrentUser();
+      debugPrint('[Splash] getCurrentUser succeeded');
       if (!mounted) return;
 
       // Register FCM token silently (permission may already be granted).
@@ -72,7 +76,8 @@ class _SplashScreenState extends State<SplashScreen>
 
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[Splash] Auth check failed: $e');
       await AuthStorage.deleteToken();
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/login');

@@ -2,8 +2,8 @@ const User = require('../users/user.model');
 const AuditService = require('../admin/audit.service');
 const StaticPagesService = require('./static-pages-content.service');
 
-function requireAdmin(req, res) {
-  const caller = User.findById(req.userId);
+async function requireAdmin(req, res) {
+  const caller = await User.findById(req.userId);
   if (!caller || caller.role !== 'admin') {
     res.status(403).json({ error: 'Admin only' });
     return null;
@@ -18,7 +18,7 @@ function getErrorStatus(error) {
 }
 
 async function getAdminPageContent(req, res) {
-  const caller = requireAdmin(req, res);
+  const caller = await requireAdmin(req, res);
   if (!caller) return;
 
   try {
@@ -31,7 +31,7 @@ async function getAdminPageContent(req, res) {
 }
 
 async function updateAdminPageContent(req, res) {
-  const caller = requireAdmin(req, res);
+  const caller = await requireAdmin(req, res);
   if (!caller) return;
 
   if (!req.body || typeof req.body.content !== 'object' || Array.isArray(req.body.content)) {

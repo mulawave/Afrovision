@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'vpt_queue';
-let queue = [];
-let initialized = false;
 
 /**
  * vPT Conversion Queue — tracks individual creator queue items.
@@ -23,15 +21,11 @@ async function persist(item) {
 }
 
 async function init() {
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  queue = snapshot.docs.map((doc) => doc.data());
-  initialized = true;
-  return queue;
+  return [];
 }
 
 function isInitialized() {
-  return initialized;
+  return true;
 }
 
 async function create({ creatorUid, ngnValue, referenceId }) {
@@ -49,35 +43,55 @@ async function create({ creatorUid, ngnValue, referenceId }) {
     created_at: Date.now(),
     processed_at: null,
   };
-  queue.push(item);
   await persist(item);
   return item;
 }
 
-function findById(id) {
-  return queue.find((q) => q.id === id);
+async function findById(id) {
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return { ...doc.data(), id: doc.id };
 }
 
-function getPending() {
-  return queue.filter((q) => q.status === 'pending');
+async function getPending() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('status', '==', 'pending')
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function getRetryable() {
-  return queue.filter((q) => q.status === 'failed' && q.retry_count < MAX_RETRIES);
+async function getRetryable() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('status', '==', 'failed')
+    .get();
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
+    .filter((q) => q.retry_count < MAX_RETRIES);
 }
 
-function getByBatch(batchId) {
-  return queue.filter((q) => q.batch_id === batchId);
+async function getByBatch(batchId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('batch_id', '==', batchId)
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function getByCreator(creatorUid) {
-  return queue
-    .filter((q) => q.creator_uid === creatorUid)
+async function getByCreator(creatorUid) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('creator_uid', '==', creatorUid)
+    .get();
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
     .sort((a, b) => b.created_at - a.created_at);
 }
 
 async function assignToBatch(id, batchId) {
-  const item = findById(id);
+  const item = await findById(id);
   if (!item) return null;
   item.batch_id = batchId;
   item.status = 'processing';
@@ -86,7 +100,7 @@ async function assignToBatch(id, batchId) {
 }
 
 async function setCompleted(id, txHash, vptAmount, vptAmountWei) {
-  const item = findById(id);
+  const item = await findById(id);
   if (!item) return null;
   item.status = 'completed';
   item.tx_hash = txHash;
@@ -98,7 +112,7 @@ async function setCompleted(id, txHash, vptAmount, vptAmountWei) {
 }
 
 async function setFailed(id) {
-  const item = findById(id);
+  const item = await findById(id);
   if (!item) return null;
   item.status = 'failed';
   item.retry_count += 1;
@@ -107,7 +121,7 @@ async function setFailed(id) {
 }
 
 async function resetForRetry(id) {
-  const item = findById(id);
+  const item = await findById(id);
   if (!item || item.retry_count >= MAX_RETRIES) return null;
   item.status = 'pending';
   item.batch_id = null;
@@ -115,7 +129,10 @@ async function resetForRetry(id) {
   return item;
 }
 
-function getStats() {
+async function getStats() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  const queue = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
   return {
     pending: queue.filter((q) => q.status === 'pending').length,
     processing: queue.filter((q) => q.status === 'processing').length,

@@ -27,7 +27,7 @@ async function subscribe(req, res) {
 
     if (!creatorUid) return res.status(400).json({ error: 'creatorUid is required' });
 
-    const creator = User.findById(creatorUid);
+    const creator = await User.findById(creatorUid);
     if (!creator) return res.status(404).json({ error: 'Creator not found' });
     if (creator.role !== 'creator' && creator.role !== 'admin') {
       return res.status(400).json({ error: 'User is not a creator' });
@@ -37,7 +37,7 @@ async function subscribe(req, res) {
     }
 
     // Prevent duplicate active subscriptions
-    const existing = CreatorSub.findActive(subscriberUid, creatorUid);
+    const existing = await CreatorSub.findActive(subscriberUid, creatorUid);
     if (existing) {
       return res.status(409).json({
         error: 'Already subscribed to this creator',
@@ -170,7 +170,7 @@ async function subscribe(req, res) {
         ngn: selectedCurrency === 'ngn' ? amount : 0,
         vpt: selectedCurrency === 'vpt' ? amount : 0,
       });
-      const activeStream = StreamStats.getActiveByCreator(creatorUid);
+      const activeStream = await StreamStats.getActiveByCreator(creatorUid);
       if (activeStream) {
         await StreamStats.addSubscriber(activeStream.id);
       }
@@ -181,7 +181,7 @@ async function subscribe(req, res) {
     res.status(201).json({ subscription: sub });
 
     // Notify creator about new subscriber (non-blocking)
-    const subscriber = User.findById(subscriberUid);
+    const subscriber = await User.findById(subscriberUid);
     const subscriberName = subscriber ? (subscriber.name || subscriber.email || 'A user') : 'A user';
     NotificationService.notifyUser(creatorUid, {
       title: '🎉 New Subscriber!',
@@ -222,7 +222,7 @@ async function subscribe(req, res) {
  */
 async function cancelSubscription(req, res) {
   try {
-    const sub = CreatorSub.findById(req.params.id);
+    const sub = await CreatorSub.findById(req.params.id);
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });
 
     const caller = User.findById(req.userId);
@@ -254,8 +254,16 @@ async function cancelSubscription(req, res) {
  */
 async function getMySubscriptions(req, res) {
   try {
-    const subs = CreatorSub.getBySubscriber(req.userId);
-    res.json({ subscriptions: subs });
+    const subs = await CreatorSub.getBySubscriber(req.userId);
+    const enriched = await Promise.all(subs.map(async (s) => {
+      const creator = await User.findById(s.creator_uid);
+      return {
+        ...s,
+        creator_name: creator?.name || creator?.email || null,
+        creator_avatar_url: creator?.avatar_url || null,
+      };
+    }));
+    res.json({ subscriptions: enriched });
   } catch (err) {
     console.error('[CreatorSub] getMySubscriptions:', err.message);
     res.status(500).json({ error: 'Internal server error' });
@@ -268,7 +276,7 @@ async function getMySubscriptions(req, res) {
  */
 async function getCreatorSubscribers(req, res) {
   try {
-    const subs = CreatorSub.getByCreator(req.userId);
+    const subs = await CreatorSub.getByCreator(req.userId);
     res.json({ subscriptions: subs, count: subs.length });
   } catch (err) {
     console.error('[CreatorSub] getCreatorSubscribers:', err.message);
@@ -282,7 +290,7 @@ async function getCreatorSubscribers(req, res) {
  */
 async function checkSubscription(req, res) {
   try {
-    const sub = CreatorSub.findActive(req.userId, req.params.creatorUid);
+    const sub = await CreatorSub.findActive(req.userId, req.params.creatorUid);
     res.json({ subscribed: !!sub, subscription: sub || null });
   } catch (err) {
     console.error('[CreatorSub] checkSubscription:', err.message);
@@ -303,16 +311,27 @@ async function adminListSubscriptions(req, res) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    let all = CreatorSub.getAll();
-    if (req.query.status) {
-      all = all.filter((s) => s.status === req.query.status);
-    }
-    if (req.query.creator_uid) {
-      all = all.filter((s) => s.creator_uid === req.query.creator_uid);
-    }
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100;
+    const cursorSubscribedAt = req.query.cursor_subscribed_at != null ? Number(req.query.cursor_subscribed_at) : null;
+    const cursorId = String(req.query.cursor_id || '').trim() || null;
+    const status = String(req.query.status || '').trim() || null;
+    const creatorUid = String(req.query.creator_uid || '').trim() || null;
+
+    const page = await CreatorSub.listPage({
+      limit,
+      startAfterSubscribedAt: Number.isFinite(cursorSubscribedAt) ? cursorSubscribedAt : null,
+      startAfterId: cursorId,
+      status,
+      creatorUid,
+    });
+
     res.json({
-      subscriptions: all.map((subscription) => serializeCreatorSubscriptionForAdmin(subscription)),
-      stats: CreatorSub.getStats(),
+      subscriptions: page.subscriptions.map((subscription) => serializeCreatorSubscriptionForAdmin(subscription)),
+      stats: await CreatorSub.getStats(),
+      limit,
+      next_cursor: page.nextCursor,
+      has_more: Boolean(page.nextCursor),
     });
   } catch (err) {
     console.error('[CreatorSub] adminListSubscriptions:', err.message);
@@ -331,7 +350,7 @@ async function adminCancelSubscription(req, res) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const sub = CreatorSub.findById(req.params.id);
+    const sub = await CreatorSub.findById(req.params.id);
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });
 
     const cancelled = await CreatorSub.cancel(sub.id);

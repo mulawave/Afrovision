@@ -5,6 +5,7 @@ const User = require('../users/user.model');
 const Ledger = require('../vpt/ledger.model');
 const { generateSignedUploadUrl } = require('../utils/gcs');
 const { getFirestore } = require('../utils/firestore');
+const AdAnalyticsService = require('./ad_analytics.service');
 const crypto = require('crypto');
 const path = require('path');
 
@@ -70,9 +71,9 @@ async function submitAd(req, res) {
 /**
  * GET /ads/me — list ads belonging to the authenticated user
  */
-function getMyAds(req, res) {
+async function getMyAds(req, res) {
   try {
-    const ads = Ad.getByAdvertiser(req.userId);
+    const ads = await Ad.getByAdvertiser(req.userId);
     res.json({ ads });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -82,9 +83,9 @@ function getMyAds(req, res) {
 /**
  * GET /ads/:id/stats — get impression stats for an ad (owner or admin)
  */
-function getAdStats(req, res) {
+async function getAdStats(req, res) {
   try {
-    const ad = Ad.findById(req.params.id);
+    const ad = await Ad.findById(req.params.id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
 
     const user = User.findById(req.userId);
@@ -92,7 +93,7 @@ function getAdStats(req, res) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const stats = AdImpression.getStats(ad.id);
+    const stats = await AdImpression.getStats(ad.id);
     res.json({ ad, stats });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -104,7 +105,7 @@ function getAdStats(req, res) {
  */
 async function topUpBudget(req, res) {
   try {
-    const ad = Ad.findById(req.params.id);
+    const ad = await Ad.findById(req.params.id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
     if (ad.advertiser_id !== req.userId) {
       return res.status(403).json({ error: 'Not your ad' });
@@ -161,11 +162,30 @@ async function getAdUploadUrl(req, res) {
 /**
  * GET /ads/all — admin: list all ads
  */
-function getAllAds(req, res) {
+async function getAllAds(req, res) {
   try {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-    res.json(Ad.getAll());
+
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100;
+    const cursorUpdatedAt = req.query.cursor_updated_at != null ? Number(req.query.cursor_updated_at) : null;
+    const cursorId = String(req.query.cursor_id || '').trim() || null;
+    const status = String(req.query.status || '').trim() || null;
+
+    const page = await Ad.listPage({
+      limit,
+      startAfterUpdatedAt: Number.isFinite(cursorUpdatedAt) ? cursorUpdatedAt : null,
+      startAfterId: cursorId,
+      status,
+    });
+
+    res.json({
+      ads: page.ads,
+      limit,
+      next_cursor: page.nextCursor,
+      has_more: Boolean(page.nextCursor),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -174,11 +194,11 @@ function getAllAds(req, res) {
 /**
  * GET /ads/pending — admin: list pending ads awaiting approval
  */
-function getPendingAds(req, res) {
+async function getPendingAds(req, res) {
   try {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-    res.json(Ad.getPending());
+    res.json(await Ad.getPending());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -192,7 +212,7 @@ async function approveAd(req, res) {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-    const ad = Ad.findById(req.params.id);
+    const ad = await Ad.findById(req.params.id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
 
     const updated = await Ad.update(ad.id, { status: 'approved' });
@@ -210,7 +230,7 @@ async function rejectAd(req, res) {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-    const ad = Ad.findById(req.params.id);
+    const ad = await Ad.findById(req.params.id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
 
     const reason = (req.body.reason || '').trim();
@@ -229,7 +249,7 @@ async function activateAd(req, res) {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-    const ad = Ad.findById(req.params.id);
+    const ad = await Ad.findById(req.params.id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
     if (ad.status !== 'approved' && ad.status !== 'paused') {
       return res.status(400).json({ error: 'Ad must be approved or paused to activate' });
@@ -247,7 +267,7 @@ async function activateAd(req, res) {
  */
 async function pauseAd(req, res) {
   try {
-    const ad = Ad.findById(req.params.id);
+    const ad = await Ad.findById(req.params.id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
 
     const user = User.findById(req.userId);
@@ -317,7 +337,7 @@ async function updateAd(req, res) {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-    const ad = Ad.findById(req.params.id);
+    const ad = await Ad.findById(req.params.id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
 
     const updated = await Ad.update(ad.id, req.body);
@@ -346,11 +366,13 @@ async function deleteAd(req, res) {
 /**
  * GET /ads/impressions — admin: all impression records
  */
-function getAllImpressions(req, res) {
+async function getAllImpressions(req, res) {
   try {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-    res.json(AdImpression.getAll());
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : 200;
+    res.json(await AdImpression.getRecent(limit));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -364,11 +386,11 @@ function getAllImpressions(req, res) {
  * GET /ads/serve/banner?placement=home|page&channel_id=xxx
  * Returns a single banner ad or null.
  */
-function serveBanner(req, res) {
+async function serveBanner(req, res) {
   try {
     const placement = req.query.placement || 'home';
     const channelId = req.query.channel_id || null;
-    const ad = getBannerAd(placement, channelId);
+    const ad = await getBannerAd(placement, channelId);
     res.json(ad ? { ad } : { ad: null });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -379,10 +401,10 @@ function serveBanner(req, res) {
  * GET /ads/serve/stream?channel_id=xxx
  * Returns ordered in-stream ads for a channel break.
  */
-function serveInStream(req, res) {
+async function serveInStream(req, res) {
   try {
     const channelId = req.query.channel_id || null;
-    const ads = getInStreamAds(channelId);
+    const ads = await getInStreamAds(channelId);
     res.json({ ads });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -398,12 +420,12 @@ async function recordImpression(req, res) {
     const { ad_id, channel_id, viewer_count } = req.body;
     if (!ad_id) return res.status(400).json({ error: 'ad_id is required' });
 
-    const ad = Ad.findById(ad_id);
+    const ad = await Ad.findById(ad_id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
 
     const cost = ad.price_per_impression;
     const Channel = require('../channels/channel.model');
-    const channel = channel_id ? Channel.findById(channel_id) : null;
+    const channel = channel_id ? await Channel.findById(channel_id) : null;
     const channelOwnerId = channel ? channel.owner_id : null;
 
     // Record impression in tracking model
@@ -477,9 +499,9 @@ async function recordImpression(req, res) {
 /**
  * GET /ads/billing — advertiser billing summary
  */
-function getBilling(req, res) {
+async function getBilling(req, res) {
   try {
-    const myAds = Ad.getByAdvertiser(req.userId);
+    const myAds = await Ad.getByAdvertiser(req.userId);
     const totalBudget = myAds.reduce((s, a) => s + (a.budget || 0), 0);
     const totalSpent = myAds.reduce((s, a) => s + (a.spent || 0), 0);
     const totalImpressions = myAds.reduce((s, a) => s + (a.impression_count || 0), 0);
@@ -504,13 +526,13 @@ function getBilling(req, res) {
 /**
  * GET /ads/my-analytics — advertiser: own campaign analytics with time series
  */
-function getMyAnalytics(req, res) {
+async function getMyAnalytics(req, res) {
   try {
-    const myAds = Ad.getByAdvertiser(req.userId);
+    const myAds = await Ad.getByAdvertiser(req.userId);
     if (!myAds.length) return res.json({ overview: { total_ads: 0 }, daily: [], per_ad: [], categories: [] });
 
-    const adIds = new Set(myAds.map(a => a.id));
-    const allImpressions = AdImpression.getAll().filter(i => adIds.has(i.ad_id));
+    const adIds = myAds.map((ad) => ad.id);
+    const allImpressions = await AdImpression.getByAdvertiser(adIds);
 
     const totalBudget = myAds.reduce((s, a) => s + (a.budget || 0), 0);
     const totalSpent = myAds.reduce((s, a) => s + (a.spent || 0), 0);
@@ -592,36 +614,26 @@ function getMyAnalytics(req, res) {
 /**
  * GET /ads/revenue-report — admin: platform revenue report from ads
  */
-function getRevenueReport(req, res) {
+async function getRevenueReport(req, res) {
   try {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-    const allAds = Ad.getAll();
-    const allImpressions = AdImpression.getAll();
-
-    const totalRevenue = allAds.reduce((s, a) => s + (a.spent || 0), 0);
-    const totalImpressions = allImpressions.length;
-    const totalViewers = allImpressions.reduce((s, i) => s + (i.viewer_count || 0), 0);
-
-    // Compute aggregate splits
-    let totalOps = 0, totalChannel = 0, totalPool = 0;
-    for (const imp of allImpressions) {
-      const split = calculateRevenueSplit(imp.category, imp.cost || 0);
-      totalOps += split.operations_share;
-      totalChannel += split.channel_share;
-      totalPool += split.pool_share;
-    }
+    const analytics = await AdAnalyticsService.getAdminAnalytics();
+    const { overview, window_days: windowDays } = analytics;
 
     res.json({
-      total_revenue: +totalRevenue.toFixed(2),
-      total_impressions: totalImpressions,
-      total_viewers: totalViewers,
-      operations_revenue: +totalOps.toFixed(2),
-      channel_revenue: +totalChannel.toFixed(2),
-      pool_revenue: +totalPool.toFixed(2),
-      active_ads: allAds.filter((a) => a.status === 'active').length,
-      total_ads: allAds.length,
+      window_days: windowDays,
+      total_revenue: overview.total_revenue,
+      total_impressions: overview.total_impressions,
+      total_viewers: overview.total_viewers,
+      operations_revenue: overview.operations_revenue,
+      channel_revenue: overview.channel_revenue,
+      pool_revenue: overview.pool_revenue,
+      active_ads: overview.active_ads,
+      total_ads: overview.total_ads,
+      lifetime_total_revenue: overview.lifetime_total_revenue,
+      lifetime_total_impressions: overview.lifetime_total_impressions,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -631,112 +643,12 @@ function getRevenueReport(req, res) {
 /**
  * GET /ads/analytics — admin: comprehensive ad analytics dashboard data
  */
-function getAnalytics(req, res) {
+async function getAnalytics(req, res) {
   try {
     const user = User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-    const allAds = Ad.getAll();
-    const allImpressions = AdImpression.getAll();
-
-    // ── Revenue overview ──
-    const totalRevenue = allAds.reduce((s, a) => s + (a.spent || 0), 0);
-    const totalBudget = allAds.reduce((s, a) => s + (a.budget || 0), 0);
-    let opsRev = 0, chanRev = 0, poolRev = 0;
-    for (const imp of allImpressions) {
-      const sp = calculateRevenueSplit(imp.category, imp.cost || 0);
-      opsRev += sp.operations_share;
-      chanRev += sp.channel_share;
-      poolRev += sp.pool_share;
-    }
-
-    // ── Daily time series (last 30 days) ──
-    const now = Date.now();
-    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-    const dailyMap = {};
-    for (let d = 0; d < 30; d++) {
-      const date = new Date(now - (29 - d) * 24 * 60 * 60 * 1000);
-      const key = date.toISOString().slice(0, 10);
-      dailyMap[key] = { date: key, impressions: 0, revenue: 0, viewers: 0 };
-    }
-    for (const imp of allImpressions) {
-      const ts = imp.played_at?.toDate ? imp.played_at.toDate() : new Date(imp.played_at);
-      if (now - ts.getTime() > thirtyDays) continue;
-      const key = ts.toISOString().slice(0, 10);
-      if (dailyMap[key]) {
-        dailyMap[key].impressions += 1;
-        dailyMap[key].revenue += imp.cost || 0;
-        dailyMap[key].viewers += imp.viewer_count || 0;
-      }
-    }
-    const daily = Object.values(dailyMap);
-
-    // ── Category breakdown ──
-    const catMap = {};
-    for (const imp of allImpressions) {
-      const c = imp.category || 'unknown';
-      if (!catMap[c]) catMap[c] = { category: c, impressions: 0, revenue: 0, viewers: 0 };
-      catMap[c].impressions += 1;
-      catMap[c].revenue += imp.cost || 0;
-      catMap[c].viewers += imp.viewer_count || 0;
-    }
-    const categories = Object.values(catMap);
-
-    // ── Top ads by revenue ──
-    const adMap = {};
-    for (const imp of allImpressions) {
-      const aid = imp.ad_id;
-      if (!adMap[aid]) adMap[aid] = { ad_id: aid, impressions: 0, revenue: 0, viewers: 0 };
-      adMap[aid].impressions += 1;
-      adMap[aid].revenue += imp.cost || 0;
-      adMap[aid].viewers += imp.viewer_count || 0;
-    }
-    const topAds = Object.values(adMap).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
-    // Enrich with ad title
-    for (const ta of topAds) {
-      const ad = allAds.find(a => a.id === ta.ad_id);
-      ta.title = ad?.title || 'Unknown';
-      ta.category = ad?.category || 'unknown';
-      ta.status = ad?.status || 'unknown';
-    }
-
-    // ── Top channels by revenue ──
-    const chMap = {};
-    for (const imp of allImpressions) {
-      const cid = imp.channel_id || 'direct';
-      if (!chMap[cid]) chMap[cid] = { channel_id: cid, impressions: 0, revenue: 0, viewers: 0 };
-      chMap[cid].impressions += 1;
-      chMap[cid].revenue += imp.cost || 0;
-      chMap[cid].viewers += imp.viewer_count || 0;
-    }
-    const topChannels = Object.values(chMap).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
-
-    // ── Status breakdown ──
-    const statusMap = {};
-    for (const ad of allAds) {
-      const s = ad.status || 'unknown';
-      if (!statusMap[s]) statusMap[s] = 0;
-      statusMap[s]++;
-    }
-
-    res.json({
-      overview: {
-        total_ads: allAds.length,
-        active_ads: allAds.filter(a => a.status === 'active').length,
-        total_budget: +totalBudget.toFixed(2),
-        total_revenue: +totalRevenue.toFixed(2),
-        total_impressions: allImpressions.length,
-        total_viewers: allImpressions.reduce((s, i) => s + (i.viewer_count || 0), 0),
-        operations_revenue: +opsRev.toFixed(2),
-        channel_revenue: +chanRev.toFixed(2),
-        pool_revenue: +poolRev.toFixed(2),
-      },
-      daily,
-      categories,
-      top_ads: topAds,
-      top_channels: topChannels,
-      status_breakdown: statusMap,
-    });
+    res.json(await AdAnalyticsService.getAdminAnalytics());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

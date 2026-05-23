@@ -6,6 +6,7 @@ import 'core/services/deep_link_service.dart';
 import 'core/theme/app_colors.dart';
 import 'firebase_options.dart';
 import 'features/auth/screens/splash_screen.dart';
+import 'features/auth/services/auth_service.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/auth/screens/register_screen.dart';
 import 'features/auth/screens/forgot_password_screen.dart';
@@ -17,6 +18,7 @@ import 'features/profile/screens/profile_screen.dart';
 import 'features/profile/screens/edit_profile_screen.dart';
 import 'features/profile/screens/delete_account_screen.dart';
 import 'features/subscription/screens/plans_screen.dart';
+import 'features/subscription/screens/my_subscriptions_screen.dart';
 import 'features/channel/screens/channel_list_screen.dart';
 import 'features/channel/screens/create_channel_screen.dart';
 import 'features/channel/screens/channel_view_screen.dart';
@@ -44,6 +46,8 @@ import 'features/channel/screens/channel_analytics_screen.dart';
 import 'features/payments/screens/checkout_screen.dart';
 import 'features/reputation/screens/reputation_screen.dart';
 import 'features/reputation/screens/leaderboard_screen.dart';
+import 'features/challenge/screens/challenge_screen.dart';
+import 'features/challenge/screens/challenge_audition_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -133,6 +137,7 @@ class AfroVisionApp extends StatelessWidget {
         '/notifications': (_) => const NotificationsScreen(),
         '/premium-stream': (_) => const PremiumStreamPaywallScreen(),
         '/creator-subscription': (_) => const CreatorSubscriptionScreen(),
+        '/my-subscriptions': (_) => const MySubscriptionsScreen(),
         '/referral': (_) => const ReferralScreen(),
         '/pak-login': (_) => const PakLoginScreen(),
         '/advertiser': (_) => const AdvertiserScreen(),
@@ -142,6 +147,61 @@ class AfroVisionApp extends StatelessWidget {
         '/checkout': (_) => const CheckoutScreen(),
         '/reputation': (_) => const ReputationScreen(),
         '/reputation/leaderboard': (_) => const LeaderboardScreen(),
+        '/challenge': (_) => const ChallengeEntryScreen(),
+        '/challenge/audition': (_) => const ChallengeAuditionScreen(),
+      },
+    );
+  }
+}
+
+class ChallengeEntryScreen extends StatefulWidget {
+  const ChallengeEntryScreen({super.key});
+
+  @override
+  State<ChallengeEntryScreen> createState() => _ChallengeEntryScreenState();
+}
+
+class _ChallengeEntryScreenState extends State<ChallengeEntryScreen> {
+  late final Future<bool> _authCheck;
+
+  @override
+  void initState() {
+    super.initState();
+    _authCheck = _isAuthenticated();
+  }
+
+  Future<bool> _isAuthenticated() async {
+    try {
+      await AuthService.getCurrentUser();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _authCheck,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Scaffold(
+            body: DecoratedBox(
+              decoration: BoxDecoration(gradient: AppColors.primaryGradient),
+              child: Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.orange),
+                ),
+              ),
+            ),
+          );
+        }
+
+        if (snapshot.data == true) {
+          return const ChallengeAuditionScreen();
+        }
+
+        return const ChallengeScreen();
       },
     );
   }

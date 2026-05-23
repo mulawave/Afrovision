@@ -2,19 +2,26 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'channel_programs';
-const programs = [];
-let initialized = false;
+const programsById = new Map();
+
+function syncProgram(program) {
+  if (program?.id) {
+    programsById.set(program.id, program);
+  }
+  return program;
+}
+
+function mapSnapshot(snapshot) {
+  return snapshot.docs.map((doc) => syncProgram({ ...doc.data(), id: doc.id }));
+}
+
+function isIndexError(error) {
+  const message = error?.message || '';
+  return message.includes('requires an index') || message.includes('FAILED_PRECONDITION');
+}
 
 async function init() {
-  if (initialized) return;
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    data.id = doc.id;
-    programs.push(data);
-  });
-  initialized = true;
+  return [];
 }
 
 async function create({ channelId, videoId, startTime, endTime }) {
@@ -31,47 +38,93 @@ async function create({ channelId, videoId, startTime, endTime }) {
     created_at: Date.now(),
   };
   await db.collection(COLLECTION).doc(id).set(program);
-  programs.push(program);
-  return program;
+  return syncProgram(program);
 }
 
-function findById(id) {
-  return programs.find((p) => p.id === id) || null;
+async function findById(id) {
+  if (programsById.has(id)) {
+    return programsById.get(id) || null;
+  }
+
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return syncProgram({ ...doc.data(), id: doc.id });
 }
 
-function getCurrentProgram(channelId) {
+async function getCurrentProgram(channelId) {
   const now = Date.now();
-  return (
-    programs.find(
-      (p) => p.channel_id === channelId && p.start_time <= now && p.end_time > now
-    ) || null
-  );
+  const db = getFirestore();
+  try {
+    const snapshot = await db.collection(COLLECTION)
+      .where('channel_id', '==', channelId)
+      .where('end_time', '>', now)
+      .orderBy('end_time', 'asc')
+      .limit(1)
+      .get();
+    const program = mapSnapshot(snapshot)[0] || null;
+    return program && program.start_time <= now ? program : null;
+  } catch (error) {
+    if (!isIndexError(error)) throw error;
+    const schedule = await getSchedule(channelId);
+    return schedule.find((p) => p.start_time <= now && p.end_time > now) || null;
+  }
 }
 
-function getUpcoming(channelId, limit = 10) {
+async function getUpcoming(channelId, limit = 10) {
   const now = Date.now();
-  return programs
-    .filter((p) => p.channel_id === channelId && p.start_time > now)
-    .sort((a, b) => a.start_time - b.start_time)
-    .slice(0, limit);
+  const db = getFirestore();
+  try {
+    const snapshot = await db.collection(COLLECTION)
+      .where('channel_id', '==', channelId)
+      .where('start_time', '>', now)
+      .orderBy('start_time', 'asc')
+      .limit(limit)
+      .get();
+    return mapSnapshot(snapshot);
+  } catch (error) {
+    if (!isIndexError(error)) throw error;
+    const schedule = await getSchedule(channelId);
+    return schedule
+      .filter((p) => p.start_time > now)
+      .sort((a, b) => a.start_time - b.start_time)
+      .slice(0, limit);
+  }
 }
 
-function getUpcomingAll(limit = 12) {
+async function getUpcomingAll(limit = 12) {
   const now = Date.now();
-  return programs
-    .filter((p) => p.start_time > now)
-    .sort((a, b) => a.start_time - b.start_time)
-    .slice(0, limit);
+  const db = getFirestore();
+  try {
+    const snapshot = await db.collection(COLLECTION)
+      .where('start_time', '>', now)
+      .orderBy('start_time', 'asc')
+      .limit(limit)
+      .get();
+    return mapSnapshot(snapshot);
+  } catch (error) {
+    if (!isIndexError(error)) throw error;
+    const snapshot = await db.collection(COLLECTION)
+      .where('start_time', '>', now)
+      .get();
+    return mapSnapshot(snapshot)
+      .sort((a, b) => a.start_time - b.start_time)
+      .slice(0, limit);
+  }
 }
 
-function getSchedule(channelId) {
-  return programs
-    .filter((p) => p.channel_id === channelId)
+async function getSchedule(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .get();
+  return mapSnapshot(snapshot)
     .sort((a, b) => a.start_time - b.start_time);
 }
 
-function hasOverlap(channelId, startTime, endTime, excludeId) {
-  return programs.some(
+async function hasOverlap(channelId, startTime, endTime, excludeId) {
+  const schedule = await getSchedule(channelId);
+  return schedule.some(
     (p) =>
       p.channel_id === channelId &&
       p.id !== excludeId &&
@@ -81,26 +134,39 @@ function hasOverlap(channelId, startTime, endTime, excludeId) {
 }
 
 async function updateStatus(id, status) {
-  const program = findById(id);
+  const program = await findById(id);
   if (!program) return null;
   program.status = status;
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).update({ status });
-  return program;
+  return syncProgram(program);
 }
 
-function getLastEnded(channelId) {
+async function getLastEnded(channelId) {
   const now = Date.now();
-  const ended = programs
-    .filter((p) => p.channel_id === channelId && p.end_time <= now)
-    .sort((a, b) => b.end_time - a.end_time);
-  return ended.length > 0 ? ended[0] : null;
+  const db = getFirestore();
+  try {
+    const snapshot = await db.collection(COLLECTION)
+      .where('channel_id', '==', channelId)
+      .where('end_time', '<=', now)
+      .orderBy('end_time', 'desc')
+      .limit(1)
+      .get();
+    return mapSnapshot(snapshot)[0] || null;
+  } catch (error) {
+    if (!isIndexError(error)) throw error;
+    const schedule = await getSchedule(channelId);
+    const ended = schedule
+      .filter((p) => p.end_time <= now)
+      .sort((a, b) => b.end_time - a.end_time);
+    return ended.length > 0 ? ended[0] : null;
+  }
 }
 
 async function remove(id) {
-  const idx = programs.findIndex((p) => p.id === id);
-  if (idx === -1) return false;
-  programs.splice(idx, 1);
+  const program = await findById(id);
+  if (!program) return false;
+  programsById.delete(id);
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).delete();
   return true;

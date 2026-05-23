@@ -20,6 +20,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
   final _nameController = TextEditingController();
   final _descController = TextEditingController();
   final _categoryController = TextEditingController();
+  final _externalUrlController = TextEditingController();
   bool _saving = false;
   String? _error;
   ChannelModel? _channel;
@@ -28,6 +29,13 @@ class _EditChannelScreenState extends State<EditChannelScreen>
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
+
+  // External stream source state
+  String _streamSourceMode = 'native';
+  bool _validatingUrl = false;
+  String? _urlValidationMessage;
+  bool _urlValidationOk = false;
+  bool _rechecking = false;
 
   @override
   void initState() {
@@ -53,6 +61,8 @@ class _EditChannelScreenState extends State<EditChannelScreen>
         _nameController.text = args.name;
         _descController.text = args.description ?? '';
         _categoryController.text = args.category ?? '';
+        _streamSourceMode = args.streamSourceMode;
+        _externalUrlController.text = args.externalUrl ?? '';
         _animController.forward();
       }
     }
@@ -63,6 +73,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
     _nameController.dispose();
     _descController.dispose();
     _categoryController.dispose();
+    _externalUrlController.dispose();
     _animController.dispose();
     super.dispose();
   }
@@ -71,6 +82,13 @@ class _EditChannelScreenState extends State<EditChannelScreen>
     final name = _nameController.text.trim();
     if (name.isEmpty) {
       setState(() => _error = 'Channel name is required');
+      return;
+    }
+    if (_streamSourceMode != 'native' &&
+        _externalUrlController.text.trim().isEmpty) {
+      setState(
+        () => _error = 'A stream URL is required for the selected source mode',
+      );
       return;
     }
     setState(() {
@@ -88,6 +106,22 @@ class _EditChannelScreenState extends State<EditChannelScreen>
             ? _categoryController.text.trim()
             : null,
       );
+      // Persist external source settings whenever the mode or URL may have changed.
+      final urlChanged =
+          _externalUrlController.text.trim() != (_channel?.externalUrl ?? '');
+      final modeChanged =
+          _streamSourceMode != (_channel?.streamSourceMode ?? 'native');
+      if (modeChanged || urlChanged) {
+        final updated = await ChannelService.updateExternalSource(
+          _channel!.id,
+          streamSourceMode: _streamSourceMode,
+          externalUrl: _streamSourceMode != 'native'
+              ? _externalUrlController.text.trim()
+              : null,
+        );
+        if (!mounted) return;
+        setState(() => _channel = updated);
+      }
       if (!mounted) return;
       Navigator.pop(context, true);
     } catch (e) {
@@ -97,6 +131,78 @@ class _EditChannelScreenState extends State<EditChannelScreen>
         _saving = false;
       });
     }
+  }
+
+  Future<void> _validateUrl() async {
+    final url = _externalUrlController.text.trim();
+    if (url.isEmpty) return;
+    setState(() {
+      _validatingUrl = true;
+      _urlValidationMessage = null;
+      _urlValidationOk = false;
+    });
+    try {
+      final result = await ChannelService.resolveSource(url);
+      if (!mounted) return;
+      final mode = result['stream_source_mode'] as String? ?? '';
+      final status = result['stream_status'] as String? ?? 'unknown';
+      setState(() {
+        _validatingUrl = false;
+        _urlValidationOk = true;
+        _urlValidationMessage =
+            'Valid ${_sourceModeLabel(mode)} • Status: $status';
+        // Auto-select the detected mode
+        _streamSourceMode = mode;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _validatingUrl = false;
+        _urlValidationOk = false;
+        _urlValidationMessage = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  String _sourceModeLabel(String mode) {
+    switch (mode) {
+      case 'external_youtube':
+        return 'YouTube';
+      case 'external_hls':
+        return 'HLS Stream';
+      case 'external_dash':
+        return 'DASH Stream';
+      default:
+        return 'Native';
+    }
+  }
+
+  Future<void> _recheckSource() async {
+    if (_channel == null || !_channel!.hasExternalSource) return;
+    setState(() => _rechecking = true);
+    try {
+      final updated = await ChannelService.recheckStreamHealth(_channel!.id);
+      if (!mounted) return;
+      setState(() => _channel = updated);
+    } catch (e) {
+      if (!mounted) return;
+      // Non-fatal — surface as a transient validation message
+      setState(() {
+        _urlValidationOk = false;
+        _urlValidationMessage = e.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted) setState(() => _rechecking = false);
+    }
+  }
+
+  String _formatTimeAgo(String? isoString) {
+    if (isoString == null) return 'Never';
+    final diff = DateTime.now().difference(DateTime.parse(isoString));
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   Future<void> _pickAndUpload(String type) async {
@@ -258,6 +364,11 @@ class _EditChannelScreenState extends State<EditChannelScreen>
                             prefixIcon: Icons.category_rounded,
                           ),
                           const SizedBox(height: 24),
+
+                          // ── External stream source section ────────────────
+                          _buildSourceSection(),
+                          const SizedBox(height: 24),
+
                           if (_error != null)
                             Container(
                               width: double.infinity,
@@ -298,6 +409,331 @@ class _EditChannelScreenState extends State<EditChannelScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSourceSection() {
+    final modes = [
+      ('native', 'Native', Icons.videocam_rounded),
+      ('external_youtube', 'YouTube', Icons.smart_display_rounded),
+      ('external_hls', 'HLS', Icons.rss_feed_rounded),
+      ('external_dash', 'DASH', Icons.stream_rounded),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _streamSourceMode != 'native'
+              ? AppColors.orange.withValues(alpha: 0.35)
+              : AppColors.inputBorder,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.link_rounded,
+                  color: AppColors.orange,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'STREAM SOURCE',
+                style: TextStyle(
+                  color: AppColors.goldText,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const Spacer(),
+              if (_channel?.streamStatus != null &&
+                  _channel!.streamStatus != 'unknown')
+                _buildStatusBadge(_channel!.streamStatus),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Mode selector
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: modes
+                .map((m) => _buildModeChip(mode: m.$1, label: m.$2, icon: m.$3))
+                .toList(),
+          ),
+
+          // URL input — visible for all non-native modes
+          if (_streamSourceMode != 'native') ...[
+            const SizedBox(height: 14),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: AppTextField(
+                    controller: _externalUrlController,
+                    label: _streamSourceMode == 'external_youtube'
+                        ? 'YOUTUBE URL'
+                        : _streamSourceMode == 'external_hls'
+                        ? 'HLS MANIFEST URL (.m3u8)'
+                        : 'DASH MANIFEST URL (.mpd)',
+                    hint: _streamSourceMode == 'external_youtube'
+                        ? 'https://youtube.com/watch?v=...'
+                        : _streamSourceMode == 'external_hls'
+                        ? 'https://example.com/stream.m3u8'
+                        : 'https://example.com/stream.mpd',
+                    prefixIcon: Icons.link_rounded,
+                    onChanged: (_) {
+                      if (_urlValidationMessage != null) {
+                        setState(() {
+                          _urlValidationMessage = null;
+                          _urlValidationOk = false;
+                        });
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: _validatingUrl ? null : _validateUrl,
+                  child: Container(
+                    height: 52,
+                    width: 52,
+                    decoration: BoxDecoration(
+                      gradient: _validatingUrl
+                          ? AppColors.buttonDisabledGradient
+                          : AppColors.buttonGradient,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.orange.withValues(alpha: 0.25),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: _validatingUrl
+                        ? const Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  AppColors.white,
+                                ),
+                              ),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.check_circle_outline_rounded,
+                            color: AppColors.white,
+                            size: 22,
+                          ),
+                  ),
+                ),
+              ],
+            ),
+            if (_urlValidationMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      _urlValidationOk
+                          ? Icons.check_circle_rounded
+                          : Icons.error_outline_rounded,
+                      color: _urlValidationOk
+                          ? AppColors.successGreen
+                          : AppColors.errorRed,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _urlValidationMessage!,
+                        style: TextStyle(
+                          color: _urlValidationOk
+                              ? AppColors.successGreen
+                              : AppColors.errorRed,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (_channel?.lastCheckedAt != null ||
+                _channel?.hasExternalSource == true)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.access_time_rounded,
+                      color: AppColors.hintText,
+                      size: 12,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Last checked: ${_formatTimeAgo(_channel?.lastCheckedAt)}',
+                      style: TextStyle(color: AppColors.hintText, fontSize: 11),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: _rechecking ? null : _recheckSource,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.orange.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: AppColors.orange.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: _rechecking
+                            ? SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    AppColors.orange,
+                                  ),
+                                ),
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.refresh_rounded,
+                                    color: AppColors.orange,
+                                    size: 12,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Recheck',
+                                    style: TextStyle(
+                                      color: AppColors.orange,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeChip({
+    required String mode,
+    required String label,
+    required IconData icon,
+  }) {
+    final selected = _streamSourceMode == mode;
+    return GestureDetector(
+      onTap: () => setState(() {
+        _streamSourceMode = mode;
+        _urlValidationMessage = null;
+        _urlValidationOk = false;
+      }),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.orange.withValues(alpha: 0.15)
+              : AppColors.darkBlue.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected
+                ? AppColors.orange.withValues(alpha: 0.6)
+                : AppColors.inputBorder,
+            width: selected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: selected ? AppColors.orange : AppColors.hintText,
+              size: 14,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? AppColors.lightOrange : AppColors.hintText,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(String status) {
+    final config = switch (status) {
+      'live' => (AppColors.successGreen, Icons.circle, 'LIVE'),
+      'valid' => (AppColors.infoBlue, Icons.check_circle_rounded, 'VALID'),
+      'scheduled' => (
+        AppColors.lightOrange,
+        Icons.schedule_rounded,
+        'SCHEDULED',
+      ),
+      'offline' => (AppColors.errorRed, Icons.wifi_off_rounded, 'OFFLINE'),
+      'invalid' => (AppColors.errorRed, Icons.cancel_rounded, 'INVALID'),
+      'access_denied' => (AppColors.errorRed, Icons.lock_rounded, 'BLOCKED'),
+      _ => (AppColors.hintText, Icons.help_outline_rounded, 'UNKNOWN'),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: config.$1.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: config.$1.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(config.$2, color: config.$1, size: 10),
+          const SizedBox(width: 4),
+          Text(
+            config.$3,
+            style: TextStyle(
+              color: config.$1,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
       ),
     );
   }

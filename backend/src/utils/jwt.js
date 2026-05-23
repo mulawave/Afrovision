@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const SettingsService = require('../admin/settings.service');
+const User = require('../users/user.model');
 
 async function getJwtSecret() {
   const secret = await SettingsService.get('JWT_SECRET');
@@ -30,6 +31,11 @@ async function authenticateToken(req, res, next) {
   try {
     const payload = await verifyToken(token);
     req.userId = payload.userId;
+    req.user = await User.findById(payload.userId);
+    if (!req.user) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    req.userRole = req.user.role || null;
     next();
   } catch (error) {
     if (error.message === 'JWT_SECRET is required in Firebase settings for authentication') {
@@ -49,6 +55,8 @@ async function optionalAuth(req, res, next) {
   try {
     const payload = await verifyToken(token);
     req.userId = payload.userId;
+    req.user = await User.findById(payload.userId);
+    req.userRole = req.user?.role || null;
   } catch (_) {
     // Invalid token — proceed without auth
   }

@@ -213,7 +213,7 @@ async function approveWithdrawal(req, res) {
     }
 
     const { id } = req.params;
-    const withdrawal = WithdrawalModel.findById(id);
+    const withdrawal = await WithdrawalModel.findById(id);
     if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
     if (withdrawal.status !== 'pending') {
       return res.status(400).json({ error: `Withdrawal already ${withdrawal.status}` });
@@ -229,7 +229,7 @@ async function approveWithdrawal(req, res) {
     });
 
     // ── Send notifications to the requester ──────────────────────────
-    const requester = User.findById(withdrawal.uid);
+    const requester = await User.findById(withdrawal.uid);
     const payoutAmount = withdrawal.amount;
     const totalFees = withdrawal.total_fees || TOTAL_FEE_NGN;
     const vatAmount = withdrawal.vat_amount || VAT_ON_FEES_NGN;
@@ -279,7 +279,7 @@ async function rejectWithdrawal(req, res) {
     }
 
     const { id } = req.params;
-    const withdrawal = WithdrawalModel.findById(id);
+    const withdrawal = await WithdrawalModel.findById(id);
     if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
     if (withdrawal.status !== 'pending') {
       return res.status(400).json({ error: `Withdrawal already ${withdrawal.status}` });
@@ -357,7 +357,7 @@ async function rejectWithdrawal(req, res) {
     });
 
     // Sync in-memory cache so the refunded balance is visible immediately.
-    const rejectedUserCache = User.findById(withdrawal.uid);
+    const rejectedUserCache = User.findCachedById(withdrawal.uid);
     if (rejectedUserCache && refundedCash !== null) rejectedUserCache.cash = refundedCash;
 
     const updated = await WithdrawalModel.updateStatus(id, 'rejected', { handled_by: req.userId });
@@ -369,7 +369,7 @@ async function rejectWithdrawal(req, res) {
     });
 
     // ── Send notifications to the requester ──────────────────────────
-    const requester = User.findById(withdrawal.uid);
+    const requester = await User.findById(withdrawal.uid);
     const payoutAmount = withdrawal.amount;
     const totalFees = withdrawal.total_fees || TOTAL_FEE_NGN;
     const vatAmount = withdrawal.vat_amount || VAT_ON_FEES_NGN;
@@ -411,19 +411,38 @@ async function rejectWithdrawal(req, res) {
 
 // ─── My Withdrawals ──────────────────────────────────────
 
-function getMyWithdrawals(req, res) {
-  const withdrawals = WithdrawalModel.findByUid(req.userId);
+async function getMyWithdrawals(req, res) {
+  const withdrawals = await WithdrawalModel.findByUid(req.userId);
   res.json({ withdrawals });
 }
 
 // ─── All Withdrawals (Admin) ─────────────────────────────
 
-function getAllWithdrawals(req, res) {
+async function getAllWithdrawals(req, res) {
   const user = User.findById(req.userId);
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin only' });
   }
-  res.json({ withdrawals: WithdrawalModel.getAll().map((withdrawal) => serializeWithdrawalForAdmin(withdrawal)) });
+
+  const requestedLimit = parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100;
+  const cursorCreatedAt = req.query.cursor_created_at != null ? Number(req.query.cursor_created_at) : null;
+  const cursorId = String(req.query.cursor_id || '').trim() || null;
+  const status = String(req.query.status || '').trim() || null;
+
+  const page = await WithdrawalModel.listPage({
+    limit,
+    startAfterCreatedAt: Number.isFinite(cursorCreatedAt) ? cursorCreatedAt : null,
+    startAfterId: cursorId,
+    status,
+  });
+
+  res.json({
+    withdrawals: page.withdrawals.map((withdrawal) => serializeWithdrawalForAdmin(withdrawal)),
+    limit,
+    next_cursor: page.nextCursor,
+    has_more: Boolean(page.nextCursor),
+  });
 }
 
 // ─── Fund Wallet (Admin) ─────────────────────────────────
@@ -636,7 +655,7 @@ async function getSystemTotals(req, res) {
     const db = getFirestore();
     const [communityStats, operationsPool, chargesDoc, providerDoc, vatDoc] = await Promise.all([
       PoolService.getPoolStats(),
-      PoolService.getRecalculatedOperationsPool(),
+      PoolService.getOperationsPoolBalance(),
       db.doc(CHARGES_POOL_DOC).get(),
       db.doc(PROVIDER_FEES_DOC).get(),
       db.doc(VAT_POOL_DOC).get(),
@@ -666,7 +685,7 @@ async function getSystemTotals(req, res) {
     };
 
     const ledgerStats = LedgerModel.getStats();
-    const pendingWithdrawals = WithdrawalModel.getPending();
+    const pendingWithdrawals = await WithdrawalModel.getPending();
     const totalPendingAmount = pendingWithdrawals.reduce((sum, w) => sum + w.amount, 0);
 
     res.json({

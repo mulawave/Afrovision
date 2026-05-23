@@ -1,0 +1,476 @@
+{
+    "website":  [
+                    {
+                        "value":  "/",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/about",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/admin",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/advertiser",
+                    {
+                        "value":  "/aml",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/careers",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/challenge",
+                    "/challenge/audition",
+                    {
+                        "value":  "/challenge/rules",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/channel/[id]",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/channel-analytics",
+                    "/channels",
+                    {
+                        "value":  "/checkout/result",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/contact",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/cookies",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/copyright",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/create-channel",
+                    "/creator-studio",
+                    {
+                        "value":  "/download",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/forgot-password",
+                    "/kyc",
+                    {
+                        "value":  "/leaderboard",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/live",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/live/[id]",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/login",
+                    "/my-subscriptions",
+                    "/notifications",
+                    "/pak-login",
+                    {
+                        "value":  "/press",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/pricing",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/privacy",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/profile",
+                    {
+                        "value":  "/profile/delete-account",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/profile/edit",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/referrals",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/refund",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/register",
+                    {
+                        "value":  "/report-copyright",
+                        "SideIndicator":  "\u003c="
+                    },
+                    "/reset-password",
+                    "/terms",
+                    {
+                        "value":  "/updates",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/wallet",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/wallet/convert",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/wallet/transactions",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/wallet/withdrawal",
+                        "SideIndicator":  "\u003c="
+                    },
+                    {
+                        "value":  "/wallet/withdrawal/history",
+                        "SideIndicator":  "\u003c="
+                    }
+                ],
+    "mobile":  [
+                   {
+                       "value":  "/add-bank-account",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/admin-panel",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/advertiser",
+                   "/challenge",
+                   "/challenge/audition",
+                   {
+                       "value":  "/channel-access",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/channel-analytics",
+                   {
+                       "value":  "/channel-player",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/channels",
+                   {
+                       "value":  "/channel-view",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/checkout",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/create-channel",
+                   "/creator-studio",
+                   {
+                       "value":  "/creator-subscription",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/delete-account",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/digital-assets",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/edit-channel",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/edit-profile",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/forgot-password",
+                   {
+                       "value":  "/gift-wallet",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/home",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/kyc",
+                   "/login",
+                   "/my-subscriptions",
+                   "/notifications",
+                   "/pak-login",
+                   {
+                       "value":  "/plans",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/premium-stream",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/privacy-policy",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/profile",
+                   {
+                       "value":  "/referral",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/register",
+                   {
+                       "value":  "/reminders",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/reputation",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/reputation/leaderboard",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/reset-password",
+                   {
+                       "value":  "/schedule",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/splash",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   "/terms",
+                   {
+                       "value":  "/video-upload",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/withdrawal-history",
+                       "SideIndicator":  "=\u003e"
+                   },
+                   {
+                       "value":  "/withdrawals",
+                       "SideIndicator":  "=\u003e"
+                   }
+               ],
+    "websiteOnly":  [
+                        {
+                            "value":  "/",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/about",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/admin",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/aml",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/careers",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/challenge/rules",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/channel/[id]",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/checkout/result",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/contact",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/cookies",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/copyright",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/download",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/leaderboard",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/live",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/live/[id]",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/press",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/pricing",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/privacy",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/profile/delete-account",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/profile/edit",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/referrals",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/refund",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/report-copyright",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/updates",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/wallet",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/wallet/convert",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/wallet/transactions",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/wallet/withdrawal",
+                            "SideIndicator":  "\u003c="
+                        },
+                        {
+                            "value":  "/wallet/withdrawal/history",
+                            "SideIndicator":  "\u003c="
+                        }
+                    ],
+    "mobileOnly":  [
+                       {
+                           "value":  "/add-bank-account",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/admin-panel",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/channel-access",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/channel-player",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/channel-view",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/checkout",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/creator-subscription",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/delete-account",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/digital-assets",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/edit-channel",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/edit-profile",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/gift-wallet",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/home",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/plans",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/premium-stream",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/privacy-policy",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/referral",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/reminders",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/reputation",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/reputation/leaderboard",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/schedule",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/splash",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/video-upload",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/withdrawal-history",
+                           "SideIndicator":  "=\u003e"
+                       },
+                       {
+                           "value":  "/withdrawals",
+                           "SideIndicator":  "=\u003e"
+                       }
+                   ]
+}

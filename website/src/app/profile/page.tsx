@@ -18,18 +18,15 @@ function formatDate(value: string | null) {
 }
 
 export default function ProfilePage() {
-  const { isAuthenticated, user: authUser, logout, refreshUser } = useAuth();
+  const { isAuthenticated, logout, refreshUser } = useAuth();
   const [profile, setProfile] = useState<StoredUser | null>(null);
   const [reputation, setReputation] = useState<Reputation | null>(null);
-  const [repLoading, setRepLoading] = useState(false);
+  const [repLoading, setRepLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      setLoading(false);
-      return;
-    }
+    if (!isAuthenticated) return;
 
     let cancelled = false;
     // Refresh auth context user AND fetch fresh profile + reputation
@@ -43,7 +40,6 @@ export default function ProfilePage() {
       }
       setLoading(false);
     });
-    setRepLoading(true);
     getMyReputationApi().then((res) => {
       if (cancelled) return;
       if (res.ok && "reputation" in res.data) {
@@ -109,7 +105,6 @@ export default function ProfilePage() {
                     <div className="flex items-center gap-3 flex-wrap">
                       <h2 className="text-xl font-semibold text-av-white">{profile.name || "Unnamed member"}</h2>
                       <PremiumBadge user={profile} size="md" />
-                      <ReputationBadge reputation={reputation} size="md" loading={repLoading} />
                     </div>
                     <p className="text-sm text-av-light-orange">{profile.email}</p>
                     <Link href="/profile/edit" className="mt-2 inline-block text-xs font-semibold text-av-orange hover:text-av-light-orange">

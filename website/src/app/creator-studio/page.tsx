@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   deleteProgramApi,
+  deleteChannelApi,
   deleteVideoApi,
   getChannelScheduleApi,
   getMyChannelsApi,
@@ -13,11 +15,17 @@ import {
   registerUploadedVideoApi,
   scheduleProgramApi,
   scheduleSequentialApi,
+  resolveSourceApi,
+  uploadChannelMediaApi,
+  updateChannelApi,
+  updateExternalSourceApi,
+  recheckStreamHealthApi,
   type Channel,
   type ChannelVideo,
   type ScheduleProgram,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import { resolveWebsiteMediaUrl } from "@/lib/media";
 
 /* ── helpers ─────────────────────────────────────────── */
 
@@ -50,6 +58,19 @@ function titleFromFilename(name: string) {
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+function formatTimeAgo(value: string | number | null | undefined): string {
+  if (!value) return "never";
+  const diff = Date.now() - new Date(value).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+const ITEMS_PER_PAGE = 6;
 
 /**
  * Read video duration from a File using a hidden <video> element.
@@ -97,6 +118,14 @@ export default function CreatorStudioPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
+  const [editChannelName, setEditChannelName] = useState("");
+  const [editChannelDescription, setEditChannelDescription] = useState("");
+  const [editChannelCategory, setEditChannelCategory] = useState("");
+  const [editChannelLogoFile, setEditChannelLogoFile] = useState<File | null>(null);
+  const [editChannelBannerFile, setEditChannelBannerFile] = useState<File | null>(null);
+  const [savingChannelEdit, setSavingChannelEdit] = useState(false);
+  const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
 
   // ── Multi-upload state
   const [uploadEntries, setUploadEntries] = useState<UploadEntry[]>([]);
@@ -124,6 +153,23 @@ export default function CreatorStudioPage() {
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
   const [selectedProgramIds, setSelectedProgramIds] = useState<Set<string>>(new Set());
   const [deletingBulk, setDeletingBulk] = useState(false);
+  const [channelsPage, setChannelsPage] = useState(1);
+  const [schedulePage, setSchedulePage] = useState(1);
+
+  // ── External stream source state (AV-STR-003)
+  const [extSourceMode, setExtSourceMode] = useState<string>("external_url");
+  const [extSourceUrl, setExtSourceUrl] = useState("");
+  const [extValidating, setExtValidating] = useState(false);
+  const [extUrlValidation, setExtUrlValidation] = useState<{ ok: boolean; message: string } | null>(null);
+  const [extSaving, setExtSaving] = useState(false);
+  const [extRechecking, setExtRechecking] = useState(false);
+
+  const handleSelectChannel = useCallback((channelId: string) => {
+    setSelectedChannelId(channelId);
+    setSelectedVideoIds(new Set());
+    setSelectedProgramIds(new Set());
+    setSchedulePage(1);
+  }, []);
 
   const loadStudio = useCallback(async () => {
     setLoading(true);
@@ -137,7 +183,7 @@ export default function CreatorStudioPage() {
       setChannels(channelsRes.data.channels);
       const nextChannelId =
         selectedChannelId || channelsRes.data.channels[0]?.id || "";
-      setSelectedChannelId(nextChannelId);
+      handleSelectChannel(nextChannelId);
     } else {
       setError("Failed to load your channels.");
     }
@@ -147,7 +193,7 @@ export default function CreatorStudioPage() {
     }
 
     setLoading(false);
-  }, [selectedChannelId]);
+  }, [handleSelectChannel, selectedChannelId]);
 
   const loadSchedule = useCallback(async (channelId: string) => {
     if (!channelId) {
@@ -170,18 +216,42 @@ export default function CreatorStudioPage() {
 
   useEffect(() => {
     if (!selectedChannelId) return;
-    setSelectedVideoIds(new Set());
-    setSelectedProgramIds(new Set());
     const timeoutId = window.setTimeout(() => {
       void loadSchedule(selectedChannelId);
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [selectedChannelId, loadSchedule]);
 
+  // Sync stream source fields when selected channel changes
+  useEffect(() => {
+    const ch = channels.find((c) => c.id === selectedChannelId);
+    if (!ch) return;
+    const timeoutId = window.setTimeout(() => {
+      setExtSourceMode(ch.stream_source_mode ?? "external_url");
+      setExtSourceUrl(ch.external_url ?? "");
+      setExtUrlValidation(null);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [selectedChannelId, channels]);
+
   const selectedChannelVideos = useMemo(
     () => videos.filter((video) => video.channel_id === selectedChannelId),
     [videos, selectedChannelId],
   );
+
+  const channelsPageCount = Math.max(1, Math.ceil(channels.length / ITEMS_PER_PAGE));
+  const clampedChannelsPage = Math.min(channelsPage, channelsPageCount);
+  const pagedChannels = useMemo(() => {
+    const start = (clampedChannelsPage - 1) * ITEMS_PER_PAGE;
+    return channels.slice(start, start + ITEMS_PER_PAGE);
+  }, [channels, clampedChannelsPage]);
+
+  const schedulePageCount = Math.max(1, Math.ceil(schedule.length / ITEMS_PER_PAGE));
+  const clampedSchedulePage = Math.min(schedulePage, schedulePageCount);
+  const pagedSchedule = useMemo(() => {
+    const start = (clampedSchedulePage - 1) * ITEMS_PER_PAGE;
+    return schedule.slice(start, start + ITEMS_PER_PAGE);
+  }, [schedule, clampedSchedulePage]);
 
   const totalHours = useMemo(
     () => videos.reduce((sum, video) => sum + video.duration, 0) / 3600,
@@ -590,6 +660,160 @@ export default function CreatorStudioPage() {
     0,
   );
 
+  // ── Populate stream source fields when selectedChannelId changes ──
+  const selectedChannel = channels.find((c) => c.id === selectedChannelId);
+  const isContinuousUrlChannel = selectedChannel?.stream_source_mode === "external_url";
+
+  /* ── External source handlers ──────────────────────── */
+
+  async function handleExtValidateUrl() {
+    const url = extSourceUrl.trim();
+    if (!url) return;
+    if (extSourceMode === "external_url") {
+      setExtUrlValidation({ ok: true, message: "URL accepted. Validation is not required for External URL mode." });
+      return;
+    }
+    setExtValidating(true);
+    setExtUrlValidation(null);
+    const res = await resolveSourceApi(url);
+    setExtValidating(false);
+    if (res.ok && "stream_source_mode" in res.data) {
+      setExtSourceMode(res.data.stream_source_mode);
+      setExtUrlValidation({ ok: true, message: `Valid · ${res.data.stream_source_mode.replace("external_", "").toUpperCase()} · Status: ${res.data.stream_status}` });
+    } else {
+      const msg = "error" in res.data ? res.data.error : "URL could not be resolved.";
+      setExtUrlValidation({ ok: false, message: msg });
+    }
+  }
+
+  async function handleExtSave() {
+    if (!selectedChannelId) return;
+    setExtSaving(true);
+    setError(null);
+    const res = await updateExternalSourceApi(selectedChannelId, {
+      stream_source_mode: extSourceMode,
+      external_url: extSourceUrl.trim(),
+    });
+    setExtSaving(false);
+    if (res.ok && "channel" in res.data) {
+      const updatedChannel = res.data.channel;
+      setChannels((prev) => prev.map((c) => c.id === selectedChannelId ? updatedChannel : c));
+      setExtUrlValidation({ ok: true, message: "Stream source saved successfully." });
+    } else {
+      setError("error" in res.data ? res.data.error : "Failed to save stream source.");
+    }
+  }
+
+  async function handleExtRecheck() {
+    if (!selectedChannelId) return;
+    setExtRechecking(true);
+    const res = await recheckStreamHealthApi(selectedChannelId);
+    setExtRechecking(false);
+    if (res.ok && "channel" in res.data) {
+      const updatedChannel = res.data.channel;
+      setChannels((prev) => prev.map((c) => c.id === selectedChannelId ? updatedChannel : c));
+      const status = updatedChannel.stream_status ?? "unknown";
+      setExtUrlValidation({ ok: true, message: `Stream health checked · Status: ${status}` });
+    } else {
+      setExtUrlValidation({ ok: false, message: "Health check failed. Try again." });
+    }
+  }
+
+  function startChannelEdit(channel: Channel) {
+    setEditingChannelId(channel.id);
+    setEditChannelName(channel.name ?? "");
+    setEditChannelDescription(channel.description ?? "");
+    setEditChannelCategory(channel.category ?? "");
+    setEditChannelLogoFile(null);
+    setEditChannelBannerFile(null);
+  }
+
+  function cancelChannelEdit() {
+    setEditingChannelId(null);
+    setEditChannelName("");
+    setEditChannelDescription("");
+    setEditChannelCategory("");
+    setEditChannelLogoFile(null);
+    setEditChannelBannerFile(null);
+  }
+
+  async function saveChannelEdit(channelId: string) {
+    const name = editChannelName.trim();
+    const description = editChannelDescription.trim();
+    const category = editChannelCategory.trim();
+
+    if (!name || !description || !category) {
+      setError("Channel name, description, and category are required.");
+      return;
+    }
+
+    setSavingChannelEdit(true);
+    setError(null);
+    const res = await updateChannelApi(channelId, { name, description, category });
+
+    if (!res.ok || !("channel" in res.data)) {
+      setSavingChannelEdit(false);
+      setError("error" in res.data ? res.data.error : "Failed to update channel details.");
+      return;
+    }
+
+    let latestChannel = (res.data as { channel: Channel }).channel;
+
+    if (editChannelLogoFile) {
+      const logoRes = await uploadChannelMediaApi(channelId, "logo", editChannelLogoFile);
+      if (!logoRes.ok || !('channel' in logoRes.data)) {
+        setSavingChannelEdit(false);
+        setError("error" in logoRes.data ? logoRes.data.error : "Saved text but failed to upload logo.");
+        return;
+      }
+      latestChannel = logoRes.data.channel;
+    }
+
+    if (editChannelBannerFile) {
+      const bannerRes = await uploadChannelMediaApi(channelId, "banner", editChannelBannerFile);
+      if (!bannerRes.ok || !('channel' in bannerRes.data)) {
+        setSavingChannelEdit(false);
+        setError("error" in bannerRes.data ? bannerRes.data.error : "Saved channel but failed to upload cover image.");
+        return;
+      }
+      latestChannel = bannerRes.data.channel;
+    }
+
+    setSavingChannelEdit(false);
+    setChannels((prev) => prev.map((c) => (c.id === channelId ? latestChannel : c)));
+    cancelChannelEdit();
+  }
+
+  async function handleDeleteChannel(channelId: string, channelName: string) {
+    const confirmed = window.confirm(
+      `Delete channel "${channelName}"? This will disable the channel and hide it from discovery.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingChannelId(channelId);
+    setError(null);
+    const res = await deleteChannelApi(channelId);
+    setDeletingChannelId(null);
+
+    if (!res.ok) {
+      setError("error" in res.data ? res.data.error : "Failed to delete channel.");
+      return;
+    }
+
+    const remaining = channels.filter((c) => c.id !== channelId);
+    setChannels(remaining);
+
+    if (selectedChannelId === channelId) {
+      const nextChannelId = remaining[0]?.id ?? "";
+      handleSelectChannel(nextChannelId);
+      if (nextChannelId) {
+        await loadSchedule(nextChannelId);
+      } else {
+        setSchedule([]);
+      }
+    }
+  }
+
   /* ── guards ────────────────────────────────────────── */
 
   if (!isAuthenticated) {
@@ -733,7 +957,7 @@ export default function CreatorStudioPage() {
                       <select
                         value={selectedChannelId}
                         onChange={(event) =>
-                          setSelectedChannelId(event.target.value)
+                          handleSelectChannel(event.target.value)
                         }
                         className="h-10 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
                       >
@@ -745,7 +969,7 @@ export default function CreatorStudioPage() {
                       </select>
                     </div>
                     <div className="mt-4 space-y-3">
-                      {channels.map((channel) => (
+                      {pagedChannels.map((channel) => (
                         <div
                           key={channel.id}
                           className={`rounded-2xl border p-4 ${channel.id === selectedChannelId ? "border-av-orange/40 bg-av-input-fill/60" : "border-av-input-border/20 bg-av-input-fill/20"}`}
@@ -761,6 +985,21 @@ export default function CreatorStudioPage() {
                               </p>
                             </div>
                             <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startChannelEdit(channel)}
+                                className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteChannel(channel.id, channel.name)}
+                                disabled={deletingChannelId === channel.id}
+                                className="rounded-full border border-red-500/35 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+                              >
+                                {deletingChannelId === channel.id ? "Deleting…" : "Delete"}
+                              </button>
                               <Link
                                 href={`/channel/${channel.id}`}
                                 className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange"
@@ -781,10 +1020,219 @@ export default function CreatorStudioPage() {
                               </Link>
                             </div>
                           </div>
+
+                          {editingChannelId === channel.id && (
+                            <div className="mt-4 space-y-3 rounded-xl border border-av-input-border/20 bg-av-input-fill/20 p-3">
+                              <input
+                                value={editChannelName}
+                                onChange={(e) => setEditChannelName(e.target.value)}
+                                maxLength={100}
+                                placeholder="Channel name"
+                                className="h-10 w-full rounded-lg border border-av-input-border/30 bg-av-input-fill px-3 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
+                              />
+                              <textarea
+                                value={editChannelDescription}
+                                onChange={(e) => setEditChannelDescription(e.target.value)}
+                                rows={3}
+                                maxLength={2000}
+                                placeholder="Description"
+                                className="w-full rounded-lg border border-av-input-border/30 bg-av-input-fill px-3 py-2 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
+                              />
+                              <input
+                                value={editChannelCategory}
+                                onChange={(e) => setEditChannelCategory(e.target.value)}
+                                placeholder="Category"
+                                className="h-10 w-full rounded-lg border border-av-input-border/30 bg-av-input-fill px-3 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
+                              />
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <label className="rounded-lg border border-av-input-border/30 bg-av-input-fill/20 p-3 text-xs text-av-light-orange">
+                                  <p className="mb-2 font-semibold text-av-white">Channel logo</p>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => setEditChannelLogoFile(e.target.files?.[0] ?? null)}
+                                    className="w-full text-[11px]"
+                                  />
+                                  {channel.logo_url ? (
+                                    <Image
+                                      src={resolveWebsiteMediaUrl(channel.logo_url)}
+                                      alt={`${channel.name} logo`}
+                                      width={56}
+                                      height={56}
+                                      unoptimized
+                                      className="mt-2 h-14 w-14 rounded-md border border-av-input-border/30 object-cover"
+                                    />
+                                  ) : null}
+                                  {editChannelLogoFile ? <p className="mt-1 text-[10px] text-cyan-300">New file: {editChannelLogoFile.name}</p> : null}
+                                </label>
+
+                                <label className="rounded-lg border border-av-input-border/30 bg-av-input-fill/20 p-3 text-xs text-av-light-orange">
+                                  <p className="mb-2 font-semibold text-av-white">Cover image</p>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => setEditChannelBannerFile(e.target.files?.[0] ?? null)}
+                                    className="w-full text-[11px]"
+                                  />
+                                  {channel.banner_url ? (
+                                    <Image
+                                      src={resolveWebsiteMediaUrl(channel.banner_url)}
+                                      alt={`${channel.name} cover`}
+                                      width={320}
+                                      height={56}
+                                      unoptimized
+                                      className="mt-2 h-14 w-full rounded-md border border-av-input-border/30 object-cover"
+                                    />
+                                  ) : null}
+                                  {editChannelBannerFile ? <p className="mt-1 text-[10px] text-cyan-300">New file: {editChannelBannerFile.name}</p> : null}
+                                </label>
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={cancelChannelEdit}
+                                  className="rounded-lg border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => saveChannelEdit(channel.id)}
+                                  disabled={savingChannelEdit}
+                                  className="rounded-lg bg-gradient-to-r from-av-orange to-av-light-orange px-3 py-1.5 text-xs font-semibold text-av-dark-blue disabled:opacity-60"
+                                >
+                                  {savingChannelEdit ? "Saving..." : "Save changes"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
+
+                      {channels.length > ITEMS_PER_PAGE && (
+                        <div className="flex items-center justify-between rounded-2xl border border-av-input-border/20 bg-av-input-fill/20 px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => setChannelsPage((prev) => Math.max(1, prev - 1))}
+                            disabled={clampedChannelsPage === 1}
+                            className="rounded-lg border border-av-input-border/30 px-3 py-1 text-xs font-semibold text-av-light-orange transition-colors hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Previous
+                          </button>
+                          <p className="text-xs text-av-light-orange">
+                            Page {clampedChannelsPage} of {channelsPageCount}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setChannelsPage((prev) => Math.min(channelsPageCount, prev + 1))
+                            }
+                            disabled={clampedChannelsPage === channelsPageCount}
+                            className="rounded-lg border border-av-input-border/30 px-3 py-1 text-xs font-semibold text-av-light-orange transition-colors hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {/* ── Stream source editor (AV-STR-003) ── */}
+                  {selectedChannelId && (
+                    <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+                      <h2 className="mb-4 text-lg font-semibold text-av-white">Stream Source</h2>
+
+                      {/* Current status badge */}
+                      {selectedChannel?.stream_source_mode && selectedChannel.stream_source_mode !== "native" && (
+                        <div className={`mb-4 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${
+                          selectedChannel.stream_status === "live" ? "border-green-500/40 bg-green-500/10 text-green-400"
+                          : selectedChannel.stream_status === "offline" || selectedChannel.stream_status === "invalid" ? "border-red-500/40 bg-red-500/10 text-red-400"
+                          : "border-av-orange/30 bg-av-orange/10 text-av-orange"
+                        }`}>
+                          <span className="uppercase tracking-wide">{selectedChannel.stream_status ?? "UNKNOWN"}</span>
+                          <span className="text-av-light-orange">·</span>
+                          <span className="text-av-light-orange">{selectedChannel.stream_source_mode.replace("external_", "").toUpperCase()}</span>
+                          {selectedChannel.last_checked_at && (
+                            <><span className="text-av-light-orange">·</span><span className="text-av-light-orange opacity-60">checked {formatTimeAgo(selectedChannel.last_checked_at)}</span></>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Source mode selector */}
+                      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {(["external_url", "external_youtube", "external_hls", "external_dash"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => { setExtSourceMode(mode); setExtUrlValidation(null); }}
+                            className={`rounded-xl border px-3 py-2 text-left text-xs transition-all ${
+                              extSourceMode === mode
+                                ? "border-av-orange/60 bg-av-orange/10 text-av-white font-bold"
+                                : "border-av-input-border/30 text-av-light-orange hover:border-av-orange/30"
+                            }`}
+                          >
+                            {mode === "external_url" ? "External URL" : mode === "external_youtube" ? "YouTube Live" : mode === "external_hls" ? "HLS Stream" : "DASH Stream"}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* URL input */}
+                      <div className="mb-4">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-av-light-orange">
+                          {extSourceMode === "external_url" ? "External URL" : extSourceMode === "external_youtube" ? "YouTube URL" : extSourceMode === "external_hls" ? "HLS Manifest URL (.m3u8)" : "DASH Manifest URL (.mpd)"}
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            value={extSourceUrl}
+                            onChange={(e) => { setExtSourceUrl(e.target.value); setExtUrlValidation(null); }}
+                            placeholder={extSourceMode === "external_url" ? "https://example.com/live/channel-link" : extSourceMode === "external_youtube" ? "https://www.youtube.com/watch?v=..." : "https://example.com/stream.m3u8"}
+                            className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
+                          />
+                          {extSourceMode !== "external_url" && (
+                            <button
+                              type="button"
+                              onClick={handleExtValidateUrl}
+                              disabled={extValidating || !extSourceUrl.trim()}
+                              className="h-10 rounded-xl border border-av-orange/30 bg-av-orange/10 px-3 text-xs font-bold text-av-orange hover:bg-av-orange/20 disabled:opacity-40"
+                            >
+                              {extValidating ? "…" : "Validate"}
+                            </button>
+                          )}
+                        </div>
+                        {extUrlValidation && (
+                          <p className={`mt-1.5 text-xs ${extUrlValidation.ok ? "text-green-400" : "text-red-400"}`}>
+                            {extUrlValidation.ok ? "✓" : "✗"} {extUrlValidation.message}
+                          </p>
+                        )}
+                        <p className="mt-1.5 text-[10px] text-av-light-orange/60">
+                          {extSourceMode === "external_url"
+                            ? "External URL mode accepts simple links directly with no strict validation."
+                            : "Use Validate to classify and check source health before saving."}
+                        </p>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleExtSave}
+                          disabled={extSaving}
+                          className="flex-1 rounded-xl bg-gradient-to-r from-av-orange to-av-light-orange py-2.5 text-sm font-semibold text-av-dark-blue disabled:opacity-50"
+                        >
+                          {extSaving ? "Saving…" : "Save stream source"}
+                        </button>
+                        {selectedChannel?.stream_source_mode && selectedChannel.stream_source_mode !== "native" && (
+                          <button
+                            type="button"
+                            onClick={handleExtRecheck}
+                            disabled={extRechecking}
+                            className="rounded-xl border border-av-input-border/30 px-4 py-2.5 text-xs font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white disabled:opacity-40"
+                          >
+                            {extRechecking ? "Checking…" : "Recheck"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* ── Multi-upload form ── */}
                   <div className="flex-1 rounded-3xl border border-av-input-border/30 bg-av-card p-6">
@@ -801,44 +1249,57 @@ export default function CreatorStudioPage() {
                       )}
                     </div>
 
+                    {isContinuousUrlChannel && (
+                      <div className="mb-4 rounded-2xl border border-av-orange/25 bg-av-orange/8 p-4">
+                        <p className="text-sm font-semibold text-av-white">Continuous External URL mode is active</p>
+                        <p className="mt-1 text-xs text-av-light-orange">
+                          Uploads and storage-backed scheduling are disabled for this channel. The stream runs directly from your external URL.
+                        </p>
+                      </div>
+                    )}
+
                     {/* File picker */}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="video/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => handleFilesSelected(e.target.files)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingAll}
-                      className="w-full rounded-2xl border-2 border-dashed border-av-input-border/40 bg-av-input-fill/20 py-8 text-center transition-all hover:border-av-orange/40 hover:bg-av-input-fill/30 disabled:opacity-50"
-                    >
-                      <svg
-                        className="mx-auto mb-2 h-8 w-8 text-av-light-orange"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={1.5}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 3 3 0 013.467 3.856A4.498 4.498 0 0118 19.5H6.75z"
+                    {!isContinuousUrlChannel && (
+                      <>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="video/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => handleFilesSelected(e.target.files)}
                         />
-                      </svg>
-                      <p className="text-sm font-semibold text-av-white">
-                        Select video files
-                      </p>
-                      <p className="mt-1 text-xs text-av-light-orange">
-                        Choose multiple files at once · Duration auto-detected
-                      </p>
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingAll}
+                          className="w-full rounded-2xl border-2 border-dashed border-av-input-border/40 bg-av-input-fill/20 py-8 text-center transition-all hover:border-av-orange/40 hover:bg-av-input-fill/30 disabled:opacity-50"
+                        >
+                          <svg
+                            className="mx-auto mb-2 h-8 w-8 text-av-light-orange"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 3 3 0 013.467 3.856A4.498 4.498 0 0118 19.5H6.75z"
+                            />
+                          </svg>
+                          <p className="text-sm font-semibold text-av-white">
+                            Select video files
+                          </p>
+                          <p className="mt-1 text-xs text-av-light-orange">
+                            Choose multiple files at once · Duration auto-detected
+                          </p>
+                        </button>
+                      </>
+                    )}
 
                     {/* File list — drag to reorder */}
-                    {uploadEntries.length > 0 && (
+                    {!isContinuousUrlChannel && uploadEntries.length > 0 && (
                       <div className="mt-4 max-h-[340px] space-y-2 overflow-y-auto pr-1">
                         {uploadEntries.map((entry, index) => (
                           <div
@@ -1088,58 +1549,68 @@ export default function CreatorStudioPage() {
                             Broadcast Schedule
                           </h2>
                           <p className="text-xs text-av-light-orange">
-                            {schedule.length} scheduled slot{schedule.length !== 1 ? "s" : ""}
+                            {isContinuousUrlChannel
+                              ? "Continuous URL mode does not use schedule"
+                              : `${schedule.length} scheduled slot${schedule.length !== 1 ? "s" : ""}`}
                           </p>
                         </div>
                       </div>
                     </div>
 
                     {/* Quick Schedule Form */}
-                    <form
-                      onSubmit={handleSchedule}
-                      className="border-b border-av-input-border/10 px-6 py-4"
-                    >
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-av-light-orange">
-                        Add to schedule
-                      </p>
-                      <div className="space-y-2">
-                        <select
-                          value={scheduleVideoId}
-                          onChange={(event) =>
-                            setScheduleVideoId(event.target.value)
-                          }
-                          className="h-10 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
-                        >
-                          <option value="">Select video</option>
-                          {selectedChannelVideos.map((video) => (
-                            <option key={video.id} value={video.id}>
-                              {video.title} ({formatDuration(video.duration)})
-                            </option>
-                          ))}
-                        </select>
-                        <div className="flex gap-2">
-                          <input
-                            type="datetime-local"
-                            value={scheduleStart}
-                            min={toDateTimeLocal(new Date().toISOString())}
-                            onChange={(event) =>
-                              setScheduleStart(event.target.value)
-                            }
-                            className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
-                          />
-                          <button
-                            type="submit"
-                            disabled={busy || selectedChannelVideos.length === 0}
-                            className="h-10 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
-                          >
-                            {busy ? "..." : "Add"}
-                          </button>
-                        </div>
+                    {isContinuousUrlChannel ? (
+                      <div className="border-b border-av-input-border/10 px-6 py-4">
+                        <p className="text-xs text-av-light-orange">
+                          This channel streams continuously from an external URL. Video program scheduling is disabled.
+                        </p>
                       </div>
-                    </form>
+                    ) : (
+                      <form
+                        onSubmit={handleSchedule}
+                        className="border-b border-av-input-border/10 px-6 py-4"
+                      >
+                        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-av-light-orange">
+                          Add to schedule
+                        </p>
+                        <div className="space-y-2">
+                          <select
+                            value={scheduleVideoId}
+                            onChange={(event) =>
+                              setScheduleVideoId(event.target.value)
+                            }
+                            className="h-10 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                          >
+                            <option value="">Select video</option>
+                            {selectedChannelVideos.map((video) => (
+                              <option key={video.id} value={video.id}>
+                                {video.title} ({formatDuration(video.duration)})
+                              </option>
+                            ))}
+                          </select>
+                          <div className="flex gap-2">
+                            <input
+                              type="datetime-local"
+                              value={scheduleStart}
+                              min={toDateTimeLocal(new Date().toISOString())}
+                              onChange={(event) =>
+                                setScheduleStart(event.target.value)
+                              }
+                              className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                            />
+                            <button
+                              type="submit"
+                              disabled={busy || selectedChannelVideos.length === 0}
+                              className="h-10 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
+                            >
+                              {busy ? "..." : "Add"}
+                            </button>
+                          </div>
+                        </div>
+                      </form>
+                    )}
 
                     {/* Management Toolbar */}
-                    {schedule.length > 0 && (
+                    {!isContinuousUrlChannel && schedule.length > 0 && (
                       <div className="flex flex-wrap items-center gap-2 border-b border-av-input-border/10 px-6 py-3">
                         <label className="flex cursor-pointer items-center gap-2 text-xs text-av-light-orange transition-colors hover:text-av-white">
                           <input
@@ -1177,13 +1648,17 @@ export default function CreatorStudioPage() {
 
                     {/* Schedule list */}
                     <div className="flex-1 px-6 py-4">
-                      {schedule.length === 0 ? (
+                      {isContinuousUrlChannel ? (
+                        <p className="py-6 text-center text-sm text-av-light-orange">
+                          Continuous External URL channels do not have broadcast slots.
+                        </p>
+                      ) : schedule.length === 0 ? (
                         <p className="py-6 text-center text-sm text-av-light-orange">
                           No programs scheduled for this channel yet.
                         </p>
                       ) : (
                         <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                          {schedule.map((item, idx) => (
+                          {pagedSchedule.map((item, idx) => (
                             <div
                               key={item.id}
                               className={`group rounded-2xl border p-4 transition-all ${
@@ -1202,7 +1677,7 @@ export default function CreatorStudioPage() {
                                   className="h-4 w-4 flex-shrink-0 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
                                 />
                                 <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-av-light-orange/20 text-[10px] font-bold text-av-light-orange">
-                                  {idx + 1}
+                                  {(clampedSchedulePage - 1) * ITEMS_PER_PAGE + idx + 1}
                                 </span>
                                 <div className="min-w-0 flex-1">
                                   <p className="truncate text-sm font-semibold text-av-white">
@@ -1223,6 +1698,32 @@ export default function CreatorStudioPage() {
                               </div>
                             </div>
                           ))}
+
+                          {schedule.length > ITEMS_PER_PAGE && (
+                            <div className="mt-3 flex items-center justify-between rounded-2xl border border-av-input-border/20 bg-av-input-fill/20 px-3 py-2">
+                              <button
+                                type="button"
+                                onClick={() => setSchedulePage((prev) => Math.max(1, prev - 1))}
+                                disabled={clampedSchedulePage === 1}
+                                className="rounded-lg border border-av-input-border/30 px-3 py-1 text-xs font-semibold text-av-light-orange transition-colors hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                Previous
+                              </button>
+                              <p className="text-xs text-av-light-orange">
+                                Page {clampedSchedulePage} of {schedulePageCount}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSchedulePage((prev) => Math.min(schedulePageCount, prev + 1))
+                                }
+                                disabled={clampedSchedulePage === schedulePageCount}
+                                className="rounded-lg border border-av-input-border/30 px-3 py-1 text-xs font-semibold text-av-light-orange transition-colors hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                Next
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

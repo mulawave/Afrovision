@@ -4,6 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/api/api_service.dart';
 import '../models/channel_model.dart';
 
+final Map<String, Map<String, dynamic>> _analyticsCache = {};
+
 class ChannelAnalyticsScreen extends StatefulWidget {
   const ChannelAnalyticsScreen({super.key});
 
@@ -37,16 +39,21 @@ class _ChannelAnalyticsScreenState extends State<ChannelAnalyticsScreen>
       duration: const Duration(milliseconds: 600),
     );
     _fade = CurvedAnimation(parent: _anim, curve: Curves.easeOut);
-  }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final arg = ModalRoute.of(context)?.settings.arguments;
-    if (_channel == null && arg is ChannelModel) {
-      _channel = arg;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _channel != null) return;
+      final arg = ModalRoute.of(context)?.settings.arguments;
+      if (arg is! ChannelModel) {
+        setState(() {
+          _error = 'Channel not found';
+          _loading = false;
+        });
+        return;
+      }
+
+      setState(() => _channel = arg);
       _loadAnalytics();
-    }
+    });
   }
 
   @override
@@ -55,8 +62,21 @@ class _ChannelAnalyticsScreenState extends State<ChannelAnalyticsScreen>
     super.dispose();
   }
 
-  Future<void> _loadAnalytics() async {
+  String get _cacheKey => '${_channel!.id}_$_period';
+
+  Future<void> _loadAnalytics({bool forceRefresh = false}) async {
     if (_channel == null) return;
+
+    if (!forceRefresh && _analyticsCache.containsKey(_cacheKey)) {
+      setState(() {
+        _data = _analyticsCache[_cacheKey];
+        _loading = false;
+        _error = null;
+      });
+      _anim.forward(from: 0);
+      return;
+    }
+
     setState(() {
       _loading = true;
       _error = null;
@@ -67,6 +87,7 @@ class _ChannelAnalyticsScreenState extends State<ChannelAnalyticsScreen>
         '/analytics/creator/channel?channel_id=${_channel!.id}&period=$_period',
       );
       if (mounted) {
+        _analyticsCache[_cacheKey] = result;
         setState(() {
           _data = result;
           _loading = false;
@@ -160,7 +181,7 @@ class _ChannelAnalyticsScreenState extends State<ChannelAnalyticsScreen>
             ),
           ),
           GestureDetector(
-            onTap: _loadAnalytics,
+            onTap: () => _loadAnalytics(forceRefresh: true),
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(

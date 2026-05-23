@@ -18,17 +18,46 @@ class LiveChatStatus {
     : this._(connected: false, error: message);
 }
 
+class LiveChatSnapshot {
+  final LiveChatMessageModel? message;
+  final int viewerCount;
+  final bool connected;
+  final String? error;
+
+  const LiveChatSnapshot({
+    this.message,
+    required this.viewerCount,
+    required this.connected,
+    this.error,
+  });
+}
+
 class LiveChatService {
   final _messageController = StreamController<LiveChatMessageModel>.broadcast();
   final _viewerCountController = StreamController<int>.broadcast();
   final _statusController = StreamController<LiveChatStatus>.broadcast();
+  final _snapshotController = StreamController<LiveChatSnapshot>.broadcast();
 
   io.Socket? _socket;
   String? _channelId;
+  int _latestViewerCount = 0;
+  LiveChatStatus _latestStatus = const LiveChatStatus.disconnected();
 
   Stream<LiveChatMessageModel> get messages => _messageController.stream;
   Stream<int> get viewerCounts => _viewerCountController.stream;
   Stream<LiveChatStatus> get statuses => _statusController.stream;
+  Stream<LiveChatSnapshot> get snapshots => _snapshotController.stream;
+
+  void _emitSnapshot({LiveChatMessageModel? message}) {
+    _snapshotController.add(
+      LiveChatSnapshot(
+        message: message,
+        viewerCount: _latestViewerCount,
+        connected: _latestStatus.connected,
+        error: _latestStatus.error,
+      ),
+    );
+  }
 
   Future<void> connect(String channelId) async {
     final token = await AuthStorage.getToken();
@@ -42,7 +71,7 @@ class LiveChatService {
     final socket = io.io(
       AppConfig.baseUrl,
       io.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .disableAutoConnect()
           .setAuth({'token': token})
           .enableReconnection()
@@ -52,45 +81,54 @@ class LiveChatService {
     _socket = socket;
 
     socket.onConnect((_) {
-      _statusController.add(const LiveChatStatus.connected());
+      _latestStatus = const LiveChatStatus.connected();
+      _statusController.add(_latestStatus);
+      _emitSnapshot();
       socket.emitWithAck(
         'channel:join',
         {'channelId': channelId},
         ack: (response) {
           final payload = _toMap(response);
           if (payload['ok'] == true) {
-            _viewerCountController.add(
-              (payload['viewer_count'] as num?)?.toInt() ?? 0,
-            );
+            _latestViewerCount =
+                (payload['viewer_count'] as num?)?.toInt() ?? 0;
+            _viewerCountController.add(_latestViewerCount);
+            _emitSnapshot();
             return;
           }
-          _statusController.add(
-            LiveChatStatus.error(
-              payload['error'] as String? ?? 'Unable to join live chat',
-            ),
+          _latestStatus = LiveChatStatus.error(
+            payload['error'] as String? ?? 'Unable to join live chat',
           );
+          _statusController.add(_latestStatus);
+          _emitSnapshot();
         },
       );
     });
 
     socket.onDisconnect((_) {
-      _statusController.add(const LiveChatStatus.disconnected());
+      _latestStatus = const LiveChatStatus.disconnected();
+      _statusController.add(_latestStatus);
+      _emitSnapshot();
     });
 
     socket.onConnectError((error) {
-      _statusController.add(LiveChatStatus.error(error.toString()));
+      _latestStatus = LiveChatStatus.error(error.toString());
+      _statusController.add(_latestStatus);
+      _emitSnapshot();
     });
 
     socket.on('chat:message', (data) {
       final payload = _toMap(data);
-      _messageController.add(LiveChatMessageModel.fromJson(payload));
+      final message = LiveChatMessageModel.fromJson(payload);
+      _messageController.add(message);
+      _emitSnapshot(message: message);
     });
 
     socket.on('channel:viewer_count', (data) {
       final payload = _toMap(data);
-      _viewerCountController.add(
-        (payload['viewer_count'] as num?)?.toInt() ?? 0,
-      );
+      _latestViewerCount = (payload['viewer_count'] as num?)?.toInt() ?? 0;
+      _viewerCountController.add(_latestViewerCount);
+      _emitSnapshot();
     });
 
     socket.connect();
@@ -139,6 +177,7 @@ class LiveChatService {
     _messageController.close();
     _viewerCountController.close();
     _statusController.close();
+    _snapshotController.close();
   }
 
   Map<String, dynamic> _toMap(dynamic raw) {

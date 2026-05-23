@@ -24,13 +24,13 @@ function sanitizeMessage(text) {
   return text.replace(/\s+/g, ' ').replace(/[<>]/g, '').trim();
 }
 
-function ensureChatAccess(uid, channelId) {
-  const user = User.findById(uid);
+async function ensureChatAccess(uid, channelId) {
+  const user = await User.findById(uid);
   if (!user) {
     return { ok: false, status: 401, error: 'User not found', code: 'USER_NOT_FOUND' };
   }
 
-  const channel = Channel.findById(channelId);
+  const channel = await Channel.findById(channelId);
   if (!channel) {
     return { ok: false, status: 404, error: 'Channel not found', code: 'CHANNEL_NOT_FOUND' };
   }
@@ -42,7 +42,7 @@ function ensureChatAccess(uid, channelId) {
   const isPrivileged = user.role === 'admin' || channel.owner_id === uid;
 
   if (channel.requires_payment && !isPrivileged) {
-    const access = ChannelAccess.findActiveAccess(uid, channel.id);
+    const access = await ChannelAccess.findActiveAccess(uid, channel.id);
     if (!access) {
       return {
         ok: false,
@@ -54,7 +54,7 @@ function ensureChatAccess(uid, channelId) {
   }
 
   if (channel.is_subscriber_only && !isPrivileged) {
-    const sub = CreatorSubscription.findActive(uid, channel.owner_id);
+    const sub = await CreatorSubscription.findActive(uid, channel.owner_id);
     if (!sub) {
       return {
         ok: false,
@@ -88,7 +88,7 @@ function buildMessagePayload(record, requesterUid, channel) {
 }
 
 async function listMessages({ uid, channelId, limit = DEFAULT_LIMIT }) {
-  const access = ensureChatAccess(uid, channelId);
+  const access = await ensureChatAccess(uid, channelId);
   if (!access.ok) return access;
 
   const safeLimit = Math.min(Math.max(Number(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
@@ -110,7 +110,7 @@ async function listMessages({ uid, channelId, limit = DEFAULT_LIMIT }) {
 }
 
 async function createMessage({ uid, channelId, text }) {
-  const access = ensureChatAccess(uid, channelId);
+  const access = await ensureChatAccess(uid, channelId);
   if (!access.ok) return access;
 
   const sanitizedText = sanitizeMessage(text);
@@ -141,7 +141,7 @@ async function createMessage({ uid, channelId, text }) {
       access.channel.type === 'private'
         ? getSenderDisplayName(uid, access.channel)
         : null,
-    badge: getSenderBadge(uid, access.channel),
+    badge: await getSenderBadge(uid, access.channel),
     text: sanitizedText,
     created_at: Date.now(),
   };

@@ -32,7 +32,7 @@ export function Reactions({ onReact }: ReactionsProps) {
     (emoji: string) => {
       if (cooldowns[emoji]) return;
 
-      // Rate limit: 1 reaction per emoji per 500ms (anti-spam ready)
+      //too fast: 1 reaction per emoji per 500ms (anti-spam ready)
       setCooldowns((prev) => ({ ...prev, [emoji]: true }));
       setTimeout(() => setCooldowns((prev) => ({ ...prev, [emoji]: false })), 500);
 

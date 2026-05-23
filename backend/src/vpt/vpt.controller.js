@@ -5,77 +5,77 @@ const Distribution = require('./distribution.service');
 const PoolService = require('./pool.service');
 const SwapService = require('./swap.service');
 
-function getBalance(req, res) {
-  const user = User.findById(req.userId);
+async function getBalance(req, res) {
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({
     balance: user.vpt,
-    transactions: Vpt.getByUser(req.userId),
+    transactions: await Vpt.getByUser(req.userId),
   });
 }
 
-function getTransactions(req, res) {
-  const transactions = Vpt.getByUser(req.userId);
+async function getTransactions(req, res) {
+  const transactions = await Vpt.getByUser(req.userId);
   res.json({ transactions });
 }
 
-function getLedger(req, res) {
-  const user = User.findById(req.userId);
+async function getLedger(req, res) {
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const entries = Ledger.getByUser(req.userId);
+  const entries = await Ledger.getByUser(req.userId);
   res.json({ ledger: entries });
 }
 
-function getDistributionQueue(req, res) {
-  const user = User.findById(req.userId);
+async function getDistributionQueue(req, res) {
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const queue = Distribution.getCreatorQueue(req.userId);
+  const queue = await Distribution.getCreatorQueue(req.userId);
   res.json({ queue });
 }
 
 // ─── ADMIN ENDPOINTS ────────────────────────────────────
 
-function requireAdmin(req, res) {
-  const user = User.findById(req.userId);
+async function requireAdmin(req, res) {
+  const user = await User.findById(req.userId);
   if (!user) { res.status(404).json({ error: 'User not found' }); return null; }
   if (user.role !== 'admin') { res.status(403).json({ error: 'Admin access required' }); return null; }
   return user;
 }
 
-function getQueueStats(req, res) {
-  if (!requireAdmin(req, res)) return;
-  const stats = Distribution.getQueueStats();
+async function getQueueStats(req, res) {
+  if (!(await requireAdmin(req, res))) return;
+  const stats = await Distribution.getQueueStats();
   res.json({ stats });
 }
 
-function getLedgerStats(req, res) {
-  if (!requireAdmin(req, res)) return;
-  const stats = Ledger.getStats();
+async function getLedgerStats(req, res) {
+  if (!(await requireAdmin(req, res))) return;
+  const stats = await Ledger.getStats();
   res.json({ stats });
 }
 
-function getFullLedger(req, res) {
-  if (!requireAdmin(req, res)) return;
+async function getFullLedger(req, res) {
+  if (!(await requireAdmin(req, res))) return;
   const limit = parseInt(req.query.limit) || 50;
-  const entries = Ledger.getRecent(limit);
+  const entries = await Ledger.getRecent(limit);
   res.json({ ledger: entries });
 }
 
-function getBatchHistory(req, res) {
-  if (!requireAdmin(req, res)) return;
+async function getBatchHistory(req, res) {
+  if (!(await requireAdmin(req, res))) return;
   const limit = parseInt(req.query.limit) || 20;
-  const batches = Distribution.getBatchHistory(limit);
+  const batches = await Distribution.getBatchHistory(limit);
   res.json({ batches });
 }
 
-function getFailedBatches(req, res) {
-  if (!requireAdmin(req, res)) return;
-  const batches = Distribution.getFailedBatches();
+async function getFailedBatches(req, res) {
+  if (!(await requireAdmin(req, res))) return;
+  const batches = await Distribution.getFailedBatches();
   res.json({ batches });
 }
 
 async function triggerBatchProcess(req, res) {
-  if (!requireAdmin(req, res)) return;
+  if (!(await requireAdmin(req, res))) return;
   try {
     const result = await Distribution.processBatch();
     res.json({ result });
@@ -86,7 +86,7 @@ async function triggerBatchProcess(req, res) {
 }
 
 async function retryBatch(req, res) {
-  if (!requireAdmin(req, res)) return;
+  if (!(await requireAdmin(req, res))) return;
   const { batchId } = req.params;
   try {
     const result = await Distribution.retryBatch(batchId);
@@ -99,7 +99,7 @@ async function retryBatch(req, res) {
 }
 
 async function getTreasuryBalance(req, res) {
-  if (!requireAdmin(req, res)) return;
+  if (!(await requireAdmin(req, res))) return;
   try {
     const balance = await SwapService.getTreasuryBalance();
     res.json({ treasury: balance });
@@ -110,7 +110,7 @@ async function getTreasuryBalance(req, res) {
 }
 
 async function getBlockchainPreflight(req, res) {
-  if (!requireAdmin(req, res)) return;
+  if (!(await requireAdmin(req, res))) return;
 
   try {
     const readiness = await SwapService.getBlockchainReadiness();
@@ -139,7 +139,7 @@ async function getPoolStats(req, res) {
 async function getOperationsPoolStats(req, res) {
   if (!requireAdmin(req, res)) return;
   try {
-    const pool = await PoolService.getRecalculatedOperationsPool();
+    const pool = await PoolService.getOperationsPoolBalance();
     res.json({ stats: { pool } });
   } catch (err) {
     console.error('[VPT] Operations pool stats error');
@@ -163,7 +163,10 @@ async function getRbdPoolStats(req, res) {
 async function triggerViewerRewards(req, res) {
   if (!requireAdmin(req, res)) return;
   try {
-    const result = await PoolService.distributeViewerRewards();
+    const result = await PoolService.runScheduledDistribution({
+      trigger: `admin:${req.userId}`,
+      force: req.body?.force === true,
+    });
     res.json({ result });
   } catch (err) {
     console.error('[VPT] Viewer reward distribution error');
@@ -171,16 +174,16 @@ async function triggerViewerRewards(req, res) {
   }
 }
 
-function getPoolDistributions(req, res) {
+async function getPoolDistributions(req, res) {
   if (!requireAdmin(req, res)) return;
   const limit = parseInt(req.query.limit) || 20;
-  const history = PoolService.getDistributionHistory(limit);
+  const history = await PoolService.getDistributionHistory(limit);
   res.json({ distributions: history });
 }
 
-function getPoolDistribution(req, res) {
+async function getPoolDistribution(req, res) {
   if (!requireAdmin(req, res)) return;
-  const dist = PoolService.getDistributionById(req.params.id);
+  const dist = await PoolService.getDistributionById(req.params.id);
   if (!dist) return res.status(404).json({ error: 'Distribution not found' });
   res.json({ distribution: dist });
 }

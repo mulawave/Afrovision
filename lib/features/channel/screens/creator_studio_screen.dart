@@ -240,7 +240,9 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  channel.isPrivate
+                  channel.isExclusive
+                      ? Icons.verified_user_rounded
+                      : channel.isPrivate
                       ? Icons.lock_rounded
                       : Icons.live_tv_rounded,
                   color: channel.isActive
@@ -269,8 +271,14 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                     Row(
                       children: [
                         _buildMiniTag(
-                          channel.isPrivate ? 'Private' : 'Public',
-                          channel.isPrivate
+                          channel.isExclusive
+                              ? 'Exclusive'
+                              : channel.isPrivate
+                              ? 'Private'
+                              : 'Public',
+                          channel.isExclusive
+                              ? AppColors.orange
+                              : channel.isPrivate
                               ? AppColors.errorRed
                               : const Color(0xFF4CAF50),
                         ),

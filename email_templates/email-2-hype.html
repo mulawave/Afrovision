@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>The Amazons — Are You Ready?</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d0d0d; font-family: 'Helvetica Neue', Arial, sans-serif; }
+  .wrapper { max-width: 600px; margin: 0 auto; background: #050a30; }
+  .top-bar { height: 4px; background: linear-gradient(90deg, #f39517 0%, #233dff 100%); }
+  .header { padding: 28px 40px 20px; border-bottom: 1px solid rgba(243,149,23,0.2); display: flex; align-items: center; justify-content: space-between; }
+  .header-brand { font-size: 11px; font-weight: 800; color: #f39517; letter-spacing: 3px; text-transform: uppercase; }
+  .header-label { font-size: 9px; font-weight: 700; color: #c8b58f; letter-spacing: 2px; text-transform: uppercase; background: rgba(243,149,23,0.1); border: 1px solid rgba(243,149,23,0.25); padding: 4px 10px; border-radius: 2px; }
+  .hero { padding: 0; position: relative; overflow: hidden; }
+  .hero-bg { background: linear-gradient(160deg, #0a1550 0%, #050a30 60%, #030720 100%); padding: 44px 40px 36px; border-bottom: 1px solid rgba(243,149,23,0.15); }
+  .hero-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #528ff1; margin-bottom: 14px; }
+  .hero h1 { font-size: 34px; font-weight: 900; color: #ffffff; line-height: 1.05; text-transform: uppercase; letter-spacing: -1px; }
+  .hero h1 .gold { color: #f39517; }
+  .hero h1 .blue { color: #528ff1; }
+  .hero-sub { margin-top: 14px; font-size: 15px; color: rgba(255,255,255,0.72); line-height: 1.65; }
+  .body-section { padding: 32px 40px; }
+  .body-section p { font-size: 15px; color: rgba(255,255,255,0.82); line-height: 1.75; margin-bottom: 16px; }
+  .body-section p strong { color: #ffffff; }
+  .body-section p .gold { color: #f39517; font-weight: 700; }
+  .body-section p .blue { color: #528ff1; font-weight: 600; }
+
+  /* PILLARS */
+  .pillars-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 24px 0; }
+  .pillar { background: rgba(35,61,255,0.08); border: 1px solid rgba(35,61,255,0.2); border-radius: 4px; padding: 16px; position: relative; overflow: hidden; }
+  .pillar::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, #f39517, transparent); }
+  .pillar-num { font-size: 28px; font-weight: 900; color: rgba(243,149,23,0.25); line-height: 1; }
+  .pillar-name { font-size: 12px; font-weight: 800; color: #ffffff; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
+  .pillar-desc { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 4px; line-height: 1.5; }
+
+  /* PRIZE */
+  .prize-block { background: rgba(243,149,23,0.06); border: 1px solid rgba(243,149,23,0.2); border-radius: 4px; padding: 20px 24px; margin: 24px 0; }
+  .prize-block .prize-label { font-size: 9px; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; color: #f39517; margin-bottom: 10px; }
+  .prize-block h2 { font-size: 20px; font-weight: 900; color: #ffffff; text-transform: uppercase; line-height: 1.2; }
+  .prize-block h2 span { color: #f39517; }
+  .prize-block p { font-size: 13px; color: rgba(255,255,255,0.7); margin-top: 8px; line-height: 1.6; }
+  .prize-items { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .prize-item { background: rgba(243,149,23,0.1); border: 1px solid rgba(243,149,23,0.3); border-radius: 2px; padding: 5px 10px; font-size: 10px; font-weight: 700; color: #f39517; letter-spacing: 0.5px; }
+
+  .cta-block { margin: 28px 0; text-align: center; }
+  .cta-btn { display: inline-block; background: #f39517; color: #050a30; font-size: 13px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; padding: 16px 36px; text-decoration: none; border-radius: 2px; }
+  .cta-sub { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 10px; letter-spacing: 1px; }
+
+  .date-callout { text-align: center; margin: 8px 0 28px; padding: 20px; background: rgba(35,61,255,0.08); border: 1px solid rgba(35,61,255,0.2); border-radius: 4px; }
+  .date-callout .date-label { font-size: 9px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #528ff1; margin-bottom: 8px; }
+  .date-callout .date-num { font-size: 36px; font-weight: 900; color: #ffffff; line-height: 1; }
+  .date-callout .date-month { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.6); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+
+  .footer { padding: 24px 40px; border-top: 1px solid rgba(83,143,241,0.15); }
+  .footer p { font-size: 11px; color: rgba(255,255,255,0.35); line-height: 1.7; }
+  .footer a { color: #528ff1; text-decoration: none; }
+  .footer .brand-footer { font-size: 12px; font-weight: 700; color: #f39517; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+  .bottom-bar { height: 3px; background: linear-gradient(90deg, #233dff 0%, #f39517 100%); }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="top-bar"></div>
+
+  <div class="header">
+    <div class="header-brand">AfroVision</div>
+    <div class="header-label">Challenge: The Amazons</div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-bg">
+      <div class="hero-eyebrow">Auditions open October 22nd</div>
+      <h1>Do You Have<br/><span class="gold">What It</span><br/><span class="blue">Takes?</span></h1>
+      <div class="hero-sub">This is not about who's most popular. This is about who is most capable. Africa is watching. Five seats are waiting.</div>
+    </div>
+  </div>
+
+  <div class="body-section">
+    <p>Most competitions test your likability. <strong>The Amazons tests your competence.</strong></p>
+
+    <p>Over multiple elimination rounds, contestants will face real business scenarios — no scripts, no coaches, no shortcuts. You will be judged on four pillars:</p>
+
+    <div class="pillars-grid">
+      <div class="pillar">
+        <div class="pillar-num">01</div>
+        <div class="pillar-name">Decision Making</div>
+        <div class="pillar-desc">Under pressure, with limited data, on the clock.</div>
+      </div>
+      <div class="pillar">
+        <div class="pillar-num">02</div>
+        <div class="pillar-name">Leadership</div>
+        <div class="pillar-desc">Not authority — actual direction and influence.</div>
+      </div>
+      <div class="pillar">
+        <div class="pillar-num">03</div>
+        <div class="pillar-name">Creativity</div>
+        <div class="pillar-desc">Novel solutions to real constraints.</div>
+      </div>
+      <div class="pillar">
+        <div class="pillar-num">04</div>
+        <div class="pillar-name">Execution</div>
+        <div class="pillar-desc">Turning strategy into results that can be measured.</div>
+      </div>
+    </div>
+
+    <div class="prize-block">
+      <div class="prize-label">The Prize</div>
+      <h2>5 Women.<br/><span>1 Company.</span><br/>Real Equity.</h2>
+      <p>This is not a cash prize. This is not a trophy. Five contestants who survive the gauntlet will emerge as actual co-founders of a live business venture, with distribution and visibility built directly into the AfroVision platform.</p>
+      <div class="prize-items">
+        <div class="prize-item">Real Equity Stake</div>
+        <div class="prize-item">Live Venture</div>
+        <div class="prize-item">AfroVision Distribution</div>
+        <div class="prize-item">Investor Network</div>
+      </div>
+    </div>
+
+    <p>Who qualifies? <span class="gold">Women only. Ages 18–30. Nigeria.</span> No experience required — only capacity matters here.</p>
+
+    <div class="date-callout">
+      <div class="date-label">Auditions Open</div>
+      <div class="date-num">22</div>
+      <div class="date-month">October 2025</div>
+    </div>
+
+    <div class="cta-block">
+      <a href="https://afrovision.online/challenge" class="cta-btn">I'm Ready — Show Me How →</a>
+      <div class="cta-sub">afrovision.online/challenge</div>
+    </div>
+
+    <p style="font-size: 13px; color: rgba(255,255,255,0.5); text-align: center;">Know someone who belongs in this room? Forward this to her. The Amazons doesn't find you — you find it.</p>
+  </div>
+
+  <div class="footer">
+    <div class="brand-footer">AfroVision Media</div>
+    <p>You're receiving this because you're registered at <a href="https://afrovision.online">afrovision.online</a>.<br/>
+    <a href="mailto:contact@afrovision.online">contact@afrovision.online</a> · <a href="#">Unsubscribe</a></p>
+  </div>
+  <div class="bottom-bar"></div>
+</div>
+</body>
+</html>

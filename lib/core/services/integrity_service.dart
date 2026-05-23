@@ -37,8 +37,9 @@ class IntegrityService {
         'requestIntegrityToken',
         {'nonce': nonce, 'cloudProjectNumber': AppConfig.gcpProjectNumber},
       );
-      if (token == null)
+      if (token == null) {
         throw Exception('Play Integrity returned a null token');
+      }
       return token;
     } on PlatformException catch (e) {
       throw IntegrityException('Device integrity check failed: ${e.message}');

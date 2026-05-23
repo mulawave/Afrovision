@@ -7,7 +7,6 @@ import '../models/user_model.dart';
 import '../../notifications/services/notification_inbox_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
-import '../../../core/api/api_service.dart';
 import '../../../core/widgets/role_badge.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
 import '../../../core/utils/app_rating.dart';
@@ -16,7 +15,11 @@ import '../../../core/services/notification_service.dart';
 import '../../promo/widgets/promo_modal_dialog.dart';
 import '../../reputation/models/reputation_model.dart';
 import '../../reputation/services/reputation_service.dart';
-import '../../../core/widgets/reputation_badge.dart';
+import '../../../core/services/watch_history_service.dart';
+import '../../subscription/models/channel_subscription_model.dart';
+import '../../subscription/services/channel_subscription_service.dart';
+import '../../channel/models/channel_model.dart';
+import '../../channel/services/channel_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,6 +34,9 @@ class _HomeScreenState extends State<HomeScreen>
   HomeStats? _stats;
   ReputationModel? _reputation;
   bool _loading = true;
+  int _subscriptionCount = 0;
+  List<WatchHistoryEntry> _watchHistory = [];
+  List<ChannelModel> _allChannels = [];
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -138,7 +144,12 @@ class _HomeScreenState extends State<HomeScreen>
       _animController.forward();
       _startPromoAutoScroll();
       _startRecentAutoScroll();
+
+      // Load watch history & subscription count (non-blocking)
+      _loadWatchHistory();
+      _loadSubscriptionCount();
       _loadMarquee();
+      _loadAllChannels();
       // Check if we should show the rating dialog
       if (context.mounted) AppRating.checkAndPrompt(context);
       // Check if user has missing KYC gender to prompt for completion
@@ -152,11 +163,24 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _startPromoAutoScroll() {
-    final promoCount = _stats?.promotedChannels.length ?? 0;
-    if (promoCount <= 1) return;
+    _promoTimer?.cancel();
+    final promoted = _stats?.promotedChannels ?? [];
+    final int count;
+    if (promoted.isNotEmpty) {
+      count = promoted.length;
+    } else {
+      final withBanner = _allChannels
+          .where((c) => (c.bannerUrl ?? '').isNotEmpty)
+          .take(8)
+          .toList();
+      count =
+          (withBanner.isNotEmpty ? withBanner : _allChannels.take(8).toList())
+              .length;
+    }
+    if (count <= 1) return;
     _promoTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!mounted) return;
-      _promoPage = (_promoPage + 1) % promoCount;
+      _promoPage = (_promoPage + 1) % count;
       _promoPageController.animateToPage(
         _promoPage,
         duration: const Duration(milliseconds: 400),
@@ -166,38 +190,74 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _startRecentAutoScroll() {
-    final count = _stats?.recentChannels.length ?? 0;
+    final recentCount = _stats?.recentChannels.length ?? 0;
+    final allCount = _allChannels.length > 15 ? 15 : _allChannels.length;
+    final count = recentCount > 0 ? recentCount : allCount;
     if (count <= 2) return;
     _recentScrollTimer?.cancel();
     _recentScrollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted || !_recentScrollController.hasClients) return;
       final max = _recentScrollController.position.maxScrollExtent;
       final current = _recentScrollController.offset;
-      final next = current + 160;
+      final next = current - 160;
       _recentScrollController.animateTo(
-        next >= max ? 0 : next,
+        next <= 0 ? max : next,
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOut,
       );
     });
   }
 
+  Future<void> _loadWatchHistory() async {
+    try {
+      final history = await WatchHistoryService.getHistory();
+      if (mounted) {
+        setState(() => _watchHistory = history);
+      }
+    } catch (_) {
+      // silent
+    }
+  }
+
+  Future<void> _loadSubscriptionCount() async {
+    try {
+      final result = await ChannelSubscriptionService.getMine();
+      if (mounted && result['success'] == true) {
+        final subs = result['subscriptions'] as List<dynamic>? ?? [];
+        final activeCount = subs
+            .whereType<ChannelSubscriptionModel>()
+            .where((s) => s.isActive)
+            .length;
+        setState(() => _subscriptionCount = activeCount);
+      }
+    } catch (_) {
+      // silent
+    }
+  }
+
   Future<void> _loadMarquee() async {
     try {
-      final data = await ApiService.getPublic('/home/marquee');
+      final topics = await HomeService.getMarqueeTopics();
       if (!mounted) return;
-      if (data is List) {
-        final topics = data
-            .where((t) => t['active'] == true)
-            .map<String>((t) => t['text'] as String)
-            .toList();
-        if (topics.isNotEmpty) {
-          setState(() => _marqueeTopics = topics);
-          _startMarqueeScroll();
-        }
+      if (topics.isNotEmpty) {
+        setState(() => _marqueeTopics = topics);
+        _startMarqueeScroll();
       }
     } catch (_) {
       // silent — marquee is non-critical
+    }
+  }
+
+  Future<void> _loadAllChannels() async {
+    try {
+      final channels = await ChannelService.getPublicChannels();
+      if (!mounted) return;
+      setState(() => _allChannels = channels);
+      // Restart auto-scrollers now that fallback channels are available
+      _startPromoAutoScroll();
+      _startRecentAutoScroll();
+    } catch (_) {
+      // silent — used only as fallback for sliders
     }
   }
 
@@ -236,13 +296,6 @@ class _HomeScreenState extends State<HomeScreen>
     if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
     if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
     return n.toStringAsFixed(n == n.roundToDouble() ? 0 : 2);
-  }
-
-  String _formatReps(double v) {
-    if (v >= 1000) {
-      return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
-    }
-    return v.toStringAsFixed(0);
   }
 
   String _formatNaira(double n) {
@@ -292,6 +345,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   _buildCommunityPoolBanner(),
+                                  _buildChallengeBanner(),
                                   if (_marqueeTopics.isNotEmpty)
                                     _buildMarqueeTicker(),
                                   if (_user != null &&
@@ -299,19 +353,39 @@ class _HomeScreenState extends State<HomeScreen>
                                       _user!.kycStatus != 'pending')
                                     _buildKycAlert(),
                                   const SizedBox(height: 22),
-                                  if ((_stats?.promotedChannels.length ?? 0) >
-                                      0) ...[
-                                    _buildPromotedSlider(),
-                                    const SizedBox(height: 22),
+                                  if ((_stats?.promotedChannels.isNotEmpty ??
+                                          false) ||
+                                      _allChannels.isNotEmpty) ...[
+                                    _buildFeaturedChannelsSlider(),
+                                    const SizedBox(height: 16),
+                                    _buildThemeDivider(),
+                                    const SizedBox(height: 16),
                                   ],
-                                  if ((_stats?.recentChannels.length ?? 0) >
-                                      0) ...[
-                                    _buildRecentChannelsPills(),
-                                    const SizedBox(height: 22),
+                                  _buildMySubscriptionsCard(),
+                                  const SizedBox(height: 16),
+                                  _buildThemeDivider(),
+                                  const SizedBox(height: 16),
+                                  if ((_watchHistory.isNotEmpty)) ...[
+                                    _buildRecentlyViewed(),
+                                    const SizedBox(height: 16),
+                                    _buildThemeDivider(),
+                                    const SizedBox(height: 16),
+                                  ],
+                                  if ((_stats?.recentChannels.isNotEmpty ??
+                                          false) ||
+                                      _allChannels.isNotEmpty) ...[
+                                    _buildPublicChannelsSlider(),
+                                    const SizedBox(height: 16),
+                                    _buildThemeDivider(),
+                                    const SizedBox(height: 16),
                                   ],
                                   _buildActionCards(),
+                                  const SizedBox(height: 16),
+                                  _buildThemeDivider(),
                                   const SizedBox(height: 24),
                                   _buildAdvertsSection(),
+                                  const SizedBox(height: 16),
+                                  _buildThemeDivider(),
                                   const SizedBox(height: 24),
                                   _buildTwoColumnSection(),
                                 ],
@@ -362,22 +436,42 @@ class _HomeScreenState extends State<HomeScreen>
                 ],
                 if (_reputation != null) ...[
                   const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      ReputationBadgeWidget(
-                        level: _reputation!.level,
-                        size: 13,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppColors.inputBorder.withValues(alpha: 0.4),
                       ),
-                      if (_reputation!.level > 0) const SizedBox(width: 4),
-                      Text(
-                        '${_formatReps(_reputation!.totalReps)} Reps \u00b7 ${_reputation!.levelName}',
-                        style: const TextStyle(
-                          color: AppColors.hintText,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('⭐', style: TextStyle(fontSize: 14)),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatNumber(_reputation!.totalReps),
+                          style: const TextStyle(
+                            color: AppColors.lightOrange,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 4),
+                        Text(
+                          '· ${_reputation!.levelName}',
+                          style: TextStyle(
+                            color: AppColors.hintText,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ],
@@ -700,6 +794,102 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ───────── CHALLENGE BANNER ─────────
+  Widget _buildChallengeBanner() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: GestureDetector(
+        onTap: () => Navigator.pushNamed(context, '/challenge'),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              colors: [
+                AppColors.orange.withValues(alpha: 0.22),
+                AppColors.lightBlue.withValues(alpha: 0.5),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(color: AppColors.orange.withValues(alpha: 0.3)),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.orange.withValues(alpha: 0.08),
+                blurRadius: 18,
+                spreadRadius: 1,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.emoji_events_rounded,
+                  color: AppColors.orange,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AfroVision Challenge',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Auditions open \u2022 Tap to learn more',
+                      style: TextStyle(
+                        color: AppColors.lightOrange,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.orange,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'Join',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ───────── MARQUEE TICKER ─────────
   Widget _buildMarqueeTicker() {
     final text = _marqueeTopics.join('   •   ');
@@ -809,24 +999,55 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // ───────── PROMOTED CHANNELS SLIDER ─────────
-  Widget _buildPromotedSlider() {
-    final promoted = _stats!.promotedChannels;
+  Widget _buildFeaturedChannelsSlider() {
+    // Build unified list: prefer promoted channels, fall back to channels with
+    // banners, then any public channels
+    final promoted = _stats?.promotedChannels ?? [];
+    List<PromotedChannel> items;
+    if (promoted.isNotEmpty) {
+      items = promoted;
+    } else {
+      final withBanner = _allChannels
+          .where((c) => (c.bannerUrl ?? '').isNotEmpty)
+          .take(8)
+          .toList();
+      final source = withBanner.isNotEmpty
+          ? withBanner
+          : _allChannels.take(8).toList();
+      items = source
+          .map(
+            (ch) => PromotedChannel(
+              id: ch.id,
+              name: ch.name,
+              category: ch.category,
+              channelNumber: ch.channelNumber,
+              logoUrl: ch.logoUrl,
+              bannerUrl: ch.bannerUrl,
+            ),
+          )
+          .toList();
+    }
+    if (items.isEmpty) return const SizedBox.shrink();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _sectionLabel('PROMOTED CHANNELS', Icons.star_rounded),
+          child: _sectionLabel(
+            'FEATURED CHANNELS',
+            Icons.featured_play_list_rounded,
+          ),
         ),
         const SizedBox(height: 10),
         SizedBox(
           height: 130,
           child: PageView.builder(
             controller: _promoPageController,
-            itemCount: promoted.length,
+            itemCount: items.length,
             onPageChanged: (i) => setState(() => _promoPage = i),
             itemBuilder: (context, index) {
-              final ch = promoted[index];
+              final ch = items[index];
               return GestureDetector(
                 onTap: () async {
                   await Navigator.pushNamed(
@@ -843,7 +1064,7 @@ class _HomeScreenState extends State<HomeScreen>
                     border: Border.all(
                       color: AppColors.lightOrange.withValues(alpha: 0.3),
                     ),
-                    image: ch.bannerUrl != null
+                    image: (ch.bannerUrl != null && ch.bannerUrl!.isNotEmpty)
                         ? DecorationImage(
                             image: NetworkImage(
                               AppConfig.mediaUrl(ch.bannerUrl!),
@@ -851,7 +1072,7 @@ class _HomeScreenState extends State<HomeScreen>
                             fit: BoxFit.cover,
                           )
                         : null,
-                    gradient: ch.bannerUrl == null
+                    gradient: (ch.bannerUrl == null || ch.bannerUrl!.isEmpty)
                         ? LinearGradient(
                             colors: [
                               AppColors.lightBlue.withValues(alpha: 0.5),
@@ -864,7 +1085,6 @@ class _HomeScreenState extends State<HomeScreen>
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      // Gradient overlay
                       Container(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
@@ -884,7 +1104,7 @@ class _HomeScreenState extends State<HomeScreen>
                         right: 14,
                         child: Row(
                           children: [
-                            if (ch.logoUrl != null)
+                            if (ch.logoUrl != null && ch.logoUrl!.isNotEmpty)
                               Container(
                                 width: 32,
                                 height: 32,
@@ -945,7 +1165,7 @@ class _HomeScreenState extends State<HomeScreen>
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: const Text(
-                            'PROMOTED',
+                            'FEATURED',
                             style: TextStyle(
                               color: AppColors.white,
                               fontSize: 8,
@@ -962,11 +1182,11 @@ class _HomeScreenState extends State<HomeScreen>
             },
           ),
         ),
-        if (promoted.length > 1) ...[
+        if (items.length > 1) ...[
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(promoted.length, (i) {
+            children: List.generate(items.length, (i) {
               return AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
                 width: i == _promoPage ? 20 : 6,
@@ -986,90 +1206,136 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ───────── RECENT CHANNELS PILLS ─────────
-  Widget _buildRecentChannelsPills() {
-    final channels = _stats!.recentChannels;
+  // ───────── PUBLIC CHANNELS SLIDER ─────────
+  Widget _buildPublicChannelsSlider() {
+    // Use recent channels from stats; fall back to all loaded channels
+    final recentList = _stats?.recentChannels ?? [];
+
+    final int itemCount;
+    if (recentList.isNotEmpty) {
+      itemCount = recentList.length;
+    } else {
+      itemCount = _allChannels.length > 15 ? 15 : _allChannels.length;
+    }
+    if (itemCount == 0) return const SizedBox.shrink();
+
+    String getId(int i) =>
+        recentList.isNotEmpty ? recentList[i].id : _allChannels[i].id;
+    String getName(int i) =>
+        recentList.isNotEmpty ? recentList[i].name : _allChannels[i].name;
+    String? getLogoUrl(int i) =>
+        recentList.isNotEmpty ? recentList[i].logoUrl : _allChannels[i].logoUrl;
+    String? getCategory(int i) => recentList.isNotEmpty
+        ? recentList[i].category
+        : _allChannels[i].category;
+    String getChannelNumber(int i) => recentList.isNotEmpty
+        ? recentList[i].channelNumber
+        : _allChannels[i].channelNumber;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _sectionLabel('NEW CHANNELS', Icons.fiber_new_rounded),
+          child: _sectionLabel('PUBLIC CHANNELS', Icons.public_rounded),
         ),
         const SizedBox(height: 10),
         SizedBox(
-          height: 44,
+          height: 110,
           child: ListView.builder(
             controller: _recentScrollController,
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 18),
-            itemCount: channels.length,
+            itemCount: itemCount,
             itemBuilder: (context, index) {
-              final ch = channels[index];
+              final channelId = getId(index);
+              final channelName = getName(index);
+              final logoUrl = getLogoUrl(index);
+              final category = getCategory(index);
+              final channelNumber = getChannelNumber(index);
+
               return GestureDetector(
                 onTap: () async {
                   await Navigator.pushNamed(
                     context,
                     '/channel-player',
-                    arguments: ch.id,
+                    arguments: channelId,
                   );
                   _loadData();
                 },
                 child: Container(
+                  width: 130,
                   margin: const EdgeInsets.only(right: 10),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
-                  ),
                   decoration: BoxDecoration(
                     color: AppColors.inputFill,
-                    borderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: AppColors.lightOrange.withValues(alpha: 0.3),
+                      color: AppColors.lightOrange.withValues(alpha: 0.2),
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        width: 26,
-                        height: 26,
+                        width: 50,
+                        height: 50,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: AppColors.orange.withValues(alpha: 0.12),
-                          image: ch.logoUrl != null
+                          border: Border.all(
+                            color: AppColors.lightOrange.withValues(alpha: 0.3),
+                            width: 1.5,
+                          ),
+                          image: (logoUrl != null && logoUrl.isNotEmpty)
                               ? DecorationImage(
                                   image: NetworkImage(
-                                    AppConfig.mediaUrl(ch.logoUrl!),
+                                    AppConfig.mediaUrl(logoUrl),
                                   ),
                                   fit: BoxFit.cover,
                                 )
                               : null,
                         ),
-                        child: ch.logoUrl == null
+                        child: (logoUrl == null || logoUrl.isEmpty)
                             ? const Icon(
                                 Icons.live_tv_rounded,
                                 color: AppColors.orange,
-                                size: 13,
+                                size: 20,
                               )
                             : null,
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        ch.name,
-                        style: const TextStyle(
-                          color: AppColors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          channelName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(height: 2),
                       Text(
-                        '#${ch.channelNumber}',
+                        (category != null && category.isNotEmpty)
+                            ? category
+                            : '#$channelNumber',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: AppColors.lightOrange.withValues(alpha: 0.8),
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
+                          color: AppColors.lightOrange.withValues(alpha: 0.7),
+                          fontSize: 9,
                         ),
                       ),
                     ],
@@ -1674,7 +1940,166 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ───────── MY SUBSCRIPTIONS CARD ─────────
+  Widget _buildMySubscriptionsCard() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: GestureDetector(
+        onTap: () => Navigator.pushNamed(
+          context,
+          '/my-subscriptions',
+        ).then((_) => _loadSubscriptionCount()),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.orange.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.subscriptions_outlined,
+                  color: AppColors.orange,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'My Subscriptions',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$_subscriptionCount active subscription${_subscriptionCount == 1 ? '' : 's'}',
+                      style: TextStyle(
+                        color: AppColors.white.withValues(alpha: 0.55),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Colors.white54, size: 22),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ───────── RECENTLY VIEWED ─────────
+  Widget _buildRecentlyViewed() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _sectionLabel('Recently Viewed', Icons.history),
+              GestureDetector(
+                onTap: () => WatchHistoryService.clear().then(
+                  (_) => _loadWatchHistory(),
+                ),
+                child: Text(
+                  'Clear',
+                  style: TextStyle(
+                    color: AppColors.orange.withValues(alpha: 0.7),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 72,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemCount: _watchHistory.length > 10 ? 10 : _watchHistory.length,
+            itemBuilder: (_, i) {
+              final entry = _watchHistory[i];
+              return GestureDetector(
+                onTap: () => Navigator.pushNamed(
+                  context,
+                  '/channel-player',
+                  arguments: entry.id,
+                ),
+                child: Container(
+                  width: 72,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: AppColors.white.withValues(alpha: 0.08),
+                    image: entry.logo != null && entry.logo!.isNotEmpty
+                        ? DecorationImage(
+                            image: NetworkImage(entry.logo!),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                  ),
+                  alignment: Alignment.center,
+                  child: (entry.logo == null || entry.logo!.isEmpty)
+                      ? Text(
+                          entry.name.isNotEmpty
+                              ? entry.name[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                            color: AppColors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        )
+                      : null,
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   // ───────── HELPERS ─────────
+  Widget _buildThemeDivider() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      height: 1,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.transparent,
+            AppColors.lightOrange.withValues(alpha: 0.45),
+            AppColors.orange.withValues(alpha: 0.55),
+            AppColors.lightOrange.withValues(alpha: 0.45),
+            Colors.transparent,
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _sectionLabel(String text, IconData icon) {
     return Row(
       children: [

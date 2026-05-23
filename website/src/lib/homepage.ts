@@ -36,6 +36,7 @@ export interface HomepageFeaturedItem {
   category: string;
   viewers: number;
   is_live: boolean;
+  is_premium_channel?: boolean;
   href: string;
   banner_url: string | null;
   logo_url: string | null;
@@ -185,29 +186,48 @@ export interface AppLinkConfig {
   paths: string[];
 }
 
+const HOMEPAGE_FETCH_TIMEOUT_MS = 8000;
+const HOMEPAGE_FETCH_RETRIES = 2;
+
 export async function getHomepageContent(): Promise<HomepageContent | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+  for (let attempt = 0; attempt <= HOMEPAGE_FETCH_RETRIES; attempt += 1) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), HOMEPAGE_FETCH_TIMEOUT_MS);
 
-    const response = await fetch(`${API_BASE}/home/content`, {
-      cache: "no-store",
-      signal: controller.signal,
-    });
+      const response = await fetch(`${API_BASE}/home/content`, {
+        cache: "no-store",
+        next: { revalidate: 0 },
+        signal: controller.signal,
+      });
 
-    clearTimeout(timeout);
+      if (!response.ok) {
+        console.error(`[homepage] /home/content returned ${response.status}`);
+        if (attempt < HOMEPAGE_FETCH_RETRIES) continue;
+        return null;
+      }
 
-    if (!response.ok) {
-      console.error(`[homepage] /home/content returned ${response.status}`);
+      const payload = await response.json();
+      return payload?.homepage || null;
+    } catch (err) {
+      if (attempt < HOMEPAGE_FETCH_RETRIES) {
+        continue;
+      }
+
+      if (err instanceof DOMException && err.name === "AbortError") {
+        console.error("[homepage] getHomepageContent timed out");
+        return null;
+      }
+
+      console.error("[homepage] getHomepageContent failed:", err);
       return null;
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
-
-    const payload = await response.json();
-    return payload?.homepage || null;
-  } catch (err) {
-    console.error("[homepage] getHomepageContent failed:", err);
-    return null;
   }
+
+  return null;
 }
 
 export async function getBranding(): Promise<HomepageBranding> {

@@ -14,13 +14,13 @@ function normalizeAccountNumber(value) {
 }
 
 async function getProfile(req, res) {
-  const user = await User.reloadFromFirestore(req.userId);
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: User.toSafeUser(user) });
 }
 
-function getBankDetails(req, res) {
-  const user = User.findById(req.userId);
+async function getBankDetails(req, res) {
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({
     bank_details: serializeBankDetails(user.bank_details),
@@ -66,7 +66,7 @@ async function resolveBankAccount(req, res) {
 
 async function createBankDetails(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.bank_details) {
       return res.status(409).json({ error: 'Bank details already saved and cannot be edited in-app' });
@@ -108,8 +108,8 @@ async function createBankDetails(req, res) {
   }
 }
 
-function resolveCreator(creatorId) {
-  const creator = User.findById(creatorId);
+async function resolveCreator(creatorId) {
+  const creator = await User.findById(creatorId);
   if (!creator) return { error: 'Creator not found', status: 404 };
   if (!['creator', 'admin'].includes(creator.role)) {
     return { error: 'Target user is not a creator', status: 400 };
@@ -126,7 +126,7 @@ async function updateProfile(req, res) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailStr)) {
       return res.status(400).json({ error: 'Invalid email address' });
     }
-    const existing = User.findByEmail(emailStr);
+    const existing = await User.findByEmail(emailStr);
     if (existing && existing.id !== req.userId) {
       return res.status(409).json({ error: 'Email already in use' });
     }
@@ -158,8 +158,8 @@ async function updateCurrency(req, res) {
   res.json({ user: User.toSafeUser(user) });
 }
 
-function requestCreator(req, res) {
-  const user = User.findById(req.userId);
+async function requestCreator(req, res) {
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (user.role === 'creator' || user.role === 'admin') {
     return res.json({
@@ -189,8 +189,8 @@ async function registerFcmToken(req, res) {
   res.json({ success: true, afroDeviceToken: user.afroDeviceToken || token });
 }
 
-function getDeviceToken(req, res) {
-  const user = User.findById(req.userId);
+async function getDeviceToken(req, res) {
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ afroDeviceToken: user.afroDeviceToken || null });
 }
@@ -205,16 +205,16 @@ async function unregisterFcmToken(req, res) {
   res.json({ success: true });
 }
 
-function getFollowStatus(req, res) {
+async function getFollowStatus(req, res) {
   const { creatorId } = req.params;
-  const resolved = resolveCreator(creatorId);
+  const resolved = await resolveCreator(creatorId);
   if (resolved.error) {
     return res.status(resolved.status).json({ error: resolved.error });
   }
 
   res.json({
-    followed: User.isFollowing(req.userId, creatorId),
-    followers_count: User.countFollowers(creatorId),
+    followed: await User.isFollowing(req.userId, creatorId),
+    followers_count: await User.countFollowers(creatorId),
   });
 }
 
@@ -224,7 +224,7 @@ async function followCreator(req, res) {
     return res.status(400).json({ error: 'You cannot follow yourself' });
   }
 
-  const resolved = resolveCreator(creatorId);
+  const resolved = await resolveCreator(creatorId);
   if (resolved.error) {
     return res.status(resolved.status).json({ error: resolved.error });
   }
@@ -234,13 +234,13 @@ async function followCreator(req, res) {
 
   res.json({
     followed: true,
-    followers_count: User.countFollowers(creatorId),
+    followers_count: await User.countFollowers(creatorId),
   });
 }
 
 async function unfollowCreator(req, res) {
   const { creatorId } = req.params;
-  const resolved = resolveCreator(creatorId);
+  const resolved = await resolveCreator(creatorId);
   if (resolved.error) {
     return res.status(resolved.status).json({ error: resolved.error });
   }
@@ -250,17 +250,60 @@ async function unfollowCreator(req, res) {
 
   res.json({
     followed: false,
-    followers_count: User.countFollowers(creatorId),
+    followers_count: await User.countFollowers(creatorId),
   });
 }
 
-function getFollowingCreators(req, res) {
-  const creators = User.getFollowingCreatorIds(req.userId)
-    .map((creatorId) => User.findById(creatorId))
+async function getFollowingCreators(req, res) {
+  const creatorIds = await User.getFollowingCreatorIds(req.userId);
+  const creators = (await Promise.all(creatorIds
+    .map((creatorId) => User.findById(creatorId))))
     .filter(Boolean)
     .map((creator) => User.toSafeUser(creator));
 
   res.json({ creators });
+}
+
+async function getChannelFollowStatus(req, res) {
+  const { channelId } = req.params;
+  const channel = await Channel.findById(channelId);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+  res.json({
+    followed: await User.isFollowingChannel(req.userId, channelId),
+    followers_count: await User.countChannelFollowers(channelId),
+  });
+}
+
+async function followChannel(req, res) {
+  const { channelId } = req.params;
+  const channel = await Channel.findById(channelId);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+  if (channel.owner_id === req.userId) {
+    return res.status(400).json({ error: 'You cannot follow your own channel' });
+  }
+
+  const user = await User.followChannel(req.userId, channelId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  res.json({
+    followed: true,
+    followers_count: await User.countChannelFollowers(channelId),
+  });
+}
+
+async function unfollowChannel(req, res) {
+  const { channelId } = req.params;
+  const channel = await Channel.findById(channelId);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+  const user = await User.unfollowChannel(req.userId, channelId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  res.json({
+    followed: false,
+    followers_count: await User.countChannelFollowers(channelId),
+  });
 }
 
 // ── Delete Account Request ──────────────────────────────
@@ -274,7 +317,7 @@ const DELETION_GRACE_DAYS = 30;
  */
 async function requestAccountDeletion(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const { reason, feedback } = req.body;
@@ -411,7 +454,7 @@ async function cancelAccountDeletion(req, res) {
  */
 async function confirmImmediateDeletion(req, res) {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const { password } = req.body;
@@ -425,7 +468,7 @@ async function confirmImmediateDeletion(req, res) {
     }
 
     // Disable all owned channels
-    const activeOwnedChannels = Channel.getEvery().filter((ch) => ch.owner_id === req.userId && ch.is_active);
+    const activeOwnedChannels = (await Channel.getAllByOwner(req.userId)).filter((ch) => ch.is_active);
     for (const channel of activeOwnedChannels) {
       await Channel.disable(channel.id);
     }
@@ -467,6 +510,9 @@ module.exports = {
   getFollowStatus,
   followCreator,
   unfollowCreator,
+  getChannelFollowStatus,
+  followChannel,
+  unfollowChannel,
   getFollowingCreators,
   getBankDetails,
   listSupportedBanks,

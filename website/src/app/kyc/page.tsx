@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/AuthContext";
-import { api, apiFormData, API_BASE } from "@/lib/api";
+import { api, apiFormData } from "@/lib/api";
 
 const ID_TYPES = [
   { value: "national_id", label: "National ID Card" },
@@ -25,7 +25,7 @@ interface KycRecord {
 }
 
 export default function KycPage() {
-  const { isAuthenticated, user, isLoading } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const [kycStatus, setKycStatus] = useState<KycRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);

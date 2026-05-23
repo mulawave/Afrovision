@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { authenticateToken } = require('../utils/jwt');
+const { authenticateToken, optionalAuth } = require('../utils/jwt');
 const ctrl = require('./broadcast.controller');
 const { videoUpload, uploadVideoToGCS } = require('./video.upload');
 const { upload, uploadSingleToGCS } = require('../utils/upload');
@@ -36,8 +36,8 @@ router.post('/schedule/sequential', authenticateToken, ctrl.scheduleSequential);
 router.get('/schedule/:channelId', authenticateToken, ctrl.getChannelSchedule);
 router.delete('/schedule/:programId', authenticateToken, ctrl.deleteProgram);
 
-// Playback (viewer) — authenticated for subscription gating
-router.get('/now-playing/:channelId', authenticateToken, ctrl.getNowPlaying);
+// Playback (viewer) — public for open channels, token is optional for user context
+router.get('/now-playing/:channelId', optionalAuth, ctrl.getNowPlaying);
 
 // Reminders (viewer)
 router.get('/reminders/me', authenticateToken, ctrl.getMyReminders);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:video_player/video_player.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../services/broadcast_service.dart';
@@ -71,6 +72,17 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   bool _showFullscreenGift = false;
   bool _showFullscreenReact = false;
   Timer? _hideControlsTimer;
+
+  // Follow state
+  bool _followLoading = false;
+  bool _isFollowing = false;
+  int _followersCount = 0;
+
+  // Channel surfer state
+  List<ChannelModel> _surferChannels = [];
+  bool _surferLoading = false;
+  int _surferIndex = -1;
+  String? _surferError;
 
   @override
   void initState() {
@@ -166,6 +178,12 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
     try {
       _channel = await ChannelService.getChannelById(_channelId!);
+
+      // Keep analytics parity with website by recording channel view on open.
+      ChannelService.recordView(_channelId!).catchError((_) {});
+      _loadFollowStatus();
+      _loadSurferChannels();
+
       if (_channel!.requiresPayment) {
         final access = await PremiumStreamService.checkAccess(_channelId!);
         if ((access['has_access'] as bool? ?? false) != true) {
@@ -201,14 +219,19 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             ? videoUrl
             : '${AppConfig.baseUrl}$videoUrl';
 
-        await _initBroadcastPlayer(
-          fullUrl,
-          startTime,
-          endTime,
-          _duration,
-          positionSec,
-          _isLoop,
-        );
+        // Check if this is an external stream
+        if (_channel != null && _channel!.streamSourceMode != 'native') {
+          await _initExternalStream(_channel!, startTime, endTime, _duration);
+        } else {
+          await _initBroadcastPlayer(
+            fullUrl,
+            startTime,
+            endTime,
+            _duration,
+            positionSec,
+            _isLoop,
+          );
+        }
 
         // Trigger pre-roll (first load) or mid-roll (program change)
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -233,6 +256,280 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       _eventTimer?.cancel();
       _animCtrl.forward();
     }
+  }
+
+  Future<void> _loadFollowStatus() async {
+    final ch = _channel;
+    if (ch == null) return;
+    try {
+      final status = await ChannelService.getFollowStatus(ch.ownerId);
+      if (!mounted) return;
+      setState(() {
+        _isFollowing = status.followed;
+        _followersCount = status.followersCount;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isFollowing = false;
+        _followersCount = ch.followersCount;
+      });
+    }
+  }
+
+  Future<void> _toggleFollow() async {
+    final ch = _channel;
+    if (ch == null || _followLoading) return;
+    setState(() => _followLoading = true);
+    try {
+      final status = _isFollowing
+          ? await ChannelService.unfollowCreator(ch.ownerId)
+          : await ChannelService.followCreator(ch.ownerId);
+      if (!mounted) return;
+      setState(() {
+        _isFollowing = status.followed;
+        _followersCount = status.followersCount;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Could not update follow status. Please retry.',
+            style: TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _followLoading = false);
+    }
+  }
+
+  Future<void> _loadSurferChannels() async {
+    if (_channelId == null) return;
+    setState(() {
+      _surferLoading = true;
+      _surferError = null;
+    });
+    try {
+      final channels = await ChannelService.getPublicChannels();
+      if (!mounted) return;
+
+      var list = channels;
+      final current = _channel;
+      if (current != null && list.indexWhere((c) => c.id == current.id) == -1) {
+        list = [current, ...list];
+      }
+
+      final idx = list.indexWhere((c) => c.id == _channelId);
+      setState(() {
+        _surferChannels = list;
+        _surferIndex = idx >= 0 ? idx : 0;
+        _surferError = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _surferError = 'Unable to load channel surfer';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Unable to load channel surfer. Tap retry.',
+            style: TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _surferLoading = false);
+    }
+  }
+
+  Future<void> _switchToChannel(ChannelModel next) async {
+    if (_channelId == next.id || _loading) return;
+    setState(() {
+      _channelId = next.id;
+    });
+    await _loadReminders();
+    await _fetchNowPlaying();
+  }
+
+  void _switchRelative(int direction) {
+    if (_surferChannels.isEmpty || _surferIndex < 0) return;
+    final nextIndex = (_surferIndex + direction).clamp(
+      0,
+      _surferChannels.length - 1,
+    );
+    if (nextIndex == _surferIndex) return;
+    _switchToChannel(_surferChannels[nextIndex]);
+  }
+
+  void _openSurferSheet() {
+    if (_surferChannels.isEmpty) return;
+    var gridMode = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.72,
+              decoration: const BoxDecoration(
+                color: AppColors.darkBlue,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.goldText.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                    child: Row(
+                      children: [
+                        const Text(
+                          'CHANNEL SURFER',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.4,
+                          ),
+                        ),
+                        const Spacer(),
+                        ToggleButtons(
+                          isSelected: [!gridMode, gridMode],
+                          onPressed: (i) {
+                            setSheetState(() => gridMode = i == 1);
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          borderColor: AppColors.inputBorder,
+                          selectedBorderColor: AppColors.orange,
+                          selectedColor: AppColors.white,
+                          color: AppColors.goldText,
+                          fillColor: AppColors.orange.withValues(alpha: 0.2),
+                          constraints: const BoxConstraints(
+                            minHeight: 30,
+                            minWidth: 38,
+                          ),
+                          children: const [
+                            Icon(Icons.view_list_rounded, size: 18),
+                            Icon(Icons.grid_view_rounded, size: 18),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: gridMode
+                        ? GridView.builder(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  mainAxisSpacing: 10,
+                                  crossAxisSpacing: 10,
+                                  childAspectRatio: 1.55,
+                                ),
+                            itemCount: _surferChannels.length,
+                            itemBuilder: (_, i) {
+                              final item = _surferChannels[i];
+                              final selected = item.id == _channelId;
+                              return _buildSurferTile(item, selected, true);
+                            },
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                            itemCount: _surferChannels.length,
+                            itemBuilder: (_, i) {
+                              final item = _surferChannels[i];
+                              final selected = item.id == _channelId;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _buildSurferTile(item, selected, false),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSurferTile(ChannelModel item, bool selected, bool compactGrid) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.pop(context);
+        _switchToChannel(item);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: EdgeInsets.symmetric(
+          horizontal: compactGrid ? 10 : 12,
+          vertical: compactGrid ? 10 : 12,
+        ),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.orange.withValues(alpha: 0.16)
+              : AppColors.inputFill,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? AppColors.orange.withValues(alpha: 0.65)
+                : AppColors.inputBorder,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '#${item.channelNumber}',
+                    style: TextStyle(color: AppColors.goldText, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              const Icon(
+                Icons.play_circle_fill_rounded,
+                color: AppColors.orange,
+                size: 18,
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _initBroadcastPlayer(
@@ -279,6 +576,91 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       _eventTimer?.cancel();
       _animCtrl.forward();
     }
+  }
+
+  Future<void> _initExternalStream(
+    ChannelModel channel,
+    int startTime,
+    int endTime,
+    int duration,
+  ) async {
+    final playbackUrl = channel.resolvedPlaybackUrl ?? channel.externalUrl;
+    if (playbackUrl == null || playbackUrl.isEmpty) {
+      setState(() {
+        _error = 'No playback URL configured for this external stream.';
+        _loading = false;
+      });
+      _animCtrl.forward();
+      return;
+    }
+
+    if (channel.streamSourceMode == 'external_youtube') {
+      await _resolveYouTubeStream(playbackUrl, startTime, endTime, duration);
+    } else if (channel.streamSourceMode == 'external_hls' ||
+        channel.streamSourceMode == 'external_dash') {
+      await _playExternalStream(playbackUrl, startTime, endTime, duration);
+    } else {
+      setState(() {
+        _error =
+            'Unsupported external stream mode: ${channel.streamSourceMode}';
+        _loading = false;
+      });
+      _animCtrl.forward();
+    }
+  }
+
+  Future<void> _resolveYouTubeStream(
+    String url,
+    int startTime,
+    int endTime,
+    int duration,
+  ) async {
+    final yt = YoutubeExplode();
+    try {
+      final videoId = VideoId.parseVideoId(url);
+      if (videoId == null) {
+        throw Exception('Invalid YouTube URL: $url');
+      }
+
+      final manifest = await yt.videos.streamsClient
+          .getManifest(videoId)
+          .timeout(const Duration(seconds: 15));
+
+      // Prefer muxed streams so video + audio are both available.
+      final muxed = manifest.muxed.sortByBitrate();
+      final info = muxed.isNotEmpty
+          ? muxed.last
+          : (throw Exception('No playable YouTube stream variants found.'));
+
+      await _initBroadcastPlayer(
+        info.url.toString(),
+        startTime,
+        endTime,
+        duration,
+        0,
+        false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not resolve YouTube playback stream: $e';
+        _loading = false;
+      });
+      _eventTimer?.cancel();
+      _animCtrl.forward();
+    } finally {
+      yt.close();
+    }
+  }
+
+  Future<void> _playExternalStream(
+    String url,
+    int startTime,
+    int endTime,
+    int duration,
+  ) async {
+    final fullUrl = url.startsWith('http') ? url : '${AppConfig.baseUrl}$url';
+    await _initBroadcastPlayer(fullUrl, startTime, endTime, duration, 0, false);
   }
 
   void _startEventPolling() {
@@ -846,6 +1228,60 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
               ),
             ),
           ),
+          if (_channel != null)
+            Container(
+              margin: const EdgeInsets.only(right: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.cardBg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppColors.inputBorder.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.people_alt_rounded,
+                    color: AppColors.goldText,
+                    size: 12,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$_followersCount',
+                    style: const TextStyle(
+                      color: AppColors.goldText,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _followLoading ? null : _toggleFollow,
+                    child: _followLoading
+                        ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.orange,
+                            ),
+                          )
+                        : Text(
+                            _isFollowing ? 'Following' : 'Follow',
+                            style: TextStyle(
+                              color: _isFollowing
+                                  ? AppColors.lightOrange
+                                  : AppColors.orange,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
           if (_nowPlaying != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -1405,6 +1841,10 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
                 const SizedBox(height: 16),
 
+                _buildSurferBar(),
+
+                const SizedBox(height: 16),
+
                 // Reaction + Gift bar
                 _buildInteractionBar(),
 
@@ -1783,6 +2223,125 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSurferBar() {
+    final canGoPrev = _surferIndex > 0;
+    final canGoNext =
+        _surferIndex >= 0 && _surferIndex < _surferChannels.length - 1;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.inputBorder.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        children: [
+          _surferArrow(
+            icon: Icons.skip_previous_rounded,
+            enabled: canGoPrev,
+            onTap: () => _switchRelative(-1),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: GestureDetector(
+              onTap: _surferError != null
+                  ? _loadSurferChannels
+                  : (_surferChannels.isEmpty ? null : _openSurferSheet),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.inputFill,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.inputBorder),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.sensors_rounded,
+                      size: 15,
+                      color: AppColors.lightOrange,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        _surferLoading
+                            ? 'Loading channels...'
+                            : _surferError != null
+                            ? 'Channel surfer unavailable'
+                            : _channel?.name ?? 'Channel Surfer',
+                        style: TextStyle(
+                          color: AppColors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text(
+                      _surferChannels.isEmpty
+                          ? '-'
+                          : '${_surferIndex + 1}/${_surferChannels.length}',
+                      style: TextStyle(
+                        color: AppColors.goldText,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      _surferError != null
+                          ? Icons.refresh_rounded
+                          : Icons.expand_more_rounded,
+                      size: 16,
+                      color: AppColors.goldText,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _surferArrow(
+            icon: Icons.skip_next_rounded,
+            enabled: canGoNext,
+            onTap: () => _switchRelative(1),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _surferArrow({
+    required IconData icon,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: AnimatedOpacity(
+        opacity: enabled ? 1 : 0.35,
+        duration: const Duration(milliseconds: 180),
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: AppColors.inputFill,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.inputBorder),
+          ),
+          child: Icon(icon, color: AppColors.white, size: 18),
+        ),
+      ),
     );
   }
 

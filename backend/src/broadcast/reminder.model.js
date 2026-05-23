@@ -2,19 +2,9 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'program_reminders';
-const reminders = [];
-let initialized = false;
 
 async function init() {
-  if (initialized) return;
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    data.id = doc.id;
-    reminders.push(data);
-  });
-  initialized = true;
+  return [];
 }
 
 async function create({ userId, programId, channelId, programTitle, channelName, sendAt }) {
@@ -32,40 +22,67 @@ async function create({ userId, programId, channelId, programTitle, channelName,
     created_at: Date.now(),
   };
   await db.collection(COLLECTION).doc(id).set(reminder);
-  reminders.push(reminder);
   return reminder;
 }
 
-function getByUser(userId) {
-  return reminders.filter((r) => r.user_id === userId && !r.sent);
+async function getByUser(userId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('user_id', '==', userId)
+    .where('sent', '==', false)
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function getByProgramAndUser(programId, userId) {
-  return reminders.find(
-    (r) => r.program_id === programId && r.user_id === userId && !r.sent
-  ) || null;
+async function getByProgramAndUser(programId, userId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('program_id', '==', programId)
+    .where('user_id', '==', userId)
+    .where('sent', '==', false)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  return { ...doc.data(), id: doc.id };
 }
 
 async function remove(userId, programId) {
-  const idx = reminders.findIndex(
-    (r) => r.user_id === userId && r.program_id === programId && !r.sent
-  );
-  if (idx === -1) return false;
-  const reminder = reminders[idx];
-  reminders.splice(idx, 1);
   const db = getFirestore();
-  await db.collection(COLLECTION).doc(reminder.id).delete();
+  const snapshot = await db.collection(COLLECTION)
+    .where('user_id', '==', userId)
+    .where('program_id', '==', programId)
+    .where('sent', '==', false)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return false;
+  await snapshot.docs[0].ref.delete();
   return true;
 }
 
-function getDueReminders(now) {
-  return reminders.filter((r) => !r.sent && r.send_at <= now);
+async function getDueReminders(now, limit = 50) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('sent', '==', false)
+    .where('send_at', '<=', now)
+    .orderBy('send_at', 'asc')
+    .limit(limit)
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+}
+
+async function getNextDueAt() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('sent', '==', false)
+    .orderBy('send_at', 'asc')
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  return snapshot.docs[0].data().send_at ?? null;
 }
 
 async function markSent(id) {
-  const reminder = reminders.find((r) => r.id === id);
-  if (!reminder) return;
-  reminder.sent = true;
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).update({ sent: true });
 }
@@ -77,5 +94,6 @@ module.exports = {
   getByProgramAndUser,
   remove,
   getDueReminders,
+  getNextDueAt,
   markSent,
 };

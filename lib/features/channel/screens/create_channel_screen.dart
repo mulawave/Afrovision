@@ -20,6 +20,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
     with SingleTickerProviderStateMixin {
   final _nameController = TextEditingController();
   final _descController = TextEditingController();
+  final _externalUrlController = TextEditingController();
+  final _exclusiveFeeController = TextEditingController(text: '5000');
   String? _selectedCategory;
   String _type = 'public';
   bool _creating = false;
@@ -33,6 +35,12 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
+
+  // External stream source state
+  String _streamSourceMode = 'native';
+  bool _validatingUrl = false;
+  String? _urlValidationMessage;
+  bool _urlValidationOk = false;
 
   @override
   void initState() {
@@ -53,6 +61,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
   void dispose() {
     _nameController.dispose();
     _descController.dispose();
+    _externalUrlController.dispose();
+    _exclusiveFeeController.dispose();
     _animController.dispose();
     super.dispose();
   }
@@ -130,6 +140,32 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
       setState(() => _error = 'Please select a category');
       return;
     }
+    final canPremiumTypes =
+        (_user?.isPremiumCreator ?? false) || _user?.isAdmin == true;
+    if ((_type == 'private' || _type == 'exclusive') && !canPremiumTypes) {
+      setState(
+        () => _error =
+            'Premium creator subscription is required for private and exclusive channels',
+      );
+      return;
+    }
+    if (_type == 'exclusive') {
+      final fee = double.tryParse(_exclusiveFeeController.text.trim()) ?? 0;
+      if (fee <= 0) {
+        setState(
+          () =>
+              _error = 'Exclusive monthly entrance fee must be greater than 0',
+        );
+        return;
+      }
+    }
+    if (_streamSourceMode != 'native' &&
+        _externalUrlController.text.trim().isEmpty) {
+      setState(
+        () => _error = 'A stream URL is required for the selected source mode',
+      );
+      return;
+    }
     setState(() {
       _error = null;
       _creating = true;
@@ -150,6 +186,23 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         await ChannelService.uploadBanner(channel.id, _bannerFile!);
       }
 
+      // Persist external source settings when a non-native mode was chosen
+      if (_streamSourceMode != 'native') {
+        await ChannelService.updateExternalSource(
+          channel.id,
+          streamSourceMode: _streamSourceMode,
+          externalUrl: _externalUrlController.text.trim(),
+        );
+      }
+
+      if (_type == 'exclusive') {
+        final fee = double.tryParse(_exclusiveFeeController.text.trim()) ?? 0;
+        await ChannelService.updateExclusiveSettings(
+          channel.id,
+          monthlyFeeNgn: fee,
+        );
+      }
+
       if (!mounted) return;
       Navigator.pushReplacementNamed(
         context,
@@ -162,6 +215,49 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         _error = e.toString();
         _creating = false;
       });
+    }
+  }
+
+  Future<void> _validateUrl() async {
+    final url = _externalUrlController.text.trim();
+    if (url.isEmpty) return;
+    setState(() {
+      _validatingUrl = true;
+      _urlValidationMessage = null;
+      _urlValidationOk = false;
+    });
+    try {
+      final result = await ChannelService.resolveSource(url);
+      if (!mounted) return;
+      final mode = result['stream_source_mode'] as String? ?? '';
+      final status = result['stream_status'] as String? ?? 'unknown';
+      setState(() {
+        _validatingUrl = false;
+        _urlValidationOk = true;
+        _urlValidationMessage =
+            'Valid ${_sourceModeLabel(mode)} \u2022 Status: $status';
+        _streamSourceMode = mode;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _validatingUrl = false;
+        _urlValidationOk = false;
+        _urlValidationMessage = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  String _sourceModeLabel(String mode) {
+    switch (mode) {
+      case 'external_youtube':
+        return 'YouTube';
+      case 'external_hls':
+        return 'HLS Stream';
+      case 'external_dash':
+        return 'DASH Stream';
+      default:
+        return 'Native';
     }
   }
 
@@ -369,7 +465,9 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
   }
 
   Widget _buildForm() {
-    final canPrivate = _user?.isPremiumCreator ?? false;
+    final canPrivate =
+        (_user?.isPremiumCreator ?? false) || _user?.isAdmin == true;
+    final canExclusive = canPrivate;
 
     return FadeTransition(
       opacity: _fadeAnim,
@@ -460,6 +558,20 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                         enabled: canPrivate,
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildTypeOption(
+                        label: 'Exclusive',
+                        icon: canExclusive
+                            ? Icons.verified_user_rounded
+                            : Icons.lock_outline_rounded,
+                        selected: _type == 'exclusive',
+                        onTap: canExclusive
+                            ? () => setState(() => _type = 'exclusive')
+                            : null,
+                        enabled: canExclusive,
+                      ),
+                    ),
                   ],
                 ),
                 if (!canPrivate)
@@ -474,7 +586,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'Premium subscription required for private channels',
+                          'Premium subscription required for private and exclusive channels',
                           style: TextStyle(
                             color: AppColors.goldText,
                             fontSize: 11,
@@ -483,6 +595,20 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                       ],
                     ),
                   ),
+                if (_type == 'exclusive')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: AppTextField(
+                      controller: _exclusiveFeeController,
+                      label: 'EXCLUSIVE MONTHLY FEE (NGN)',
+                      hint: '5000',
+                      prefixIcon: Icons.payments_rounded,
+                    ),
+                  ),
+                const SizedBox(height: 16),
+
+                // External stream source section
+                _buildSourceSection(),
                 const SizedBox(height: 16),
 
                 if (_error != null)
@@ -564,11 +690,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 ? Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
-                        icon,
-                        color: AppColors.goldText,
-                        size: 32,
-                      ),
+                      Icon(icon, color: AppColors.goldText, size: 32),
                       const SizedBox(height: 8),
                       Text(
                         hint,
@@ -834,6 +956,221 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                     : AppColors.goldText,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSourceSection() {
+    final modes = [
+      ('native', 'Native', Icons.videocam_rounded),
+      ('external_youtube', 'YouTube', Icons.smart_display_rounded),
+      ('external_hls', 'HLS', Icons.rss_feed_rounded),
+      ('external_dash', 'DASH', Icons.stream_rounded),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _streamSourceMode != 'native'
+              ? AppColors.orange.withValues(alpha: 0.35)
+              : AppColors.inputBorder,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.link_rounded,
+                  color: AppColors.orange,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'STREAM SOURCE',
+                style: TextStyle(
+                  color: AppColors.goldText,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Mode selector
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: modes
+                .map((m) => _buildModeChip(mode: m.$1, label: m.$2, icon: m.$3))
+                .toList(),
+          ),
+
+          // URL input — visible for all non-native modes
+          if (_streamSourceMode != 'native') ...[
+            const SizedBox(height: 14),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: AppTextField(
+                    controller: _externalUrlController,
+                    label: _streamSourceMode == 'external_youtube'
+                        ? 'YOUTUBE URL'
+                        : _streamSourceMode == 'external_hls'
+                        ? 'HLS MANIFEST URL (.m3u8)'
+                        : 'DASH MANIFEST URL (.mpd)',
+                    hint: _streamSourceMode == 'external_youtube'
+                        ? 'https://youtube.com/watch?v=...'
+                        : _streamSourceMode == 'external_hls'
+                        ? 'https://example.com/stream.m3u8'
+                        : 'https://example.com/stream.mpd',
+                    prefixIcon: Icons.link_rounded,
+                    onChanged: (_) {
+                      if (_urlValidationMessage != null) {
+                        setState(() {
+                          _urlValidationMessage = null;
+                          _urlValidationOk = false;
+                        });
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: _validatingUrl ? null : _validateUrl,
+                  child: Container(
+                    height: 52,
+                    width: 52,
+                    decoration: BoxDecoration(
+                      gradient: _validatingUrl
+                          ? AppColors.buttonDisabledGradient
+                          : AppColors.buttonGradient,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.orange.withValues(alpha: 0.25),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: _validatingUrl
+                        ? const Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  AppColors.white,
+                                ),
+                              ),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.check_circle_outline_rounded,
+                            color: AppColors.white,
+                            size: 22,
+                          ),
+                  ),
+                ),
+              ],
+            ),
+            if (_urlValidationMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      _urlValidationOk
+                          ? Icons.check_circle_rounded
+                          : Icons.error_outline_rounded,
+                      color: _urlValidationOk
+                          ? AppColors.successGreen
+                          : AppColors.errorRed,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _urlValidationMessage!,
+                        style: TextStyle(
+                          color: _urlValidationOk
+                              ? AppColors.successGreen
+                              : AppColors.errorRed,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeChip({
+    required String mode,
+    required String label,
+    required IconData icon,
+  }) {
+    final selected = _streamSourceMode == mode;
+    return GestureDetector(
+      onTap: () => setState(() {
+        _streamSourceMode = mode;
+        _urlValidationMessage = null;
+        _urlValidationOk = false;
+      }),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.orange.withValues(alpha: 0.15)
+              : AppColors.darkBlue.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected
+                ? AppColors.orange.withValues(alpha: 0.6)
+                : AppColors.inputBorder,
+            width: selected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: selected ? AppColors.orange : AppColors.hintText,
+              size: 14,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? AppColors.lightOrange : AppColors.hintText,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
           ],

@@ -2,8 +2,14 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'payments';
-let payments = [];
-let initialized = false;
+const paymentsById = new Map();
+
+function syncCache(payment) {
+  if (payment && payment.id) {
+    paymentsById.set(payment.id, payment);
+  }
+  return payment;
+}
 
 async function persist(payment) {
   const db = getFirestore();
@@ -11,28 +17,44 @@ async function persist(payment) {
 }
 
 async function init() {
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  payments = snapshot.docs.map((doc) => doc.data());
-  initialized = true;
-  return payments;
+  return [];
 }
 
 function isInitialized() {
-  return initialized;
+  return true;
 }
 
-function findById(id) {
-  return payments.find((payment) => payment.id === id) || null;
+async function findById(id) {
+  if (paymentsById.has(id)) {
+    return paymentsById.get(id);
+  }
+
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+
+  return syncCache({ id: doc.id, ...doc.data() });
 }
 
-function findByReference(reference) {
-  return payments.find((payment) => payment.reference === reference) || null;
+async function findByReference(reference) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('reference', '==', reference)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+
+  const doc = snapshot.docs[0];
+  return syncCache({ id: doc.id, ...doc.data() });
 }
 
-function getByUser(uid) {
-  return payments
-    .filter((payment) => payment.uid === uid)
+async function getByUser(uid) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('uid', '==', uid)
+    .get();
+  return snapshot.docs
+    .map((doc) => syncCache({ id: doc.id, ...doc.data() }))
     .sort((a, b) => b.created_at - a.created_at);
 }
 
@@ -60,17 +82,16 @@ async function create(input) {
     created_at: timestamp,
     updated_at: timestamp,
   };
-  payments.push(payment);
   await persist(payment);
-  return payment;
+  return syncCache(payment);
 }
 
 async function update(id, fields) {
-  const payment = findById(id);
+  const payment = await findById(id);
   if (!payment) return null;
   Object.assign(payment, fields, { updated_at: Date.now() });
   await persist(payment);
-  return payment;
+  return syncCache(payment);
 }
 
 module.exports = {

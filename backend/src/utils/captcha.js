@@ -8,7 +8,7 @@ const { RecaptchaEnterpriseServiceClient } = require('@google-cloud/recaptcha-en
 const SettingsService = require('../admin/settings.service');
 
 const DEFAULT_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'raven-ai-6ff76';
-const DEFAULT_SITE_KEY = process.env.RECAPTCHA_SITE_KEY || '6LeuIsEsAAAAAO6xD7D08pQAraweXcxw9pHBg94k';
+const DEFAULT_SITE_KEY = process.env.RECAPTCHA_SITE_KEY || '';
 const MIN_ENTERPRISE_SCORE = Number(process.env.RECAPTCHA_MIN_SCORE || 0.3);
 
 let enterpriseClient = null;
@@ -67,6 +67,15 @@ async function verifyCaptchaEnterprise(token, expectedAction, siteKey, projectId
  * This allows dev/staging environments to work without CAPTCHA keys.
  */
 async function verifyCaptcha(token, expectedAction = 'LOGIN') {
+  const processEnvironment = String(process.env.ENVIRONMENT || process.env.NODE_ENV || '').toLowerCase();
+  const localDevBypass = ['development', 'dev', 'local', 'test'].includes(processEnvironment)
+    || String(process.env.CAPTCHA_BYPASS || '').toLowerCase() === 'true';
+
+  // Local/dev environments should not be blocked by browser-bound CAPTCHA checks.
+  if (localDevBypass) {
+    return { success: true, bypassed: true };
+  }
+
   let secretKey;
   let siteKey;
   let environment;

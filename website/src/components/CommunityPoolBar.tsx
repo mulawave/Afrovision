@@ -3,17 +3,13 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
-import { getHomeStatsApi } from "@/lib/api";
+import {
+  getCachedCommunityPoolStats,
+  getCommunityPoolStats,
+  type CommunityPoolStats,
+} from "@/lib/home-stats";
 
 const AUTH_ROUTES = ["/login", "/register", "/pak-login", "/forgot-password", "/reset-password"];
-
-interface PoolData {
-  total_vpt: number;
-  total_ngn: number;
-  total_distributed_vpt: number;
-  total_distributed_ngn: number;
-  total_beneficiaries: number;
-}
 
 function formatNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
@@ -21,42 +17,62 @@ function formatNum(n: number): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function getDisplayVpt(pool: CommunityPoolStats): number {
+  const rawVpt = Number(pool.total_vpt || 0);
+  const ngn = Number(pool.total_ngn || 0);
+  const rate = Number(pool.vpt_rate || 0);
+
+  if (ngn <= 0) return rawVpt;
+  if (rate <= 0) return rawVpt;
+
+  const derivedVpt = ngn / rate;
+  // Keep header values internally consistent if stored vPT is stale/undercounted.
+  return Math.max(rawVpt, derivedVpt);
+}
+
 export function CommunityPoolBar() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isLoading } = useAuth();
   const pathname = usePathname();
-  const [pool, setPool] = useState<PoolData | null>(null);
+  const [pool, setPool] = useState<CommunityPoolStats | null>(() => getCachedCommunityPoolStats());
   const hidden = AUTH_ROUTES.includes(pathname);
 
   useEffect(() => {
     if (isLoading || hidden) return;
     let cancelled = false;
 
-    async function load() {
-      try {
-        const res = await getHomeStatsApi();
-        if (!cancelled && res.ok && "community_pool" in res.data) {
-          setPool(res.data.community_pool);
-        }
-      } catch {
-        /* silent */
+    async function load(forceRefresh = false) {
+      const nextPool = await getCommunityPoolStats(forceRefresh);
+      if (!cancelled && nextPool) {
+        setPool(nextPool);
       }
     }
 
     load();
-    // Refresh every 60 seconds
-    const interval = setInterval(load, 60_000);
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") {
+        load();
+      }
+    }
+
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [isLoading, hidden]);
 
   if (hidden || isLoading || !pool) return null;
 
+  const displayPoolVpt = getDisplayVpt(pool);
+
   const stats = [
     {
       label: "Pool Balance",
-      vpt: pool.total_vpt,
+      vpt: displayPoolVpt,
       ngn: pool.total_ngn,
       icon: (
         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

@@ -17,16 +17,17 @@ function summarizeUser(user) {
 
 function findAnyChannel(channelId) {
   if (!channelId) return null;
-  return Channel.getEvery().find((channel) => channel.id === channelId) || null;
+  return Channel.findCachedById(channelId) || null;
 }
 
 function serializeChannelForAdmin(channel) {
   if (!channel) return null;
 
-  const owner = summarizeUser(User.findById(channel.owner_id));
+  const owner = summarizeUser(User.findCachedById(channel.owner_id));
 
   return {
     ...channel,
+    channel_number: Number(channel.channel_number) || channel.channel_number,
     owner,
     owner_name: owner?.name || null,
     owner_email: owner?.email || null,
@@ -54,8 +55,8 @@ function summarizeChannel(channel) {
 function serializeWithdrawalForAdmin(withdrawal) {
   if (!withdrawal) return null;
 
-  const user = summarizeUser(User.findById(withdrawal.uid));
-  const handledBy = summarizeUser(User.findById(withdrawal.handled_by || withdrawal.processed_by || null));
+  const user = summarizeUser(User.findCachedById(withdrawal.uid));
+  const handledBy = summarizeUser(User.findCachedById(withdrawal.handled_by || withdrawal.processed_by || null));
 
   return {
     ...withdrawal,
@@ -69,8 +70,8 @@ function serializeWithdrawalForAdmin(withdrawal) {
 function serializeCreatorSubscriptionForAdmin(subscription) {
   if (!subscription) return null;
 
-  const subscriber = summarizeUser(User.findById(subscription.subscriber_uid));
-  const creator = summarizeUser(User.findById(subscription.creator_uid));
+  const subscriber = summarizeUser(User.findCachedById(subscription.subscriber_uid));
+  const creator = summarizeUser(User.findCachedById(subscription.creator_uid));
 
   return {
     ...subscription,

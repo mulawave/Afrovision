@@ -1,7 +1,14 @@
 ﻿'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import Image from 'next/image';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { serveBannerAdApi, recordAdImpressionApi, type Advertisement } from '@/lib/api';
+import { resolveWebsiteMediaUrl } from '@/lib/media';
+
+const BANNER_TTL_MS = 60_000;
+
+const bannerCache = new Map<string, { ad: Advertisement | null; updatedAt: number }>();
+const bannerRequestInFlight = new Map<string, Promise<Advertisement | null>>();
 
 interface BannerAdProps {
   placement: 'home' | 'page';
@@ -9,26 +16,77 @@ interface BannerAdProps {
   className?: string;
 }
 
-export function BannerAd({ placement, channelId, className = '' }: BannerAdProps) {
-  const [ad, setAd] = useState<Advertisement | null>(null);
+function getBannerCacheKey(placement: BannerAdProps['placement'], channelId?: string) {
+  return `${placement}:${channelId ?? ''}`;
+}
 
-  const load = useCallback(async () => {
-    try {
-      const res = await serveBannerAdApi(placement, channelId);
-      if (res.ok && res.data && 'ad' in res.data && res.data.ad) {
-        setAd(res.data.ad);
-        // Record impression
-        recordAdImpressionApi(res.data.ad.id, channelId).catch(() => {});
+async function getBannerAd(
+  placement: BannerAdProps['placement'],
+  channelId?: string,
+  forceRefresh = false,
+): Promise<Advertisement | null> {
+  const cacheKey = getBannerCacheKey(placement, channelId);
+  const cached = bannerCache.get(cacheKey);
+  const now = Date.now();
+
+  if (!forceRefresh && cached && now - cached.updatedAt < BANNER_TTL_MS) {
+    return cached.ad;
+  }
+
+  if (!bannerRequestInFlight.has(cacheKey)) {
+    bannerRequestInFlight.set(cacheKey, (async () => {
+      try {
+        const res = await serveBannerAdApi(placement, channelId);
+        const nextAd = res.ok && res.data && 'ad' in res.data ? (res.data.ad ?? null) : null;
+        bannerCache.set(cacheKey, { ad: nextAd, updatedAt: Date.now() });
+        return nextAd;
+      } catch {
+        return cached?.ad ?? null;
+      } finally {
+        bannerRequestInFlight.delete(cacheKey);
       }
-    } catch { /* silent */ }
+    })());
+  }
+
+  return bannerRequestInFlight.get(cacheKey) ?? null;
+}
+
+export function BannerAd({ placement, channelId, className = '' }: BannerAdProps) {
+  const cacheKey = getBannerCacheKey(placement, channelId);
+  const [ad, setAd] = useState<Advertisement | null>(() => bannerCache.get(cacheKey)?.ad ?? null);
+  const lastImpressionIdRef = useRef<string | null>(null);
+
+  const load = useCallback(async (forceRefresh = false) => {
+    const nextAd = await getBannerAd(placement, channelId, forceRefresh);
+    setAd(nextAd);
   }, [placement, channelId]);
 
   useEffect(() => {
-    load();
-    // Refresh banner every 60s
-    const interval = setInterval(load, 60_000);
-    return () => clearInterval(interval);
+    const initialLoadTimeout = window.setTimeout(() => {
+      void load();
+    }, 0);
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === 'visible') {
+        void load();
+      }
+    }
+
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      window.clearTimeout(initialLoadTimeout);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [load]);
+
+  useEffect(() => {
+    if (!ad?.id || lastImpressionIdRef.current == ad.id) return;
+    lastImpressionIdRef.current = ad.id;
+    recordAdImpressionApi(ad.id, channelId).catch(() => {});
+  }, [ad?.id, channelId]);
 
   if (!ad) return null;
 
@@ -59,9 +117,12 @@ export function BannerAd({ placement, channelId, className = '' }: BannerAdProps
             className="w-full h-auto max-h-[200px] object-cover"
           />
         ) : mediaUrl ? (
-          <img
-            src={mediaUrl}
+          <Image
+            src={resolveWebsiteMediaUrl(mediaUrl)}
             alt={ad.title || 'Advertisement'}
+            width={1200}
+            height={675}
+            unoptimized
             className="w-full h-auto max-h-[200px] object-cover"
           />
         ) : (

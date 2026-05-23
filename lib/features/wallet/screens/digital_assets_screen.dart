@@ -79,7 +79,10 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
         ReputationService.getMyReputation()
             .then<ReputationModel?>((v) => v)
             .catchError((_) => null),
-        WalletService.getConnectedWallet().catchError((_) => null),
+        WalletService.getConnectedWallet().catchError((e) {
+          debugPrint('[Wallet] getConnectedWallet error: $e');
+          return null;
+        }),
       ]);
       Map<String, dynamic>? blockchainPreflight;
       String? blockchainPreflightError;
@@ -95,13 +98,18 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
       if (!mounted) return;
       final giftWallet = results[2] as Map<String, dynamic>?;
       final connectedFromApi = results[5] as Map<String, dynamic>?;
+      debugPrint('[Wallet] connectedFromApi: $connectedFromApi');
+      debugPrint(
+        '[Wallet] giftWallet connected_wallet: ${giftWallet?['connected_wallet']}',
+      );
       setState(() {
         _user = profile;
         _ledger = results[0] as List<LedgerEntryModel>;
         _wallet = results[1] as Map<String, dynamic>?;
         _giftWallet = giftWallet;
         _exchangeRates = (results[3] as Map<String, dynamic>?) ?? {};
-        _connectedWallet = connectedFromApi ??
+        _connectedWallet =
+            connectedFromApi ??
             giftWallet?['connected_wallet'] as Map<String, dynamic>?;
         _blockchainPreflight = blockchainPreflight;
         _blockchainPreflightError = blockchainPreflightError;

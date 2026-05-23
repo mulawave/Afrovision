@@ -15,21 +15,41 @@ interface Props {
 }
 
 export default function WithdrawalSuccessModal({ open, amount, totalDebit, transactionFee, serviceCharge, vatAmount, bankName, onClose }: Props) {
+  if (!open) return null;
+
+  return (
+    <WithdrawalSuccessModalContent
+      amount={amount}
+      totalDebit={totalDebit}
+      transactionFee={transactionFee}
+      serviceCharge={serviceCharge}
+      vatAmount={vatAmount}
+      bankName={bankName}
+      onClose={onClose}
+    />
+  );
+}
+
+interface ContentProps {
+  amount: number;
+  totalDebit: number;
+  transactionFee: number;
+  serviceCharge: number;
+  vatAmount: number;
+  bankName: string;
+  onClose: () => void;
+}
+
+function WithdrawalSuccessModalContent({ amount, totalDebit, transactionFee, serviceCharge, vatAmount, bankName, onClose }: ContentProps) {
   const [animStage, setAnimStage] = useState(0);
 
   useEffect(() => {
-    if (!open) {
-      setAnimStage(0);
-      return;
-    }
     // Staggered animation: 0 → circle, 1 → check, 2 → content
     const t1 = setTimeout(() => setAnimStage(1), 300);
     const t2 = setTimeout(() => setAnimStage(2), 700);
     const t3 = setTimeout(() => setAnimStage(3), 1000);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [open]);
-
-  if (!open) return null;
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

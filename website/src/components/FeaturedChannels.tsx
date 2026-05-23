@@ -12,6 +12,7 @@ interface Channel {
   category: string;
   viewers: number;
   isLive: boolean;
+  isPremium?: boolean;
   href?: string;
   bannerUrl?: string | null;
   logoUrl?: string | null;
@@ -42,11 +43,19 @@ function ChannelCard({ channel }: { channel: Channel }) {
   return (
     <NavLink
       href={channel.href || `/live/${channel.id}`}
-      className="group flex-shrink-0 w-[280px] sm:w-[320px] rounded-2xl bg-av-card border border-av-input-border/30 overflow-hidden transition-all duration-300 hover:border-av-orange/40 hover:shadow-lg hover:shadow-av-orange/10 hover:-translate-y-1"
+      className={`group flex-shrink-0 w-[280px] sm:w-[320px] rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${
+        channel.isPremium
+          ? "bg-gradient-to-br from-amber-900/40 to-yellow-900/20 border border-yellow-500/50 hover:border-yellow-400/80 hover:shadow-yellow-500/20"
+          : "bg-av-card border border-av-input-border/30 hover:border-av-orange/40 hover:shadow-av-orange/10"
+      }`}
     >
       {/* Background visual */}
       <div
-        className="relative h-36 bg-gradient-to-br from-av-light-blue/60 to-av-dark-blue overflow-hidden bg-cover bg-center"
+        className={`relative h-36 overflow-hidden bg-cover bg-center ${
+          channel.isPremium
+            ? "bg-gradient-to-br from-yellow-600/20 to-amber-900/40"
+            : "bg-gradient-to-br from-av-light-blue/60 to-av-dark-blue"
+        }`}
         style={channel.bannerUrl ? { backgroundImage: `linear-gradient(180deg,rgba(5,10,48,0.18),rgba(5,10,48,0.82)), url(${resolveWebsiteMediaUrl(channel.bannerUrl)})` } : undefined}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-av-card to-transparent" />
@@ -82,9 +91,16 @@ function ChannelCard({ channel }: { channel: Channel }) {
 
       {/* Info */}
       <div className="p-4 pt-3">
-        <h3 className="text-sm font-semibold text-av-white truncate group-hover:text-av-orange transition-colors">
-          {channel.name}
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-av-white truncate group-hover:text-av-orange transition-colors">
+            {channel.name}
+          </h3>
+          {channel.isPremium && (
+            <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+            </svg>
+          )}
+        </div>
         <p className="text-xs text-av-light-orange mt-0.5">{channel.category}</p>
       </div>
     </NavLink>
@@ -112,6 +128,7 @@ export function FeaturedChannels({ section, loading: externalLoading }: { sectio
         category: item.category,
         viewers: item.viewers,
         isLive: item.is_live,
+        isPremium: item.is_premium_channel || false,
         href: item.href,
         bannerUrl: item.banner_url,
         logoUrl: item.logo_url,

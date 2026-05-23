@@ -3,8 +3,33 @@ const User = require('../users/user.model');
 const CreatorSub = require('../subscriptions/creator_subscription.model');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
+const ExclusiveAccess = require('./exclusive_access.model');
+const { isAdultKycVerified } = require('./exclusive_policy.service');
 const { getFirestore } = require('../utils/firestore');
 const crypto = require('crypto');
+const StreamResolver = require('./stream_resolver.service');
+
+async function getOwnerSafely(ownerId) {
+  try {
+    return await User.findById(ownerId);
+  } catch (error) {
+    const env = String(process.env.ENVIRONMENT || process.env.NODE_ENV || '').toLowerCase();
+    if (['development', 'dev', 'local', 'test'].includes(env)) {
+      console.warn('[Channel] owner lookup skipped in local development:', error.message);
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Returns true unless EXTERNAL_STREAMING_ENABLED is explicitly set to 'false'.
+ * Setting it to 'false' in deploy-env.yaml is the rollback/kill-switch for
+ * the external link-based streaming feature (AV-STR-010).
+ */
+function isExternalStreamingEnabled() {
+  return process.env.EXTERNAL_STREAMING_ENABLED !== 'false';
+}
 
 function sanitize(str) {
   if (typeof str !== 'string') return str;
@@ -12,7 +37,7 @@ function sanitize(str) {
 }
 
 async function createChannel(req, res) {
-  const user = User.findById(req.userId);
+  const user = req.user || await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   if (user.role !== 'creator' && user.role !== 'admin') {
@@ -27,12 +52,12 @@ async function createChannel(req, res) {
   if (description.length > 2000) return res.status(400).json({ error: 'Description must be 2000 characters or fewer' });
 
   const channelType = type || 'public';
-  if (!['public', 'private'].includes(channelType)) {
-    return res.status(400).json({ error: 'Type must be public or private' });
+  if (!['public', 'private', 'exclusive'].includes(channelType)) {
+    return res.status(400).json({ error: 'Type must be public, private, or exclusive' });
   }
 
-  if (channelType === 'private' && !user.is_premium_creator) {
-    return res.status(403).json({ error: 'Only premium creators can create private channels' });
+  if ((channelType === 'private' || channelType === 'exclusive') && !user.is_premium_creator) {
+    return res.status(403).json({ error: 'Only premium creators can create private or exclusive channels' });
   }
 
   const channel = await Channel.create({
@@ -43,43 +68,96 @@ async function createChannel(req, res) {
     type: channelType,
   });
 
-  res.status(201).json({ channel: enrichChannel(channel, user, req.userId) });
+  res.status(201).json({ channel: await safeEnrichChannel(channel, user, req.userId) });
 }
 
-function getPublicChannels(req, res) {
-  const channels = Channel.getPublicChannels();
-  const enriched = channels.map((ch) => {
-    const owner = User.findById(ch.owner_id);
-    return enrichChannel(ch, owner, null);
+async function getPublicChannels(req, res) {
+  const channels = await Channel.getAll();
+  const canSeeExclusive = req.userId ? await isAdultKycVerified(req.userId) : false;
+
+  const visibleChannels = channels.filter((channel) => {
+    if (channel.type === 'public') return true;
+    if (channel.type === 'exclusive') return canSeeExclusive;
+    return false;
   });
+
+  const enriched = await Promise.all(visibleChannels.map(async (ch) => {
+    const owner = await getOwnerSafely(ch.owner_id);
+    return safeEnrichChannel(ch, owner, req.userId || null);
+  }));
   res.json({ channels: enriched });
 }
 
-function getChannelById(req, res) {
-  const channel = Channel.findById(req.params.id);
+async function getChannelById(req, res) {
+  const channel = await Channel.findById(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
-  const owner = User.findById(channel.owner_id);
-  res.json({ channel: enrichChannel(channel, owner, req.userId) });
+  if (channel.type === 'exclusive') {
+    if (!req.userId) {
+      return res.status(403).json({
+        error: 'Login required for exclusive channels',
+        requires_login: true,
+      });
+    }
+
+    const eligibleByKyc = await isAdultKycVerified(req.userId);
+    if (!eligibleByKyc) {
+      return res.status(403).json({
+        error: 'Adult KYC verification is required for exclusive channels',
+        requires_kyc: true,
+      });
+    }
+
+    const access = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
+    if (!access) {
+      return res.status(403).json({
+        error: 'Personal identifier code access required',
+        requires_pic: true,
+        requires_payment: true,
+      });
+    }
+  }
+
+  const owner = await getOwnerSafely(channel.owner_id);
+  res.json({ channel: await safeEnrichChannel(channel, owner, req.userId) });
 }
 
-function getChannelByNumber(req, res) {
-  const channel = Channel.findByNumber(req.params.channelNumber);
+async function getChannelByNumber(req, res) {
+  const channel = await Channel.findByNumber(req.params.channelNumber);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
-  const owner = User.findById(channel.owner_id);
-  res.json({ channel: enrichChannel(channel, owner, req.userId) });
+  if (channel.type === 'exclusive') {
+    const eligibleByKyc = await isAdultKycVerified(req.userId);
+    if (!eligibleByKyc) {
+      return res.status(403).json({
+        error: 'Adult KYC verification is required for exclusive channels',
+        requires_kyc: true,
+      });
+    }
+
+    const access = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
+    if (!access) {
+      return res.status(403).json({
+        error: 'Personal identifier code access required',
+        requires_pic: true,
+        requires_payment: true,
+      });
+    }
+  }
+
+  const owner = await getOwnerSafely(channel.owner_id);
+  res.json({ channel: await safeEnrichChannel(channel, owner, req.userId) });
 }
 
 async function updateChannel(req, res) {
-  const channel = Channel.findById(req.params.id);
+  const channel = await Channel.findById(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   if (channel.owner_id !== req.userId) {
     return res.status(403).json({ error: 'Not channel owner' });
   }
 
   // vPT edit gating: creators need ≥500 vPT balance to edit
-  const user = User.findById(req.userId);
+  const user = req.user || await User.findById(req.userId);
   if (user && user.role === 'creator' && user.vpt < 500) {
     return res.status(403).json({ error: 'Insufficient vPT balance. You need at least ₦500 vPT to edit a channel.' });
   }
@@ -90,64 +168,283 @@ async function updateChannel(req, res) {
     description: description ? sanitize(description) : undefined,
     category: category ? sanitize(category) : undefined,
   });
-  const owner = User.findById(updated.owner_id);
-  res.json({ channel: enrichChannel(updated, owner, req.userId) });
+  const owner = await getOwnerSafely(updated.owner_id);
+  res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
 }
 
 async function deleteChannel(req, res) {
-  const channel = Channel.findById(req.params.id);
+  const channel = await Channel.findById(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
-  if (channel.owner_id !== req.userId) {
-    return res.status(403).json({ error: 'Not channel owner' });
+  const user = req.user || await User.findById(req.userId);
+  const isOwner = channel.owner_id === req.userId;
+  const isAdmin = user && user.role === 'admin';
+
+  if (!isOwner && !isAdmin) {
+    return res.status(403).json({ error: 'Only channel owner or admin can delete this channel' });
   }
 
   await Channel.disable(req.params.id);
   res.json({ message: 'Channel disabled' });
 }
 
-function getMyChannels(req, res) {
-  const channels = Channel.getAllByOwner(req.userId);
-  const enriched = channels.map((ch) => {
-    const owner = User.findById(ch.owner_id);
-    return enrichChannel(ch, owner, req.userId);
-  });
+async function getMyChannels(req, res) {
+  const channels = await Channel.getAllByOwner(req.userId);
+  const enriched = await Promise.all(channels.map(async (ch) => {
+    const owner = await getOwnerSafely(ch.owner_id);
+    return safeEnrichChannel(ch, owner, req.userId);
+  }));
   res.json({ channels: enriched });
 }
 
 async function enableChannel(req, res) {
-  const channel = Channel.findById(req.params.id) ||
-    Channel.getAllByOwner(req.userId).find((c) => c.id === req.params.id);
+  const ownedChannels = await Channel.getAllByOwner(req.userId);
+  const channel = await Channel.findById(req.params.id) ||
+    ownedChannels.find((c) => c.id === req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   if (channel.owner_id !== req.userId) {
     return res.status(403).json({ error: 'Not channel owner' });
   }
 
   const enabled = await Channel.enable(req.params.id);
-  const owner = User.findById(enabled.owner_id);
-  res.json({ channel: enrichChannel(enabled, owner, req.userId) });
+  const owner = await getOwnerSafely(enabled.owner_id);
+  res.json({ channel: await safeEnrichChannel(enabled, owner, req.userId) });
 }
 
-function enrichChannel(channel, owner, requesterId) {
+/**
+ * PATCH /channels/:id/external-source
+ * Sets or clears the external stream source configuration for a channel.
+ * Restricted to the channel owner. Accepts: stream_source_mode, external_provider,
+ * external_url, resolved_playback_url, stream_status, last_checked_at, provider_metadata.
+ * Passing stream_source_mode: 'native' effectively clears the external source.
+ * Passing stream_source_mode: 'external_url' stores the raw URL directly with
+ * no source-type classification.
+ */
+async function updateExternalSource(req, res) {
+  const channel = await Channel.findById(req.params.id);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+  const user = req.user || await User.findById(req.userId);
+  const isOwner = channel.owner_id === req.userId;
+  const isAdmin = user && user.role === 'admin';
+
+  if (!isOwner && !isAdmin) {
+    return res.status(403).json({ error: 'Not channel owner' });
+  }
+
+  const {
+    stream_source_mode,
+    external_provider,
+    external_url,
+    resolved_playback_url,
+    stream_status,
+    last_checked_at,
+    provider_metadata,
+  } = req.body;
+
+  // Block non-native external source assignments when feature is disabled.
+  // Admins can still set channels back to 'native' (the kill-switch path).
+  const requestedMode = stream_source_mode || channel.stream_source_mode || 'native';
+  if (requestedMode !== 'native' && !isExternalStreamingEnabled()) {
+    return res.status(503).json({
+      error: 'External streaming is currently disabled.',
+      error_code: 'EXTERNAL_STREAMING_DISABLED',
+    });
+  }
+
+  // Validate stream_source_mode if provided
+  if (stream_source_mode !== undefined && !Channel.ALLOWED_SOURCE_MODES.includes(stream_source_mode)) {
+    return res.status(400).json({
+      error: `Invalid stream_source_mode. Allowed values: ${Channel.ALLOWED_SOURCE_MODES.join(', ')}`,
+    });
+  }
+
+  // Validate stream_status if provided
+  if (stream_status !== undefined && !Channel.ALLOWED_STREAM_STATUSES.includes(stream_status)) {
+    return res.status(400).json({
+      error: `Invalid stream_status. Allowed values: ${Channel.ALLOWED_STREAM_STATUSES.join(', ')}`,
+    });
+  }
+
+  // external_url must be a non-empty string when source mode is not native
+  const effectiveMode = stream_source_mode || channel.stream_source_mode || 'native';
+  if (effectiveMode !== 'native' && external_url !== undefined && typeof external_url === 'string') {
+    const trimmed = external_url.trim();
+    if (trimmed.length === 0) {
+      return res.status(400).json({ error: 'external_url cannot be empty for non-native source modes' });
+    }
+    if (!trimmed.startsWith('https://') && !trimmed.startsWith('http://')) {
+      return res.status(400).json({ error: 'external_url must be a valid URL' });
+    }
+  }
+
+  // Auto-resolve when a new external_url is provided — the resolver classifies and probes
+  // the URL and populates stream_source_mode, resolved_playback_url, stream_status,
+  // last_checked_at, and provider_metadata automatically unless the caller already
+  // provided explicit overrides for those fields.
+  let resolvedFields = {};
+  const urlToResolve = external_url !== undefined ? external_url : null;
+  if (urlToResolve && typeof urlToResolve === 'string' && urlToResolve.trim().length > 0) {
+    if (effectiveMode === 'external_url') {
+      const rawUrl = sanitize(String(urlToResolve)).trim();
+      resolvedFields = {
+        stream_source_mode: 'external_url',
+        external_provider:
+          external_provider !== undefined
+            ? external_provider
+            : 'external_url',
+        external_url: rawUrl,
+        resolved_playback_url:
+          resolved_playback_url !== undefined
+            ? resolved_playback_url
+            : rawUrl,
+        stream_status:
+          stream_status !== undefined ? stream_status : 'live',
+        last_checked_at:
+          last_checked_at !== undefined
+            ? last_checked_at
+            : new Date().toISOString(),
+        provider_metadata:
+          provider_metadata !== undefined
+            ? provider_metadata
+            : { mode: 'external_url', validation: 'none' },
+      };
+    } else {
+      const resolution = await StreamResolver.resolveSource(urlToResolve.trim());
+      if (!resolution.ok) {
+        return res.status(422).json({
+          error: resolution.error_message,
+          error_code: resolution.error_code,
+        });
+      }
+      resolvedFields = {
+        stream_source_mode: stream_source_mode !== undefined ? stream_source_mode : resolution.stream_source_mode,
+        external_provider: external_provider !== undefined ? external_provider : resolution.external_provider,
+        external_url: resolution.external_url,
+        resolved_playback_url: resolved_playback_url !== undefined ? resolved_playback_url : resolution.resolved_playback_url,
+        stream_status: stream_status !== undefined ? stream_status : resolution.stream_status,
+        last_checked_at: last_checked_at !== undefined ? last_checked_at : resolution.last_checked_at,
+        provider_metadata: provider_metadata !== undefined ? provider_metadata : resolution.provider_metadata,
+      };
+    }
+  }
+
+  const updated = await Channel.updateExternalSource(req.params.id, Object.keys(resolvedFields).length > 0 ? resolvedFields : {
+    stream_source_mode,
+    external_provider: external_provider !== undefined ? sanitize(String(external_provider || '')) || null : undefined,
+    external_url: external_url !== undefined ? (external_url ? sanitize(String(external_url)).trim() : null) : undefined,
+    resolved_playback_url: resolved_playback_url !== undefined ? (resolved_playback_url || null) : undefined,
+    stream_status,
+    last_checked_at: last_checked_at !== undefined ? (last_checked_at || null) : undefined,
+    provider_metadata: provider_metadata !== undefined ? (provider_metadata || null) : undefined,
+  });
+
+  const owner = await getOwnerSafely(updated.owner_id);
+  res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
+}
+
+async function enrichChannel(channel, owner, requesterId) {
+  const ownerDisplayMode = channel.owner_display_mode || 'show_owner';
+  const ownerBrandName = typeof channel.owner_brand_name === 'string'
+    ? channel.owner_brand_name.trim()
+    : null;
+  const trueOwnerName = owner?.name || owner?.email || 'Unknown';
+
+  let publicOwnerName = trueOwnerName;
+  let ownerDetailsVisible = true;
+
+  if (ownerDisplayMode === 'hide_owner') {
+    publicOwnerName = '';
+    ownerDetailsVisible = false;
+  } else if (ownerDisplayMode === 'brand_only') {
+    publicOwnerName = ownerBrandName || 'Brand';
+    ownerDetailsVisible = false;
+  }
+
   return {
     id: channel.id,
     name: channel.name,
     description: channel.description,
     category: channel.category,
     type: channel.type,
-    channel_number: channel.channel_number,
+    channel_number: Number(channel.channel_number) || channel.channel_number,
     logo_url: channel.logo_url,
     banner_url: channel.banner_url,
     is_active: channel.is_active,
     created_at: channel.created_at,
     owner_id: channel.owner_id,
-    owner_name: owner?.name || owner?.email || 'Unknown',
-    followers_count: User.countFollowers ? User.countFollowers(channel.owner_id) : 0,
+    owner_name: publicOwnerName,
+    followers_count: await User.countChannelFollowers(channel.id),
+    owner_display_mode: ownerDisplayMode,
+    owner_brand_name: ownerBrandName,
+    owner_details_visible: ownerDetailsVisible,
+    public_owner_name: publicOwnerName,
+    // External source fields — safe defaults for legacy records
+    stream_source_mode: channel.stream_source_mode || 'native',
+    external_provider: channel.external_provider || null,
+    external_url: channel.external_url || null,
+    resolved_playback_url: channel.resolved_playback_url || null,
+    stream_status: channel.stream_status || 'unknown',
+    last_checked_at: channel.last_checked_at || null,
+    provider_metadata: channel.provider_metadata || null,
+    exclusive_monthly_fee_ngn: Number(channel.exclusive_monthly_fee_ngn || 0),
+    exclusive_fee_currency: channel.exclusive_fee_currency || 'NGN',
+    exclusive_fee_last_updated_at: channel.exclusive_fee_last_updated_at || null,
+    exclusive_fee_last_updated_by: channel.exclusive_fee_last_updated_by || null,
   };
 }
 
+async function safeEnrichChannel(channel, owner, requesterId) {
+  try {
+    return await enrichChannel(channel, owner, requesterId);
+  } catch (err) {
+    console.error('[Channel] enrich fallback:', err && err.message ? err.message : err, 'channel_id=', channel && channel.id);
+
+    const ownerDisplayMode = channel.owner_display_mode || 'show_owner';
+    const ownerBrandName = typeof channel.owner_brand_name === 'string'
+      ? channel.owner_brand_name.trim()
+      : null;
+    const trueOwnerName = owner?.name || owner?.email || 'Unknown';
+    const publicOwnerName = ownerDisplayMode === 'brand_only'
+      ? (ownerBrandName || 'Brand')
+      : (ownerDisplayMode === 'hide_owner' ? '' : trueOwnerName);
+
+    return {
+      id: channel.id,
+      name: channel.name,
+      description: channel.description,
+      category: channel.category,
+      type: channel.type,
+      channel_number: Number(channel.channel_number) || channel.channel_number,
+      logo_url: channel.logo_url,
+      banner_url: channel.banner_url,
+      is_active: channel.is_active,
+      created_at: channel.created_at,
+      owner_id: channel.owner_id,
+      owner_name: publicOwnerName,
+      followers_count: 0,
+      owner_display_mode: ownerDisplayMode,
+      owner_brand_name: ownerBrandName,
+      owner_details_visible: ownerDisplayMode === 'show_owner',
+      public_owner_name: publicOwnerName,
+      stream_source_mode: channel.stream_source_mode || 'native',
+      external_provider: channel.external_provider || null,
+      external_url: channel.external_url || null,
+      resolved_playback_url: channel.resolved_playback_url || null,
+      stream_status: channel.stream_status || 'unknown',
+      last_checked_at: channel.last_checked_at || null,
+      provider_metadata: channel.provider_metadata || null,
+      exclusive_monthly_fee_ngn: Number(channel.exclusive_monthly_fee_ngn || 0),
+      exclusive_fee_currency: channel.exclusive_fee_currency || 'NGN',
+      exclusive_fee_last_updated_at: channel.exclusive_fee_last_updated_at || null,
+      exclusive_fee_last_updated_by: channel.exclusive_fee_last_updated_by || null,
+    };
+  }
+}
+
 async function uploadMedia(req, res) {
-  const channel = Channel.findById(req.params.id) ||
-    Channel.getAllByOwner(req.userId).find((c) => c.id === req.params.id);
+  const ownedChannels = await Channel.getAllByOwner(req.userId);
+  const channel = await Channel.findById(req.params.id) ||
+    ownedChannels.find((c) => c.id === req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   if (channel.owner_id !== req.userId) {
     return res.status(403).json({ error: 'Not channel owner' });
@@ -164,13 +461,13 @@ async function uploadMedia(req, res) {
   await Channel.update(channel.id, { [field]: url });
 
   // Re-fetch to get updated data (handle disabled channels)
-  const updated = Channel.getAllByOwner(req.userId).find((c) => c.id === channel.id);
-  const owner = User.findById(updated.owner_id);
-  res.json({ channel: enrichChannel(updated, owner, req.userId) });
+  const updated = (await Channel.getAllByOwner(req.userId)).find((c) => c.id === channel.id);
+  const owner = await getOwnerSafely(updated.owner_id);
+  res.json({ channel: await enrichChannel(updated, owner, req.userId) });
 }
 
 async function createChannelWithMedia(req, res) {
-  const user = User.findById(req.userId);
+  const user = req.user || await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   if (user.role !== 'creator' && user.role !== 'admin') {
@@ -185,12 +482,12 @@ async function createChannelWithMedia(req, res) {
   if (description.length > 2000) return res.status(400).json({ error: 'Description must be 2000 characters or fewer' });
 
   const channelType = type || 'public';
-  if (!['public', 'private'].includes(channelType)) {
-    return res.status(400).json({ error: 'Type must be public or private' });
+  if (!['public', 'private', 'exclusive'].includes(channelType)) {
+    return res.status(400).json({ error: 'Type must be public, private, or exclusive' });
   }
 
-  if (channelType === 'private' && !user.is_premium_creator) {
-    return res.status(403).json({ error: 'Only premium creators can create private channels' });
+  if ((channelType === 'private' || channelType === 'exclusive') && !user.is_premium_creator) {
+    return res.status(403).json({ error: 'Only premium creators can create private or exclusive channels' });
   }
 
   const channel = await Channel.create({
@@ -211,8 +508,8 @@ async function createChannelWithMedia(req, res) {
     }
   }
 
-  const updated = Channel.findById(channel.id);
-  res.status(201).json({ channel: enrichChannel(updated, user, req.userId) });
+  const updated = await Channel.findById(channel.id);
+  res.status(201).json({ channel: await safeEnrichChannel(updated, user, req.userId) });
 }
 
 /**
@@ -220,14 +517,16 @@ async function createChannelWithMedia(req, res) {
  * Returns channels owned by creators the authenticated user actively subscribes to.
  * Useful for "Subscriber-Only Live Now" section on home screen.
  */
-function getSubscriberFeed(req, res) {
+async function getSubscriberFeed(req, res) {
   // All active subscriptions where the caller is the subscriber
-  const subs = CreatorSub.getBySubscriber(req.userId).filter((s) => s.status === 'active');
+  const subs = (await CreatorSub.getBySubscriber(req.userId)).filter((s) => s.status === 'active');
   const creatorUids = [...new Set(subs.map((s) => s.creator_uid))];
 
-  const channels = Channel.getAll().filter(
-    (c) => c.is_active && creatorUids.includes(c.owner_id)
-  );
+  if (creatorUids.length === 0) {
+    return res.json({ channels: [] });
+  }
+
+  const channels = await Channel.getActiveByOwnerIds(creatorUids);
 
   res.json({ channels });
 }
@@ -238,7 +537,7 @@ function getSubscriberFeed(req, res) {
  */
 async function recordView(req, res) {
   try {
-    const channel = Channel.findById(req.params.id);
+    const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
     const viewerUid = req.userId;
@@ -258,7 +557,7 @@ async function recordView(req, res) {
     await CreatorDailyStats.incrementViewers(channel.owner_id, viewerUid);
 
     // Also increment stream stats if there's an active stream
-    const activeStream = StreamStats.getActiveByChannel(channel.id);
+    const activeStream = await StreamStats.getActiveByChannel(channel.id);
     if (activeStream) {
       await StreamStats.incrementViewer(activeStream.id);
     }
@@ -268,6 +567,115 @@ async function recordView(req, res) {
     console.error('[Channel] recordView error:', err.message);
     res.status(500).json({ error: 'Failed to record view' });
   }
+}
+
+/**
+ * POST /channels/resolve-source
+ * Classifies and validates an external stream URL against the approved source
+ * matrix. Returns a normalized source contract without persisting anything.
+ * Any authenticated user may call this to validate a URL before submission.
+ * Body: { url: string }
+ */
+async function resolveStreamSource(req, res) {
+  if (!isExternalStreamingEnabled()) {
+    return res.status(503).json({
+      error: 'External streaming is currently disabled.',
+      error_code: 'EXTERNAL_STREAMING_DISABLED',
+    });
+  }
+
+  const { url } = req.body;
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return res.status(400).json({ error: 'url is required' });
+  }
+
+  const result = await StreamResolver.resolveSource(url.trim());
+
+  if (!result.ok) {
+    return res.status(422).json({
+      error: result.error_message,
+      error_code: result.error_code,
+    });
+  }
+
+  return res.json(result);
+}
+
+/**
+ * POST /channels/:id/recheck-source
+ * Re-probes the currently configured external source URL and updates
+ * stream_status and last_checked_at on the channel record.
+ * Restricted to channel owner or admin.
+ */
+async function recheckStreamHealth(req, res) {
+  if (!isExternalStreamingEnabled()) {
+    return res.status(503).json({
+      error: 'External streaming is currently disabled.',
+      error_code: 'EXTERNAL_STREAMING_DISABLED',
+    });
+  }
+
+  const channel = await Channel.findById(req.params.id);
+  if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+  const user = req.user || await User.findById(req.userId);
+  const isOwner = channel.owner_id === req.userId;
+  const isAdmin = user && user.role === 'admin';
+
+  if (!isOwner && !isAdmin) {
+    return res.status(403).json({ error: 'Not channel owner' });
+  }
+
+  const mode = channel.stream_source_mode || 'native';
+  if (mode === 'native') {
+    return res.status(400).json({ error: 'Channel is using native source mode; no external source to check' });
+  }
+
+  const playbackUrl = channel.resolved_playback_url || channel.external_url;
+  if (!playbackUrl) {
+    return res.status(400).json({ error: 'Channel has no resolved playback URL to probe' });
+  }
+
+  if (mode === 'external_url') {
+    const updated = await Channel.updateExternalSource(req.params.id, {
+      stream_status: 'live',
+      last_checked_at: new Date().toISOString(),
+      provider_metadata: channel.provider_metadata
+        ? {
+            ...channel.provider_metadata,
+            probe_method: 'none',
+            probe_http_status: null,
+            probe_latency_ms: null,
+          }
+        : {
+            probe_method: 'none',
+            probe_http_status: null,
+            probe_latency_ms: null,
+          },
+    });
+    const owner = await getOwnerSafely(updated.owner_id);
+    return res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
+  }
+
+  const health = await StreamResolver.recheckHealth(playbackUrl, mode);
+
+  const updated = await Channel.updateExternalSource(req.params.id, {
+    stream_status: health.stream_status,
+    last_checked_at: health.last_checked_at,
+    provider_metadata: channel.provider_metadata
+      ? {
+          ...channel.provider_metadata,
+          probe_http_status: health.probe_http_status,
+          probe_latency_ms: health.probe_latency_ms,
+        }
+      : {
+          probe_http_status: health.probe_http_status,
+          probe_latency_ms: health.probe_latency_ms,
+        },
+  });
+
+  const owner = await getOwnerSafely(updated.owner_id);
+  return res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
 }
 
 module.exports = {
@@ -280,6 +688,9 @@ module.exports = {
   deleteChannel,
   getMyChannels,
   enableChannel,
+  updateExternalSource,
+  resolveStreamSource,
+  recheckStreamHealth,
   uploadMedia,
   getSubscriberFeed,
   recordView,

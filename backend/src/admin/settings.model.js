@@ -82,6 +82,42 @@ const SETTING_DEFINITIONS = {
     sensitive: false,
     defaultValue: 'AfroVision',
   },
+  AUDITION_ACK_EMAIL_ENABLED: {
+    category: 'smtp',
+    description: 'Enable acknowledgement emails after successful paid audition signup (true/false)',
+    sensitive: false,
+    defaultValue: 'true',
+  },
+  AUDITION_ACK_EMAIL_SUBJECT: {
+    category: 'smtp',
+    description: 'Subject line used for paid audition signup acknowledgement emails',
+    sensitive: false,
+    defaultValue: 'Your AfroVision audition signup is confirmed',
+  },
+  AUDITION_ACK_EMAIL_BODY_TEMPLATE: {
+    category: 'smtp',
+    description: 'Optional plain-text body template for audition acknowledgement. Supports placeholders: {{name}}, {{email}}, {{challenge_title}}, {{signup_id}}, {{payment_reference}}, {{enrolled_at}}',
+    sensitive: false,
+    defaultValue: '',
+  },
+  AUDITION_ACK_EMAIL_OVERRIDE_TO: {
+    category: 'smtp',
+    description: 'Optional override recipient for audition acknowledgement emails (used for controlled rollout/testing)',
+    sensitive: false,
+    defaultValue: '',
+  },
+  AUDITION_ACK_EMAIL_BCC: {
+    category: 'smtp',
+    description: 'Optional comma-separated BCC list for audition acknowledgement emails',
+    sensitive: false,
+    defaultValue: '',
+  },
+  AUDITION_SIGNUP_ENABLED: {
+    category: 'system',
+    description: 'Kill-switch for paid audition signup initialization (true/false). Verification remains enabled for in-flight payments.',
+    sensitive: false,
+    defaultValue: 'true',
+  },
   WALLET_SECRET: {
     category: 'blockchain',
     description: 'AES-256-CBC wallet encryption secret',

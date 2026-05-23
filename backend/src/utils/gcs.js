@@ -1,11 +1,14 @@
 const { Storage } = require('@google-cloud/storage');
 
 const BUCKET_NAME = process.env.GCS_BUCKET;
-if (!BUCKET_NAME) {
-  throw new Error('GCS_BUCKET environment variable is required for GCS operations');
-}
 const storage = new Storage();
-const bucket = storage.bucket(BUCKET_NAME);
+
+function getBucket() {
+  if (!BUCKET_NAME) {
+    throw new Error('GCS_BUCKET environment variable is required for GCS operations');
+  }
+  return storage.bucket(BUCKET_NAME);
+}
 
 /**
  * Upload a buffer to GCS and return the public URL.
@@ -15,6 +18,7 @@ const bucket = storage.bucket(BUCKET_NAME);
  * @returns {Promise<string>} Public URL
  */
 async function uploadToGCS(buffer, filename, contentType) {
+  const bucket = getBucket();
   const blob = bucket.file(filename);
 
   await blob.save(buffer, {
@@ -34,6 +38,7 @@ async function uploadToGCS(buffer, filename, contentType) {
  */
 async function deleteFromGCS(filename) {
   try {
+    const bucket = getBucket();
     await bucket.file(filename).delete();
   } catch (err) {
     if (err.code !== 404) throw err;
@@ -59,6 +64,7 @@ function extractGCSPath(url) {
  * @returns {Promise<{signedUrl: string, publicUrl: string}>}
  */
 async function generateSignedUploadUrl(filename, contentType, expiresMinutes = 30) {
+  const bucket = getBucket();
   const blob = bucket.file(filename);
   const [url] = await blob.getSignedUrl({
     version: 'v4',

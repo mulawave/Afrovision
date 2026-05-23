@@ -60,11 +60,28 @@ function buildDefaultRecord(userId, user) {
   };
 }
 
+let initPromise = null;
+
+async function ensureReady() {
+  if (initPromise) {
+    await initPromise;
+    return;
+  }
+
+  initPromise = ReputationModel.init();
+  try {
+    await initPromise;
+  } finally {
+    initPromise = null;
+  }
+}
+
 async function init() {
-  await ReputationModel.init();
+  await ensureReady();
 }
 
 async function recalculateAllRanks() {
+  await ensureReady();
   const all = ReputationModel.getAll();
   if (!all.length) return [];
 
@@ -86,7 +103,8 @@ async function recalculateAllRanks() {
 }
 
 async function awardReps(userId, ngnValue, vptValue) {
-  const user = UserModel.findById(userId);
+  await ensureReady();
+  const user = await UserModel.findById(userId);
   if (!user) {
     throw new Error('User not found');
   }
@@ -114,8 +132,9 @@ async function awardReps(userId, ngnValue, vptValue) {
   return ReputationModel.getByUserId(updated.user_id);
 }
 
-function getReputation(userId) {
-  const user = UserModel.findById(userId);
+async function getReputation(userId) {
+  await ensureReady();
+  const user = await UserModel.findById(userId);
   if (!user) return null;
 
   const record = ReputationModel.getByUserId(userId);
@@ -129,18 +148,18 @@ function getReputation(userId) {
   return buildDefaultRecord(userId, user);
 }
 
-function checkCommunityPoolEligibility(userId) {
-  const record = getReputation(userId);
+async function checkCommunityPoolEligibility(userId) {
+  const record = await getReputation(userId);
   return Boolean(record?.community_pool_eligible);
 }
 
-function canSubscribeToPlan(userId, planId) {
+async function canSubscribeToPlan(userId, planId) {
   const requiredLevel = PLAN_LEVEL_GATE[planId];
   if (requiredLevel == null) {
     return false;
   }
 
-  const record = getReputation(userId);
+  const record = await getReputation(userId);
   if (!record) {
     return false;
   }
@@ -148,9 +167,11 @@ function canSubscribeToPlan(userId, planId) {
   return record.level >= requiredLevel;
 }
 
-function getLeaderboard(limit = 50, offset = 0) {
-  return ReputationModel.getLeaderboard(limit, offset).map((record, index) => {
-    const user = UserModel.findById(record.user_id);
+async function getLeaderboard(limit = 50, offset = 0) {
+  await ensureReady();
+  const leaderboard = ReputationModel.getLeaderboard(limit, offset);
+  return Promise.all(leaderboard.map(async (record, index) => {
+    const user = await UserModel.findById(record.user_id);
     return {
       rank: record.leaderboard_rank || (Number(offset) || 0) + index + 1,
       user_id: record.user_id,
@@ -158,7 +179,7 @@ function getLeaderboard(limit = 50, offset = 0) {
       total_reps: record.total_reps,
       level: record.level,
     };
-  });
+  }));
 }
 
 /**
@@ -167,7 +188,8 @@ function getLeaderboard(limit = 50, offset = 0) {
  * KYC status changes so the stored value stays current between gifts.
  */
 async function refreshEligibility(userId) {
-  const user = UserModel.findById(userId);
+  await ensureReady();
+  const user = await UserModel.findById(userId);
   if (!user) return;
 
   const existing = ReputationModel.getByUserId(userId);

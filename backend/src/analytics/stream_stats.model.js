@@ -3,19 +3,22 @@ const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'stream_stats';
 
-// In-memory store — most recent 200 streams, newest-first
-const streams = [];
-let initialized = false;
+const streamsById = new Map();
+
+function syncStream(stream) {
+  if (stream?.id) {
+    streamsById.set(stream.id, stream);
+  }
+  return stream;
+}
+
+function isIndexError(error) {
+  const message = error?.message || '';
+  return message.includes('requires an index') || message.includes('FAILED_PRECONDITION');
+}
 
 async function init() {
-  if (initialized) return;
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION)
-    .orderBy('start_time', 'desc')
-    .limit(200)
-    .get();
-  snapshot.forEach((doc) => streams.push({ id: doc.id, ...doc.data() }));
-  initialized = true;
+  return [];
 }
 
 /**
@@ -39,45 +42,65 @@ async function startStream({ creatorUid, channelId }) {
     created_at: Date.now(),
   };
   await db.collection(COLLECTION).doc(id).set(stream);
-  streams.unshift(stream);
-  // Keep in-memory store bounded
-  if (streams.length > 200) streams.splice(200);
-  return stream;
+  return syncStream(stream);
 }
 
-function findById(id) {
-  return streams.find((s) => s.id === id) || null;
+async function findById(id) {
+  if (streamsById.has(id)) {
+    return streamsById.get(id) || null;
+  }
+
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return syncStream({ id: doc.id, ...doc.data() });
 }
 
 /**
  * Find the currently active (live) stream for a channel, if any.
  */
-function getActiveByChannel(channelId) {
-  return streams.find((s) => s.channel_id === channelId && s.status === 'live') || null;
+async function getActiveByChannel(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .where('status', '==', 'live')
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  return syncStream({ id: doc.id, ...doc.data() });
 }
 
-function getActiveByCreator(creatorUid) {
-  return streams.find((s) => s.creator_uid === creatorUid && s.status === 'live') || null;
+async function getActiveByCreator(creatorUid) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('creator_uid', '==', creatorUid)
+    .where('status', '==', 'live')
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  return syncStream({ id: doc.id, ...doc.data() });
 }
 
 /**
  * Mark a stream as ended.
  */
 async function endStream(id) {
-  const stream = findById(id);
+  const stream = await findById(id);
   if (!stream) return null;
   stream.end_time = Date.now();
   stream.status = 'ended';
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).update({ end_time: stream.end_time, status: 'ended' });
-  return stream;
+  return syncStream(stream);
 }
 
 /**
  * Add gift revenue to a stream record (creator's share).
  */
 async function addGifts(id, { ngn = 0, vpt = 0 } = {}) {
-  const stream = findById(id);
+  const stream = await findById(id);
   if (!stream) return;
   stream.total_gifts_ngn += ngn;
   stream.total_gifts_vpt += vpt;
@@ -93,7 +116,7 @@ async function addGifts(id, { ngn = 0, vpt = 0 } = {}) {
  * Increment the new-subscriber count on a stream.
  */
 async function addSubscriber(id) {
-  const stream = findById(id);
+  const stream = await findById(id);
   if (!stream) return;
   stream.new_subscribers += 1;
   const db = getFirestore();
@@ -104,7 +127,7 @@ async function addSubscriber(id) {
 }
 
 async function incrementViewer(id) {
-  const stream = findById(id);
+  const stream = await findById(id);
   if (!stream) return null;
 
   stream.total_viewers = (stream.total_viewers || 0) + 1;
@@ -116,24 +139,52 @@ async function incrementViewer(id) {
     peak_viewers: stream.peak_viewers,
   }).catch(() => {});
 
-  return stream;
+  return syncStream(stream);
 }
 
 /**
  * Get recent streams for a creator (in-memory, newest first).
  */
-function getByCreator(creatorUid, limit = 10) {
-  return streams
-    .filter((s) => s.creator_uid === creatorUid)
-    .sort((a, b) => b.start_time - a.start_time)
-    .slice(0, limit);
+async function getByCreator(creatorUid, limit = 10) {
+  const db = getFirestore();
+  try {
+    const snapshot = await db.collection(COLLECTION)
+      .where('creator_uid', '==', creatorUid)
+      .orderBy('start_time', 'desc')
+      .limit(limit)
+      .get();
+    return snapshot.docs.map((doc) => syncStream({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    if (!isIndexError(error)) throw error;
+    const snapshot = await db.collection(COLLECTION)
+      .where('creator_uid', '==', creatorUid)
+      .get();
+    return snapshot.docs
+      .map((doc) => syncStream({ id: doc.id, ...doc.data() }))
+      .sort((a, b) => b.start_time - a.start_time)
+      .slice(0, limit);
+  }
 }
 
-function getByChannel(channelId, limit = 50) {
-  return streams
-    .filter((s) => s.channel_id === channelId)
-    .sort((a, b) => b.start_time - a.start_time)
-    .slice(0, limit);
+async function getByChannel(channelId, limit = 50) {
+  const db = getFirestore();
+  try {
+    const snapshot = await db.collection(COLLECTION)
+      .where('channel_id', '==', channelId)
+      .orderBy('start_time', 'desc')
+      .limit(limit)
+      .get();
+    return snapshot.docs.map((doc) => syncStream({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    if (!isIndexError(error)) throw error;
+    const snapshot = await db.collection(COLLECTION)
+      .where('channel_id', '==', channelId)
+      .get();
+    return snapshot.docs
+      .map((doc) => syncStream({ id: doc.id, ...doc.data() }))
+      .sort((a, b) => b.start_time - a.start_time)
+      .slice(0, limit);
+  }
 }
 
 module.exports = {

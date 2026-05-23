@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Audition Confirmed – AfroVision Challenge: The Amazons</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0d1a; font-family: 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+
+  .wrapper { max-width: 620px; margin: 0 auto; background: #050a30; }
+
+  /* ── TOP ACCENT ── */
+  .top-bar { height: 5px; background: linear-gradient(90deg, #f39517 0%, #233dff 50%, #f39517 100%); }
+
+  /* ── HEADER ── */
+  .header {
+    padding: 28px 40px 22px;
+    background: #050a30;
+    border-bottom: 1px solid rgba(243,149,23,0.18);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-logo { display: flex; align-items: center; gap: 12px; }
+  .header-logo img { width: 44px; height: 44px; object-fit: contain; }
+  .header-logo-text .brand { font-size: 12px; font-weight: 900; color: #f39517; letter-spacing: 3px; text-transform: uppercase; }
+  .header-logo-text .sub { font-size: 9px; color: #528ff1; letter-spacing: 2.5px; text-transform: uppercase; margin-top: 2px; }
+  .header-badge {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #050a30;
+    background: #f39517;
+    padding: 5px 12px;
+    border-radius: 2px;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    background: linear-gradient(155deg, #050a30 0%, #0d1760 55%, #050a30 100%);
+    padding: 52px 40px 44px;
+    text-align: center;
+    position: relative;
+    border-bottom: 1px solid rgba(243,149,23,0.15);
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -60px; left: 50%;
+    transform: translateX(-50%);
+    width: 400px; height: 400px;
+    background: radial-gradient(ellipse, rgba(243,149,23,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-check {
+    width: 72px; height: 72px;
+    background: linear-gradient(135deg, #f39517, #e07d0d);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 24px;
+    box-shadow: 0 0 40px rgba(243,149,23,0.4);
+    font-size: 32px;
+    color: #050a30;
+    font-weight: 900;
+  }
+  .hero-eyebrow {
+    font-size: 9px; font-weight: 800; letter-spacing: 3.5px;
+    text-transform: uppercase; color: #528ff1; margin-bottom: 14px;
+  }
+  .hero h1 {
+    font-size: 32px; font-weight: 900; color: #ffffff;
+    line-height: 1.1; text-transform: uppercase; letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+  .hero h1 span { color: #f39517; }
+  .hero-subtitle {
+    font-size: 13px; color: rgba(255,255,255,0.6);
+    letter-spacing: 1.5px; text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .hero-divider {
+    width: 60px; height: 2px;
+    background: linear-gradient(90deg, transparent, #f39517, transparent);
+    margin: 20px auto;
+  }
+  .hero-tagline {
+    font-size: 15px; color: rgba(255,255,255,0.75);
+    line-height: 1.6; max-width: 420px; margin: 0 auto;
+  }
+
+  /* ── CONFIRMATION CARD ── */
+  .confirm-card {
+    margin: 0 40px;
+    background: rgba(243,149,23,0.06);
+    border: 1px solid rgba(243,149,23,0.25);
+    border-radius: 4px;
+    padding: 28px 32px;
+    margin-top: -1px;
+  }
+  .confirm-card-title {
+    font-size: 9px; font-weight: 800; letter-spacing: 3px;
+    text-transform: uppercase; color: #f39517;
+    margin-bottom: 18px; display: flex; align-items: center; gap: 8px;
+  }
+  .confirm-card-title::after {
+    content: ''; flex: 1; height: 1px;
+    background: rgba(243,149,23,0.25);
+  }
+  .confirm-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .confirm-row:last-child { border-bottom: none; }
+  .confirm-label { font-size: 11px; color: rgba(255,255,255,0.45); letter-spacing: 1px; text-transform: uppercase; }
+  .confirm-value { font-size: 13px; font-weight: 700; color: #ffffff; text-align: right; }
+  .confirm-value.gold { color: #f39517; }
+  .confirm-value.blue { color: #528ff1; }
+
+  /* ── BODY SECTIONS ── */
+  .section { padding: 36px 40px; }
+  .section-title {
+    font-size: 9px; font-weight: 800; letter-spacing: 3px;
+    text-transform: uppercase; color: #528ff1; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title::after {
+    content: ''; flex: 1; height: 1px;
+    background: rgba(83,143,241,0.2);
+  }
+  .section p {
+    font-size: 14px; color: rgba(255,255,255,0.75);
+    line-height: 1.75; margin-bottom: 14px;
+  }
+  .section p strong { color: #ffffff; }
+  .section p .gold { color: #f39517; font-weight: 700; }
+
+  /* ── NEXT STEPS ── */
+  .steps { margin: 6px 0; }
+  .step {
+    display: flex; gap: 16px; margin-bottom: 20px;
+    align-items: flex-start;
+  }
+  .step-num {
+    width: 38px; height: 38px; flex-shrink: 0;
+    background: rgba(243,149,23,0.1);
+    border: 1px solid rgba(243,149,23,0.35);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 900; color: #f39517;
+  }
+  .step-body .step-title {
+    font-size: 12px; font-weight: 800; color: #ffffff;
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px;
+  }
+  .step-body .step-desc {
+    font-size: 13px; color: rgba(255,255,255,0.6); line-height: 1.55;
+  }
+
+  /* ── IMPORTANT INFO BOX ── */
+  .info-box {
+    background: rgba(35,61,255,0.08);
+    border: 1px solid rgba(83,143,241,0.3);
+    border-left: 3px solid #528ff1;
+    border-radius: 0 4px 4px 0;
+    padding: 18px 20px;
+    margin: 4px 0 20px;
+  }
+  .info-box-title {
+    font-size: 10px; font-weight: 800; color: #528ff1;
+    letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px;
+  }
+  .info-box ul { padding-left: 18px; }
+  .info-box ul li {
+    font-size: 13px; color: rgba(255,255,255,0.7);
+    line-height: 1.6; margin-bottom: 6px;
+  }
+  .info-box ul li strong { color: #ffffff; }
+
+  /* ── QUOTE ── */
+  .quote-block {
+    background: rgba(243,149,23,0.05);
+    border-left: 3px solid #f39517;
+    padding: 18px 22px;
+    margin: 8px 0 24px;
+    border-radius: 0 4px 4px 0;
+  }
+  .quote-block p {
+    font-size: 15px; font-style: italic;
+    color: #f39517; font-weight: 700;
+    line-height: 1.5; margin: 0 !important;
+  }
+  .quote-block cite {
+    display: block; margin-top: 8px;
+    font-size: 10px; font-style: normal;
+    letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(243,149,23,0.5);
+  }
+
+  /* ── CTA ── */
+  .cta-block {
+    text-align: center;
+    padding: 8px 0 24px;
+  }
+  .cta-btn {
+    display: inline-block;
+    background: linear-gradient(135deg, #f39517, #e07d0d);
+    color: #050a30;
+    font-size: 12px; font-weight: 900;
+    letter-spacing: 2.5px; text-transform: uppercase;
+    padding: 17px 44px;
+    text-decoration: none;
+    border-radius: 2px;
+    box-shadow: 0 8px 30px rgba(243,149,23,0.3);
+  }
+  .cta-secondary {
+    display: block; margin-top: 14px;
+    font-size: 11px; color: rgba(255,255,255,0.4);
+    text-decoration: none; letter-spacing: 1px;
+  }
+  .cta-secondary a { color: #528ff1; text-decoration: none; }
+
+  /* ── DIVIDER ── */
+  .section-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(83,143,241,0.2), transparent);
+    margin: 0 40px;
+  }
+
+  /* ── AD BANNER SECTION ── */
+  .ad-section {
+    padding: 28px 40px;
+    background: rgba(0,0,0,0.2);
+    border-top: 1px solid rgba(255,255,255,0.05);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .ad-label {
+    font-size: 8px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: rgba(255,255,255,0.2); text-align: center; margin-bottom: 16px;
+  }
+  .ad-banner {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 12px;
+    text-decoration: none;
+    display: block;
+  }
+  .ad-banner:last-child { margin-bottom: 0; }
+
+  /* Primary ad — full width with gradient bg */
+  .ad-primary {
+    background: linear-gradient(135deg, #0d1760, #1a0d40);
+    padding: 24px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    border: 1px solid rgba(83,143,241,0.25) !important;
+  }
+  .ad-primary-text .ad-eyebrow {
+    font-size: 8px; font-weight: 800; letter-spacing: 2.5px;
+    text-transform: uppercase; color: #528ff1; margin-bottom: 6px;
+  }
+  .ad-primary-text .ad-headline {
+    font-size: 17px; font-weight: 900; color: #ffffff;
+    line-height: 1.2; text-transform: uppercase;
+  }
+  .ad-primary-text .ad-headline span { color: #f39517; }
+  .ad-primary-text .ad-sub {
+    font-size: 11px; color: rgba(255,255,255,0.55);
+    margin-top: 6px; line-height: 1.4;
+  }
+  .ad-primary-cta {
+    background: #f39517;
+    color: #050a30;
+    font-size: 10px; font-weight: 900;
+    letter-spacing: 2px; text-transform: uppercase;
+    padding: 10px 18px;
+    border-radius: 2px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-decoration: none;
+  }
+
+  /* Secondary ads — two-col layout */
+  .ad-row { display: flex; gap: 12px; }
+  .ad-secondary {
+    flex: 1;
+    background: linear-gradient(135deg, #050a30, #0a1040);
+    border: 1px solid rgba(243,149,23,0.15) !important;
+    padding: 18px 20px;
+    border-radius: 4px;
+    text-decoration: none;
+    display: block;
+  }
+  .ad-secondary .ad-eyebrow {
+    font-size: 8px; font-weight: 800; letter-spacing: 2px;
+    text-transform: uppercase; color: #f39517; margin-bottom: 6px;
+  }
+  .ad-secondary .ad-headline {
+    font-size: 13px; font-weight: 800; color: #ffffff;
+    line-height: 1.25; text-transform: uppercase; margin-bottom: 8px;
+  }
+  .ad-secondary .ad-sub {
+    font-size: 11px; color: rgba(255,255,255,0.5); line-height: 1.45;
+    margin-bottom: 12px;
+  }
+  .ad-secondary .ad-link {
+    font-size: 10px; font-weight: 800; color: #528ff1;
+    letter-spacing: 1.5px; text-transform: uppercase;
+  }
+
+  /* ── FOOTER ── */
+  .footer {
+    padding: 30px 40px 26px;
+    background: #030720;
+    border-top: 1px solid rgba(83,143,241,0.12);
+  }
+  .footer-brand {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 20px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .footer-brand img { width: 32px; height: 32px; object-fit: contain; opacity: 0.8; }
+  .footer-brand-text .name {
+    font-size: 11px; font-weight: 800; color: rgba(243,149,23,0.7);
+    letter-spacing: 2.5px; text-transform: uppercase;
+  }
+  .footer-brand-text .tagline {
+    font-size: 9px; color: rgba(255,255,255,0.3);
+    letter-spacing: 1.5px; text-transform: uppercase; margin-top: 1px;
+  }
+  .footer-links {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .footer-links a {
+    font-size: 10px; font-weight: 700; color: rgba(83,143,241,0.7);
+    text-decoration: none; letter-spacing: 1px; text-transform: uppercase;
+  }
+  .footer-links a:hover { color: #528ff1; }
+  .footer-disclaimer {
+    font-size: 10px; color: rgba(255,255,255,0.28);
+    line-height: 1.75; margin-bottom: 16px;
+  }
+  .footer-disclaimer a { color: rgba(83,143,241,0.6); text-decoration: none; }
+  .opt-out-box {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 4px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+  }
+  .opt-out-box p {
+    font-size: 10px; color: rgba(255,255,255,0.35);
+    line-height: 1.7; margin: 0;
+  }
+  .opt-out-box a {
+    color: #f39517; text-decoration: none; font-weight: 700;
+  }
+  .opt-out-box .unsubscribe-link {
+    display: inline-block; margin-top: 8px;
+    font-size: 10px; font-weight: 800;
+    color: rgba(255,255,255,0.35);
+    text-decoration: underline;
+    text-decoration-color: rgba(255,255,255,0.15);
+    letter-spacing: 1px; text-transform: uppercase;
+    cursor: pointer;
+  }
+  .footer-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 8px;
+  }
+  .footer-meta span { font-size: 9px; color: rgba(255,255,255,0.2); letter-spacing: 1px; }
+  .footer-social { display: flex; gap: 10px; }
+  .social-icon {
+    width: 28px; height: 28px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    text-decoration: none;
+    font-size: 10px; color: rgba(255,255,255,0.35);
+    font-weight: 800;
+  }
+
+  /* ── BOTTOM ACCENT ── */
+  .bottom-bar { height: 4px; background: linear-gradient(90deg, #233dff, #f39517); }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- TOP ACCENT -->
+  <div class="top-bar"></div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-logo">
+      <img src="https://afrovision.online/favicon.ico" alt="AfroVision" onerror="this.style.display='none'"/>
+      <div class="header-logo-text">
+        <div class="brand">AfroVision</div>
+        <div class="sub">Digital TV · Africa's Digital Playground</div>
+      </div>
+    </div>
+    <div class="header-badge">Confirmed ✓</div>
+  </div>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-check">✓</div>
+    <div class="hero-eyebrow">AfroVision Challenge: The Amazons</div>
+    <h1>You're <span>In.</span></h1>
+    <div class="hero-subtitle">Audition Sign-Up Confirmed</div>
+    <div class="hero-divider"></div>
+    <div class="hero-tagline">
+      Your audition slot has been registered. Africa's most ambitious challenge is almost here — and you just took the first step.
+    </div>
+  </div>
+
+  <!-- CONFIRMATION DETAILS CARD -->
+  <div class="confirm-card">
+    <div class="confirm-card-title">Your Registration Details</div>
+
+    <div class="confirm-row">
+      <span class="confirm-label">Programme</span>
+      <span class="confirm-value gold">AfroVision Challenge: The Amazons</span>
+    </div>
+    <div class="confirm-row">
+      <span class="confirm-label">Status</span>
+      <span class="confirm-value" style="color:#4caf82;">✓ Audition Registered</span>
+    </div>
+    <div class="confirm-row">
+      <span class="confirm-label">Auditions Open</span>
+      <span class="confirm-value">October 22, 2025</span>
+    </div>
+    <div class="confirm-row">
+      <span class="confirm-label">Platform</span>
+      <span class="confirm-value blue">AfroVision Digital TV</span>
+    </div>
+    <div class="confirm-row">
+      <span class="confirm-label">Confirmation ID</span>
+      <span class="confirm-value" style="font-family:monospace; font-size:12px; color:rgba(255,255,255,0.5);">#AVC-2025-XXXXXX</span>
+    </div>
+  </div>
+
+  <!-- SECTION DIVIDER -->
+  <div class="section-divider" style="margin-top:0;"></div>
+
+  <!-- WHAT HAPPENS NEXT -->
+  <div class="section">
+    <div class="section-title">What Happens Next</div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">Watch Your Inbox</div>
+          <div class="step-desc">We'll send your official audition brief and preparation guide closer to October 22nd. Check your spam folder just in case.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">Prepare Your Pitch</div>
+          <div class="step-desc">Start thinking about your business idea, your story, and what drives you. This isn't a talent show — we're looking for real founders.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">Show Up on October 22</div>
+          <div class="step-desc">Log into AfroVision, navigate to the Challenge section, and submit your audition. Slots are limited — don't miss your window.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-title">Wait for the Shortlist</div>
+          <div class="step-desc">Our panel reviews every submission. Shortlisted candidates will be contacted directly with next steps for the selection process.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <div class="info-box-title">Important: Eligibility Requirements</div>
+      <ul>
+        <li><strong>Age:</strong> 18–30 years old at time of audition</li>
+        <li><strong>Gender:</strong> Female-identifying applicants only</li>
+        <li><strong>Residency:</strong> Open to applicants across Africa and the diaspora</li>
+        <li><strong>Availability:</strong> Selected participants must be available for the full challenge duration</li>
+        <li><strong>Language:</strong> Proficiency in English required for the competition</li>
+      </ul>
+    </div>
+
+    <div class="quote-block">
+      <p>"We don't pick winners. We build them. Five will rise. A company will be born."</p>
+      <cite>AfroVision Challenge: The Amazons</cite>
+    </div>
+
+    <div class="cta-block">
+      <a href="https://afrovision.online/challenge" class="cta-btn">View Challenge Details →</a>
+      <span class="cta-secondary">Questions? Visit our <a href="https://afrovision.online/faq">FAQ page</a> or reply to this email.</span>
+    </div>
+  </div>
+
+  <!-- SECTION DIVIDER -->
+  <div class="section-divider"></div>
+
+  <!-- AD BANNERS -->
+  <div class="ad-section">
+    <div class="ad-label">Sponsored · From AfroVision</div>
+
+    <!-- Primary Ad -->
+    <a href="https://afrovision.online" class="ad-banner ad-primary" style="text-decoration:none; display:flex;">
+      <div class="ad-primary-text">
+        <div class="ad-eyebrow">Now Streaming</div>
+        <div class="ad-headline">Africa's Digital<br/><span>Playground</span> is Live</div>
+        <div class="ad-sub">Watch live channels, streams &amp; exclusive content. Anytime, anywhere.</div>
+      </div>
+      <a href="https://afrovision.online" class="ad-primary-cta">Watch Now</a>
+    </a>
+
+    <!-- Secondary Ads Row -->
+    <div class="ad-row" style="margin-top:12px;">
+      <a href="https://afrovision.online/community" class="ad-secondary" style="text-decoration:none;">
+        <div class="ad-eyebrow">Community</div>
+        <div class="ad-headline">Join the<br/>Creator Pool</div>
+        <div class="ad-sub">Earn rewards for your content and engagement on AfroVision.</div>
+        <div class="ad-link">Learn More →</div>
+      </a>
+      <a href="https://afrovision.online/channels" class="ad-secondary" style="text-decoration:none;">
+        <div class="ad-eyebrow">Live Channels</div>
+        <div class="ad-headline">Browse All<br/>Channels</div>
+        <div class="ad-sub">Culture, music, entertainment &amp; more — streaming now across Africa.</div>
+        <div class="ad-link">Explore →</div>
+      </a>
+    </div>
+
+    <!-- Third standalone ad -->
+    <a href="https://afrovision.online/sponsors" class="ad-banner" style="margin-top:12px; text-decoration:none; display:flex; align-items:center; justify-content:space-between; padding:16px 20px; background:rgba(35,61,255,0.07); border:1px solid rgba(83,143,241,0.2); border-radius:4px;">
+      <div>
+        <div style="font-size:8px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:#528ff1; margin-bottom:4px;">Partner With Us</div>
+        <div style="font-size:13px; font-weight:800; color:#ffffff; text-transform:uppercase;">Sponsor the Amazons Challenge</div>
+        <div style="font-size:11px; color:rgba(255,255,255,0.45); margin-top:4px;">Reach thousands of ambitious young African women &amp; their networks.</div>
+      </div>
+      <div style="font-size:10px; font-weight:900; color:#f39517; letter-spacing:2px; text-transform:uppercase; flex-shrink:0; margin-left:20px;">Get Info →</div>
+    </a>
+  </div>
+
+  <!-- SECTION DIVIDER -->
+  <div class="section-divider"></div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+
+    <!-- Brand -->
+    <div class="footer-brand">
+      <img src="https://afrovision.online/favicon.ico" alt="AfroVision" onerror="this.style.display='none'"/>
+      <div class="footer-brand-text">
+        <div class="name">AfroVision Digital TV</div>
+        <div class="tagline">Africa's Digital Playground</div>
+      </div>
+    </div>
+
+    <!-- Links -->
+    <div class="footer-links">
+      <a href="https://afrovision.online">Website</a>
+      <a href="https://afrovision.online/challenge">The Challenge</a>
+      <a href="https://afrovision.online/privacy">Privacy Policy</a>
+      <a href="https://afrovision.online/terms">Terms of Use</a>
+      <a href="https://afrovision.online/contact">Contact Us</a>
+    </div>
+
+    <!-- Disclaimer -->
+    <div class="footer-disclaimer">
+      <strong style="color:rgba(255,255,255,0.4);">Disclaimer:</strong> This email was sent to you because you signed up for audition updates for the AfroVision Challenge: The Amazons on <a href="https://afrovision.online">afrovision.online</a>. Your audition registration does not guarantee selection, shortlisting, or participation in any stage of the AfroVision Challenge. All applicants are subject to eligibility verification. AfroVision Digital TV reserves the right to disqualify any application that does not meet the stated criteria. The competition is governed by official Terms &amp; Conditions available at <a href="https://afrovision.online/terms">afrovision.online/terms</a>. Prizes and co-founder equity are subject to final agreements and challenge outcomes. AfroVision Digital TV is not responsible for any technical issues affecting audition submissions.
+    </div>
+
+    <!-- Opt-Out -->
+    <div class="opt-out-box">
+      <p>
+        You are receiving this email because you opted in to communications from <strong style="color:rgba(255,255,255,0.5);">AfroVision Digital TV</strong> at the time of registration. We respect your inbox and will only send you relevant updates about your audition and the challenge.
+        <br/><br/>
+        To update your email preferences, <a href="https://afrovision.online/preferences">manage your notification settings here</a>.
+        If you no longer wish to receive emails from AfroVision, you may unsubscribe at any time — you will no longer receive challenge updates, reminders, or confirmation emails.
+      </p>
+      <a href="https://afrovision.online/unsubscribe" class="unsubscribe-link">Unsubscribe from all AfroVision emails</a>
+    </div>
+
+    <!-- Meta -->
+    <div class="footer-meta">
+      <span>© 2025 AfroVision Digital TV. All rights reserved.</span>
+      <div class="footer-social">
+        <a href="#" class="social-icon">IG</a>
+        <a href="#" class="social-icon">TW</a>
+        <a href="#" class="social-icon">TK</a>
+        <a href="#" class="social-icon">YT</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BOTTOM ACCENT -->
+  <div class="bottom-bar"></div>
+
+</div>
+</body>
+</html>

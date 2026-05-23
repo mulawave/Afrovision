@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 const User = require('../users/user.model');
+const { getFirestore } = require('./firestore');
 
 /**
  * Send a notification to a specific list of FCM tokens.
@@ -92,7 +93,7 @@ async function sendToTokens(tokens, payload, userId = null) {
  * Send a notification to all FCM tokens registered for a given user.
  */
 async function sendToUser(userId, payload) {
-  const user = User.findById(userId);
+  const user = await User.findById(userId);
   if (!user) return { successCount: 0, failureCount: 0 };
 
   // Build the token set from afroDeviceToken (AfroVision-exclusive) + fcm_tokens[].
@@ -105,37 +106,99 @@ async function sendToUser(userId, payload) {
   return sendToTokens(tokens, payload, userId);
 }
 
+async function collectBroadcastTargets() {
+  const db = getFirestore();
+  const userIds = new Set();
+  const tokenSet = new Set();
+
+  // Primary source: dedicated notification target index maintained on token writes.
+  let cursor = null;
+  do {
+    const page = await User.listNotificationTargetsPage({ limit: 500, startAfterId: cursor });
+    for (const target of page.targets) {
+      userIds.add(target.id);
+      const tokens = Array.isArray(target.tokens) ? target.tokens : [];
+      for (const token of tokens) {
+        const normalized = String(token || '').trim();
+        if (normalized) tokenSet.add(normalized);
+      }
+    }
+    cursor = page.nextCursor;
+  } while (cursor);
+
+  // Compatibility path: include users that still have afroDeviceToken but are not yet indexed.
+  let lastToken = null;
+  let lastDocId = null;
+  while (true) {
+    let query = db.collection('users')
+      .where('afroDeviceToken', '>=', '')
+      .orderBy('afroDeviceToken')
+      .orderBy('__name__')
+      .limit(500);
+
+    if (lastToken !== null && lastDocId !== null) {
+      query = query.startAfter(lastToken, lastDocId);
+    }
+
+    const snapshot = await query.get();
+    if (snapshot.empty) break;
+
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      const token = String(data.afroDeviceToken || '').trim();
+      if (token) {
+        userIds.add(doc.id);
+        tokenSet.add(token);
+      }
+    }
+
+    const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+    lastToken = String(lastDoc.data().afroDeviceToken || '');
+    lastDocId = lastDoc.id;
+
+    if (snapshot.size < 500) break;
+  }
+
+  return {
+    userIds: [...userIds],
+    tokens: [...tokenSet],
+  };
+}
+
 /**
  * Broadcast a notification to every registered user who has at least one FCM token.
  */
-async function sendToAll(payload) {
-  const allUsers = User.getAll();
-  const tokenUserPairs = [];
+async function sendToAll(payload, precomputedTargets = null) {
+  const targets = precomputedTargets || await collectBroadcastTargets();
+  const tokens = targets.tokens;
 
-  for (const user of allUsers) {
-    if (Array.isArray(user.fcm_tokens)) {
-      for (const token of user.fcm_tokens) {
-        tokenUserPairs.push({ token, userId: user.id });
-      }
-    }
+  if (tokens.length === 0) {
+    return {
+      successCount: 0,
+      failureCount: 0,
+      targetedUsers: targets.userIds.length,
+      targetedTokens: 0,
+    };
   }
-
-  if (tokenUserPairs.length === 0) return { successCount: 0, failureCount: 0 };
 
   // FCM multicast supports up to 500 tokens at a time
   const CHUNK = 500;
   let totalSuccess = 0;
   let totalFailure = 0;
 
-  for (let i = 0; i < tokenUserPairs.length; i += CHUNK) {
-    const chunk = tokenUserPairs.slice(i, i + CHUNK);
-    const tokens = chunk.map((p) => p.token);
-    const result = await sendToTokens(tokens, payload, null);
+  for (let i = 0; i < tokens.length; i += CHUNK) {
+    const chunkTokens = tokens.slice(i, i + CHUNK);
+    const result = await sendToTokens(chunkTokens, payload, null);
     totalSuccess += result.successCount;
     totalFailure += result.failureCount;
   }
 
-  return { successCount: totalSuccess, failureCount: totalFailure };
+  return {
+    successCount: totalSuccess,
+    failureCount: totalFailure,
+    targetedUsers: targets.userIds.length,
+    targetedTokens: tokens.length,
+  };
 }
 
-module.exports = { sendToTokens, sendToUser, sendToAll };
+module.exports = { sendToTokens, sendToUser, sendToAll, collectBroadcastTargets };

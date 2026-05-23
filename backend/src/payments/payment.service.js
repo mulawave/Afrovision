@@ -10,7 +10,7 @@ const PAYSTACK_BASE_URL = 'https://api.paystack.co';
 const FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3';
 const DEFAULT_WEBSITE_URL =
   process.env.WEBSITE_URL ||
-  'https://afrovision-website-134538542038.us-central1.run.app';
+  'https://afrovision.online';
 
 async function getSettingOrEnv(key, envKeys = []) {
   try {
@@ -69,13 +69,41 @@ async function requireProviderSecret(provider) {
 
 function buildReturnUrl(baseUrl, paymentId) {
   const fallback = `${DEFAULT_WEBSITE_URL}/checkout/result?payment_id=${encodeURIComponent(paymentId)}`;
-  if (!baseUrl) return fallback;
+  
+  // If no baseUrl provided, use fallback
+  if (!baseUrl) {
+    console.warn(
+      '[buildReturnUrl] No baseUrl provided, using fallback:',
+      fallback
+    );
+    return fallback;
+  }
 
   try {
-    const url = new URL(baseUrl);
+    // Handle relative URLs by converting to absolute
+    let absoluteUrl = baseUrl;
+    if (!baseUrl.startsWith('http')) {
+      // If it's a relative path, make it absolute
+      absoluteUrl = `${DEFAULT_WEBSITE_URL}${baseUrl}`;
+    }
+
+    const url = new URL(absoluteUrl);
     url.searchParams.set('payment_id', paymentId);
-    return url.toString();
-  } catch (_) {
+    const result = url.toString();
+    console.log(
+      '[buildReturnUrl] Generated callback URL:',
+      result
+    );
+    return result;
+  } catch (error) {
+    console.error(
+      '[buildReturnUrl] Failed to build URL from baseUrl:',
+      baseUrl,
+      'Error:',
+      error.message,
+      '— Using fallback:',
+      fallback
+    );
     return fallback;
   }
 }
@@ -272,6 +300,17 @@ async function applySuccessfulPayment(payment) {
     });
   } else if (payment.purpose === 'wallet_topup') {
     await applyWalletTopup(payment);
+  } else if (payment.purpose === 'audition_signup') {
+    // Audition signup payments are fully managed by AuditionPaymentService.
+    // confirmSignupPayment() handles enrolment, vPT credit and ledger entries.
+    // When a payment reaches applySuccessfulPayment() via the generic
+    // verifyAndApply() path (e.g. admin re-check), delegate to that service.
+    const AuditionPaymentService = require('../challenge/audition_payment.service');
+    const signupId = payment.meta && payment.meta.signup_id;
+    if (signupId) {
+      await AuditionPaymentService.confirmSignupPayment(payment.id, payment.uid);
+    }
+    // If no signup_id in meta, the payment is orphaned — do nothing harmful.
   } else {
     throw new Error('Unsupported payment purpose');
   }
@@ -284,7 +323,7 @@ async function applySuccessfulPayment(payment) {
 }
 
 async function verifyAndApply(payment) {
-  const existing = Payment.findById(payment.id);
+  const existing = await Payment.findById(payment.id);
   if (!existing) {
     const error = new Error('Payment not found');
     error.statusCode = 404;
@@ -336,9 +375,9 @@ async function verifyAndApply(payment) {
 }
 
 async function getVerificationPayload(payment) {
-  const user = User.findById(payment.uid);
+  const user = await User.findById(payment.uid);
   const wallet = await GiftWallet.ensureWallet(payment.uid);
-  const plan = payment.plan_id ? Plan.findById(payment.plan_id) : null;
+  const plan = payment.plan_id ? await Plan.findById(payment.plan_id) : null;
   const safeUser = user ? User.toSafeUser(user) : null;
 
   return {
@@ -360,6 +399,7 @@ async function getVerificationPayload(payment) {
 module.exports = {
   getAvailableProviders,
   initializeCheckout,
+  verifyGatewayPayment,
   verifyAndApply,
   getVerificationPayload,
 };

@@ -1,5 +1,7 @@
-﻿import Link from "next/link";
-import { getHomepageContent, type HomepageSocialLink } from "@/lib/homepage";
+﻿import Image from "next/image";
+import Link from "next/link";
+import { getHomepageContent } from "@/lib/homepage";
+import { resolveWebsiteMediaUrl } from "@/lib/media";
 
 const FOOTER_LINKS = {
   Platform: [
@@ -80,7 +82,14 @@ export async function Footer({ logoUrl }: { logoUrl?: string | null }) {
           <div className="col-span-2 md:col-span-1">
             <Link href="/" className="flex items-center gap-2.5 mb-4">
               {logoUrl ? (
-                <img src={logoUrl} alt="AfroVision" className="h-12 w-12 rounded-lg object-contain" />
+                <Image
+                  src={resolveWebsiteMediaUrl(logoUrl)}
+                  alt="AfroVision"
+                  width={48}
+                  height={48}
+                  unoptimized
+                  className="h-12 w-12 rounded-lg object-contain"
+                />
               ) : (
                 <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center font-bold text-av-dark-blue text-lg">
                   A
@@ -107,7 +116,14 @@ export async function Footer({ logoUrl }: { logoUrl?: string | null }) {
                     className="w-9 h-9 rounded-lg bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-orange hover:border-av-orange/40 transition-all"
                   >
                     {s.icon_url ? (
-                      <img src={s.icon_url} alt={s.label} className="w-5 h-5 object-contain" />
+                      <Image
+                        src={resolveWebsiteMediaUrl(s.icon_url)}
+                        alt={s.label}
+                        width={20}
+                        height={20}
+                        unoptimized
+                        className="w-5 h-5 object-contain"
+                      />
                     ) : SOCIAL_ICONS[s.platform] ?? (
                       <span className="text-xs font-bold">{s.label.charAt(0)}</span>
                     )}

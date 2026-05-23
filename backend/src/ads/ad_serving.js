@@ -8,8 +8,8 @@ const Ad = require('./ad.model');
  * If target_channels is set, only matches those channels.
  */
 
-function getNextAd(category, channelId = null) {
-  const candidates = Ad.getActiveByCategory(category);
+async function getNextAd(category, channelId = null) {
+  const candidates = await Ad.getActiveByCategory(category);
   if (candidates.length === 0) return null;
 
   // Filter by channel targeting
@@ -35,7 +35,7 @@ function getNextAd(category, channelId = null) {
 /**
  * Get a banner ad for a given placement (home or page).
  */
-function getBannerAd(placement, channelId = null) {
+async function getBannerAd(placement, channelId = null) {
   const category = placement === 'home' ? 'banner_home' : 'banner_page';
   return getNextAd(category, channelId);
 }
@@ -45,13 +45,13 @@ function getBannerAd(placement, channelId = null) {
  * Returns an ordered array: [pre-roll?, mid-roll?, brief?]
  * based on what's available.
  */
-function getInStreamAds(channelId = null) {
+async function getInStreamAds(channelId = null) {
   const result = [];
-  const pre = getNextAd('in_stream_pre', channelId);
+  const pre = await getNextAd('in_stream_pre', channelId);
   if (pre) result.push(pre);
-  const mid = getNextAd('in_stream_mid', channelId);
+  const mid = await getNextAd('in_stream_mid', channelId);
   if (mid) result.push(mid);
-  const brief = getNextAd('in_stream_brief', channelId);
+  const brief = await getNextAd('in_stream_brief', channelId);
   if (brief) result.push(brief);
   return result;
 }

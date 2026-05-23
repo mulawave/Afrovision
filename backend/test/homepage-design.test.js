@@ -26,9 +26,41 @@ async function test(name, fn) {
 function createFakeFirestore() {
   const storage = new Map();
 
+  const emptySnapshot = {
+    empty: true,
+    docs: [],
+  };
+
+  const createQuery = () => ({
+    where() {
+      return createQuery();
+    },
+    orderBy() {
+      return createQuery();
+    },
+    limit() {
+      return createQuery();
+    },
+    async get() {
+      return emptySnapshot;
+    },
+  });
+
   return {
     collection(name) {
       return {
+        where() {
+          return createQuery();
+        },
+        orderBy() {
+          return createQuery();
+        },
+        limit() {
+          return createQuery();
+        },
+        async get() {
+          return emptySnapshot;
+        },
         doc(id) {
           const key = `${name}/${id}`;
           return {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../models/channel_model.dart';
+import '../models/category_model.dart';
 import '../services/channel_service.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
 
@@ -15,7 +16,12 @@ class ChannelListScreen extends StatefulWidget {
 class _ChannelListScreenState extends State<ChannelListScreen>
     with SingleTickerProviderStateMixin {
   List<ChannelModel> _channels = [];
+  List<ChannelModel> _filteredChannels = [];
+  List<CategoryModel> _categories = [];
   bool _loading = true;
+  bool _loadingCategories = false;
+  bool _categoriesError = false;
+  String _selectedCategory = 'All';
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late PageController _pageController;
@@ -42,26 +48,69 @@ class _ChannelListScreenState extends State<ChannelListScreen>
   }
 
   Future<void> _loadChannels() async {
+    setState(() {
+      _loading = true;
+      _loadingCategories = true;
+      _categoriesError = false;
+    });
+
     try {
       final channels = await ChannelService.getPublicChannels();
+      List<CategoryModel> categories = [];
+      bool categoriesError = false;
+
+      try {
+        categories = await ChannelService.getCategories();
+      } catch (_) {
+        categoriesError = true;
+      }
+
       if (!mounted) return;
       setState(() {
         _channels = channels;
+        _categories = categories;
+        _categoriesError = categoriesError;
+        _loadingCategories = false;
+        _applyCategoryFilter();
         _loading = false;
       });
       _animController.forward();
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loading = false);
+      setState(() {
+        _loading = false;
+        _loadingCategories = false;
+      });
     }
   }
 
-  int get _totalPages => (_channels.length / _perPage).ceil();
+  void _applyCategoryFilter() {
+    if (_selectedCategory == 'All') {
+      _filteredChannels = List<ChannelModel>.from(_channels);
+    } else {
+      _filteredChannels = _channels
+          .where(
+            (ch) =>
+                (ch.category ?? '').toLowerCase() ==
+                _selectedCategory.toLowerCase(),
+          )
+          .toList();
+    }
+
+    if (_currentPage != 0) {
+      _currentPage = 0;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      }
+    }
+  }
+
+  int get _totalPages => (_filteredChannels.length / _perPage).ceil();
 
   List<ChannelModel> _pageChannels(int page) {
     final start = page * _perPage;
-    final end = (start + _perPage).clamp(0, _channels.length);
-    return _channels.sublist(start, end);
+    final end = (start + _perPage).clamp(0, _filteredChannels.length);
+    return _filteredChannels.sublist(start, end);
   }
 
   void _openSearch() {
@@ -70,7 +119,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _SearchModal(
-        channels: _channels.where((c) => c.isPublic).toList(),
+        channels: _channels.where((c) => c.isPublic || c.isExclusive).toList(),
         onSelect: (channel) async {
           Navigator.pop(context);
           await Navigator.pushNamed(
@@ -108,6 +157,11 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                       )
                     : _channels.isEmpty
                     ? _buildEmpty()
+                    : _filteredChannels.isEmpty
+                    ? _buildEmpty(
+                        icon: Icons.filter_list_off_rounded,
+                        message: 'No channels in this category',
+                      )
                     : _buildPaginatedList(),
               ),
             ],
@@ -166,6 +220,23 @@ class _ChannelListScreenState extends State<ChannelListScreen>
           ),
           const SizedBox(width: 10),
           GestureDetector(
+            onTap: () => Navigator.pushNamed(context, '/channel-access'),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.inputFill,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.inputBorder),
+              ),
+              child: const Icon(
+                Icons.dialpad_rounded,
+                color: AppColors.orange,
+                size: 20,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          GestureDetector(
             onTap: () async {
               await Navigator.pushNamed(context, '/create-channel');
               _loadChannels();
@@ -189,7 +260,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
     );
   }
 
-  Widget _buildEmpty() {
+  Widget _buildEmpty({IconData? icon, String? message}) {
     return RefreshIndicator(
       color: AppColors.orange,
       backgroundColor: AppColors.inputFill,
@@ -203,17 +274,14 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    Icons.tv_off_rounded,
+                    icon ?? Icons.tv_off_rounded,
                     color: AppColors.goldText,
                     size: 56,
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'No channels yet',
-                    style: TextStyle(
-                      color: AppColors.goldText,
-                      fontSize: 16,
-                    ),
+                    message ?? 'No channels yet',
+                    style: TextStyle(color: AppColors.goldText, fontSize: 16),
                   ),
                 ],
               ),
@@ -229,6 +297,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
       opacity: _fadeAnim,
       child: Column(
         children: [
+          _buildCategoryStrip(),
           if (_totalPages > 1)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
@@ -236,7 +305,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    '${_channels.length} channel${_channels.length == 1 ? '' : 's'}',
+                    '${_filteredChannels.length} channel${_filteredChannels.length == 1 ? '' : 's'}',
                     style: TextStyle(
                       color: AppColors.goldText,
                       fontSize: 12,
@@ -294,6 +363,98 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                   ),
                 );
               },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryStrip() {
+    final chips = <String>['All', ..._categories.map((e) => e.name)];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(
+                'Categories',
+                style: TextStyle(
+                  color: AppColors.goldText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              if (_loadingCategories)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.orange,
+                  ),
+                )
+              else if (_categoriesError)
+                GestureDetector(
+                  onTap: _loadChannels,
+                  child: Text(
+                    'Retry',
+                    style: TextStyle(
+                      color: AppColors.orange,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: chips.map((label) {
+                final selected = _selectedCategory == label;
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedCategory = label;
+                      _applyCategoryFilter();
+                    });
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? AppColors.orange.withValues(alpha: 0.2)
+                          : AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: selected
+                            ? AppColors.orange.withValues(alpha: 0.7)
+                            : AppColors.inputBorder,
+                      ),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: selected
+                            ? AppColors.lightOrange
+                            : AppColors.goldText,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
         ],
@@ -474,6 +635,35 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                         const SizedBox(height: 3),
                         Row(
                           children: [
+                            if (channel.ownerName != null &&
+                                channel.ownerName!.trim().isNotEmpty) ...[
+                              Flexible(
+                                child: Text(
+                                  'By ${channel.ownerName!}',
+                                  style: TextStyle(
+                                    color: AppColors.goldText.withValues(
+                                      alpha: 0.8,
+                                    ),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                                child: Container(
+                                  width: 3,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.goldText,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ),
+                            ],
                             if (channel.category != null) ...[
                               Flexible(
                                 child: Text(
@@ -500,6 +690,34 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                                 ),
                               ),
                             ],
+                            const SizedBox(width: 6),
+                            const Icon(
+                              Icons.people_alt_rounded,
+                              color: AppColors.goldText,
+                              size: 11,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              '${channel.followersCount}',
+                              style: TextStyle(
+                                color: AppColors.goldText,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              child: Container(
+                                width: 3,
+                                height: 3,
+                                decoration: BoxDecoration(
+                                  color: AppColors.goldText,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
                             Text(
                               '#${channel.channelNumber}',
                               style: TextStyle(
@@ -542,11 +760,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
         ),
       ),
       child: Center(
-        child: Icon(
-          Icons.live_tv_rounded,
-          color: AppColors.goldText,
-          size: 32,
-        ),
+        child: Icon(Icons.live_tv_rounded, color: AppColors.goldText, size: 32),
       ),
     );
   }
@@ -596,6 +810,7 @@ class _SearchModalState extends State<_SearchModal> {
           .where(
             (ch) =>
                 ch.name.toLowerCase().contains(q) ||
+                (ch.ownerName?.toLowerCase().contains(q) ?? false) ||
                 (ch.category?.toLowerCase().contains(q) ?? false) ||
                 ch.channelNumber.contains(q),
           )
@@ -644,10 +859,7 @@ class _SearchModalState extends State<_SearchModal> {
                 style: const TextStyle(color: AppColors.white, fontSize: 15),
                 decoration: InputDecoration(
                   hintText: 'Search channels...',
-                  hintStyle: TextStyle(
-                    color: AppColors.goldText,
-                    fontSize: 15,
-                  ),
+                  hintStyle: TextStyle(color: AppColors.goldText, fontSize: 15),
                   prefixIcon: const Icon(
                     Icons.search_rounded,
                     color: AppColors.orange,
@@ -791,6 +1003,36 @@ class _SearchModalState extends State<_SearchModal> {
                                     const SizedBox(height: 2),
                                     Row(
                                       children: [
+                                        if (ch.ownerName != null &&
+                                            ch.ownerName!
+                                                .trim()
+                                                .isNotEmpty) ...[
+                                          Flexible(
+                                            child: Text(
+                                              'By ${ch.ownerName!}',
+                                              style: TextStyle(
+                                                color: AppColors.hintText
+                                                    .withValues(alpha: 0.7),
+                                                fontSize: 10,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 5,
+                                            ),
+                                            child: Container(
+                                              width: 3,
+                                              height: 3,
+                                              decoration: BoxDecoration(
+                                                color: AppColors.hintText
+                                                    .withValues(alpha: 0.4),
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                         if (ch.category != null) ...[
                                           Text(
                                             ch.category!,
@@ -815,6 +1057,34 @@ class _SearchModalState extends State<_SearchModal> {
                                             ),
                                           ),
                                         ],
+                                        const Icon(
+                                          Icons.people_alt_rounded,
+                                          color: AppColors.goldText,
+                                          size: 11,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          '${ch.followersCount}',
+                                          style: TextStyle(
+                                            color: AppColors.hintText
+                                                .withValues(alpha: 0.7),
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5,
+                                          ),
+                                          child: Container(
+                                            width: 3,
+                                            height: 3,
+                                            decoration: BoxDecoration(
+                                              color: AppColors.hintText
+                                                  .withValues(alpha: 0.4),
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                        ),
                                         Text(
                                           '#${ch.channelNumber}',
                                           style: TextStyle(

@@ -74,10 +74,13 @@ async function registerUploadedVideo(req, res) {
       return res.status(400).json({ error: 'Invalid video URL — must be from the AfroVision media bucket' });
     }
 
-    const channel = Channel.findById(channel_id);
+    const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.owner_id !== req.userId) {
       return res.status(403).json({ error: 'Not channel owner' });
+    }
+    if (channel.stream_source_mode === 'external_url') {
+      return res.status(400).json({ error: 'URL channels stream continuously and do not support scheduling' });
     }
 
     const video = await Video.create({
@@ -112,10 +115,13 @@ async function uploadVideo(req, res) {
     if (!description || !description.trim()) return res.status(400).json({ error: 'description is required' });
     if (!req.file) return res.status(400).json({ error: 'No video file uploaded' });
 
-    const channel = Channel.findById(channel_id);
+    const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.owner_id !== req.userId) {
       return res.status(403).json({ error: 'Not channel owner' });
+    }
+    if (channel.stream_source_mode === 'external_url') {
+      return res.status(400).json({ error: 'URL channels stream continuously and do not support scheduling' });
     }
 
     const videoUrl = req.file.gcsUrl;
@@ -137,7 +143,7 @@ async function uploadVideo(req, res) {
 
 async function uploadThumbnail(req, res) {
   try {
-    const video = Video.findById(req.params.videoId);
+    const video = await Video.findById(req.params.videoId);
     if (!video) return res.status(404).json({ error: 'Video not found' });
     if (video.creator_uid !== req.userId) {
       return res.status(403).json({ error: 'Not video owner' });
@@ -152,19 +158,19 @@ async function uploadThumbnail(req, res) {
   }
 }
 
-function getChannelVideos(req, res) {
-  const videos = Video.getByChannel(req.params.channelId);
+async function getChannelVideos(req, res) {
+  const videos = await Video.getByChannel(req.params.channelId);
   res.json({ videos });
 }
 
-function getMyVideos(req, res) {
-  const videos = Video.getByCreator(req.userId);
+async function getMyVideos(req, res) {
+  const videos = await Video.getByCreator(req.userId);
   res.json({ videos });
 }
 
 async function deleteVideo(req, res) {
   try {
-    const video = Video.findById(req.params.videoId);
+    const video = await Video.findById(req.params.videoId);
     if (!video) return res.status(404).json({ error: 'Video not found' });
     if (video.creator_uid !== req.userId) {
       return res.status(403).json({ error: 'Not video owner' });
@@ -202,13 +208,13 @@ async function scheduleProgram(req, res) {
     if (!video_id) return res.status(400).json({ error: 'video_id is required' });
     if (!start_time) return res.status(400).json({ error: 'start_time is required' });
 
-    const channel = Channel.findById(channel_id);
+    const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.owner_id !== req.userId) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
-    const video = Video.findById(video_id);
+    const video = await Video.findById(video_id);
     if (!video) return res.status(404).json({ error: 'Video not found' });
 
     if (video.duration <= 0) {
@@ -224,7 +230,7 @@ async function scheduleProgram(req, res) {
     const adBuffer = await _getAdBufferMs();
     const endMs = startMs + video.duration * 1000 + adBuffer;
 
-    if (Program.hasOverlap(channel_id, startMs, endMs, null)) {
+    if (await Program.hasOverlap(channel_id, startMs, endMs, null)) {
       return res.status(409).json({ error: 'Schedule overlaps with existing program' });
     }
 
@@ -248,10 +254,15 @@ async function scheduleProgram(req, res) {
   }
 }
 
-function getChannelSchedule(req, res) {
-  const schedule = Program.getSchedule(req.params.channelId);
-  const enriched = schedule.map((p) => {
-    const video = Video.findById(p.video_id);
+async function getChannelSchedule(req, res) {
+  const channel = await Channel.findById(req.params.channelId);
+  if (channel?.stream_source_mode === 'external_url') {
+    return res.json({ schedule: [] });
+  }
+
+  const schedule = await Program.getSchedule(req.params.channelId);
+  const enriched = await Promise.all(schedule.map(async (p) => {
+    const video = await Video.findById(p.video_id);
     return {
       ...p,
       video_title: video ? video.title : 'Unknown',
@@ -259,16 +270,16 @@ function getChannelSchedule(req, res) {
       video_duration: video ? video.duration : 0,
       video_thumbnail: video ? video.thumbnail_url : null,
     };
-  });
+  }));
   res.json({ schedule: enriched });
 }
 
 async function deleteProgram(req, res) {
   try {
-    const program = Program.findById(req.params.programId);
+    const program = await Program.findById(req.params.programId);
     if (!program) return res.status(404).json({ error: 'Program not found' });
 
-    const channel = Channel.findById(program.channel_id);
+    const channel = await Channel.findById(program.channel_id);
     if (!channel || channel.owner_id !== req.userId) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
@@ -294,7 +305,7 @@ async function scheduleSequential(req, res) {
     }
     if (!start_time) return res.status(400).json({ error: 'start_time is required' });
 
-    const channel = Channel.findById(channel_id);
+    const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.owner_id !== req.userId) {
       return res.status(403).json({ error: 'Not channel owner' });
@@ -303,7 +314,7 @@ async function scheduleSequential(req, res) {
     // Validate all videos exist and have duration
     const videos = [];
     for (const videoId of video_ids) {
-      const video = Video.findById(videoId);
+      const video = await Video.findById(videoId);
       if (!video) return res.status(404).json({ error: `Video ${videoId} not found` });
       if (video.duration <= 0) {
         return res.status(400).json({ error: `Video "${video.title}" has no duration set` });
@@ -324,7 +335,7 @@ async function scheduleSequential(req, res) {
     for (const video of videos) {
       const endMs = currentStart + video.duration * 1000;
 
-      if (Program.hasOverlap(channel_id, currentStart, endMs, null)) {
+      if (await Program.hasOverlap(channel_id, currentStart, endMs, null)) {
         return res.status(409).json({
           error: `Schedule overlap for "${video.title}" at slot ${new Date(currentStart).toISOString()}`,
           created_so_far: created.length,
@@ -359,37 +370,24 @@ async function scheduleSequential(req, res) {
 async function getNowPlaying(req, res) {
   const channelId = req.params.channelId;
   const serverTime = Date.now();
-  const db = getFirestore();
-
-  // Query ALL programs for this channel directly from Firestore.
-  const progSnap = await db.collection('channel_programs')
-    .where('channel_id', '==', channelId)
-    .get();
-  const allPrograms = progSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-  // Find the currently-active program
-  const program = allPrograms.find(
-    (p) => p.start_time <= serverTime && p.end_time > serverTime
-  ) || null;
+  const program = await Program.getCurrentProgram(channelId);
 
   // Auto-status: scheduled → live
   if (program && program.status === 'scheduled') {
-    await db.collection('channel_programs').doc(program.id).update({ status: 'live' });
+    await Program.updateStatus(program.id, 'live');
   }
 
   if (program) {
-    const videoDoc = await db.collection('videos').doc(program.video_id).get();
-    if (!videoDoc.exists) {
+    const [video, upcoming] = await Promise.all([
+      Video.findById(program.video_id),
+      Program.getUpcoming(channelId, 1),
+    ]);
+    if (!video) {
       return res.json({ now_playing: null, next_program: null, server_time: serverTime });
     }
-    const video = { id: videoDoc.id, ...videoDoc.data() };
 
     const positionMs = serverTime - program.start_time;
     const positionSec = Math.max(0, Math.floor(positionMs / 1000));
-    const upcoming = allPrograms
-      .filter((p) => p.start_time > serverTime)
-      .sort((a, b) => a.start_time - b.start_time)
-      .slice(0, 1);
 
     return res.json({
       now_playing: {
@@ -406,37 +404,30 @@ async function getNowPlaying(req, res) {
         position: positionSec,
         is_loop: false,
       },
-      next_program: upcoming.length > 0 ? await enrichProgram(upcoming[0], db) : null,
+      next_program: upcoming.length > 0 ? await enrichProgram(upcoming[0]) : null,
       server_time: serverTime,
     });
   }
 
   // No current program — check upcoming
-  const upcoming = allPrograms
-    .filter((p) => p.start_time > serverTime)
-    .sort((a, b) => a.start_time - b.start_time)
-    .slice(0, 1);
+  const upcoming = await Program.getUpcoming(channelId, 1);
 
   if (upcoming.length > 0) {
     // Auto-status: mark past live programs as ended
-    await _markEndedPrograms(allPrograms, serverTime, db);
+    await _markEndedPrograms(channelId, serverTime);
     return res.json({
       now_playing: null,
-      next_program: await enrichProgram(upcoming[0], db),
+      next_program: await enrichProgram(upcoming[0]),
       server_time: serverTime,
     });
   }
 
   // No upcoming — fallback: loop last ended video
-  const endedPrograms = allPrograms
-    .filter((p) => p.end_time <= serverTime)
-    .sort((a, b) => b.end_time - a.end_time);
-  const lastEnded = endedPrograms.length > 0 ? endedPrograms[0] : null;
+  const lastEnded = await Program.getLastEnded(channelId);
 
   if (lastEnded) {
-    const videoDoc = await db.collection('videos').doc(lastEnded.video_id).get();
-    if (videoDoc.exists && videoDoc.data().duration > 0) {
-      const video = { id: videoDoc.id, ...videoDoc.data() };
+    const video = await Video.findById(lastEnded.video_id);
+    if (video && video.duration > 0) {
       const elapsedMs = serverTime - lastEnded.end_time;
       const elapsedSec = Math.floor(elapsedMs / 1000);
       const loopPosition = elapsedSec % video.duration;
@@ -463,22 +454,20 @@ async function getNowPlaying(req, res) {
   }
 
   // Truly nothing to play
-  await _markEndedPrograms(allPrograms, serverTime, db);
+  await _markEndedPrograms(channelId, serverTime);
   res.json({ now_playing: null, next_program: null, server_time: serverTime });
 }
 
-// Helper: mark past live programs as ended (operates on Firestore-fetched program list)
-async function _markEndedPrograms(programs, serverTime, db) {
-  for (const p of programs) {
-    if (p.status === 'live' && serverTime >= p.end_time) {
-      await db.collection('channel_programs').doc(p.id).update({ status: 'ended' });
-    }
+// Helper: mark the most recently-ended live program as ended without scanning the full schedule
+async function _markEndedPrograms(channelId, serverTime) {
+  const lastEnded = await Program.getLastEnded(channelId);
+  if (lastEnded && lastEnded.status === 'live' && serverTime >= lastEnded.end_time) {
+    await Program.updateStatus(lastEnded.id, 'ended');
   }
 }
 
-async function enrichProgram(program, db) {
-  const videoDoc = await db.collection('videos').doc(program.video_id).get();
-  const video = videoDoc.exists ? { id: videoDoc.id, ...videoDoc.data() } : null;
+async function enrichProgram(program) {
+  const video = await Video.findById(program.video_id);
   return {
     program_id: program.id,
     video_title: video ? video.title : 'Unknown',
@@ -508,13 +497,13 @@ async function goLive(req, res) {
     const { channel_id } = req.body;
     if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
 
-    const channel = Channel.findById(channel_id);
+    const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.owner_id !== req.userId && user.role !== 'admin') {
       return res.status(403).json({ error: 'Not your channel' });
     }
 
-    const activeStream = StreamStats.getActiveByChannel(channel_id);
+    const activeStream = await StreamStats.getActiveByChannel(channel_id);
     let stream = activeStream;
     if (!stream) {
       stream = await StreamStats.startStream({
@@ -546,11 +535,11 @@ function getServerTime(_req, res) {
 
 // ─── UPCOMING ALL CHANNELS (PUBLIC) ──────────────────────
 
-function getUpcomingAll(_req, res) {
-  const programs = Program.getUpcomingAll(12);
-  const enriched = programs.map((p) => {
-    const video = Video.findById(p.video_id);
-    const channel = Channel.findById(p.channel_id);
+async function getUpcomingAll(_req, res) {
+  const programs = await Program.getUpcomingAll(12);
+  const enriched = await Promise.all(programs.map(async (p) => {
+    const video = await Video.findById(p.video_id);
+    const channel = await Channel.findById(p.channel_id);
     return {
       id: p.id,
       channel_id: p.channel_id,
@@ -562,7 +551,7 @@ function getUpcomingAll(_req, res) {
       start_time: p.start_time,
       end_time: p.end_time,
     };
-  });
+  }));
   res.json({ upcoming: enriched });
 }
 
@@ -573,14 +562,14 @@ async function createReminder(req, res) {
     const { program_id } = req.body;
     if (!program_id) return res.status(400).json({ error: 'program_id is required' });
 
-    const program = Program.findById(program_id);
+    const program = await Program.findById(program_id);
     if (!program) return res.status(404).json({ error: 'Program not found' });
 
-    const existing = Reminder.getByProgramAndUser(program_id, req.userId);
+    const existing = await Reminder.getByProgramAndUser(program_id, req.userId);
     if (existing) return res.status(409).json({ error: 'Reminder already set' });
 
-    const video = Video.findById(program.video_id);
-    const channel = Channel.findById(program.channel_id);
+    const video = await Video.findById(program.video_id);
+    const channel = await Channel.findById(program.channel_id);
 
     // Send notification 2 minutes before start, or now if less than 2 min away
     const sendAt = Math.max(Date.now(), program.start_time - 2 * 60 * 1000);
@@ -610,48 +599,9 @@ async function removeReminder(req, res) {
   }
 }
 
-function getMyReminders(req, res) {
-  const reminders = Reminder.getByUser(req.userId);
+async function getMyReminders(req, res) {
+  const reminders = await Reminder.getByUser(req.userId);
   res.json({ reminders });
-}
-
-// ─── REMINDER CHECK TIMER ────────────────────────────────
-
-let _reminderInterval = null;
-
-function startReminderTimer() {
-  if (_reminderInterval) return;
-  _reminderInterval = setInterval(async () => {
-    try {
-      const now = Date.now();
-      const due = Reminder.getDueReminders(now);
-      for (const reminder of due) {
-        await NotificationService.notifyUser(reminder.user_id, {
-          title: '🔔 Show Starting Soon!',
-          body: `"${reminder.program_title}" on ${reminder.channel_name} is about to start!`,
-          type: 'reminder',
-          link: `/live/${reminder.channel_id}`,
-          data: {
-            program_id: reminder.program_id,
-            channel_id: reminder.channel_id,
-          },
-        });
-        // Also send email reminder
-        const user = User.findById(reminder.user_id);
-        if (user && user.email && !user.email.endsWith('@afrovision.invalid')) {
-          sendReminderEmail({
-            to: user.email,
-            programTitle: reminder.program_title,
-            channelName: reminder.channel_name,
-            channelId: reminder.channel_id,
-          }).catch((err) => console.error('[Reminder] Email error:', err.message));
-        }
-        await Reminder.markSent(reminder.id);
-      }
-    } catch (err) {
-      console.error('[Reminder] Timer error:', err.message);
-    }
-  }, 30_000); // check every 30 seconds
 }
 
 // ─── FLASH SCREEN TTS ────────────────────────────────────────────
@@ -700,6 +650,5 @@ module.exports = {
   createReminder,
   removeReminder,
   getMyReminders,
-  startReminderTimer,
   getFlashAudio,
 };

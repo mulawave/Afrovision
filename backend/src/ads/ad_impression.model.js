@@ -2,19 +2,13 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'ad_impressions';
-const impressions = [];
-let initialized = false;
 
 async function init() {
-  if (initialized) return;
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    data.id = doc.id;
-    impressions.push(data);
-  });
-  initialized = true;
+  return [];
+}
+
+function normalizeImpression(doc) {
+  return { ...doc.data(), id: doc.id };
 }
 
 async function record({ adId, channelId, category, viewerCount, cost, channelOwnerId }) {
@@ -31,25 +25,45 @@ async function record({ adId, channelId, category, viewerCount, cost, channelOwn
     played_at: Date.now(),
   };
   await db.collection(COLLECTION).doc(id).set(impression);
-  impressions.push(impression);
   return impression;
 }
 
-function getByAd(adId) {
-  return impressions.filter((i) => i.ad_id === adId);
+async function getByAd(adId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('ad_id', '==', adId)
+    .get();
+  return snapshot.docs.map(normalizeImpression);
 }
 
-function getByChannel(channelId) {
-  return impressions.filter((i) => i.channel_id === channelId);
+async function getByChannel(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .get();
+  return snapshot.docs.map(normalizeImpression);
 }
 
-function getByAdvertiser(adIds) {
-  const set = new Set(adIds);
-  return impressions.filter((i) => set.has(i.ad_id));
+async function getByAdvertiser(adIds) {
+  const uniqueAdIds = [...new Set((adIds || []).filter(Boolean))];
+  if (uniqueAdIds.length === 0) return [];
+
+  const db = getFirestore();
+  const impressions = [];
+
+  for (let index = 0; index < uniqueAdIds.length; index += 10) {
+    const batch = uniqueAdIds.slice(index, index + 10);
+    const snapshot = await db.collection(COLLECTION)
+      .where('ad_id', 'in', batch)
+      .get();
+    snapshot.docs.forEach((doc) => impressions.push(normalizeImpression(doc)));
+  }
+
+  return impressions;
 }
 
-function getStats(adId) {
-  const adImpressions = getByAd(adId);
+async function getStats(adId) {
+  const adImpressions = await getByAd(adId);
   return {
     total_impressions: adImpressions.length,
     total_viewers: adImpressions.reduce((sum, i) => sum + (i.viewer_count || 0), 0),
@@ -58,8 +72,31 @@ function getStats(adId) {
   };
 }
 
-function getAll() {
-  return [...impressions];
+async function getRecent(limit = 200) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .orderBy('played_at', 'desc')
+    .limit(limit)
+    .get();
+  return snapshot.docs.map(normalizeImpression);
+}
+
+async function getSince(sinceTimestamp, limit) {
+  const db = getFirestore();
+  let query = db.collection(COLLECTION)
+    .where('played_at', '>=', sinceTimestamp)
+    .orderBy('played_at', 'desc');
+
+  if (Number.isInteger(limit) && limit > 0) {
+    query = query.limit(limit);
+  }
+
+  const snapshot = await query.get();
+  return snapshot.docs.map(normalizeImpression);
+}
+
+async function getAll(limit = 200) {
+  return getRecent(limit);
 }
 
 module.exports = {
@@ -69,5 +106,7 @@ module.exports = {
   getByChannel,
   getByAdvertiser,
   getStats,
+  getRecent,
+  getSince,
   getAll,
 };

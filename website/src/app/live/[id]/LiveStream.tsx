@@ -3,8 +3,11 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LivePlayer } from "@/components/LivePlayer";
+import { ExternalStreamPlayer } from "@/components/ExternalStreamPlayer";
+import { ChannelSurfer } from "@/components/ChannelSurfer";
 import { AdBreak } from "@/components/AdBreak";
 import { FlashScreen } from "@/components/FlashScreen";
 import { LiveChat } from "@/components/LiveChat";
@@ -18,7 +21,6 @@ import {
   type Channel,
   type ChannelEvent,
   type ScheduleProgram,
-  type ProgramReminder,
   type Advertisement,
   sendGiftApi,
   sendReactionApi,
@@ -26,10 +28,11 @@ import {
   getChannelApi,
   getChannelScheduleApi,
   checkChannelAccessApi,
+  getChannelsApi,
   payForAccessApi,
-  getFollowStatusApi,
-  followCreatorApi,
-  unfollowCreatorApi,
+  getChannelFollowStatusApi,
+  followChannelApi,
+  unfollowChannelApi,
   getChannelEventsApi,
   getChannelEventsSinceApi,
   getMyRemindersApi,
@@ -41,7 +44,7 @@ import {
 } from "@/lib/api";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
 
-type RightPanel = "chat" | "gifts";
+type RightPanel = "channels" | "chat" | "gifts";
 
 type AccessState = {
   checked: boolean;
@@ -52,24 +55,39 @@ type AccessState = {
   access_duration_minutes?: number;
 };
 
+type LiveDataSnapshot = {
+  nowPlaying: NowPlaying | null;
+  schedule: ScheduleProgram[] | null;
+};
+
 export function LiveStream({ id }: { id: string }) {
-  const [rightPanel, setRightPanel] = useState<RightPanel>("chat");
+  const router = useRouter();
+  const [rightPanel, setRightPanel] = useState<RightPanel>("channels");
+  const rightPanelRef = useRef<HTMLDivElement>(null);
+  const [pendingChannelId, setPendingChannelId] = useState<string | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [giftOverlay, setGiftOverlay] = useState<string | null>(null);
   const [events, setEvents] = useState<ChannelEvent[]>([]);
-  const [lastEventAt, setLastEventAt] = useState(0);
   const { user, isAuthenticated, refreshUser } = useAuth();
   const requireAuth = useRequireAuth();
 
   const [channel, setChannel] = useState<Channel | null>(null);
+  const [surferChannels, setSurferChannels] = useState<Channel[]>([]);
   const [access, setAccess] = useState<AccessState>({ checked: false, has_access: true });
   const [payLoading, setPayLoading] = useState(false);
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
   const [schedule, setSchedule] = useState<ScheduleProgram[]>([]);
   const [loading, setLoading] = useState(true);
   const programEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveDataRequestRef = useRef<Promise<LiveDataSnapshot> | null>(null);
+  const lastEventAtRef = useRef(0);
+  const eventsRequestInFlightRef = useRef(false);
+
+  useEffect(() => {
+    setPendingChannelId(null);
+  }, [id]);
 
   // ─── Ad break state ───
   const [adBreakAds, setAdBreakAds] = useState<Advertisement[]>([]);
@@ -90,19 +108,44 @@ export function LiveStream({ id }: { id: string }) {
   // Use real VPT balance if authenticated, otherwise demo balance
   const walletBalance = isAuthenticated && user ? user.vpt : 0;
 
-  // Immediately fetch now-playing + schedule (used on program transitions)
-  const refreshNowPlaying = useCallback(async () => {
-    const [npRes, schedRes] = await Promise.all([
-      getNowPlayingApi(id),
-      getChannelScheduleApi(id),
-    ]);
-    if (npRes.ok && "now_playing" in npRes.data) {
-      setNowPlaying(npRes.data.now_playing ?? null);
+  const applyLiveDataSnapshot = useCallback((snapshot: LiveDataSnapshot) => {
+    setNowPlaying(snapshot.nowPlaying);
+    if (snapshot.schedule) {
+      setSchedule(snapshot.schedule);
     }
-    if (schedRes.ok && "schedule" in schedRes.data) {
-      setSchedule(schedRes.data.schedule);
+  }, []);
+
+  const fetchLiveDataSnapshot = useCallback(async (): Promise<LiveDataSnapshot> => {
+    if (!liveDataRequestRef.current) {
+      liveDataRequestRef.current = (async () => {
+        const [npRes, schedRes] = await Promise.all([
+          getNowPlayingApi(id),
+          getChannelScheduleApi(id),
+        ]);
+
+        return {
+          nowPlaying: npRes.ok && "now_playing" in npRes.data
+            ? (npRes.data.now_playing ?? null)
+            : null,
+          schedule: schedRes.ok && "schedule" in schedRes.data
+            ? schedRes.data.schedule
+            : null,
+        };
+      })();
+    }
+
+    try {
+      return await liveDataRequestRef.current;
+    } finally {
+      liveDataRequestRef.current = null;
     }
   }, [id]);
+
+  // Shared live-data refresh used by initial load, interval polling, and exact program rollover.
+  const refreshLiveData = useCallback(async () => {
+    const snapshot = await fetchLiveDataSnapshot();
+    applyLiveDataSnapshot(snapshot);
+  }, [applyLiveDataSnapshot, fetchLiveDataSnapshot]);
 
   // Fetch in-stream ads and trigger a break
   const fetchAndShowAds = useCallback(async () => {
@@ -148,7 +191,7 @@ export function LiveStream({ id }: { id: string }) {
       }
     }
     prevProgramId.current = programId;
-  }, [nowPlaying, preRollDone, fetchAndShowAds, MID_ROLL_INTERVAL]);
+  }, [nowPlaying, preRollDone, fetchAndShowAds, MID_ROLL_INTERVAL, showFlash]);
 
   // Fetch channel + now-playing + access check
   useEffect(() => {
@@ -156,11 +199,11 @@ export function LiveStream({ id }: { id: string }) {
 
     async function load() {
       setLoading(true);
-      const [channelRes, npRes, accessRes, schedRes] = await Promise.all([
+      const [channelRes, accessRes, liveData, channelsRes] = await Promise.all([
         getChannelApi(id),
-        getNowPlayingApi(id),
         checkChannelAccessApi(id),
-        getChannelScheduleApi(id),
+        fetchLiveDataSnapshot(),
+        getChannelsApi(),
       ]);
 
       if (cancelled) return;
@@ -168,12 +211,10 @@ export function LiveStream({ id }: { id: string }) {
       if (channelRes.ok && "channel" in channelRes.data) {
         setChannel(channelRes.data.channel);
       }
-      if (npRes.ok && "now_playing" in npRes.data && npRes.data.now_playing) {
-        setNowPlaying(npRes.data.now_playing);
+      if (channelsRes.ok && "channels" in channelsRes.data) {
+        setSurferChannels(channelsRes.data.channels);
       }
-      if (schedRes.ok && "schedule" in schedRes.data) {
-        setSchedule(schedRes.data.schedule);
-      }
+      applyLiveDataSnapshot(liveData);
 
       // Set access state from backend
       if (accessRes.ok && "has_access" in accessRes.data) {
@@ -198,23 +239,36 @@ export function LiveStream({ id }: { id: string }) {
     }
 
     load();
-    // Poll now-playing every 30s to detect program changes
+
+    // Safety-net: 5-minute fallback for null/loop cases where the precision timer
+    // cannot fire (no end_time). Skipped when the tab is hidden.
+    const SAFETY_NET_INTERVAL = 5 * 60 * 1000;
     const interval = setInterval(async () => {
       if (cancelled) return;
-      const [npRes, schedRes] = await Promise.all([
-        getNowPlayingApi(id),
-        getChannelScheduleApi(id),
-      ]);
-      if (npRes.ok && "now_playing" in npRes.data) {
-        setNowPlaying(npRes.data.now_playing ?? null);
-      }
-      if (schedRes.ok && "schedule" in schedRes.data) {
-        setSchedule(schedRes.data.schedule);
-      }
-    }, 30000);
+      if (typeof document !== "undefined" && document.hidden) return;
 
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [id]);
+      const liveData = await fetchLiveDataSnapshot();
+      if (cancelled) return;
+      applyLiveDataSnapshot(liveData);
+    }, SAFETY_NET_INTERVAL);
+
+    // Visibility / focus refresh: catch tab-switch returns without any polling cost.
+    const onVisible = async () => {
+      if (cancelled || typeof document === "undefined" || document.hidden) return;
+      const liveData = await fetchLiveDataSnapshot();
+      if (cancelled) return;
+      applyLiveDataSnapshot(liveData);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [id, applyLiveDataSnapshot, fetchLiveDataSnapshot]);
 
   // Precision timer: auto-refresh exactly when the current program ends
   useEffect(() => {
@@ -227,13 +281,13 @@ export function LiveStream({ id }: { id: string }) {
     const msUntilEnd = nowPlaying.end_time - Date.now();
     if (msUntilEnd <= 0) {
       // Already past end — refresh immediately
-      refreshNowPlaying();
+      refreshLiveData();
       return;
     }
 
     // Set timer to refresh 1s after program end
     programEndTimer.current = setTimeout(() => {
-      refreshNowPlaying();
+      refreshLiveData();
     }, msUntilEnd + 1000);
 
     return () => {
@@ -242,13 +296,13 @@ export function LiveStream({ id }: { id: string }) {
         programEndTimer.current = null;
       }
     };
-  }, [nowPlaying, refreshNowPlaying]);
+  }, [nowPlaying, refreshLiveData]);
 
   useEffect(() => {
-    if (!isAuthenticated || !channel?.owner_id || channel.owner_id === user?.id) return;
+    if (!isAuthenticated || !channel?.id || channel.owner_id === user?.id) return;
     let cancelled = false;
 
-    getFollowStatusApi(channel.owner_id).then((res) => {
+    getChannelFollowStatusApi(channel.id).then((res) => {
       if (cancelled || !res.ok || !("followed" in res.data)) return;
       setIsFollowing(res.data.followed);
       setFollowersCount(res.data.followers_count);
@@ -257,42 +311,76 @@ export function LiveStream({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, channel?.owner_id, user?.id]);
+  }, [isAuthenticated, channel?.id, channel?.owner_id, user?.id]);
+
+  useEffect(() => {
+    lastEventAtRef.current = 0;
+    setEvents([]);
+  }, [id]);
 
   useEffect(() => {
     if (!access.has_access) return;
     let cancelled = false;
+    lastEventAtRef.current = 0;
+    setEvents([]);
 
     async function loadInitialEvents() {
       const res = await getChannelEventsApi(id);
       if (cancelled || !res.ok || !("events" in res.data)) return;
       const initialEvents = res.data.events;
       setEvents(initialEvents.slice(-8));
-      setLastEventAt(initialEvents[initialEvents.length - 1]?.created_at ?? 0);
+      lastEventAtRef.current = initialEvents[initialEvents.length - 1]?.created_at ?? 0;
     }
 
     loadInitialEvents();
 
     const interval = setInterval(async () => {
-      const res = await getChannelEventsSinceApi(id, lastEventAt);
-      if (cancelled || !res.ok || !("events" in res.data) || res.data.events.length === 0) {
+      if (typeof document !== "undefined" && document.hidden) {
         return;
       }
-      setEvents((prev) => [...prev, ...res.data.events].slice(-12));
-      setLastEventAt(res.data.events[res.data.events.length - 1]?.created_at ?? lastEventAt);
-    }, 5000);
+
+      if (eventsRequestInFlightRef.current) {
+        return;
+      }
+
+      eventsRequestInFlightRef.current = true;
+      const currentCursor = lastEventAtRef.current;
+
+      try {
+        const res = await getChannelEventsSinceApi(id, currentCursor);
+        if (cancelled || !res.ok || !("events" in res.data) || res.data.events.length === 0) {
+          return;
+        }
+
+        setEvents((prev) => [...prev, ...res.data.events].slice(-12));
+        lastEventAtRef.current = res.data.events[res.data.events.length - 1]?.created_at ?? currentCursor;
+      } finally {
+        eventsRequestInFlightRef.current = false;
+      }
+    }, 20000);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [id, access.has_access, lastEventAt]);
+  }, [id, access.has_access]);
 
   const streamTitle = nowPlaying?.video_title ?? channel?.name ?? `Stream #${id}`;
   const channelName = channel?.name ?? `Channel #${id}`;
   const channelInitials = channel
     ? channel.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
     : "CH";
+
+  // ─── External source derived values ───
+  const isExternalSource = !!channel?.stream_source_mode && channel.stream_source_mode !== "native";
+  const extStreamStatus = channel?.stream_status ?? "unknown";
+  const extPlaybackUrl = channel?.resolved_playback_url ?? channel?.external_url ?? null;
+  const handleSelectSurferChannel = useCallback((channelId: string) => {
+    if (channelId === id || pendingChannelId) return;
+    setPendingChannelId(channelId);
+    router.prefetch(`/live/${channelId}`);
+    router.push(`/live/${channelId}`);
+  }, [id, pendingChannelId, router]);
 
   const handleSendGift = useCallback((gift: GiftItem) => {
     requireAuth(async () => {
@@ -323,12 +411,12 @@ export function LiveStream({ id }: { id: string }) {
   }, [requireAuth, id, refreshUser]);
 
   const handleFollowToggle = useCallback(() => {
-    if (!channel?.owner_id || channel.owner_id === user?.id) return;
+    if (!channel?.id || !channel?.owner_id || channel.owner_id === user?.id) return;
     requireAuth(async () => {
       setFollowLoading(true);
       const res = isFollowing
-        ? await unfollowCreatorApi(channel.owner_id)
-        : await followCreatorApi(channel.owner_id);
+        ? await unfollowChannelApi(channel.id)
+        : await followChannelApi(channel.id);
 
       if (res.ok && "followed" in res.data) {
         setIsFollowing(res.data.followed);
@@ -402,49 +490,88 @@ export function LiveStream({ id }: { id: string }) {
           <div className="min-w-0">
             {/* Video player */}
             <div className="relative">
-              <LivePlayer
-                channelName={channelName}
-                channelLogoUrl={channel?.logo_url ?? undefined}
-                title={streamTitle}
-                viewers={0}
-                isLive={!!nowPlaying}
-                streamUrl={nowPlaying?.video_url ? resolveWebsiteMediaUrl(nowPlaying.video_url) : undefined}
-                startTime={nowPlaying?.start_time}
-                duration={nowPlaying?.duration}
-                isLoop={nowPlaying?.is_loop}
-                onProgramEnd={refreshNowPlaying}
-                adPlaying={showAdBreak}
-              />
-
-              {/* ── DSTV-style Ad Break Overlay ── */}
-              {showAdBreak && adBreakAds.length > 0 && (
-                <AdBreak
-                  ads={adBreakAds}
-                  channelName={channelName}
-                  channelId={id}
-                  onImpression={handleAdImpression}
-                  onComplete={handleAdBreakComplete}
-                />
-              )}
-
-              {/* ── Flash Screen (Coming Up Next / Now Playing) ── */}
-              {flashType && !showAdBreak && (
-                <FlashScreen
-                  type={flashType}
-                  title={flashTitle}
-                  channelName={channelName}
-                  durationMs={4000}
-                  onComplete={hideFlash}
-                />
-              )}
-
-              {/* Gift overlay animation */}
-              {giftOverlay && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                  <div className="gift-send-animation text-6xl bg-black/30 backdrop-blur-sm px-8 py-4 rounded-2xl">
-                    {giftOverlay}
+              {pendingChannelId && (
+                <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-[#050A30]/65 backdrop-blur-sm">
+                  <div className="rounded-2xl border border-cyan-300/30 bg-[#091640]/90 px-5 py-4 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+                    <div className="flex items-center gap-3">
+                      <div className="relative h-9 w-9">
+                        <div className="absolute inset-0 rounded-full border-2 border-cyan-300/20" />
+                        <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-cyan-300 animate-spin" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-white">Switching channel</p>
+                        <p className="text-xs text-cyan-200/90">Tuning into live stream…</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
+              )}
+              {/* ── External source player (AV-STR-003) ── */}
+              {isExternalSource ? (
+                <div className="relative w-full overflow-hidden rounded-2xl bg-black" style={{ aspectRatio: "16/9" }}>
+                  <ExternalStreamPlayer
+                    currentChannel={channel}
+                    availableChannels={surferChannels}
+                    onSelectChannel={handleSelectSurferChannel}
+                    channelName={channelName}
+                    channelLogoUrl={channel?.logo_url ?? null}
+                    streamSourceMode={channel?.stream_source_mode}
+                    playbackUrl={extPlaybackUrl}
+                    streamStatus={extStreamStatus}
+                  />
+
+
+                </div>
+              ) : (
+                <>
+                  <LivePlayer
+                    channelName={channelName}
+                    channelLogoUrl={channel?.logo_url ?? undefined}
+                    title={streamTitle}
+                    viewers={0}
+                    isLive={!!nowPlaying}
+                    streamUrl={nowPlaying?.video_url ? resolveWebsiteMediaUrl(nowPlaying.video_url) : undefined}
+                    startTime={nowPlaying?.start_time}
+                    duration={nowPlaying?.duration}
+                    isLoop={nowPlaying?.is_loop}
+                    onProgramEnd={refreshLiveData}
+                    adPlaying={showAdBreak}
+                    currentChannel={channel}
+                    availableChannels={surferChannels}
+                    onSelectChannel={handleSelectSurferChannel}
+                  />
+
+                  {/* ── DSTV-style Ad Break Overlay ── */}
+                  {showAdBreak && adBreakAds.length > 0 && (
+                    <AdBreak
+                      ads={adBreakAds}
+                      channelName={channelName}
+                      channelId={id}
+                      onImpression={handleAdImpression}
+                      onComplete={handleAdBreakComplete}
+                    />
+                  )}
+
+                  {/* ── Flash Screen (Coming Up Next / Now Playing) ── */}
+                  {flashType && !showAdBreak && (
+                    <FlashScreen
+                      type={flashType}
+                      title={flashTitle}
+                      channelName={channelName}
+                      durationMs={4000}
+                      onComplete={hideFlash}
+                    />
+                  )}
+
+                  {/* Gift overlay animation */}
+                  {giftOverlay && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                      <div className="gift-send-animation text-6xl bg-black/30 backdrop-blur-sm px-8 py-4 rounded-2xl">
+                        {giftOverlay}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -543,7 +670,7 @@ export function LiveStream({ id }: { id: string }) {
             <div className="mt-4 rounded-xl bg-av-card border border-av-input-border/20 p-4 sm:p-5">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-av-white">Live Activity</h3>
-                <span className="text-[11px] text-av-light-orange">Updates every 5s</span>
+                <span className="text-[11px] text-av-light-orange">Updates every 20s</span>
               </div>
               {events.length === 0 ? (
                 <p className="text-xs text-av-light-orange">No reactions or gifts yet for this session.</p>
@@ -589,10 +716,20 @@ export function LiveStream({ id }: { id: string }) {
             </div>
           </div>
 
-          {/* ===== RIGHT COLUMN: Chat + Gifts ===== */}
-          <div className="flex flex-col h-[calc(100vh-80px)] lg:sticky lg:top-20">
+          {/* ===== RIGHT COLUMN: Channels + Chat + Gifts ===== */}
+          <div ref={rightPanelRef} className="flex flex-col h-[calc(100vh-80px)] lg:sticky lg:top-20">
             {/* Panel switcher tabs */}
             <div className="flex items-center gap-1 mb-2 p-1 rounded-xl bg-av-card border border-av-input-border/20">
+              <button
+                onClick={() => setRightPanel("channels")}
+                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                  rightPanel === "channels"
+                    ? "bg-av-input-fill text-av-white"
+                    : "text-av-light-orange hover:text-av-white"
+                }`}
+              >
+                📺 Channels
+              </button>
               <button
                 onClick={() => setRightPanel("chat")}
                 className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
@@ -613,6 +750,23 @@ export function LiveStream({ id }: { id: string }) {
               >
                 🎁 Gifts
               </button>
+            </div>
+
+            {/* Channels panel */}
+            <div className={`flex-1 min-h-0 ${rightPanel === "channels" ? "block" : "hidden"}`}>
+              {channel ? (
+                <ChannelSurfer
+                  variant="sidebar"
+                  currentChannel={channel}
+                  channels={surferChannels}
+                  onSelectChannel={handleSelectSurferChannel}
+                  pendingChannelId={pendingChannelId}
+                />
+              ) : (
+                <div className="h-full rounded-xl bg-av-card border border-av-input-border/20 flex items-center justify-center text-xs text-av-light-orange">
+                  Loading channels…
+                </div>
+              )}
             </div>
 
             {/* Chat panel */}

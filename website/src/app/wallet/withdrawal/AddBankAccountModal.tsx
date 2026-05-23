@@ -16,6 +16,17 @@ interface Props {
 }
 
 export default function AddBankAccountModal({ open, onClose, onSaved }: Props) {
+  if (!open) return null;
+
+  return <AddBankAccountModalContent onClose={onClose} onSaved={onSaved} />;
+}
+
+interface ContentProps {
+  onClose: () => void;
+  onSaved: (details: BankDetails) => void;
+}
+
+function AddBankAccountModalContent({ onClose, onSaved }: ContentProps) {
   const [banks, setBanks] = useState<BankOption[]>([]);
   const [loadingBanks, setLoadingBanks] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -32,12 +43,9 @@ export default function AddBankAccountModal({ open, onClose, onSaved }: Props) {
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  // Load bank list on open
+  // Load bank list on mount
   useEffect(() => {
-    if (!open) return;
     let cancelled = false;
-    setLoadingBanks(true);
-    setLoadError(null);
     getSupportedBanksApi().then((res) => {
       if (cancelled) return;
       if (res.ok && "banks" in res.data) {
@@ -49,19 +57,7 @@ export default function AddBankAccountModal({ open, onClose, onSaved }: Props) {
       setLoadingBanks(false);
     });
     return () => { cancelled = true; };
-  }, [open]);
-
-  // Reset state when modal closes
-  useEffect(() => {
-    if (!open) {
-      setSelectedBank(null);
-      setAccountNumber("");
-      setBankSearch("");
-      setResolved(null);
-      setError(null);
-      setDropdownOpen(false);
-    }
-  }, [open]);
+  }, []);
 
   const normalizedNumber = accountNumber.replace(/\D/g, "");
   const canResolve = selectedBank !== null && normalizedNumber.length === 10 && !resolving;
@@ -106,9 +102,6 @@ export default function AddBankAccountModal({ open, onClose, onSaved }: Props) {
       setError(errData.error || "Failed to save bank details.");
     }
   }, [canSave, selectedBank, resolved, onSaved]);
-
-  if (!open) return null;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}

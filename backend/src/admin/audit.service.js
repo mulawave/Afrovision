@@ -31,7 +31,7 @@ function inferTarget(action, targetId, meta = {}) {
     case 'set_premium':
     case 'set_kyc':
     case 'delete_user':
-      return summarizeAuditUser(User.findById(targetId)) || {
+      return summarizeAuditUser(User.findCachedById(targetId)) || {
         type: 'user',
         id: targetId,
         display_name: targetId,
@@ -52,7 +52,7 @@ function inferTarget(action, targetId, meta = {}) {
         enabled: typeof meta.enabled === 'boolean' ? meta.enabled : null,
       };
     default:
-      return summarizeAuditUser(User.findById(targetId))
+      return summarizeAuditUser(User.findCachedById(targetId))
         || summarizeChannel(findAnyChannel(targetId))
         || buildFallbackTarget(targetId, meta);
   }
@@ -83,7 +83,7 @@ function enrichMeta(meta) {
     if (typeof value !== 'string' || !value) continue;
 
     if (key.endsWith('_uid') || key === 'user_id' || key === 'userId') {
-      addDetails(key, summarizeAuditUser(User.findById(value)));
+      addDetails(key, summarizeAuditUser(User.findCachedById(value)));
       continue;
     }
 
@@ -97,7 +97,7 @@ function enrichMeta(meta) {
 
 function enrichAuditEntry(entry) {
   const meta = enrichMeta(entry.meta);
-  const admin = entry.admin || summarizeAuditUser(User.findById(entry.admin_uid)) || {
+  const admin = entry.admin || summarizeAuditUser(User.findCachedById(entry.admin_uid)) || {
     type: 'user',
     id: entry.admin_uid,
     display_name: entry.admin_uid,
@@ -122,7 +122,7 @@ async function logAction(adminUid, action, targetId, meta = {}) {
     admin_uid: adminUid,
     action,
     target_id: targetId || null,
-    admin: summarizeAuditUser(User.findById(adminUid)),
+    admin: summarizeAuditUser(User.findCachedById(adminUid)),
     target: inferTarget(action, targetId, enrichedMeta),
     meta: enrichedMeta,
     timestamp: Date.now(),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -25,6 +25,24 @@ const REASONS = [
 
 export default function DeleteAccountPage() {
   const { isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
+    return (
+      <main className="min-h-screen pt-24 flex items-center justify-center px-6">
+        <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
+          <p className="text-sm text-av-light-orange">Sign in to manage your account.</p>
+          <Link href="/login?redirect=/profile/delete-account" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
+            Sign in →
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  return <DeleteAccountContent />;
+}
+
+function DeleteAccountContent() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -46,23 +64,27 @@ export default function DeleteAccountPage() {
   // Cancellation
   const [cancelling, setCancelling] = useState(false);
 
-  const checkStatus = useCallback(async () => {
-    setLoading(true);
-    const res = await getDeletionStatusApi();
-    if (res.ok && "has_pending_request" in res.data) {
-      const data = res.data as { has_pending_request: boolean; request?: DeletionRequest };
-      setPendingRequest(data.has_pending_request && data.request ? data.request : null);
-    }
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
-    if (!isAuthenticated) {
+    let cancelled = false;
+
+    async function loadDeletionStatus() {
+      const res = await getDeletionStatusApi();
+      if (cancelled) return;
+
+      if (res.ok && "has_pending_request" in res.data) {
+        const data = res.data as { has_pending_request: boolean; request?: DeletionRequest };
+        setPendingRequest(data.has_pending_request && data.request ? data.request : null);
+      }
+
       setLoading(false);
-      return;
     }
-    checkStatus();
-  }, [isAuthenticated, checkStatus]);
+
+    void loadDeletionStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmitRequest() {
     if (!reason) {
@@ -120,19 +142,6 @@ export default function DeleteAccountPage() {
       setError(e.error || "Failed to delete account");
     }
     setDeleting(false);
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <main className="min-h-screen pt-24 flex items-center justify-center px-6">
-        <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-          <p className="text-sm text-av-light-orange">Sign in to manage your account.</p>
-          <Link href="/login?redirect=/profile/delete-account" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
-            Sign in →
-          </Link>
-        </div>
-      </main>
-    );
   }
 
   return (

@@ -12,16 +12,22 @@ const POOL_DOC = 'pools/community';
 const RBD_POOL_DOC = 'pools/rbd'; // Referral Base Dump pool
 const OPS_POOL_DOC = 'pools/operations'; // Operations pool (50% of subscriptions)
 const DISTRIBUTIONS_COLLECTION = 'pool_distributions';
+const POOL_STATS_CACHE_TTL_MS = 60_000;
 
-let distributions = [];
 let initialized = false;
+let poolStatsCache = null;
+let poolStatsCacheUpdatedAt = 0;
+let poolStatsRequestInFlight = null;
+
+function invalidatePoolStatsCache() {
+  poolStatsCache = null;
+  poolStatsCacheUpdatedAt = 0;
+}
 
 // ─── INIT ───────────────────────────────────────────────
 
 async function init() {
   const db = getFirestore();
-  const snapshot = await db.collection(DISTRIBUTIONS_COLLECTION).get();
-  distributions = snapshot.docs.map((doc) => doc.data());
   initialized = true;
 
   // Ensure pools/community doc exists
@@ -88,21 +94,24 @@ async function init() {
 async function creditPool(amountNGN, source, meta = {}) {
   const db = getFirestore();
   const poolRef = db.doc(POOL_DOC);
-  // Get vPT price from settings
   const vptPriceNGN = (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750;
-  const amountVPT = parseFloat((amountNGN / vptPriceNGN).toFixed(4));
+  const isVptCurrency = meta.currency === 'vpt';
+  const creditedNgn = isVptCurrency ? Math.round(amountNGN * vptPriceNGN) : amountNGN;
+  const creditedVpt = isVptCurrency ? Number(amountNGN) : parseFloat((creditedNgn / vptPriceNGN).toFixed(4));
+
   await poolRef.set(
     {
-      balance_ngn: FieldValue.increment(amountNGN),
-      total_credited: FieldValue.increment(amountNGN),
-      balance_vpt: FieldValue.increment(amountVPT),
-      total_credited_vpt: FieldValue.increment(amountVPT),
+      balance_ngn: FieldValue.increment(creditedNgn),
+      total_credited: FieldValue.increment(creditedNgn),
+      balance_vpt: FieldValue.increment(creditedVpt),
+      total_credited_vpt: FieldValue.increment(creditedVpt),
       updated_at: Date.now(),
     },
     { merge: true }
   );
-  // Pool credit recorded
-  return { credited_ngn: amountNGN, credited_vpt: amountVPT, source };
+
+  invalidatePoolStatsCache();
+  return { credited_ngn: creditedNgn, credited_vpt: creditedVpt, source };
 }
 
 /**
@@ -111,7 +120,7 @@ async function creditPool(amountNGN, source, meta = {}) {
 async function getPoolBalance() {
   const db = getFirestore();
   const doc = await db.doc(POOL_DOC).get();
-  if (!doc.exists) return { balance_ngn: 0, total_credited: 0, total_distributed: 0, balance_vpt: 0, total_credited_vpt: 0, total_distributed_vpt: 0 };
+  if (!doc.exists) return { balance_ngn: 0, total_credited: 0, total_distributed: 0, balance_vpt: 0, total_credited_vpt: 0, total_distributed_vpt: 0, total_beneficiaries: 0 };
   // Always return both NGN and vPT fields for compatibility
   const data = doc.data();
   return {
@@ -121,6 +130,7 @@ async function getPoolBalance() {
     balance_vpt: data.balance_vpt || 0,
     total_credited_vpt: data.total_credited_vpt || 0,
     total_distributed_vpt: data.total_distributed_vpt || 0,
+    total_beneficiaries: data.total_beneficiaries || 0,
     updated_at: data.updated_at || null,
   };
 }
@@ -172,15 +182,18 @@ async function getRbdPoolBalance() {
 async function creditOperationsPool(amountNGN, source, meta = {}) {
   const db = getFirestore();
   const opsRef = db.doc(OPS_POOL_DOC);
+  const isVptCurrency = meta.currency === 'vpt';
+  const vptPriceNGN = isVptCurrency ? (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750 : null;
+  const creditedNgn = isVptCurrency ? Math.round(amountNGN * vptPriceNGN) : amountNGN;
   await opsRef.set(
     {
-      balance_ngn: FieldValue.increment(amountNGN),
-      total_credited: FieldValue.increment(amountNGN),
+      balance_ngn: FieldValue.increment(creditedNgn),
+      total_credited: FieldValue.increment(creditedNgn),
       updated_at: Date.now(),
     },
     { merge: true }
   );
-  return { credited_ngn: amountNGN, source };
+  return { credited_ngn: creditedNgn, source };
 }
 
 /**
@@ -221,30 +234,37 @@ async function distributeViewerRewards() {
     return { distributed: false, reason: 'Pool is empty', pool_balance_vpt: pool.balance_vpt };
   }
 
+  const vptPriceNGN = (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750;
+
   // Get configurable reward percentage (default: 10% of pool per cycle)
   const rewardPercent = ((await SettingsService.getNumber('VIEWER_REWARD_PERCENT')) || 10) / 100;
   const distributionAmountVPT = parseFloat((pool.balance_vpt * rewardPercent).toFixed(4));
+  const distributionAmountNGN = Math.round(distributionAmountVPT * vptPriceNGN);
 
   if (distributionAmountVPT <= 0) {
     return { distributed: false, reason: 'Distribution amount too small', pool_balance_vpt: pool.balance_vpt };
   }
 
-  // Find all eligible viewers: active subscription + multiplier > 0
-  const allUsers = User.getAll();
-  const eligible = [];
+  // Query only reward-eligible viewer plans instead of hydrating the full user base.
+  const rewardableViewerPlans = (await Plan.getByType('viewer'))
+    .filter((plan) => (plan.reward_multiplier || 0) > 0);
+  const db = getFirestore();
+  const eligible = (await Promise.all(
+    rewardableViewerPlans.map(async (plan) => {
+      const snapshot = await db.collection('users')
+        .where('subscription_status', '==', 'active')
+        .where('subscription_plan', '==', plan.name)
+        .select('email')
+        .get();
 
-  for (const user of allUsers) {
-    if (user.subscription_status !== 'active') continue;
-
-    // Find user's plan to get multiplier
-    const plan = user.subscription_plan ? Plan.findByName(user.subscription_plan) : null;
-    if (!plan || plan.type !== 'viewer') continue;
-
-    const multiplier = plan.reward_multiplier || 0;
-    if (multiplier <= 0) continue;
-
-    eligible.push({ userId: user.id, email: user.email, multiplier, planName: plan.name });
-  }
+      return snapshot.docs.map((doc) => ({
+        userId: doc.id,
+        email: doc.get('email') || null,
+        multiplier: plan.reward_multiplier || 0,
+        planName: plan.name,
+      }));
+    })
+  )).flat();
 
   if (eligible.length === 0) {
     return { distributed: false, reason: 'No eligible viewers', pool_balance: pool.balance_ngn };
@@ -281,10 +301,12 @@ async function distributeViewerRewards() {
     // Calculate share: proportional to multiplier
     const shareVPT = parseFloat(((viewer.multiplier / totalMultipliers) * distributionAmountVPT).toFixed(4));
     if (shareVPT <= 0) continue;
+    const shareNGN = Math.round(shareVPT * vptPriceNGN);
+    const vptAmount = shareVPT;
 
     try {
       // Credit user's vPT balance
-      const userBefore = User.findById(viewer.userId);
+      const userBefore = await User.findById(viewer.userId);
       const balanceBefore = userBefore?.vpt || 0;
       await User.adjustVpt(viewer.userId, shareVPT);
       const balanceAfter = balanceBefore + shareVPT;
@@ -318,8 +340,9 @@ async function distributeViewerRewards() {
       });
 
       totalDistributedVPT += shareVPT;
+      totalDistributed += shareNGN;
       successCount++;
-      results.push({ userId: viewer.userId, multiplier: viewer.multiplier, shareVPT, status: 'success' });
+      results.push({ userId: viewer.userId, multiplier: viewer.multiplier, shareVPT, shareNGN, status: 'success' });
 
     } catch (err) {
       console.error('[Pool] Reward failed for viewer');
@@ -345,6 +368,7 @@ async function distributeViewerRewards() {
       {
         balance_vpt: FieldValue.increment(-totalDistributedVPT),
         total_distributed_vpt: FieldValue.increment(totalDistributedVPT),
+        total_beneficiaries: FieldValue.increment(successCount),
         updated_at: Date.now(),
       },
       { merge: true }
@@ -366,12 +390,11 @@ async function distributeViewerRewards() {
     created_at: Date.now(),
   };
 
-  const db = getFirestore();
   await db.collection(DISTRIBUTIONS_COLLECTION).doc(distributionId).set(summary);
-  distributions.push(summary);
+  invalidatePoolStatsCache();
 
   // Update batch ledger entry to success
-  const batchLedger = Ledger.getByMeta('distribution_id', distributionId)
+  const batchLedger = (await Ledger.getByMeta('distribution_id', distributionId))
     .find((e) => e.type === 'VIEWER_REWARD_BATCH');
   if (batchLedger) {
     await Ledger.updateStatus(batchLedger.id, 'success', {
@@ -393,93 +416,61 @@ async function distributeViewerRewards() {
 
 // ─── QUERIES ────────────────────────────────────────────
 
-function getDistributionHistory(limit = 20) {
-  return distributions
-    .sort((a, b) => b.created_at - a.created_at)
-    .slice(0, limit);
+async function getDistributionHistory(limit = 20) {
+  const db = getFirestore();
+  const snapshot = await db.collection(DISTRIBUTIONS_COLLECTION)
+    .orderBy('created_at', 'desc')
+    .limit(limit)
+    .get();
+  return snapshot.docs.map((doc) => doc.data());
 }
 
-function getDistributionById(id) {
-  return distributions.find((d) => d.id === id) || null;
+async function getDistributionById(id) {
+  const db = getFirestore();
+  const doc = await db.collection(DISTRIBUTIONS_COLLECTION).doc(id).get();
+  return doc.exists ? doc.data() : null;
 }
 
 async function getPoolStats() {
   const vptPriceNGN = (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750;
   const rewardPercent = ((await SettingsService.getNumber('VIEWER_REWARD_PERCENT')) || 10);
 
-  // ── Recalculate from actual ledger entries (source of truth) ──
-  const allEntries = Ledger.getAll();
+  const pool = await getPoolBalance();
+  const viewerPlans = (await Plan.getByType('viewer'))
+    .filter((plan) => (plan.reward_multiplier || 0) > 0);
+  const db = getFirestore();
+  const countSnapshots = await Promise.all(
+    viewerPlans.map((plan) => db.collection('users')
+      .where('subscription_status', '==', 'active')
+      .where('subscription_plan', '==', plan.name)
+      .count()
+      .get())
+  );
 
-  // Sum 20% community share from every confirmed subscription payment
-  const subTypes = ['PLAN_PAYMENT', 'SUBSCRIPTION_PAYMENT', 'SUBSCRIPTION_RENEWAL'];
-  let totalCreditedNgn = 0;
-  let totalCreditedVptDirect = 0; // vPT-paid creator subs contribute vPT directly
-
-  for (const e of allEntries) {
-    if (!subTypes.includes(e.type) || e.status !== 'success') continue;
-
-    const ngnAmt = e.amount_ngn || 0;
-    const vptAmt = e.amount_vpt_units || 0;
-
-    if (ngnAmt > 0) {
-      // NGN-paid subscription: take 20% community share in NGN
-      const share = (e.meta && e.meta.split && e.meta.split.community_pool != null)
-        ? e.meta.split.community_pool
-        : Math.floor(ngnAmt * 0.20);
-      totalCreditedNgn += share;
-    } else if (vptAmt > 0) {
-      // vPT-paid subscription: take 20% community share in vPT units
-      const share = (e.meta && e.meta.split && e.meta.split.community_pool != null)
-        ? e.meta.split.community_pool
-        : Math.floor(vptAmt * 0.20);
-      totalCreditedVptDirect += share;
-    }
-  }
-
-  // Convert NGN credits to vPT and combine with direct vPT credits
-  const totalCreditedVptFromNgn = parseFloat((totalCreditedNgn / vptPriceNGN).toFixed(4));
-  const totalCreditedVpt = parseFloat((totalCreditedVptFromNgn + totalCreditedVptDirect).toFixed(4));
-  const totalCreditedNgnEquiv = totalCreditedNgn + Math.round(totalCreditedVptDirect * vptPriceNGN);
-
-  // Sum total distributed to viewers (VIEWER_REWARD entries)
-  const distributed = allEntries.filter((e) => e.type === 'VIEWER_REWARD' && e.status === 'success');
-  const totalDistributedVpt = distributed.reduce((sum, e) => sum + (e.amount_vpt || e.amount_vpt_units || 0), 0);
-  const totalDistributedNgn = Math.round(totalDistributedVpt * vptPriceNGN);
-
-  const balanceVpt = parseFloat((totalCreditedVpt - totalDistributedVpt).toFixed(4));
-  const balanceNgn = Math.round(balanceVpt * vptPriceNGN);
-
-  // Beneficiaries
-  const beneficiarySet = new Set(distributed.map((e) => e.uid).filter(Boolean));
-
-  // Count eligible viewers
-  const allUsers = User.getAll();
   let eligibleCount = 0;
   let totalMultipliers = 0;
   const tierCounts = {};
 
-  for (const user of allUsers) {
-    if (user.subscription_status !== 'active') continue;
-    const plan = user.subscription_plan ? Plan.findByName(user.subscription_plan) : null;
-    if (!plan || plan.type !== 'viewer') continue;
-    const multiplier = plan.reward_multiplier || 0;
-    if (multiplier <= 0) continue;
-    eligibleCount++;
-    totalMultipliers += multiplier;
-    tierCounts[plan.name] = (tierCounts[plan.name] || 0) + 1;
+  for (let index = 0; index < viewerPlans.length; index += 1) {
+    const plan = viewerPlans[index];
+    const count = countSnapshots[index].data().count || 0;
+    if (count <= 0) continue;
+    eligibleCount += count;
+    totalMultipliers += count * (plan.reward_multiplier || 0);
+    tierCounts[plan.name] = count;
   }
 
-  const nextDistributionVPT = balanceVpt * (rewardPercent / 100);
+  const nextDistributionVPT = Number(pool.balance_vpt || 0) * (rewardPercent / 100);
 
   return {
     pool: {
-      balance_ngn: balanceNgn,
-      balance_vpt: balanceVpt,
-      total_credited: totalCreditedNgnEquiv,
-      total_credited_vpt: totalCreditedVpt,
-      total_distributed: totalDistributedNgn,
-      total_distributed_vpt: Math.round(totalDistributedVpt * 100) / 100,
-      total_beneficiaries: beneficiarySet.size,
+      balance_ngn: Number(pool.balance_ngn || 0),
+      balance_vpt: Number(pool.balance_vpt || 0),
+      total_credited: Number(pool.total_credited || 0),
+      total_credited_vpt: Number(pool.total_credited_vpt || 0),
+      total_distributed: Number(pool.total_distributed || 0),
+      total_distributed_vpt: Number(pool.total_distributed_vpt || 0),
+      total_beneficiaries: Number(pool.total_beneficiaries || 0),
     },
     vpt_price_ngn: vptPriceNGN,
     eligible_viewers: eligibleCount,
@@ -488,7 +479,7 @@ async function getPoolStats() {
     reward_percent: rewardPercent,
     next_distribution_vpt: parseFloat(nextDistributionVPT.toFixed(4)),
     next_distribution_ngn: Math.round(nextDistributionVPT * vptPriceNGN),
-    recent_distributions: getDistributionHistory(5),
+    recent_distributions: await getDistributionHistory(5),
   };
 }
 
@@ -498,8 +489,8 @@ async function getPoolStats() {
  */
 async function getRecalculatedOperationsPool() {
   const vptPriceNGN = (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750;
-  const allEntries = Ledger.getAll();
   const subTypes = ['PLAN_PAYMENT', 'SUBSCRIPTION_PAYMENT', 'SUBSCRIPTION_RENEWAL'];
+  const allEntries = (await Promise.all(subTypes.map((type) => Ledger.getByType(type)))).flat();
   let totalNgn = 0;
   let totalVptDirect = 0;
 
@@ -527,33 +518,130 @@ async function getRecalculatedOperationsPool() {
 
 // ─── CRON ───────────────────────────────────────────────
 
-let cronInterval = null;
+const POOL_LOCK_COLLECTION = 'ops_locks';
+const POOL_LOCK_DOC = 'viewer_reward_distribution';
+const POOL_LOCK_TTL_MS = 55 * 60 * 1000;
 
-/**
- * Start the daily viewer reward distribution cron.
- * Runs every VIEWER_REWARD_INTERVAL_HOURS (default: 24).
- */
-async function startCron() {
-  const intervalHours = (await SettingsService.getNumber('VIEWER_REWARD_INTERVAL_HOURS')) || 24;
-  const intervalMs = intervalHours * 60 * 60 * 1000;
-
-  if (cronInterval) clearInterval(cronInterval);
-
-  cronInterval = setInterval(async () => {
-    try {
-      await distributeViewerRewards();
-    } catch (err) {
-      console.error('[Pool Cron] Distribution failed');
-    }
-  }, intervalMs);
-
-  console.log('[Pool Cron] Viewer reward distribution scheduled');
-}
+let activeDistributionPromise = null;
 
 function stopCron() {
-  if (cronInterval) {
-    clearInterval(cronInterval);
-    cronInterval = null;
+  return null;
+}
+
+async function acquireDistributionLease({ holder, trigger, force = false }) {
+  const db = getFirestore();
+  const leaseRef = db.collection(POOL_LOCK_COLLECTION).doc(POOL_LOCK_DOC);
+  const now = Date.now();
+  const intervalHours = (await SettingsService.getNumber('VIEWER_REWARD_INTERVAL_HOURS')) || 24;
+  const intervalMs = intervalHours * 60 * 60 * 1000;
+  let acquired = false;
+  let result = null;
+
+  await db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(leaseRef);
+    const lease = snapshot.exists ? snapshot.data() : null;
+    const activeLease = lease
+      && lease.status === 'running'
+      && typeof lease.expires_at === 'number'
+      && lease.expires_at > now;
+    const lastFinishedAt = typeof lease?.last_finished_at === 'number' ? lease.last_finished_at : 0;
+    const nextDueAt = lastFinishedAt ? lastFinishedAt + intervalMs : now;
+
+    if (activeLease && !force) {
+      result = { acquired: false, reason: 'lease-held', lease };
+      return;
+    }
+
+    if (!force && lastFinishedAt && nextDueAt > now) {
+      result = { acquired: false, reason: 'not-due', lease, next_due_at: nextDueAt };
+      return;
+    }
+
+    const nextLease = {
+      status: 'running',
+      trigger,
+      holder,
+      started_at: now,
+      updated_at: now,
+      expires_at: now + POOL_LOCK_TTL_MS,
+    };
+
+    tx.set(leaseRef, nextLease, { merge: true });
+    acquired = true;
+    result = { acquired: true, lease: nextLease };
+  });
+
+  return result;
+}
+
+async function releaseDistributionLease({ holder, summary, status, errorMessage = null }) {
+  const db = getFirestore();
+  const leaseRef = db.collection(POOL_LOCK_COLLECTION).doc(POOL_LOCK_DOC);
+  const finishedAt = Date.now();
+
+  await leaseRef.set({
+    status,
+    holder,
+    updated_at: finishedAt,
+    expires_at: finishedAt,
+    last_finished_at: finishedAt,
+    last_error: errorMessage,
+    last_summary: summary,
+  }, { merge: true });
+}
+
+/**
+ * Start hook retained for compatibility; scheduling is externally owned.
+ */
+async function startCron() {
+  console.log('[Pool Cron] In-process scheduler disabled; use an external trigger for viewer reward runs');
+}
+
+async function runScheduledDistribution({ trigger = 'manual', force = false } = {}) {
+  if (activeDistributionPromise) {
+    return activeDistributionPromise;
+  }
+
+  const holder = `${trigger}:${process.pid}:${Date.now()}`;
+
+  activeDistributionPromise = (async () => {
+    const leaseResult = await acquireDistributionLease({ holder, trigger, force });
+    if (!leaseResult.acquired) {
+      return {
+        skipped: true,
+        reason: leaseResult.reason,
+        lease: leaseResult.lease || null,
+        next_due_at: leaseResult.next_due_at || null,
+      };
+    }
+
+    try {
+      const result = await distributeViewerRewards();
+      const summary = {
+        trigger,
+        finished_at: Date.now(),
+        result,
+      };
+      await releaseDistributionLease({ holder, summary, status: 'idle' });
+      return {
+        skipped: false,
+        summary,
+      };
+    } catch (error) {
+      await releaseDistributionLease({
+        holder,
+        summary: null,
+        status: 'failed',
+        errorMessage: error.message,
+      });
+      throw error;
+    }
+  })();
+
+  try {
+    return await activeDistributionPromise;
+  } finally {
+    activeDistributionPromise = null;
   }
 }
 
@@ -570,6 +658,8 @@ module.exports = {
   getDistributionHistory,
   getDistributionById,
   getPoolStats,
+  invalidatePoolStatsCache,
+  runScheduledDistribution,
   startCron,
   stopCron,
 };

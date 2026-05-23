@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
+import '../models/video_model.dart';
 import '../services/broadcast_service.dart';
 
 /// Data class for each video in the upload queue.
@@ -55,6 +56,11 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
 
   String? _channelId;
   final List<_VideoEntry> _videos = [];
+  final Set<int> _selectedQueueIndexes = {};
+  bool _queueSelectionMode = false;
+
+  List<VideoModel> _existingVideos = [];
+  bool _loadingExisting = false;
   bool _uploading = false;
   bool _autoSchedule = true;
   DateTime _scheduleStart = DateTime.now().add(const Duration(minutes: 5));
@@ -87,6 +93,9 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _channelId ??= ModalRoute.of(context)?.settings.arguments as String?;
+    if (_channelId != null && _existingVideos.isEmpty && !_loadingExisting) {
+      _loadExistingVideos();
+    }
   }
 
   @override
@@ -141,7 +150,13 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
   }
 
   void _removeVideo(int index) {
-    setState(() => _videos.removeAt(index));
+    setState(() {
+      _videos.removeAt(index);
+      _selectedQueueIndexes.remove(index);
+      if (_selectedQueueIndexes.isEmpty) {
+        _queueSelectionMode = false;
+      }
+    });
   }
 
   void _reorderVideo(int oldIndex, int newIndex) {
@@ -149,7 +164,335 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
       if (newIndex > oldIndex) newIndex--;
       final item = _videos.removeAt(oldIndex);
       _videos.insert(newIndex, item);
+      _selectedQueueIndexes.clear();
+      _queueSelectionMode = false;
     });
+  }
+
+  void _toggleQueueSelectionMode() {
+    if (_uploading || _done || _videos.isEmpty) return;
+    setState(() {
+      _queueSelectionMode = !_queueSelectionMode;
+      if (!_queueSelectionMode) {
+        _selectedQueueIndexes.clear();
+      }
+    });
+  }
+
+  void _toggleQueueSelection(int index) {
+    if (!_queueSelectionMode || _uploading || _done) return;
+    setState(() {
+      if (_selectedQueueIndexes.contains(index)) {
+        _selectedQueueIndexes.remove(index);
+      } else {
+        _selectedQueueIndexes.add(index);
+      }
+      if (_selectedQueueIndexes.isEmpty) {
+        _queueSelectionMode = false;
+      }
+    });
+  }
+
+  void _selectAllQueue() {
+    if (_videos.isEmpty) return;
+    setState(() {
+      _queueSelectionMode = true;
+      _selectedQueueIndexes
+        ..clear()
+        ..addAll(List.generate(_videos.length, (i) => i));
+    });
+  }
+
+  void _removeSelectedQueue() {
+    if (_selectedQueueIndexes.isEmpty) return;
+    final indexes = _selectedQueueIndexes.toList()..sort((a, b) => b - a);
+    setState(() {
+      for (final idx in indexes) {
+        if (idx >= 0 && idx < _videos.length) {
+          _videos.removeAt(idx);
+        }
+      }
+      _selectedQueueIndexes.clear();
+      _queueSelectionMode = false;
+    });
+  }
+
+  Future<void> _loadExistingVideos() async {
+    if (_channelId == null) return;
+    setState(() => _loadingExisting = true);
+    try {
+      final videos = await BroadcastService.getChannelVideos(_channelId!);
+      if (!mounted) return;
+      setState(() => _existingVideos = videos);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not load existing videos: $e',
+            style: const TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingExisting = false);
+    }
+  }
+
+  Future<void> _openExistingVideosManager() async {
+    if (_channelId == null) return;
+    if (_existingVideos.isEmpty && !_loadingExisting) {
+      await _loadExistingVideos();
+    }
+    if (!mounted) return;
+
+    final selectedIds = <String>{};
+    bool deleting = false;
+    String? localError;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final hasVideos = _existingVideos.isNotEmpty;
+
+            Future<void> deleteSelected() async {
+              if (selectedIds.isEmpty || deleting) return;
+              setSheetState(() {
+                deleting = true;
+                localError = null;
+              });
+
+              for (final id in selectedIds.toList()) {
+                try {
+                  await BroadcastService.deleteVideo(id);
+                } catch (e) {
+                  localError = e.toString();
+                }
+              }
+
+              await _loadExistingVideos();
+              selectedIds.clear();
+
+              if (!mounted) return;
+              setSheetState(() {
+                deleting = false;
+              });
+            }
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.78,
+              decoration: const BoxDecoration(
+                color: AppColors.darkBlue,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.goldText,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                    child: Row(
+                      children: [
+                        const Text(
+                          'MANAGE EXISTING VIDEOS',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: _loadExistingVideos,
+                          child: const Icon(
+                            Icons.refresh_rounded,
+                            color: AppColors.goldText,
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (localError != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        localError!,
+                        style: const TextStyle(
+                          color: AppColors.errorRed,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: _loadingExisting
+                        ? const Center(
+                            child: CircularProgressIndicator(
+                              color: AppColors.orange,
+                            ),
+                          )
+                        : !hasVideos
+                        ? Center(
+                            child: Text(
+                              'No uploaded videos yet',
+                              style: TextStyle(
+                                color: AppColors.goldText,
+                                fontSize: 14,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                            itemCount: _existingVideos.length,
+                            itemBuilder: (_, index) {
+                              final video = _existingVideos[index];
+                              final selected = selectedIds.contains(video.id);
+                              return GestureDetector(
+                                onTap: () {
+                                  setSheetState(() {
+                                    if (selected) {
+                                      selectedIds.remove(video.id);
+                                    } else {
+                                      selectedIds.add(video.id);
+                                    }
+                                  });
+                                },
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: selected
+                                        ? AppColors.orange.withValues(
+                                            alpha: 0.14,
+                                          )
+                                        : AppColors.inputFill,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: selected
+                                          ? AppColors.orange.withValues(
+                                              alpha: 0.55,
+                                            )
+                                          : AppColors.inputBorder,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        selected
+                                            ? Icons.check_circle_rounded
+                                            : Icons
+                                                  .radio_button_unchecked_rounded,
+                                        color: selected
+                                            ? AppColors.orange
+                                            : AppColors.hintText,
+                                        size: 18,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          video.title,
+                                          style: const TextStyle(
+                                            color: AppColors.white,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  if (hasVideos)
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg,
+                        border: Border(
+                          top: BorderSide(
+                            color: AppColors.inputBorder.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          GestureDetector(
+                            onTap: () {
+                              setSheetState(() {
+                                selectedIds
+                                  ..clear()
+                                  ..addAll(_existingVideos.map((v) => v.id));
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 9,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.inputFill,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: AppColors.inputBorder,
+                                ),
+                              ),
+                              child: const Text(
+                                'Select All',
+                                style: TextStyle(
+                                  color: AppColors.goldText,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: AppButton(
+                              label: deleting
+                                  ? 'Deleting...'
+                                  : selectedIds.isEmpty
+                                  ? 'Delete Selected'
+                                  : 'Delete Selected (${selectedIds.length})',
+                              onPressed: selectedIds.isEmpty || deleting
+                                  ? null
+                                  : deleteSelected,
+                              loading: deleting,
+                              enabled: selectedIds.isNotEmpty && !deleting,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   // ─── Content Type Helper ───────────────────────────────
@@ -271,6 +614,8 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
       _uploading = false;
       _done = true;
     });
+
+    _loadExistingVideos();
   }
 
   Future<void> _pickScheduleTime() async {
@@ -402,9 +747,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
               ),
               child: Icon(
                 Icons.arrow_back_ios_new,
-                color: _uploading
-                    ? AppColors.goldText
-                    : AppColors.white,
+                color: _uploading ? AppColors.goldText : AppColors.white,
                 size: 18,
               ),
             ),
@@ -453,6 +796,44 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                 ),
               ),
             ),
+          if (!_uploading && _channelId != null) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _openExistingVideosManager,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.inputFill,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: AppColors.inputBorder.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.video_library_rounded,
+                      size: 14,
+                      color: AppColors.goldText,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Manage',
+                      style: TextStyle(
+                        color: AppColors.goldText,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -468,7 +849,9 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
           child: ReorderableListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             itemCount: _videos.length,
-            onReorder: _uploading ? (a, b) {} : _reorderVideo,
+            onReorder: (_uploading || _queueSelectionMode)
+                ? (a, b) {}
+                : _reorderVideo,
             proxyDecorator: (child, index, animation) {
               return AnimatedBuilder(
                 listenable: animation,
@@ -581,55 +964,153 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.inputBorder.withValues(alpha: 0.2)),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Text(
-            '${_videos.length} video${_videos.length != 1 ? 's' : ''}',
-            style: const TextStyle(
-              color: AppColors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Container(
-            width: 1,
-            height: 16,
-            color: AppColors.inputBorder.withValues(alpha: 0.3),
-          ),
-          const SizedBox(width: 12),
-          if (detecting > 0)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
-                    color: AppColors.lightOrange.withValues(alpha: 0.6),
+          Row(
+            children: [
+              Text(
+                '${_videos.length} video${_videos.length != 1 ? 's' : ''}',
+                style: const TextStyle(
+                  color: AppColors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                width: 1,
+                height: 16,
+                color: AppColors.inputBorder.withValues(alpha: 0.3),
+              ),
+              const SizedBox(width: 12),
+              if (detecting > 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: AppColors.lightOrange.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Detecting $detecting...',
+                      style: TextStyle(
+                        color: AppColors.lightOrange.withValues(alpha: 0.7),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Text(
+                  'Total: ${_formatDuration(_totalDuration)}',
+                  style: const TextStyle(
+                    color: AppColors.lightOrange,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  'Detecting $detecting...',
-                  style: TextStyle(
-                    color: AppColors.lightOrange.withValues(alpha: 0.7),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+            ],
+          ),
+          if (!_uploading && !_done && _videos.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: _toggleQueueSelectionMode,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _queueSelectionMode
+                          ? AppColors.orange.withValues(alpha: 0.18)
+                          : AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                        color: _queueSelectionMode
+                            ? AppColors.orange.withValues(alpha: 0.5)
+                            : AppColors.inputBorder.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Text(
+                      _queueSelectionMode ? 'Cancel Selection' : 'Select',
+                      style: TextStyle(
+                        color: _queueSelectionMode
+                            ? AppColors.orange
+                            : AppColors.goldText,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: _selectAllQueue,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                        color: AppColors.inputBorder.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Text(
+                      'Select All',
+                      style: TextStyle(
+                        color: AppColors.goldText,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: _selectedQueueIndexes.isEmpty
+                      ? null
+                      : _removeSelectedQueue,
+                  child: Opacity(
+                    opacity: _selectedQueueIndexes.isEmpty ? 0.45 : 1,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorRed.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                          color: AppColors.errorRed.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Text(
+                        _selectedQueueIndexes.isEmpty
+                            ? 'Delete Selected'
+                            : 'Delete (${_selectedQueueIndexes.length})',
+                        style: const TextStyle(
+                          color: AppColors.errorRed,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
-            )
-          else
-            Text(
-              'Total: ${_formatDuration(_totalDuration)}',
-              style: const TextStyle(
-                color: AppColors.lightOrange,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
             ),
+          ],
         ],
       ),
     );
@@ -640,296 +1121,321 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
     final isDone = entry.uploadStatus == 'done';
     final isError = entry.uploadStatus == 'error';
     final isUploading = entry.uploadStatus == 'uploading';
+    final isSelected = _selectedQueueIndexes.contains(index);
 
-    return Container(
-      key: ValueKey('video_${entry.fileName}_$index'),
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isDone
-              ? AppColors.successGreen.withValues(alpha: 0.4)
-              : isError
-              ? AppColors.errorRed.withValues(alpha: 0.4)
-              : AppColors.inputBorder.withValues(alpha: 0.2),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+    return GestureDetector(
+      onTap: _queueSelectionMode ? () => _toggleQueueSelection(index) : null,
+      child: Container(
+        key: ValueKey('video_${entry.fileName}_$index'),
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDone
+                ? AppColors.successGreen.withValues(alpha: 0.4)
+                : isError
+                ? AppColors.errorRed.withValues(alpha: 0.4)
+                : AppColors.inputBorder.withValues(alpha: 0.2),
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 8, 0),
-            child: Row(
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: AppColors.orange.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${index + 1}',
-                      style: const TextStyle(
-                        color: AppColors.orange,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 8, 0),
+              child: Row(
+                children: [
+                  if (_queueSelectionMode) ...[
+                    Icon(
+                      isSelected
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: isSelected ? AppColors.orange : AppColors.hintText,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: AppColors.orange.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          color: AppColors.orange,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                _buildStatusIcon(entry),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (!_uploading && !_done)
-                        GestureDetector(
-                          onTap: () => _editTitle(index),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  entry.title,
-                                  style: const TextStyle(
-                                    color: AppColors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
+                  const SizedBox(width: 10),
+                  _buildStatusIcon(entry),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (!_uploading && !_done)
+                          GestureDetector(
+                            onTap: () => _editTitle(index),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    entry.title,
+                                    style: const TextStyle(
+                                      color: AppColors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Icon(
+                                  Icons.edit,
+                                  color: AppColors.goldText,
+                                  size: 14,
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          Text(
+                            entry.title,
+                            style: const TextStyle(
+                              color: AppColors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            if (entry.detectingDuration) ...[
+                              SizedBox(
+                                width: 10,
+                                height: 10,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  color: AppColors.lightOrange.withValues(
+                                    alpha: 0.5,
+                                  ),
                                 ),
                               ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Detecting duration...',
+                                style: TextStyle(
+                                  color: AppColors.goldText,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ] else if (entry.durationError != null) ...[
                               Icon(
-                                Icons.edit,
+                                Icons.warning_amber_rounded,
+                                color: AppColors.errorRed.withValues(
+                                  alpha: 0.7,
+                                ),
+                                size: 12,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                entry.durationError!,
+                                style: TextStyle(
+                                  color: AppColors.errorRed.withValues(
+                                    alpha: 0.7,
+                                  ),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ] else ...[
+                              Icon(
+                                Icons.timer_outlined,
                                 color: AppColors.goldText,
-                                size: 14,
+                                size: 12,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _formatDuration(entry.durationSec ?? 0),
+                                style: TextStyle(
+                                  color: AppColors.goldText,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ],
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                entry.fileName,
+                                style: TextStyle(
+                                  color: AppColors.goldText,
+                                  fontSize: 10,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!_uploading && !_done)
+                    IconButton(
+                      onPressed: _queueSelectionMode
+                          ? () => _toggleQueueSelection(index)
+                          : () => _removeVideo(index),
+                      icon: Icon(
+                        _queueSelectionMode
+                            ? (isSelected
+                                  ? Icons.check_box_rounded
+                                  : Icons.check_box_outline_blank_rounded)
+                            : Icons.close_rounded,
+                        color: _queueSelectionMode
+                            ? (isSelected
+                                  ? AppColors.orange
+                                  : AppColors.goldText)
+                            : AppColors.goldText,
+                        size: 18,
+                      ),
+                      splashRadius: 18,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                    ),
+                  if (!_uploading && !_done)
+                    _queueSelectionMode
+                        ? const SizedBox(width: 6)
+                        : ReorderableDragStartListener(
+                            index: index,
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Icon(
+                                Icons.drag_handle,
+                                color: AppColors.goldText,
+                                size: 20,
+                              ),
+                            ),
                           ),
-                        )
-                      else
-                        Text(
-                          entry.title,
-                          style: const TextStyle(
-                            color: AppColors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                ],
+              ),
+            ),
+            // Description field
+            if (!_uploading && !_done)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                child: TextField(
+                  maxLines: 2,
+                  style: const TextStyle(color: AppColors.white, fontSize: 12),
+                  decoration: InputDecoration(
+                    hintText: 'Brief description (required)',
+                    hintStyle: TextStyle(
+                      color: AppColors.goldText,
+                      fontSize: 12,
+                    ),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.inputFill.withValues(alpha: 0.3),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: entry.description.trim().isEmpty
+                            ? AppColors.orange.withValues(alpha: 0.4)
+                            : AppColors.inputBorder.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: entry.description.trim().isEmpty
+                            ? AppColors.orange.withValues(alpha: 0.4)
+                            : AppColors.inputBorder.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: AppColors.orange.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ),
+                  onChanged: (val) => setState(() => entry.description = val),
+                ),
+              )
+            else if (isDone && entry.description.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+                child: Text(
+                  entry.description,
+                  style: TextStyle(color: AppColors.goldText, fontSize: 11),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            if (isUploading || isDone || isError)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                child: Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: LinearProgressIndicator(
+                        value: entry.uploadProgress,
+                        backgroundColor: AppColors.inputBorder.withValues(
+                          alpha: 0.2,
+                        ),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isDone
+                              ? AppColors.successGreen
+                              : isError
+                              ? AppColors.errorRed
+                              : AppColors.orange,
+                        ),
+                        minHeight: 3,
+                      ),
+                    ),
+                    if (isError && entry.uploadError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          entry.uploadError!,
+                          style: TextStyle(
+                            color: AppColors.errorRed.withValues(alpha: 0.8),
+                            fontSize: 10,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: [
-                          if (entry.detectingDuration) ...[
-                            SizedBox(
-                              width: 10,
-                              height: 10,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
-                                color: AppColors.lightOrange.withValues(
-                                  alpha: 0.5,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Detecting duration...',
-                              style: TextStyle(
-                                color: AppColors.goldText,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ] else if (entry.durationError != null) ...[
-                            Icon(
-                              Icons.warning_amber_rounded,
-                              color: AppColors.errorRed.withValues(alpha: 0.7),
-                              size: 12,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              entry.durationError!,
-                              style: TextStyle(
-                                color: AppColors.errorRed.withValues(
-                                  alpha: 0.7,
-                                ),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ] else ...[
-                            Icon(
-                              Icons.timer_outlined,
-                              color: AppColors.goldText,
-                              size: 12,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _formatDuration(entry.durationSec ?? 0),
-                              style: TextStyle(
-                                color: AppColors.goldText,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              entry.fileName,
-                              style: TextStyle(
-                                color: AppColors.goldText,
-                                fontSize: 10,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
                       ),
-                    ],
-                  ),
+                  ],
                 ),
-                if (!_uploading && !_done)
-                  IconButton(
-                    onPressed: () => _removeVideo(index),
-                    icon: Icon(
-                      Icons.close_rounded,
-                      color: AppColors.goldText,
-                      size: 18,
-                    ),
-                    splashRadius: 18,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 32,
-                      minHeight: 32,
-                    ),
-                  ),
-                if (!_uploading && !_done)
-                  ReorderableDragStartListener(
-                    index: index,
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.drag_handle,
-                        color: AppColors.goldText,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          // Description field
-          if (!_uploading && !_done)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-              child: TextField(
-                maxLines: 2,
-                style: const TextStyle(color: AppColors.white, fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'Brief description (required)',
-                  hintStyle: TextStyle(
-                    color: AppColors.goldText,
-                    fontSize: 12,
-                  ),
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                  filled: true,
-                  fillColor: AppColors.inputFill.withValues(alpha: 0.3),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: entry.description.trim().isEmpty
-                          ? AppColors.orange.withValues(alpha: 0.4)
-                          : AppColors.inputBorder.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: entry.description.trim().isEmpty
-                          ? AppColors.orange.withValues(alpha: 0.4)
-                          : AppColors.inputBorder.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: AppColors.orange.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ),
-                onChanged: (val) => setState(() => entry.description = val),
-              ),
-            )
-          else if (isDone && entry.description.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
-              child: Text(
-                entry.description,
-                style: TextStyle(
-                  color: AppColors.goldText,
-                  fontSize: 11,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          if (isUploading || isDone || isError)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-              child: Column(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: LinearProgressIndicator(
-                      value: entry.uploadProgress,
-                      backgroundColor: AppColors.inputBorder.withValues(
-                        alpha: 0.2,
-                      ),
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        isDone
-                            ? AppColors.successGreen
-                            : isError
-                            ? AppColors.errorRed
-                            : AppColors.orange,
-                      ),
-                      minHeight: 3,
-                    ),
-                  ),
-                  if (isError && entry.uploadError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        entry.uploadError!,
-                        style: TextStyle(
-                          color: AppColors.errorRed.withValues(alpha: 0.8),
-                          fontSize: 10,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-              ),
-            )
-          else
-            const SizedBox(height: 12),
-        ],
+              )
+            else
+              const SizedBox(height: 12),
+          ],
+        ),
       ),
     );
   }
@@ -968,11 +1474,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
         ),
       );
     }
-    return Icon(
-      Icons.videocam_outlined,
-      color: AppColors.goldText,
-      size: 22,
-    );
+    return Icon(Icons.videocam_outlined, color: AppColors.goldText, size: 22);
   }
 
   Widget _buildBottomControls() {
@@ -1172,10 +1674,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
             const SizedBox(height: 12),
             Text(
               '$_uploadedCount of ${_videos.length} videos uploaded',
-              style: TextStyle(
-                color: AppColors.goldText,
-                fontSize: 14,
-              ),
+              style: TextStyle(color: AppColors.goldText, fontSize: 14),
             ),
             if (_scheduledCount > 0) ...[
               const SizedBox(height: 6),
@@ -1190,10 +1689,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
               const SizedBox(height: 4),
               Text(
                 'Starting ${_formatDateTime(_scheduleStart)}',
-                style: TextStyle(
-                  color: AppColors.goldText,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: AppColors.goldText, fontSize: 12),
               ),
             ],
             if (failedCount > 0) ...[
@@ -1268,9 +1764,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
             filled: true,
             fillColor: AppColors.inputFill,
             hintText: 'Video title',
-            hintStyle: TextStyle(
-              color: AppColors.goldText,
-            ),
+            hintStyle: TextStyle(color: AppColors.goldText),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(
@@ -1293,12 +1787,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                color: AppColors.goldText,
-              ),
-            ),
+            child: Text('Cancel', style: TextStyle(color: AppColors.goldText)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, controller.text),

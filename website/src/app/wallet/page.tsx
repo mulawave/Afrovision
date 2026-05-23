@@ -125,12 +125,14 @@ export default function WalletPage() {
       return;
     }
 
+    const canonicalOrigin = process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : undefined);
+    const returnUrl = canonicalOrigin ? `${canonicalOrigin.replace(/\/$/, "")}/checkout/result` : undefined;
     const res = await initializeCheckoutApi({
       purpose: "wallet_topup",
       provider: checkoutProvider,
       amount_ngn: amount,
       balanceType: topUpBalanceType,
-      return_url: `${window.location.origin}/checkout/result`,
+      return_url: returnUrl,
     });
 
     if (!res.ok || !("payment" in res.data) || !res.data.payment.checkout_url) {

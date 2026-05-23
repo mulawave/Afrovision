@@ -24,6 +24,8 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   bool _loading = true;
   String? _error;
   String? _deletingId;
+  bool _selectionMode = false;
+  final Set<String> _selectedProgramIds = {};
 
   @override
   void initState() {
@@ -67,6 +69,12 @@ class _ScheduleScreenState extends State<ScheduleScreen>
       setState(() {
         _schedule = results[0] as List<ProgramModel>;
         _videos = results[1] as List<VideoModel>;
+        _selectedProgramIds.removeWhere(
+          (id) => !_schedule.any((p) => p.id == id),
+        );
+        if (_selectedProgramIds.isEmpty) {
+          _selectionMode = false;
+        }
         _loading = false;
       });
       _animCtrl.forward();
@@ -221,6 +229,100 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     }
   }
 
+  void _toggleSelectionMode() {
+    setState(() {
+      _selectionMode = !_selectionMode;
+      if (!_selectionMode) {
+        _selectedProgramIds.clear();
+      }
+    });
+  }
+
+  void _toggleProgramSelection(ProgramModel program) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (program.startTime <= now) return;
+
+    setState(() {
+      if (_selectedProgramIds.contains(program.id)) {
+        _selectedProgramIds.remove(program.id);
+      } else {
+        _selectedProgramIds.add(program.id);
+      }
+      if (_selectedProgramIds.isEmpty) {
+        _selectionMode = false;
+      }
+    });
+  }
+
+  void _selectAllUpcoming() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final upcomingIds = _schedule
+        .where((p) => p.startTime > now)
+        .map((p) => p.id)
+        .toSet();
+    setState(() {
+      _selectionMode = true;
+      _selectedProgramIds
+        ..clear()
+        ..addAll(upcomingIds);
+    });
+  }
+
+  Future<void> _bulkDeleteSelected() async {
+    if (_selectedProgramIds.isEmpty) return;
+
+    final count = _selectedProgramIds.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Delete Selected Programs',
+          style: TextStyle(color: AppColors.white),
+        ),
+        content: Text(
+          'Delete $count selected scheduled program${count == 1 ? '' : 's'}?',
+          style: const TextStyle(color: AppColors.hintText),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.hintText),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.errorRed),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final toDelete = List<String>.from(_selectedProgramIds);
+    for (final id in toDelete) {
+      try {
+        await BroadcastService.deleteProgram(id);
+      } catch (_) {
+        // Continue deleting remaining selected entries.
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _selectedProgramIds.clear();
+      _selectionMode = false;
+    });
+    await _loadData();
+  }
+
   String _formatTime(int epochMs) {
     final dt = DateTime.fromMillisecondsSinceEpoch(epochMs);
     final h = dt.hour.toString().padLeft(2, '0');
@@ -324,6 +426,38 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                         ),
                         const SizedBox(width: 10),
                         GestureDetector(
+                          onTap: _schedule.isEmpty
+                              ? null
+                              : _toggleSelectionMode,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: _selectionMode
+                                  ? AppColors.orange.withValues(alpha: 0.2)
+                                  : AppColors.cardBg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _selectionMode
+                                    ? AppColors.orange.withValues(alpha: 0.5)
+                                    : AppColors.inputBorder.withValues(
+                                        alpha: 0.35,
+                                      ),
+                              ),
+                            ),
+                            child: Icon(
+                              _selectionMode
+                                  ? Icons.checklist_rtl_rounded
+                                  : Icons.select_all_rounded,
+                              color: _selectionMode
+                                  ? AppColors.orange
+                                  : AppColors.goldText,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        GestureDetector(
                           onTap: _showAddProgramSheet,
                           child: Container(
                             padding: const EdgeInsets.all(10),
@@ -376,6 +510,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                             ),
                           ),
                   ),
+                  if (_selectionMode) _buildBulkActionBar(),
                 ],
               ),
             ),
@@ -489,128 +624,194 @@ class _ScheduleScreenState extends State<ScheduleScreen>
 
   Widget _buildProgramCard(ProgramModel program) {
     final status = _statusLabel(program);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: status == 'LIVE'
-              ? AppColors.orange.withValues(alpha: 0.4)
-              : AppColors.inputBorder.withValues(alpha: 0.3),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+    final selectable = status != 'LIVE';
+    final selected = _selectedProgramIds.contains(program.id);
+
+    return GestureDetector(
+      onTap: _selectionMode && selectable
+          ? () => _toggleProgramSelection(program)
+          : null,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: status == 'LIVE'
+                ? AppColors.orange.withValues(alpha: 0.4)
+                : AppColors.inputBorder.withValues(alpha: 0.3),
           ),
-          if (status == 'LIVE')
+          boxShadow: [
             BoxShadow(
-              color: AppColors.orange.withValues(alpha: 0.08),
-              blurRadius: 20,
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
             ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // Thumbnail placeholder
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.inputBorder.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(10),
+            if (status == 'LIVE')
+              BoxShadow(
+                color: AppColors.orange.withValues(alpha: 0.08),
+                blurRadius: 20,
+              ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // Thumbnail placeholder
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: AppColors.inputBorder.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.play_circle_outline,
+                color: AppColors.hintText,
+                size: 28,
+              ),
             ),
-            child: const Icon(
-              Icons.play_circle_outline,
-              color: AppColors.hintText,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  program.videoTitle ?? 'Unknown',
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    program.videoTitle ?? 'Unknown',
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_formatTime(program.startTime)} → ${_formatTime(program.endTime)}',
-                  style: const TextStyle(
-                    color: AppColors.hintText,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _statusColor(status).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    status,
-                    style: TextStyle(
-                      color: _statusColor(status),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1,
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_formatTime(program.startTime)} → ${_formatTime(program.endTime)}',
+                    style: const TextStyle(
+                      color: AppColors.hintText,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          if (status != 'LIVE')
-            status == 'ENDED'
-                ? Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Icon(
-                      Icons.lock_outline,
-                      color: AppColors.goldText,
-                      size: 18,
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
                     ),
-                  )
-                : _deletingId == program.id
-                ? Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          AppColors.goldText,
+                    decoration: BoxDecoration(
+                      color: _statusColor(status).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      status,
+                      style: TextStyle(
+                        color: _statusColor(status),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_selectionMode && selectable)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Icon(
+                  selected
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color: selected ? AppColors.orange : AppColors.hintText,
+                  size: 20,
+                ),
+              )
+            else if (status != 'LIVE')
+              status == 'ENDED'
+                  ? Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(
+                        Icons.lock_outline,
+                        color: AppColors.goldText,
+                        size: 18,
+                      ),
+                    )
+                  : _deletingId == program.id
+                  ? Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.goldText,
+                          ),
+                        ),
+                      ),
+                    )
+                  : GestureDetector(
+                      onTap: () => _deleteProgram(program),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(
+                          Icons.delete_outline,
+                          color: AppColors.goldText,
+                          size: 20,
                         ),
                       ),
                     ),
-                  )
-                : GestureDetector(
-                    onTap: () => _deleteProgram(program),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.delete_outline,
-                        color: AppColors.goldText,
-                        size: 20,
-                      ),
-                    ),
-                  ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBulkActionBar() {
+    final count = _selectedProgramIds.length;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        border: Border(
+          top: BorderSide(color: AppColors.inputBorder.withValues(alpha: 0.35)),
+        ),
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _selectAllUpcoming,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.inputFill,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.inputBorder),
+              ),
+              child: const Text(
+                'Select All Upcoming',
+                style: TextStyle(
+                  color: AppColors.goldText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: AppButton(
+              label: count == 0
+                  ? 'Delete Selected'
+                  : 'Delete Selected ($count)',
+              onPressed: count == 0 ? null : _bulkDeleteSelected,
+              enabled: count > 0,
+            ),
+          ),
         ],
       ),
     );

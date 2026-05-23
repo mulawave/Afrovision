@@ -1,6 +1,4 @@
-﻿/* eslint-disable @next/next/no-img-element */
-
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -35,10 +33,6 @@ export default function LivePage() {
     const start = (safeCurrentPage - 1) * CHANNELS_PER_PAGE;
     return channels.slice(start, start + CHANNELS_PER_PAGE);
   }, [channels, safeCurrentPage]);
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
 
   return (
     <>

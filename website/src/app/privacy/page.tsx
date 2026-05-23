@@ -80,7 +80,6 @@ export default function PrivacyPage() {
             <ul className="list-disc list-inside space-y-1 mt-2">
               <li>Encryption of data in transit (TLS/SSL) and at rest (AES-256).</li>
               <li>Secure password hashing using bcrypt with strong salt rounds.</li>
-              <li>Rate limiting and automated threat detection on API endpoints.</li>
               <li>Role-based access controls restricting employee access to personal data.</li>
               <li>Regular security audits and vulnerability assessments.</li>
             </ul>

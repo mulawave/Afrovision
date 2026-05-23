@@ -1,5 +1,77 @@
+/**
+ * Send a marketing or hype email (default template: email-2-hype.html)
+ */
+async function sendMarketingEmail({ toEmail, subject, vars = {} }) {
+  return sendTemplateEmail({
+    toEmail,
+    subject,
+    templateFile: 'email-2-hype.html',
+    vars,
+  });
+}
+
+/**
+ * Send a countdown email (default template: mail-3-countdown.html)
+ */
+async function sendCountdownEmail({ toEmail, subject, vars = {} }) {
+  return sendTemplateEmail({
+    toEmail,
+    subject,
+    templateFile: 'mail-3-countdown.html',
+    vars,
+  });
+}
+
+/**
+ * Send an email using a template file from email_templates directory.
+ * @param {Object} opts
+ * @param {string} opts.toEmail - Recipient's email
+ * @param {string} opts.subject - Email subject
+ * @param {string} opts.templateFile - Template filename (e.g. 'email-1-welcome.html')
+ * @param {Object} opts.vars - Variables to substitute (e.g. { name, email })
+ */
+async function sendTemplateEmail({ toEmail, subject, templateFile, vars = {} }) {
+  const templatesDir = path.resolve(__dirname, '../../../email_templates');
+  const templatePath = path.join(templatesDir, templateFile);
+  let html = fs.readFileSync(templatePath, 'utf8');
+  for (const [key, value] of Object.entries(vars)) {
+    html = html.replace(new RegExp(`\\{\\{${key}\\}\}`, 'g'), value || '');
+  }
+  const { transporter, config } = await createTransporter();
+  const sender = config.fromName
+    ? `"${config.fromName}" <${config.fromEmail}>`
+    : config.fromEmail;
+  const info = await transporter.sendMail({
+    from: sender,
+    to: toEmail,
+    subject,
+    html,
+  });
+  return {
+    messageId: info.messageId,
+    accepted: info.accepted || [],
+    rejected: info.rejected || [],
+    to: toEmail,
+  };
+}
+
+const fs = require('fs');
+const path = require('path');
 const nodemailer = require('nodemailer');
 const SettingsService = require('./settings.service');
+
+// Cache the audition acknowledgement template so the file is only read once per process.
+let _auditionAckTemplate = null;
+function loadAuditionAckTemplate() {
+  if (!_auditionAckTemplate) {
+    const templatePath = path.resolve(
+      __dirname,
+      '../challenge/templates/audition-acknowledgement.html',
+    );
+    _auditionAckTemplate = fs.readFileSync(templatePath, 'utf8');
+  }
+  return _auditionAckTemplate;
+}
 
 function toBool(value) {
   return String(value || '').toLowerCase() === 'true';
@@ -230,9 +302,78 @@ async function sendWithdrawalStatusEmail({
   };
 }
 
+// ─── Audition Signup Acknowledgement Email ─────────────────────────────
+
+/**
+ * Send acknowledgement email after paid audition signup enrollment.
+ * Uses Firestore-backed settings so subject/template/recipient can be
+ * adjusted without code changes.
+ */
+async function sendAuditionSignupAcknowledgementEmail({
+  toEmail,
+  displayName,
+}) {
+  const recipient = String(toEmail || '').trim();
+  if (!recipient) {
+    throw new Error('No recipient email available for audition acknowledgement');
+  }
+
+  const name = String(displayName || 'Contender').trim();
+
+  // Load template and substitute the participant's name.
+  const html = loadAuditionAckTemplate().replace(/\{\{name\}\}/g, name);
+
+  const { transporter, config } = await createTransporter();
+  const sender = config.fromName
+    ? `"${config.fromName}" <${config.fromEmail}>`
+    : config.fromEmail;
+
+  const info = await transporter.sendMail({
+    from: sender,
+    to: recipient,
+    subject: 'Your AfroVision Audition Signup is Confirmed',
+    html,
+  });
+
+  return {
+    messageId: info.messageId,
+    accepted: info.accepted || [],
+    rejected: info.rejected || [],
+    to: recipient,
+  };
+}
+
 module.exports = {
   getSmtpConfig,
   sendTestEmail,
   sendPasswordResetEmail,
   sendWithdrawalStatusEmail,
+  sendAuditionSignupAcknowledgementEmail,
 };
+
+module.exports.sendRawHtmlEmail = sendRawHtmlEmail;
+
+/**
+ * Send a pre-rendered HTML email to a single address via the configured SMTP transport.
+ */
+async function sendRawHtmlEmail({ toEmail, subject, html }) {
+  const { transporter, config } = await createTransporter();
+  const sender = config.fromName
+    ? `"${config.fromName}" <${config.fromEmail}>`
+    : config.fromEmail;
+
+  const info = await transporter.sendMail({
+    from: sender,
+    to: toEmail,
+    subject,
+    html,
+    text: 'Please view this email in an HTML-compatible email client.',
+  });
+
+  return {
+    messageId: info.messageId,
+    accepted: info.accepted || [],
+    rejected: info.rejected || [],
+    to: toEmail,
+  };
+}

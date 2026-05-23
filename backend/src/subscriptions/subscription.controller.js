@@ -11,8 +11,8 @@ const { distributeReferralEarnings } = require('../referrals/referral.controller
 const NotificationService = require('../notifications/notification.service');
 const ReputationService = require('../reputation/reputation.service');
 
-function getPlans(req, res) {
-  const plans = Plan.getAll();
+async function getPlans(req, res) {
+  const plans = await Plan.getAll();
   res.json({ plans });
 }
 
@@ -36,12 +36,12 @@ async function activatePlatformPlan({
   amountNgn,
   referenceId = null,
 }) {
-  const plan = typeof planId === 'string' ? Plan.findById(planId) : planId;
+  const plan = typeof planId === 'string' ? await Plan.findById(planId) : planId;
   if (!plan) {
     throw new Error('Plan not found');
   }
 
-  const user = User.findById(userId);
+  const user = await User.findById(userId);
   if (!user) {
     throw new Error('User not found');
   }
@@ -164,7 +164,7 @@ async function activatePlatformPlan({
     }
   }
 
-  const updated = User.findById(userId);
+  const updated = await User.findById(userId);
 
   // Notify user about successful subscription
   NotificationService.notifyUser(userId, {
@@ -202,10 +202,10 @@ async function subscribe(req, res) {
   const { planId, paymentMethod } = req.body;
   if (!planId) return res.status(400).json({ error: 'planId is required' });
 
-  const plan = Plan.findById(planId);
+  const plan = await Plan.findById(planId);
   if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
-  const user = User.findById(req.userId);
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   const eligibilityError = getPlanEligibilityError(user, plan);
@@ -215,7 +215,7 @@ async function subscribe(req, res) {
 
   // Reputation gate: viewer plans above free tier require a minimum rep level
   if (plan.type === 'viewer' && plan.id !== 'plan_viewer_free') {
-    if (!ReputationService.canSubscribeToPlan(req.userId, plan.id)) {
+    if (!(await ReputationService.canSubscribeToPlan(req.userId, plan.id))) {
       return res.status(403).json({
         error: 'REPUTATION_GATE',
         message: 'Your reputation level is too low for this plan. Keep gifting to level up!',
@@ -261,12 +261,12 @@ async function subscribe(req, res) {
   res.json(result);
 }
 
-function getMySubscription(req, res) {
-  const user = User.findById(req.userId);
+async function getMySubscription(req, res) {
+  const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   const planDetails = user.subscription_plan
-    ? Plan.findByName(user.subscription_plan)
+    ? await Plan.findByName(user.subscription_plan)
     : null;
 
   res.json({

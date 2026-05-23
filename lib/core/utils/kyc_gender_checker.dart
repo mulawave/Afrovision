@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../features/kyc/services/kyc_service.dart';
 import '../theme/app_colors.dart';
 import '../api/api_service.dart';
 
@@ -13,7 +14,8 @@ class KycGenderChecker {
     if (prefs.getBool(_promptedKey) == true) return;
 
     try {
-      final data = await ApiService.get('/kyc/me');
+      final data = await KycService.getMe();
+      if (data == null) return;
       final status = data['status'] as String?;
       final gender = data['gender'] as String?;
       // Only prompt if KYC exists and gender is missing
@@ -68,6 +70,7 @@ class _GenderCompletionSheetState extends State<_GenderCompletionSheet> {
     });
     try {
       await ApiService.patch('/kyc/gender', {'gender': _selected});
+      KycService.invalidate();
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {

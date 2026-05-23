@@ -3,8 +3,8 @@ const Category = require('./category.model');
 
 const router = Router();
 
-router.get('/', (req, res) => {
-  const categories = Category.getActive();
+router.get('/', async (req, res) => {
+  const categories = await Category.getActive();
   res.json({ categories });
 });
 

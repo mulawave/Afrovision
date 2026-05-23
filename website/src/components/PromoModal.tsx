@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
@@ -97,9 +98,12 @@ export function PromoModal() {
           {/* Image column — full display, no cropping */}
           {imgUrl && (
             <div className="relative flex-shrink-0 md:w-[45%] bg-gradient-to-br from-[#0a1245] to-av-dark-blue">
-              <img
+              <Image
                 src={imgUrl}
                 alt={data.title || "Promotion"}
+                fill
+                sizes="(min-width: 768px) 45vw, 100vw"
+                unoptimized
                 className="h-full w-full object-cover md:min-h-[360px]"
               />
               {/* Subtle right-edge blend on desktop, bottom blend on mobile */}

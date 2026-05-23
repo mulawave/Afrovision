@@ -9,7 +9,21 @@ import { getChannelByNumberApi, getChannelsApi, getCategoriesApi, type Channel, 
 import { useAuth } from "@/lib/AuthContext";
 import { BannerAd } from "@/components/BannerAd";
 
-const CHANNELS_PER_PAGE = 12;
+const CHANNELS_PER_PAGE = 15;
+
+function getChannelIdentityLabel(channel: Channel) {
+  if (channel.owner_details_visible === false || channel.owner_display_mode === "hide_owner") {
+    return "";
+  }
+  const name = (channel.public_owner_name || channel.owner_brand_name || channel.owner_name || "").trim();
+  if (!name) return "";
+  return channel.owner_display_mode === "brand_only" ? name : `by ${name}`;
+}
+
+function getChannelMetaLine(channel: Channel) {
+  const identityLabel = getChannelIdentityLabel(channel);
+  return identityLabel ? `${channel.category} · ${identityLabel}` : channel.category;
+}
 
 export default function ChannelsPage() {
   const router = useRouter();
@@ -56,7 +70,7 @@ export default function ChannelsPage() {
     const value = query.trim().toLowerCase();
     if (value) {
       result = result.filter((channel) =>
-        [channel.name, channel.category, channel.owner_name]
+        [channel.name, channel.category, getChannelIdentityLabel(channel)]
           .filter(Boolean)
           .some((field) => field.toLowerCase().includes(value))
       );
@@ -72,14 +86,6 @@ export default function ChannelsPage() {
     const start = (safeCurrentPage - 1) * CHANNELS_PER_PAGE;
     return filteredChannels.slice(start, start + CHANNELS_PER_PAGE);
   }, [filteredChannels, safeCurrentPage]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [query, selectedCategory]);
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
 
   async function handleChannelNumberAccess(e: React.FormEvent) {
     e.preventDefault();
@@ -147,7 +153,10 @@ export default function ChannelsPage() {
         <div className="mb-6 rounded-2xl border border-av-input-border/30 bg-av-card p-4">
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCurrentPage(1);
+            }}
             placeholder="Search public channels by name, category, or creator"
             className="h-11 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange focus:border-av-orange/50 focus:outline-none"
           />
@@ -156,7 +165,10 @@ export default function ChannelsPage() {
         {categories.length > 0 && (
           <div className="mb-6 flex flex-wrap gap-2">
             <button
-              onClick={() => setSelectedCategory(null)}
+              onClick={() => {
+                setSelectedCategory(null);
+                setCurrentPage(1);
+              }}
               className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-all ${
                 !selectedCategory
                   ? "border-av-orange/50 bg-gradient-to-r from-av-orange to-av-light-orange text-av-dark-blue shadow-md shadow-av-orange/20"
@@ -168,7 +180,10 @@ export default function ChannelsPage() {
             {categories.map((cat) => (
               <button
                 key={cat.id}
-                onClick={() => setSelectedCategory(cat.name === selectedCategory ? null : cat.name)}
+                onClick={() => {
+                  setSelectedCategory(cat.name === selectedCategory ? null : cat.name);
+                  setCurrentPage(1);
+                }}
                 className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-all ${
                   selectedCategory === cat.name
                     ? "border-av-orange/50 bg-gradient-to-r from-av-orange to-av-light-orange text-av-dark-blue shadow-md shadow-av-orange/20"
@@ -221,7 +236,7 @@ export default function ChannelsPage() {
                     <h2 className="truncate text-lg font-semibold text-av-white group-hover:text-av-orange transition-colors">{channel.name}</h2>
                     <span className="text-[11px] font-semibold text-av-light-orange">#{channel.channel_number}</span>
                   </div>
-                  <p className="mt-1 text-xs text-av-light-orange">{channel.category} · by {channel.owner_name}</p>
+                  <p className="mt-1 text-xs text-av-light-orange">{getChannelMetaLine(channel)}</p>
                   <p className="mt-3 line-clamp-2 text-sm text-av-light-orange">{channel.description}</p>
                   <div className="mt-4 flex items-center justify-between text-xs text-av-light-orange">
                     <span>{channel.followers_count ?? 0} followers</span>

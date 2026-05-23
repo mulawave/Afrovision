@@ -16,15 +16,17 @@ import {
   getNowPlayingApi,
   getChannelVideosApi,
   getChannelScheduleApi,
-  checkCreatorSubApi,
-  subscribeToCreatorApi,
-  cancelCreatorSubApi,
+  checkChannelSubApi,
+  subscribeToChannelApi,
+  cancelChannelSubApi,
   checkChannelAccessApi,
-  getFollowStatusApi,
-  followCreatorApi,
-  unfollowCreatorApi,
+  getChannelFollowStatusApi,
+  followChannelApi,
+  unfollowChannelApi,
   recordChannelViewApi,
+  deleteChannelApi,
 } from "@/lib/api";
+import { addToRecentlyViewed } from "@/components/RecentlyViewedRow";
 
 function formatNumber(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -65,7 +67,7 @@ type Tab = "streams" | "about" | "schedule";
 
 export function ChannelProfile({ id }: { id: string }) {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const requireAuth = useRequireAuth();
 
   const [channel, setChannel] = useState<Channel | null>(null);
@@ -79,6 +81,7 @@ export function ChannelProfile({ id }: { id: string }) {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
+  const [deleting, setDeleting] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +106,14 @@ export function ChannelProfile({ id }: { id: string }) {
         return;
       }
       setChannel(channelRes.data.channel);
+
+      // Track in Recently Viewed (localStorage)
+      addToRecentlyViewed({
+        channelId: id,
+        channelName: channelRes.data.channel.name,
+        logoUrl: channelRes.data.channel.logo_url,
+        bannerUrl: channelRes.data.channel.banner_url,
+      });
 
       // Record view for analytics (non-blocking)
       recordChannelViewApi(id).catch(() => {});
@@ -135,7 +146,7 @@ export function ChannelProfile({ id }: { id: string }) {
     if (!isAuthenticated || !channel) return;
     let cancelled = false;
 
-    checkCreatorSubApi(channel.owner_id).then((res) => {
+    checkChannelSubApi(id).then((res) => {
       if (cancelled) return;
       if (res.ok && "subscribed" in res.data) {
         setIsSubscribed(res.data.subscribed);
@@ -144,13 +155,13 @@ export function ChannelProfile({ id }: { id: string }) {
     });
 
     return () => { cancelled = true; };
-  }, [isAuthenticated, channel]);
+  }, [id, isAuthenticated, channel]);
 
   useEffect(() => {
-    if (!isAuthenticated || !channel?.owner_id) return;
+    if (!isAuthenticated || !channel?.id) return;
     let cancelled = false;
 
-    getFollowStatusApi(channel.owner_id).then((res) => {
+    getChannelFollowStatusApi(channel.id).then((res) => {
       if (cancelled || !res.ok || !("followed" in res.data)) return;
       setIsFollowing(res.data.followed);
       setFollowersCount(res.data.followers_count);
@@ -159,7 +170,7 @@ export function ChannelProfile({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, channel?.owner_id]);
+  }, [isAuthenticated, channel?.id]);
 
   // Lazy-load videos when streams tab is activated
   useEffect(() => {
@@ -199,13 +210,13 @@ export function ChannelProfile({ id }: { id: string }) {
       setSubLoading(true);
 
       if (isSubscribed && subId) {
-        const res = await cancelCreatorSubApi(subId);
+        const res = await cancelChannelSubApi(subId);
         if (res.ok) {
           setIsSubscribed(false);
           setSubId(null);
         }
       } else {
-        const res = await subscribeToCreatorApi(channel.owner_id);
+        const res = await subscribeToChannelApi(id);
         if (res.ok && "subscription" in res.data) {
           setIsSubscribed(true);
           setSubId(res.data.subscription.id);
@@ -213,15 +224,15 @@ export function ChannelProfile({ id }: { id: string }) {
       }
       setSubLoading(false);
     });
-  }, [requireAuth, channel, isSubscribed, subId]);
+  }, [requireAuth, id, channel, isSubscribed, subId]);
 
   const handleFollow = useCallback(() => {
     requireAuth(async () => {
-      if (!channel?.owner_id) return;
+      if (!channel?.id) return;
       setFollowLoading(true);
       const res = isFollowing
-        ? await unfollowCreatorApi(channel.owner_id)
-        : await followCreatorApi(channel.owner_id);
+        ? await unfollowChannelApi(channel.id)
+        : await followChannelApi(channel.id);
       if (res.ok && "followed" in res.data) {
         setIsFollowing(res.data.followed);
         setFollowersCount(res.data.followers_count);
@@ -230,7 +241,46 @@ export function ChannelProfile({ id }: { id: string }) {
     });
   }, [channel, isFollowing, requireAuth]);
 
+  const handleDeleteChannel = useCallback(() => {
+    requireAuth(async () => {
+      if (!channel) return;
+      const confirmed = window.confirm(
+        `Delete channel "${channel.name}"? This will disable the channel and remove it from discovery.`,
+      );
+      if (!confirmed) return;
+
+      setDeleting(true);
+      const res = await deleteChannelApi(channel.id);
+      setDeleting(false);
+
+      if (res.ok) {
+        router.push("/channels");
+        return;
+      }
+
+      setError("error" in res.data ? res.data.error : "Failed to delete channel.");
+    });
+  }, [channel, requireAuth, router]);
+
   const isLive = !!nowPlaying;
+
+  // External stream source derived values (AV-STR-003)
+  const isExternalSource = !!channel?.stream_source_mode && channel.stream_source_mode !== "native";
+  const extStreamStatus = channel?.stream_status ?? "unknown";
+  const isExternalLive = isExternalSource && (extStreamStatus === "live" || extStreamStatus === "valid");
+  const canWatchLive = isLive || isExternalLive;
+  const ownerDetailsVisible = channel?.owner_details_visible !== false;
+  const ownerDisplayMode = channel?.owner_display_mode || "show_owner";
+  const publicOwnerName = channel?.public_owner_name || channel?.owner_name || "";
+  const ownerIdentityText = ownerDetailsVisible && publicOwnerName
+    ? ownerDisplayMode === "brand_only"
+      ? publicOwnerName
+      : `by ${publicOwnerName}`
+    : "";
+  const watchLiveLabel = isExternalSource
+    ? extStreamStatus === "live" ? "Watch Live" : extStreamStatus === "scheduled" ? "Tune In (Scheduled)" : "Open Channel"
+    : "Watch Live";
+  const canManageChannel = !!user && (user.role === "admin" || user.id === channel?.owner_id);
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "streams", label: "Past Streams" },
@@ -321,9 +371,15 @@ export function ChannelProfile({ id }: { id: string }) {
                 <h1 className="text-2xl lg:text-3xl font-bold text-av-white truncate">
                   {channel.name}
                 </h1>
-                <svg className="w-5 h-5 text-av-orange flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
-                </svg>
+                {channel.is_premium_channel ? (
+                  <svg className="w-5 h-5 text-yellow-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5 text-av-orange flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
+                  </svg>
+                )}
               </div>
               <p className="text-sm text-av-light-orange mt-0.5">
                 #{channel.channel_number} · {channel.category}
@@ -339,13 +395,13 @@ export function ChannelProfile({ id }: { id: string }) {
                 )}
               </p>
               <p className="text-xs text-av-light-orange mt-1">
-                by {channel.owner_name} · Joined {formatDate(channel.created_at)}
+                {ownerIdentityText ? `${ownerIdentityText} · Joined ${formatDate(channel.created_at)}` : `Joined ${formatDate(channel.created_at)}`}
               </p>
             </div>
 
             {/* Action buttons */}
             <div className="flex items-center gap-3 flex-shrink-0">
-              {isLive && (
+              {canWatchLive && (
                 <button
                   onClick={() => router.push(`/live/${id}`)}
                   className="inline-flex items-center gap-2 px-6 py-3 text-sm font-bold rounded-full bg-av-error text-white hover:shadow-xl hover:shadow-av-error/30 hover:scale-105 active:scale-95 transition-all"
@@ -353,10 +409,10 @@ export function ChannelProfile({ id }: { id: string }) {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M8 5v14l11-7z" />
                   </svg>
-                  Watch Live
+                  {watchLiveLabel}
                 </button>
               )}
-              {channel.owner_id && (
+              {channel.owner_id && ownerDetailsVisible && (
                 <button
                   onClick={handleFollow}
                   disabled={followLoading}
@@ -439,6 +495,15 @@ export function ChannelProfile({ id }: { id: string }) {
             </button>
           ))}
         </div>
+              {canManageChannel && (
+                <button
+                  onClick={handleDeleteChannel}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-2 px-5 py-3 text-sm font-semibold rounded-full border border-red-500/35 bg-red-500/10 text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+                >
+                  {deleting ? "Deleting…" : "Delete Channel"}
+                </button>
+              )}
 
         {/* ===== TAB CONTENT ===== */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -571,10 +636,18 @@ export function ChannelProfile({ id }: { id: string }) {
             <div className="rounded-xl bg-av-card border border-av-input-border/20 p-5">
               <h3 className="text-sm font-semibold text-av-white mb-3">Channel Info</h3>
               <div className="space-y-2.5 text-xs text-av-light-orange">
-                <div className="flex items-center justify-between">
-                  <span>Owner</span>
-                  <span className="text-av-white font-medium">{channel.owner_name}</span>
-                </div>
+                {ownerDisplayMode === "show_owner" && ownerDetailsVisible && (
+                  <div className="flex items-center justify-between">
+                    <span>Owner</span>
+                    <span className="text-av-white font-medium">{publicOwnerName}</span>
+                  </div>
+                )}
+                {ownerDisplayMode === "brand_only" && (
+                  <div className="flex items-center justify-between">
+                    <span>Brand</span>
+                    <span className="text-av-white font-medium">{publicOwnerName}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span>Category</span>
                   <span className="text-av-white font-medium">{channel.category}</span>

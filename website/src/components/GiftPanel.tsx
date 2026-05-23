@@ -103,7 +103,7 @@ export function GiftPanel({ walletBalance, onSendGift }: GiftPanelProps) {
                     </span>
                   )}
 
-                  <span className="text-2xl">{gift.icon}</span>
+                  <span className={gift.icon.length > 3 ? "text-lg" : "text-2xl"}>{gift.icon}</span>
                   <span className="text-[10px] text-av-light-orange font-medium truncate w-full text-center">
                     {gift.name}
                   </span>

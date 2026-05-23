@@ -44,7 +44,7 @@ async function register(req, res, next) {
       }
     }
 
-    if (User.findByEmail(email)) {
+    if (await User.findByEmail(email)) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
@@ -57,7 +57,7 @@ async function register(req, res, next) {
     const { referral_code } = req.body;
     let referrerUid = null;
     if (referral_code) {
-      const referrerRecord = ReferralModel.findByCode(referral_code);
+      const referrerRecord = await ReferralModel.findByCode(referral_code);
       if (referrerRecord && referrerRecord.uid !== user.id) {
         referrerUid = referrerRecord.uid;
       }
@@ -71,6 +71,19 @@ async function register(req, res, next) {
         console.error('[Auth] referral recordInvite error:', err.message);
       });
     }
+
+    // Send welcome email (non-blocking)
+    SmtpService.sendTemplateEmail({
+      toEmail: user.email,
+      subject: 'Welcome to AfroVision',
+      templateFile: 'email-1-welcome.html',
+      vars: {
+        name: user.name || user.email.split('@')[0],
+        email: user.email,
+      },
+    }).catch((err) => {
+      console.error('[Auth] welcome email error:', err.message);
+    });
 
     res.status(201).json({ token, user: User.toSafeUser(user) });
   } catch (err) {
@@ -87,7 +100,7 @@ async function login(req, res, next) {
 
   try {
     const normalizedEmail = String(email).trim().toLowerCase();
-    const user = User.findByEmail(normalizedEmail);
+    const user = await User.findByEmail(normalizedEmail);
 
     // Admin logins and mobile app logins (client === 'mobile') bypass all verification.
     // Mobile app sends integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
@@ -122,7 +135,7 @@ async function login(req, res, next) {
 }
 
 async function me(req, res) {
-  const user = await User.reloadFromFirestore(req.userId);
+  const user = await User.findById(req.userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
@@ -138,7 +151,7 @@ async function forgotPassword(req, res, next) {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
-    const user = User.findByEmail(normalizedEmail);
+    const user = await User.findByEmail(normalizedEmail);
     if (user) {
       const websiteUrl = process.env.WEBSITE_URL;
       if (!websiteUrl) {
@@ -446,7 +459,7 @@ async function pakLogin(req, res) {
     await User.reinit();
 
     // Step 8: Find the user in-memory and generate a JWT
-    const inMemUser = User.findById(canonicalUid);
+    const inMemUser = await User.findById(canonicalUid);
     if (!inMemUser) {
       return res.status(500).json({ error: 'User sync failed after PAK login' });
     }
@@ -489,7 +502,7 @@ async function walletLogin(req, res, next) {
     }
 
     // Look up wallet record by connected_wallet_address
-    const walletRecord = WalletModel.findByConnectedWalletAddress(trimmed);
+    const walletRecord = await WalletModel.findByConnectedWalletAddress(trimmed);
     if (!walletRecord) {
       return res.status(404).json({
         error: 'No account is linked to this wallet address. Please create an account first, then link your wallet under Wallet → Connect Wallet to enable wallet login. Alternatively, import your account via Login with PAK and link your wallet.',
@@ -497,7 +510,7 @@ async function walletLogin(req, res, next) {
     }
 
     // Resolve user from wallet's user_id
-    const user = User.findById(walletRecord.user_id);
+    const user = await User.findById(walletRecord.user_id);
     if (!user) {
       return res.status(404).json({
         error: 'The linked account could not be found. Please contact support.',

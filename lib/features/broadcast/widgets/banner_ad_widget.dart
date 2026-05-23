@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
@@ -15,24 +14,29 @@ class BannerAdWidget extends StatefulWidget {
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
 }
 
-class _BannerAdWidgetState extends State<BannerAdWidget> {
+class _BannerAdWidgetState extends State<BannerAdWidget>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? _ad;
-  Timer? _refreshTimer;
+  String? _lastImpressionAdId;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadAd();
-    _refreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
-      (_) => _loadAd(),
-    );
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadAd();
+    }
   }
 
   Future<void> _loadAd() async {
@@ -42,7 +46,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
       setState(() => _ad = ad);
       if (ad != null) {
         final adId = ad['id'] as String? ?? '';
-        if (adId.isNotEmpty) {
+        // Only record impression when the ad changes to avoid duplicate billing
+        if (adId.isNotEmpty && adId != _lastImpressionAdId) {
+          _lastImpressionAdId = adId;
           BroadcastService.recordAdImpression(
             adId: adId,
           ).catchError((_) => <String, dynamic>{});

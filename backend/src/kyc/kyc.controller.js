@@ -31,11 +31,11 @@ async function uploadKycDoc(req, res) {
 async function submitKyc(req, res) {
   try {
     const userId = req.userId;
-    const user = UserModel.findById(userId);
+    const user = await UserModel.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     // Check if already has a pending/verified KYC
-    const existing = KycModel.findByUserId(userId);
+    const existing = await KycModel.findByUserId(userId);
     if (existing && ['pending', 'under_review'].includes(existing.status)) {
       return res.status(409).json({ error: 'KYC already submitted and pending review', kyc: existing });
     }
@@ -97,7 +97,7 @@ async function submitKyc(req, res) {
 
 async function getMyKyc(req, res) {
   try {
-    const record = KycModel.findByUserId(req.userId);
+    const record = await KycModel.findByUserId(req.userId);
     if (!record) return res.status(404).json({ error: 'No KYC record' });
     res.json(record);
   } catch (err) {
@@ -127,7 +127,7 @@ async function updateMyGender(req, res) {
 async function adminListKyc(req, res) {
   try {
     const { status, limit, offset } = req.query;
-    const result = KycModel.list({
+    const result = await KycModel.list({
       status,
       limit: limit ? Number(limit) : 50,
       offset: offset ? Number(offset) : 0,
@@ -141,7 +141,7 @@ async function adminListKyc(req, res) {
 
 async function adminGetKyc(req, res) {
   try {
-    const record = KycModel.findById(req.params.id);
+    const record = await KycModel.findById(req.params.id);
     if (!record) return res.status(404).json({ error: 'KYC record not found' });
     res.json(record);
   } catch (err) {
@@ -185,7 +185,7 @@ async function adminReviewKyc(req, res) {
 async function adminGetExpiring(req, res) {
   try {
     const days = req.query.days ? Number(req.query.days) : 30;
-    const items = KycModel.getExpiringSoon(days);
+    const items = await KycModel.getExpiringSoon(days);
     res.json({ items, total: items.length });
   } catch (err) {
     console.error('[KYC] adminGetExpiring error:', err);
@@ -195,7 +195,7 @@ async function adminGetExpiring(req, res) {
 
 async function adminGetExpired(req, res) {
   try {
-    const items = KycModel.getExpired();
+    const items = await KycModel.getExpired();
     res.json({ items, total: items.length });
   } catch (err) {
     console.error('[KYC] adminGetExpired error:', err);

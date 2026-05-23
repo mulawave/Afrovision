@@ -13,6 +13,7 @@ import {
   getFeatureFlagsApi,
   sendUserNotificationApi,
   setFeatureFlagApi,
+  updateAdminChannelNumberApi,
   type AdminDashboard,
   type AuditLogItem,
   type Channel,
@@ -30,6 +31,17 @@ function formatTimestamp(value: number) {
   });
 }
 
+function getChannelIdentityLabel(channel: Channel) {
+  if (channel.owner_details_visible === false || channel.owner_display_mode === "hide_owner") {
+    return "Owner hidden";
+  }
+  const name = (channel.public_owner_name || channel.owner_brand_name || channel.owner_name || "").trim();
+  if (!name) {
+    return "Owner hidden";
+  }
+  return channel.owner_display_mode === "brand_only" ? name : `by ${name}`;
+}
+
 export default function AdminPage() {
   const { isAuthenticated, user } = useAuth();
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
@@ -45,6 +57,9 @@ export default function AdminPage() {
   const [noticeBody, setNoticeBody] = useState("");
   const [noticeLink, setNoticeLink] = useState("");
   const [noticeSuccess, setNoticeSuccess] = useState<string | null>(null);
+  const [channelNumberDrafts, setChannelNumberDrafts] = useState<Record<string, string>>({});
+  const [channelNumberSavingId, setChannelNumberSavingId] = useState<string | null>(null);
+  const [channelNumberMessage, setChannelNumberMessage] = useState<string | null>(null);
 
   const loadAdmin = useCallback(async () => {
     setLoading(true);
@@ -64,7 +79,12 @@ export default function AdminPage() {
       setError("Failed to load admin dashboard.");
     }
     if (usersRes.ok && "users" in usersRes.data) setUsers(usersRes.data.users);
-    if (channelsRes.ok && "channels" in channelsRes.data) setChannels(channelsRes.data.channels);
+    if (channelsRes.ok && "channels" in channelsRes.data) {
+      setChannels(channelsRes.data.channels);
+      setChannelNumberDrafts(
+        Object.fromEntries(channelsRes.data.channels.map((channel) => [channel.id, String(channel.channel_number)]))
+      );
+    }
     if (flagsRes.ok && "flags" in flagsRes.data) setFlags(flagsRes.data.flags);
     if (logsRes.ok && "logs" in logsRes.data) setLogs(logsRes.data.logs);
 
@@ -100,6 +120,30 @@ export default function AdminPage() {
       setError("Could not update channel state.");
     }
     await loadAdmin();
+    setBusy(false);
+  }
+
+  async function handleChannelNumberSave(channel: Channel) {
+    const draft = channelNumberDrafts[channel.id]?.trim();
+    if (!draft) {
+      setError("Channel number is required.");
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setChannelNumberSavingId(channel.id);
+    setChannelNumberMessage(null);
+
+    const res = await updateAdminChannelNumberApi(channel.id, draft);
+    if (!res.ok) {
+      setError("error" in res.data ? res.data.error : "Could not update channel number.");
+    } else {
+      setChannelNumberMessage(`Channel ${channel.name} moved to #${draft}.`);
+      await loadAdmin();
+    }
+
+    setChannelNumberSavingId(null);
     setBusy(false);
   }
 
@@ -185,6 +229,7 @@ export default function AdminPage() {
 
         {error ? <div className="mb-6 rounded-2xl border border-av-error/30 bg-av-error/5 p-4 text-sm text-av-error">{error}</div> : null}
         {noticeSuccess ? <div className="mb-6 rounded-2xl border border-av-orange/30 bg-av-orange/10 p-4 text-sm text-av-light-orange">{noticeSuccess}</div> : null}
+        {channelNumberMessage ? <div className="mb-6 rounded-2xl border border-av-orange/30 bg-av-orange/10 p-4 text-sm text-av-light-orange">{channelNumberMessage}</div> : null}
 
         {loading || !dashboard ? (
           <div className="flex items-center justify-center py-20">
@@ -247,12 +292,33 @@ export default function AdminPage() {
                     <h2 className="text-lg font-semibold text-av-white">Channel moderation</h2>
                     <span className="text-xs text-av-light-orange">{channels.length} channels</span>
                   </div>
+                  <p className="mt-2 text-xs text-av-light-orange">Reserved numbers: 1-10, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000.</p>
                   <div className="mt-4 space-y-3">
-                    {channels.slice(0, 12).map((channel) => (
+                    {[...channels].sort((left, right) => Number(left.channel_number) - Number(right.channel_number)).slice(0, 12).map((channel) => (
                       <div key={channel.id} className="flex flex-col gap-3 rounded-2xl border border-av-input-border/20 bg-av-input-fill/30 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-av-white">{channel.name}</p>
-                          <p className="mt-1 text-xs text-av-light-orange">{channel.owner_name} · {channel.type} · {channel.is_active ? "active" : "disabled"}</p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-av-orange/20 bg-av-orange/10 px-2.5 py-0.5 text-xs font-semibold text-av-orange">#{channel.channel_number}</span>
+                            <p className="text-sm font-semibold text-av-white">{channel.name}</p>
+                          </div>
+                          <p className="mt-1 text-xs text-av-light-orange">{getChannelIdentityLabel(channel)} · {channel.type} · {channel.is_active ? "active" : "disabled"}</p>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <input
+                              type="number"
+                              min={1}
+                              value={channelNumberDrafts[channel.id] ?? String(channel.channel_number)}
+                              onChange={(event) => setChannelNumberDrafts((prev) => ({ ...prev, [channel.id]: event.target.value }))}
+                              className="h-11 w-full max-w-[11rem] rounded-xl border border-av-input-border/30 bg-av-input-fill px-3 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                              aria-label={`Channel number for ${channel.name}`}
+                            />
+                            <button
+                              onClick={() => handleChannelNumberSave(channel)}
+                              disabled={busy || channelNumberSavingId === channel.id || String(channel.channel_number) === (channelNumberDrafts[channel.id] ?? String(channel.channel_number)).trim()}
+                              className="rounded-full border border-av-orange/30 bg-av-orange/10 px-4 py-2 text-xs font-semibold text-av-orange disabled:opacity-50"
+                            >
+                              {channelNumberSavingId === channel.id ? "Saving..." : "Update number"}
+                            </button>
+                          </div>
                         </div>
                         <button onClick={() => handleChannelToggle(channel)} disabled={busy} className={`rounded-full px-4 py-2 text-xs font-semibold ${channel.is_active ? "border border-av-error/30 bg-av-error/5 text-av-error" : "border border-av-orange/30 bg-av-orange/10 text-av-orange"}`}>
                           {channel.is_active ? "Disable" : "Enable"}

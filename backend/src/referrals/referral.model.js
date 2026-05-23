@@ -15,28 +15,32 @@ const byUid = new Map();
 const byCode = new Map();
 // Map<uid, earningsArray> for referral earnings history
 const earningsByUid = new Map();
-let initialized = false;
+const MAX_CODE_GENERATION_ATTEMPTS = 32;
 
 async function init() {
-  if (initialized) return;
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    byUid.set(data.uid, data);
-    byCode.set(data.referral_code, data.uid);
-  });
+  return [];
+}
 
-  // Load earnings
-  const earningsSnap = await db.collection(EARNINGS_COLLECTION).get();
-  earningsSnap.forEach((doc) => {
-    const data = doc.data();
-    const uid = data.recipient_uid;
-    if (!earningsByUid.has(uid)) earningsByUid.set(uid, []);
-    earningsByUid.get(uid).push(data);
-  });
+function cacheReferral(referral) {
+  if (!referral || !referral.uid) return referral;
+  byUid.set(referral.uid, referral);
+  if (referral.referral_code) {
+    byCode.set(String(referral.referral_code).toUpperCase(), referral.uid);
+  }
+  return referral;
+}
 
-  initialized = true;
+function cacheEarning(earning) {
+  if (!earning || !earning.recipient_uid) return earning;
+  if (!earningsByUid.has(earning.recipient_uid)) earningsByUid.set(earning.recipient_uid, []);
+  const list = earningsByUid.get(earning.recipient_uid);
+  const index = list.findIndex((item) => item.id === earning.id);
+  if (index === -1) {
+    list.push(earning);
+  } else {
+    list[index] = earning;
+  }
+  return earning;
 }
 
 function _generateCode() {
@@ -59,17 +63,27 @@ async function ensureReferral(uid, referredByUid = null) {
   const db = getFirestore();
   const doc = await db.collection(COLLECTION).doc(uid).get();
   if (doc.exists) {
-    const data = doc.data();
-    byUid.set(data.uid, data);
-    byCode.set(data.referral_code, data.uid);
-    return data;
+    return cacheReferral(doc.data());
   }
 
-  let code;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    code = _generateCode();
-    if (!byCode.has(code)) break;
+  let code = null;
+  for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt += 1) {
+    const candidate = _generateCode();
+    if (!byCode.has(candidate)) {
+      const existing = await db.collection(COLLECTION)
+        .where('referral_code', '==', candidate)
+        .limit(1)
+        .get();
+      if (existing.empty) {
+        code = candidate;
+        break;
+      }
+      cacheReferral(existing.docs[0].data());
+    }
+  }
+
+  if (!code) {
+    throw new Error('Unable to generate unique referral code');
   }
 
   const referral = {
@@ -85,19 +99,33 @@ async function ensureReferral(uid, referredByUid = null) {
   };
 
   await _persist(uid, referral);
-  byUid.set(uid, referral);
-  byCode.set(code, uid);
-  return referral;
+  return cacheReferral(referral);
 }
 
-function findByCode(code) {
+async function findByCode(code) {
   if (!code) return null;
-  const uid = byCode.get(code.toUpperCase());
-  return uid ? byUid.get(uid) : null;
+  const normalizedCode = code.toUpperCase();
+  const uid = byCode.get(normalizedCode);
+  if (uid) return findByUid(uid);
+
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('referral_code', '==', normalizedCode)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  return cacheReferral(snapshot.docs[0].data());
 }
 
-function findByUid(uid) {
-  return byUid.get(uid) || null;
+async function findByUid(uid) {
+  if (!uid) return null;
+  const cached = byUid.get(uid);
+  if (cached) return cached;
+
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(uid).get();
+  if (!doc.exists) return null;
+  return cacheReferral(doc.data());
 }
 
 /**
@@ -105,7 +133,7 @@ function findByUid(uid) {
  * Sets the referred_by relationship.
  */
 async function recordInvite(referrerUid, newUserUid) {
-  const referral = byUid.get(referrerUid);
+  const referral = await findByUid(referrerUid);
   if (!referral) return false;
 
   if (referrerUid === newUserUid) return false;
@@ -114,7 +142,7 @@ async function recordInvite(referrerUid, newUserUid) {
   referral.referrers.push(newUserUid);
   referral.invited_count += 1;
   referral.updated_at = Date.now();
-  byUid.set(referrerUid, referral);
+  cacheReferral(referral);
   await _persist(referrerUid, {
     invited_count: referral.invited_count,
     referrers: referral.referrers,
@@ -122,11 +150,11 @@ async function recordInvite(referrerUid, newUserUid) {
   });
 
   // Set referred_by on the new user's referral record
-  const newUserReferral = byUid.get(newUserUid);
+  const newUserReferral = await ensureReferral(newUserUid);
   if (newUserReferral && !newUserReferral.referred_by) {
     newUserReferral.referred_by = referrerUid;
     newUserReferral.updated_at = Date.now();
-    byUid.set(newUserUid, newUserReferral);
+    cacheReferral(newUserReferral);
     await _persist(newUserUid, {
       referred_by: referrerUid,
       updated_at: newUserReferral.updated_at,
@@ -143,12 +171,12 @@ async function recordInvite(referrerUid, newUserUid) {
  * @param {string} subscriberUid - The user who made the subscription
  * @returns {(string|null)[]} Array of 5 UIDs or nulls [L1, L2, L3, L4, L5]
  */
-function resolveTree(subscriberUid) {
+async function resolveTree(subscriberUid) {
   const tree = [];
 
   let currentUid = subscriberUid;
   for (let level = 0; level < 5; level++) {
-    const record = byUid.get(currentUid);
+    const record = await findByUid(currentUid);
     const referrerUid = record?.referred_by || null;
 
     if (referrerUid) {
@@ -198,16 +226,15 @@ async function recordEarning({
   };
   await db.collection(EARNINGS_COLLECTION).doc(earning.id).set(earning);
 
-  if (!earningsByUid.has(recipientUid)) earningsByUid.set(recipientUid, []);
-  earningsByUid.get(recipientUid).push(earning);
+  cacheEarning(earning);
 
   // Update totals on referral record
-  const referral = byUid.get(recipientUid);
+  const referral = await findByUid(recipientUid);
   if (referral) {
     referral.total_earnings_ngn = (referral.total_earnings_ngn || 0) + amountNgn;
     referral.total_earnings_vpt_units = (referral.total_earnings_vpt_units || 0) + amountVptUnits;
     referral.updated_at = Date.now();
-    byUid.set(recipientUid, referral);
+    cacheReferral(referral);
     await _persist(recipientUid, {
       total_earnings_ngn: referral.total_earnings_ngn,
       total_earnings_vpt_units: referral.total_earnings_vpt_units,
@@ -221,15 +248,27 @@ async function recordEarning({
 /**
  * Get earnings history for a user.
  */
-function getEarnings(uid) {
-  return (earningsByUid.get(uid) || []).sort((a, b) => b.created_at - a.created_at);
+async function getEarnings(uid) {
+  if (earningsByUid.has(uid)) {
+    return (earningsByUid.get(uid) || []).sort((a, b) => b.created_at - a.created_at);
+  }
+
+  const db = getFirestore();
+  const snapshot = await db.collection(EARNINGS_COLLECTION)
+    .where('recipient_uid', '==', uid)
+    .get();
+  const earnings = snapshot.docs
+    .map((doc) => cacheEarning(doc.data()))
+    .sort((a, b) => b.created_at - a.created_at);
+  earningsByUid.set(uid, earnings);
+  return earnings;
 }
 
 /**
  * Get the direct referrals (invited users) for a given user.
  */
-function getDirectReferrals(uid) {
-  const referral = byUid.get(uid);
+async function getDirectReferrals(uid) {
+  const referral = await findByUid(uid);
   if (!referral) return [];
   return referral.referrers || [];
 }
@@ -237,32 +276,48 @@ function getDirectReferrals(uid) {
 /**
  * Get all referral records (admin).
  */
-function getAll() {
-  return Array.from(byUid.values());
+async function getAll() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  return snapshot.docs.map((doc) => cacheReferral(doc.data()));
+}
+
+async function listPage({ limit = 100, startAfterUid = null } = {}) {
+  const db = getFirestore();
+  let query = db.collection(COLLECTION)
+    .orderBy('uid')
+    .limit(Math.max(1, Math.min(limit, 500)));
+
+  if (startAfterUid) {
+    query = query.startAfter(startAfterUid);
+  }
+
+  const snapshot = await query.get();
+  const referrals = snapshot.docs.map((doc) => cacheReferral(doc.data()));
+  const nextCursor = snapshot.docs.length === Math.max(1, Math.min(limit, 500))
+    ? snapshot.docs[snapshot.docs.length - 1].id
+    : null;
+
+  return { referrals, nextCursor };
 }
 
 /**
  * Get all earnings across all users (admin).
  */
-function getAllEarnings() {
-  const all = [];
-  for (const [, list] of earningsByUid) {
-    all.push(...list);
-  }
-  return all.sort((a, b) => b.created_at - a.created_at);
+async function getAllEarnings() {
+  const db = getFirestore();
+  const snapshot = await db.collection(EARNINGS_COLLECTION).get();
+  return snapshot.docs
+    .map((doc) => cacheEarning(doc.data()))
+    .sort((a, b) => b.created_at - a.created_at);
 }
 
 /**
  * Get users who have no referred_by (no upline).
  */
-function getUsersWithoutUpline() {
-  const result = [];
-  for (const [uid, rec] of byUid) {
-    if (!rec.referred_by) {
-      result.push(rec);
-    }
-  }
-  return result;
+async function getUsersWithoutUpline() {
+  const allReferrals = await getAll();
+  return allReferrals.filter((rec) => !rec.referred_by);
 }
 
 /**
@@ -271,25 +326,25 @@ function getUsersWithoutUpline() {
  * @param {string} referrerUid - The upline user's UID
  */
 async function assignUpline(uid, referrerUid) {
-  const record = byUid.get(uid);
+  const record = await findByUid(uid);
   if (!record) throw new Error('User referral record not found');
   if (uid === referrerUid) throw new Error('Cannot assign self as upline');
 
   record.referred_by = referrerUid;
   record.updated_at = Date.now();
-  byUid.set(uid, record);
+  cacheReferral(record);
   await _persist(uid, {
     referred_by: referrerUid,
     updated_at: record.updated_at,
   });
 
   // Also add this user to the referrer's referrers list if not already there
-  const referrerRecord = byUid.get(referrerUid);
+  const referrerRecord = await ensureReferral(referrerUid);
   if (referrerRecord && !referrerRecord.referrers.includes(uid)) {
     referrerRecord.referrers.push(uid);
     referrerRecord.invited_count = referrerRecord.referrers.length;
     referrerRecord.updated_at = Date.now();
-    byUid.set(referrerUid, referrerRecord);
+    cacheReferral(referrerRecord);
     await _persist(referrerUid, {
       referrers: referrerRecord.referrers,
       invited_count: referrerRecord.invited_count,
@@ -314,14 +369,18 @@ async function markEarningCredited(earningId) {
       return earning;
     }
   }
-  return null;
+  const doc = await db.collection(EARNINGS_COLLECTION).doc(earningId).get();
+  if (!doc.exists) return null;
+  const earning = cacheEarning({ ...doc.data(), status: 'credited' });
+  await db.collection(EARNINGS_COLLECTION).doc(earningId).update({ status: 'credited' });
+  return earning;
 }
 
 /**
  * Get ledger balance summary for a user (pending vs credited).
  */
-function getLedgerSummary(uid) {
-  const earnings = earningsByUid.get(uid) || [];
+async function getLedgerSummary(uid) {
+  const earnings = await getEarnings(uid);
   let pendingNgn = 0;
   let pendingVpt = 0;
   let creditedNgn = 0;
@@ -358,6 +417,7 @@ module.exports = {
   getEarnings,
   getDirectReferrals,
   getAll,
+  listPage,
   getAllEarnings,
   getUsersWithoutUpline,
   assignUpline,

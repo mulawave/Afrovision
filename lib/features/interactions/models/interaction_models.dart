@@ -4,7 +4,7 @@ class GiftModel {
   final String icon;
   final String? animation;
   final String currency; // 'vpt' | 'ngn'
-  final int vptUnits;
+  final double vptUnits;
   final double nairaValue;
   final bool isActive;
   final int sortOrder;
@@ -28,7 +28,7 @@ class GiftModel {
       icon: json['icon'] as String? ?? '🎁',
       animation: json['animation'] as String?,
       currency: json['currency'] as String? ?? 'vpt',
-      vptUnits: (json['vpt_units'] as num?)?.toInt() ?? 0,
+      vptUnits: (json['vpt_units'] as num?)?.toDouble() ?? 0,
       nairaValue: (json['naira_value'] as num?)?.toDouble() ?? 0,
       isActive: json['is_active'] as bool? ?? true,
       sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
@@ -37,9 +37,8 @@ class GiftModel {
 
   String get priceLabel {
     if (currency == 'ngn') return '₦${nairaValue.toStringAsFixed(0)}';
-    final vpt = vptUnits / 1000000;
-    if (vpt >= 1) return '${vpt.toStringAsFixed(1)} vPT';
-    return '${(vptUnits / 1000).toStringAsFixed(0)}K units';
+    // vptUnits is the raw vPT value from the backend (e.g. 2, 0.5, 1500)
+    return '${vptUnits.toString()} vPT';
   }
 }
 

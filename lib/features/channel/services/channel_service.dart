@@ -133,4 +133,46 @@ class ChannelService {
   static Future<void> recordView(String channelId) async {
     await ApiService.post('/channels/$channelId/view', {});
   }
+
+  /// Updates the external stream source for a channel. The backend automatically
+  /// classifies and probes the URL, returning the enriched channel with
+  /// resolved_playback_url and stream_status populated.
+  static Future<ChannelModel> updateExternalSource(
+    String id, {
+    required String streamSourceMode,
+    String? externalUrl,
+    String? externalProvider,
+  }) async {
+    final data = await ApiService.patch('/channels/$id/external-source', {
+      'stream_source_mode': streamSourceMode,
+      if (externalUrl != null && externalUrl.isNotEmpty)
+        'external_url': externalUrl,
+      if (externalProvider != null && externalProvider.isNotEmpty)
+        'external_provider': externalProvider,
+    });
+    return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
+  }
+
+  /// Validates a URL against the resolver without persisting anything.
+  /// Returns the resolved source contract on success.
+  static Future<Map<String, dynamic>> resolveSource(String url) async {
+    return await ApiService.post('/channels/resolve-source', {'url': url});
+  }
+
+  /// Re-probes the currently configured source URL and persists the refreshed
+  /// stream_status and last_checked_at on the channel.
+  static Future<ChannelModel> recheckStreamHealth(String id) async {
+    final data = await ApiService.post('/channels/$id/recheck-source', {});
+    return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
+  }
+
+  static Future<ChannelModel> updateExclusiveSettings(
+    String id, {
+    required double monthlyFeeNgn,
+  }) async {
+    final data = await ApiService.patch('/channels/$id/exclusive-settings', {
+      'monthly_fee_ngn': monthlyFeeNgn,
+    });
+    return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
+  }
 }

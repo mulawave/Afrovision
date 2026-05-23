@@ -2,8 +2,10 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'plans';
-const plans = [];
-let initialized = false;
+const plansById = new Map();
+const plansByName = new Map();
+let defaultsEnsured = false;
+let ensureDefaultsPromise = null;
 
 const DEFAULTS = [
   {
@@ -159,39 +161,113 @@ const DEFAULTS = [
   },
 ];
 
+function cachePlan(plan) {
+  if (!plan || !plan.id) return plan;
+  const normalized = { ...plan };
+  plansById.set(normalized.id, normalized);
+  if (normalized.name) {
+    plansByName.set(normalized.name, normalized);
+  }
+  return normalized;
+}
+
+function removeCachedPlan(plan) {
+  if (!plan) return;
+  if (plan.id) plansById.delete(plan.id);
+  if (plan.name) plansByName.delete(plan.name);
+}
+
+function findDefaultById(id) {
+  const plan = DEFAULTS.find((entry) => entry.id === id);
+  return plan ? cachePlan(plan) : null;
+}
+
+function findDefaultByName(name) {
+  const plan = DEFAULTS.find((entry) => entry.name === name);
+  return plan ? cachePlan(plan) : null;
+}
+
+async function ensureDefaultsSeeded() {
+  if (defaultsEnsured) return;
+  if (ensureDefaultsPromise) {
+    await ensureDefaultsPromise;
+    return;
+  }
+
+  ensureDefaultsPromise = (async () => {
+    const db = getFirestore();
+    const snapshot = await db.collection(COLLECTION).limit(1).get();
+    if (snapshot.empty) {
+      const batch = db.batch();
+      for (const plan of DEFAULTS) {
+        batch.set(db.collection(COLLECTION).doc(plan.id), plan);
+        cachePlan(plan);
+      }
+      await batch.commit();
+      console.log(`[PlanModel] Seeded ${DEFAULTS.length} default plans`);
+    }
+    defaultsEnsured = true;
+  })();
+
+  try {
+    await ensureDefaultsPromise;
+  } finally {
+    ensureDefaultsPromise = null;
+  }
+}
+
 async function init() {
-  if (initialized) return;
+  await ensureDefaultsSeeded();
+  return getAll();
+}
+
+async function loadAllPlans() {
+  await ensureDefaultsSeeded();
   const db = getFirestore();
   const snapshot = await db.collection(COLLECTION).get();
   if (snapshot.empty) {
-    const batch = db.batch();
-    for (const plan of DEFAULTS) {
-      batch.set(db.collection(COLLECTION).doc(plan.id), plan);
-      plans.push({ ...plan });
-    }
-    await batch.commit();
-    console.log(`[PlanModel] Seeded ${DEFAULTS.length} default plans`);
-  } else {
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      data.id = doc.id;
-      plans.push(data);
-    });
-    console.log(`[PlanModel] Loaded ${plans.length} plans from Firestore`);
+    return DEFAULTS.map((plan) => cachePlan(plan));
   }
-  initialized = true;
+  return snapshot.docs.map((doc) => cachePlan({ ...doc.data(), id: doc.id }));
 }
 
-function getAll() {
+function findCachedById(id) {
+  if (!id) return null;
+  return plansById.get(id) || findDefaultById(id);
+}
+
+function findCachedByName(name) {
+  if (!name) return null;
+  return plansByName.get(name) || findDefaultByName(name);
+}
+
+async function getAll() {
+  const plans = await loadAllPlans();
   return plans.filter((p) => p.is_active);
 }
 
-function findById(id) {
-  return plans.find((p) => p.id === id);
+async function findById(id) {
+  const cached = findCachedById(id);
+  if (cached) return cached;
+  await ensureDefaultsSeeded();
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return cachePlan({ ...doc.data(), id: doc.id });
 }
 
-function findByName(name) {
-  return plans.find((p) => p.name === name);
+async function findByName(name) {
+  const cached = findCachedByName(name);
+  if (cached) return cached;
+  await ensureDefaultsSeeded();
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('name', '==', name)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  return cachePlan({ ...doc.data(), id: doc.id });
 }
 
 async function create({ name, type, price, yearly_price, currency, features, display_labels, badge, reward_multiplier }) {
@@ -210,21 +286,33 @@ async function create({ name, type, price, yearly_price, currency, features, dis
     is_active: true,
   };
   await db.collection(COLLECTION).doc(plan.id).set(plan);
-  plans.push(plan);
+  cachePlan(plan);
   return plan;
 }
 
-function getByType(type) {
-  return plans.filter((p) => p.type === type && p.is_active);
+async function getByType(type) {
+  await ensureDefaultsSeeded();
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('type', '==', type)
+    .where('is_active', '==', true)
+    .get();
+  return snapshot.docs.map((doc) => cachePlan({ ...doc.data(), id: doc.id }));
 }
 
-function getAllByType(type) {
-  return plans.filter((p) => p.type === type);
+async function getAllByType(type) {
+  await ensureDefaultsSeeded();
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('type', '==', type)
+    .get();
+  return snapshot.docs.map((doc) => cachePlan({ ...doc.data(), id: doc.id }));
 }
 
 async function update(id, fields) {
-  const plan = findById(id);
+  const plan = await findById(id);
   if (!plan) return null;
+  const previousName = plan.name;
   const updates = {};
   if (fields.name !== undefined) { plan.name = fields.name; updates.name = fields.name; }
   if (fields.type !== undefined) { plan.type = fields.type; updates.type = fields.type; }
@@ -240,11 +328,15 @@ async function update(id, fields) {
     const db = getFirestore();
     await db.collection(COLLECTION).doc(id).update(updates);
   }
+  if (previousName && previousName !== plan.name) {
+    plansByName.delete(previousName);
+  }
+  cachePlan(plan);
   return plan;
 }
 
 async function addFeature(id, feature, label) {
-  const plan = findById(id);
+  const plan = await findById(id);
   if (!plan) return null;
   if (!plan.features.includes(feature)) {
     plan.features.push(feature);
@@ -252,26 +344,28 @@ async function addFeature(id, feature, label) {
   if (label) plan.display_labels[feature] = label;
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).update({ features: plan.features, display_labels: plan.display_labels });
+  cachePlan(plan);
   return plan;
 }
 
 async function removeFeature(id, feature) {
-  const plan = findById(id);
+  const plan = await findById(id);
   if (!plan) return null;
   plan.features = plan.features.filter((f) => f !== feature);
   delete plan.display_labels[feature];
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).update({ features: plan.features, display_labels: plan.display_labels });
+  cachePlan(plan);
   return plan;
 }
 
 async function remove(id) {
-  const idx = plans.findIndex((p) => p.id === id);
-  if (idx === -1) return false;
-  plans.splice(idx, 1);
+  const existing = await findById(id);
+  if (!existing) return false;
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).delete();
+  removeCachedPlan(existing);
   return true;
 }
 
-module.exports = { init, getAll, getByType, getAllByType, findById, findByName, create, update, addFeature, removeFeature, remove };
+module.exports = { init, getAll, getByType, getAllByType, findById, findByName, findCachedByName, create, update, addFeature, removeFeature, remove };

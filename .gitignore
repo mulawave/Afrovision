@@ -67,3 +67,22 @@ user_schema_dump.json
 *.jks
 hs_err_pid*.log
 replay_pid*.log
+
+# Dev output artifacts — never commit
+analyze_new.txt
+analyze_output.txt
+build_fresh.txt
+build_log.txt
+build_out.txt
+build_output.txt
+dart_analyze.txt
+dart_screens.txt
+dart_single.txt
+flutter_analyze.log
+flutter_analyze_out.txt
+npm_lint.txt
+npm_lint_out.txt
+temp_output.txt
+request.json
+reputation_building_plan.md
+reports/

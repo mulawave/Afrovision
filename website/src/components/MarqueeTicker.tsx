@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 
+const MARQUEE_TTL_MS = 5 * 60_000;
+
+let marqueeCache: Topic[] = [];
+let marqueeCacheUpdatedAt = 0;
+let marqueeRequestInFlight: Promise<Topic[]> | null = null;
+
 interface Topic {
   id: string;
   text: string;
@@ -10,29 +16,66 @@ interface Topic {
   active: boolean;
 }
 
+async function getMarqueeTopics(forceRefresh = false): Promise<Topic[]> {
+  const now = Date.now();
+  if (!forceRefresh && marqueeCache.length > 0 && now - marqueeCacheUpdatedAt < MARQUEE_TTL_MS) {
+    return marqueeCache;
+  }
+
+  if (!marqueeRequestInFlight) {
+    marqueeRequestInFlight = (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/home/marquee`);
+        if (!res.ok) {
+          return marqueeCache;
+        }
+
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          marqueeCache = data;
+          marqueeCacheUpdatedAt = Date.now();
+        }
+
+        return marqueeCache;
+      } catch {
+        return marqueeCache;
+      } finally {
+        marqueeRequestInFlight = null;
+      }
+    })();
+  }
+
+  return marqueeRequestInFlight;
+}
+
 export function MarqueeTicker() {
-  const [topics, setTopics] = useState<Topic[]>([]);
+  const [topics, setTopics] = useState<Topic[]>(() => marqueeCache);
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch(`${API_BASE}/home/marquee`);
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled && Array.isArray(data) && data.length > 0) {
-            setTopics(data);
-          }
-        }
-      } catch {
-        /* silent */
+
+    async function load(forceRefresh = false) {
+      const nextTopics = await getMarqueeTopics(forceRefresh);
+      if (!cancelled && nextTopics.length > 0) {
+        setTopics(nextTopics);
       }
     }
+
     load();
-    const interval = setInterval(load, 120_000);
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") {
+        load();
+      }
+    }
+
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
 

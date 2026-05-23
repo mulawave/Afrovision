@@ -10,26 +10,33 @@ class CommunityPoolBar extends StatefulWidget {
   State<CommunityPoolBar> createState() => _CommunityPoolBarState();
 }
 
-class _CommunityPoolBarState extends State<CommunityPoolBar> {
-  HomeStats? _stats;
-  Timer? _timer;
+class _CommunityPoolBarState extends State<CommunityPoolBar>
+    with WidgetsBindingObserver {
+  HomeCommunityPoolStats? _stats;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
-    _timer = Timer.periodic(const Duration(seconds: 60), (_) => _load());
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
     try {
-      final stats = await HomeService.getStats();
+      final stats = await HomeService.getCommunityPoolStats();
       if (mounted) setState(() => _stats = stats);
     } catch (_) {
       // silent — keep showing last data

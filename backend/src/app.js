@@ -21,69 +21,62 @@ const interactionsRoutes = require('./interactions/interactions.routes');
 const withdrawalRoutes = require('./wallet/withdrawal.routes');
 const paymentRoutes = require('./payments/payment.routes');
 const notificationRoutes = require('./notifications/notification.routes');
-const NotificationModel = require('./notifications/notification.model');
+const RenewalWorker = require('./subscriptions/renewal.worker');
+const reputationRoutes = require('./reputation/reputation.routes');
+const ReputationService = require('./reputation/reputation.service');
+const ReminderWorker = require('./broadcast/reminder.worker');
+const SwapService = require('./vpt/swap.service');
+const PoolService = require('./vpt/pool.service');
 const creatorSubscriptionRoutes = require('./subscriptions/creator_subscription.routes');
+const channelSubscriptionRoutes = require('./subscriptions/channel_subscription.routes');
 const referralRoutes = require('./referrals/referral.routes');
 const creatorAnalyticsRoutes = require('./analytics/creator_analytics.routes');
 const copyrightRoutes = require('./copyright/copyright.routes');
 const challengeRoutes = require('./challenge/challenge.routes');
 const kycRoutes = require('./kyc/kyc.routes');
 const adRoutes = require('./ads/ad.routes');
-const ChallengeModel = require('./challenge/challenge.model');
-const KycModel = require('./kyc/kyc.model');
-const RenewalWorker = require('./subscriptions/renewal.worker');
-const reputationRoutes = require('./reputation/reputation.routes');
-const ReputationService = require('./reputation/reputation.service');
-const ChannelAccessModel = require('./channels/channel_access.model');
-const CreatorSubscriptionModel = require('./subscriptions/creator_subscription.model');
-const ReferralModel = require('./referrals/referral.model');
-const WalletModel = require('./wallet/wallet.model');
-const WithdrawalModel = require('./wallet/withdrawal.model');
-const VideoModel = require('./broadcast/video.model');
-const ProgramModel = require('./broadcast/program.model');
-const ReminderModel = require('./broadcast/reminder.model');
-const LedgerModel = require('./vpt/ledger.model');
-const DistributionModel = require('./vpt/distribution.model');
-const BatchModel = require('./vpt/batch.model');
-const VptModel = require('./vpt/vpt.model');
-const SwapService = require('./vpt/swap.service');
-const PoolService = require('./vpt/pool.service');
-const GiftModel = require('./interactions/gift.model');
-const GiftWalletModel = require('./interactions/gift-wallet.model');
-const StreamStatsModel = require('./analytics/stream_stats.model');
-const ChannelModel = require('./channels/channel.model');
-const CategoryModel = require('./channels/category.model');
-const PlanModel = require('./subscriptions/plan.model');
-const AdModel = require('./ads/ad.model');
-const AdImpressionModel = require('./ads/ad_impression.model');
-const PaymentModel = require('./payments/payment.model');
+const subtitleRoutes = require('./subtitles/subtitle.routes');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
+// Start listening ASAP for Cloud Run readiness and keep app responsive
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server listening on port ${PORT}`);
+});
+
+// Socket.IO must be available even if later startup checks fail and the HTTP
+// server keeps serving requests.
+initializeSocketServer(server);
+
 // Trust the first proxy (Cloud Run, nginx, etc.) so req.ip reflects the real client IP
 app.set('trust proxy', 1);
 
 app.use(helmet());
 
+// Tolerate missing ALLOWED_ORIGINS for startup; default to '*', log warning
+let allowedOrigins = '*';
 if (!process.env.ALLOWED_ORIGINS) {
-  console.error('[FATAL] ALLOWED_ORIGINS environment variable is required. Set it to a comma-separated list of allowed origins.');
-  process.exit(1);
+  console.warn('[Config] ALLOWED_ORIGINS is not set. Defaulting to * (development-only).');
+} else {
+  allowedOrigins = process.env.ALLOWED_ORIGINS
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allowedOrigins.length === 0) allowedOrigins = '*';
+  console.log('[Config] ALLOWED_ORIGINS:', allowedOrigins);
 }
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS.split(','),
-}));
+app.use(cors({ origin: allowedOrigins, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 
 // Legacy /uploads route — redirects to GCS for migrated files, serves local as fallback
 const GCS_BUCKET = process.env.GCS_BUCKET;
-if (!GCS_BUCKET) {
-  console.error('[FATAL] GCS_BUCKET environment variable is required.');
-  process.exit(1);
-}
 app.use('/uploads', (req, res, next) => {
+  if (!GCS_BUCKET) {
+    return res.status(503).json({ error: 'GCS is not configured' });
+  }
   const filename = req.path.replace(/^\//, '');
   if (!filename) return next();
   const ext = path.extname(filename).toLowerCase();
@@ -107,13 +100,19 @@ app.use('/withdrawals', withdrawalRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/subscriptions', creatorSubscriptionRoutes);
+app.use('/subscriptions', channelSubscriptionRoutes);
 app.use('/referrals', referralRoutes);
 app.use('/analytics/creator', creatorAnalyticsRoutes);
 app.use('/copyright', copyrightRoutes);
 app.use('/challenge', challengeRoutes);
 app.use('/kyc', kycRoutes);
 app.use('/ads', adRoutes);
+app.use('/subtitles', subtitleRoutes);
 app.use('/reputation', reputationRoutes);
+
+function getOpsSecret() {
+  return process.env.OPS_SECRET || null;
+}
 
 // Promo modal — public endpoint (no auth required)
 const promoModalCtrl = require('./promo/promo-modal.controller');
@@ -128,11 +127,69 @@ app.post('/ops/recalculate-payouts', async (req, res) => {
   }
   const referralCtrl = require('./referrals/referral.controller');
   // Set admin userId and bypass role check by setting req._opsAuth
-  const adminUser = UserModel.findByEmail('richardobroh@gmail.com');
+  const adminUser = await UserModel.findByEmail('richardobroh@gmail.com');
   if (!adminUser) return res.status(500).json({ error: 'Admin user not found' });
   req.userId = adminUser.id;
   req._opsAuth = true; // Signal to bypass role check
   return referralCtrl.adminRecalculatePayouts(req, res);
+});
+
+// Renewal trigger endpoint — intended for Cloud Scheduler or other external single-owner job runners.
+app.post('/ops/run-renewals', async (req, res) => {
+  const { secret, force } = req.body || {};
+  const opsSecret = getOpsSecret();
+  if (!opsSecret || secret !== opsSecret) {
+    return res.status(403).json({ error: 'Invalid secret' });
+  }
+
+  try {
+    const result = await RenewalWorker.runScheduledRenewals({
+      trigger: 'ops-http',
+      force: force === true,
+    });
+    return res.json({ result });
+  } catch (error) {
+    console.error('[RenewalWorker] HTTP trigger error:', error.message);
+    return res.status(500).json({ error: error.message || 'Renewal run failed' });
+  }
+});
+
+app.post('/ops/run-pool-distribution', async (req, res) => {
+  const { secret, force } = req.body || {};
+  const opsSecret = getOpsSecret();
+  if (!opsSecret || secret !== opsSecret) {
+    return res.status(403).json({ error: 'Invalid secret' });
+  }
+
+  try {
+    const result = await PoolService.runScheduledDistribution({
+      trigger: 'ops-http',
+      force: force === true,
+    });
+    return res.json({ result });
+  } catch (error) {
+    console.error('[Pool Cron] HTTP trigger error:', error.message);
+    return res.status(500).json({ error: error.message || 'Pool distribution failed' });
+  }
+});
+
+app.post('/ops/run-reminders', async (req, res) => {
+  const { secret, force } = req.body || {};
+  const opsSecret = getOpsSecret();
+  if (!opsSecret || secret !== opsSecret) {
+    return res.status(403).json({ error: 'Invalid secret' });
+  }
+
+  try {
+    const result = await ReminderWorker.runScheduledReminderDispatch({
+      trigger: 'ops-http',
+      force: force === true,
+    });
+    return res.json({ result });
+  } catch (error) {
+    console.error('[ReminderWorker] HTTP trigger error:', error.message);
+    return res.status(500).json({ error: error.message || 'Reminder dispatch failed' });
+  }
 });
 
 app.get('/', (req, res) => {
@@ -165,7 +222,7 @@ async function ensureAdminSeed() {
   const isGeneratedPassword = !process.env.ADMIN_PASSWORD;
 
   // Check specifically for the seed account email, not just any admin
-  const existing = UserModel.findByEmail(adminEmail);
+  const existing = await UserModel.findByEmail(adminEmail);
   if (existing) {
     if (existing.role !== 'admin') {
       await UserModel.setRole(existing.id, 'admin');
@@ -220,44 +277,14 @@ async function validateRuntimeConfiguration() {
 async function startServer() {
   await Promise.all([
     SettingsService.ensureDefinitionsExist(),
-    UserModel.init(),
-    WalletModel.init(),
-    LedgerModel.init(),
-    DistributionModel.init(),
-    BatchModel.init(),
-    VptModel.init(),
-    VideoModel.init(),
-    ProgramModel.init(),
-    ReminderModel.init(),
-    GiftModel.init(),
-    GiftWalletModel.init(),
-    StreamStatsModel.init(),
-    WithdrawalModel.init(),
-    PaymentModel.init(),
-    NotificationModel.init(),
-    ChannelAccessModel.init(),
-    CreatorSubscriptionModel.init(),
-    ReferralModel.init(),
-    ChallengeModel.init(),
-    KycModel.init(),
-    ChannelModel.init(),
-    CategoryModel.init(),
-    PlanModel.init(),
+    // ChannelStatsModel has no init; it initializes lazily on demand
     PoolService.init(),
-    AdModel.init(),
-    AdImpressionModel.init(),
-    ReputationService.init(),
   ]);
 
-  // Start the renewal worker AFTER models are initialized
-  RenewalWorker.start();
+  console.log('[RenewalWorker] Waiting for external renewal trigger ownership');
 
-  // Start viewer reward distribution cron
-  PoolService.startCron();
-
-  // Start reminder notification timer
-  const BroadcastCtrl = require('./broadcast/broadcast.controller');
-  BroadcastCtrl.startReminderTimer();
+  console.log('[Pool Cron] Waiting for external distribution trigger ownership');
+  console.log('[ReminderWorker] Waiting for external reminder trigger ownership');
 
   // Seed default admin user (skipped if one already exists)
   await ensureAdminSeed();
@@ -285,8 +312,8 @@ async function startServer() {
         const newVpt = parseFloat(((u.vpt || 0) + vpt).toFixed(4));
         const newCash = parseFloat(((u.cash || 0) + cash).toFixed(2));
         batch.update(userRef, { vpt: newVpt, cash: newCash });
-        // Also sync in-memory cache
-        const inMem = UserModel.findById(uid);
+        // Also sync the local cache if this user was already read during runtime.
+        const inMem = UserModel.findCachedById(uid);
         if (inMem) { inMem.vpt = newVpt; inMem.cash = newCash; }
         merged++;
         batchCount++;
@@ -323,15 +350,8 @@ async function startServer() {
   } catch (err) {
     console.log(`[Blockchain] Readiness check skipped: ${err.message}`);
   }
-
-  initializeSocketServer(server);
-
-  server.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
-  });
 }
 
 startServer().catch((error) => {
-  console.error('[Bootstrap] Failed to initialize persistence:', error.message);
-  process.exit(1);
+  console.error('[Bootstrap] Failed to initialize persistence (continuing to serve):', error.message);
 });

@@ -2,19 +2,17 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'videos';
-const videos = [];
-let initialized = false;
+const videosById = new Map();
+
+function syncVideo(video) {
+  if (video?.id) {
+    videosById.set(video.id, video);
+  }
+  return video;
+}
 
 async function init() {
-  if (initialized) return;
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    data.id = doc.id;
-    videos.push(data);
-  });
-  initialized = true;
+  return [];
 }
 
 async function create({ creatorUid, channelId, title, description, videoUrl, thumbnailUrl, duration }) {
@@ -32,28 +30,42 @@ async function create({ creatorUid, channelId, title, description, videoUrl, thu
     created_at: Date.now(),
   };
   await db.collection(COLLECTION).doc(id).set(video);
-  videos.push(video);
-  return video;
+  return syncVideo(video);
 }
 
-function findById(id) {
-  return videos.find((v) => v.id === id) || null;
+async function findById(id) {
+  if (videosById.has(id)) {
+    return videosById.get(id) || null;
+  }
+
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return syncVideo({ ...doc.data(), id: doc.id });
 }
 
-function getByChannel(channelId) {
-  return videos
-    .filter((v) => v.channel_id === channelId)
+async function getByChannel(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .get();
+  return snapshot.docs
+    .map((doc) => syncVideo({ ...doc.data(), id: doc.id }))
     .sort((a, b) => b.created_at - a.created_at);
 }
 
-function getByCreator(creatorUid) {
-  return videos
-    .filter((v) => v.creator_uid === creatorUid)
+async function getByCreator(creatorUid) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('creator_uid', '==', creatorUid)
+    .get();
+  return snapshot.docs
+    .map((doc) => syncVideo({ ...doc.data(), id: doc.id }))
     .sort((a, b) => b.created_at - a.created_at);
 }
 
 async function update(id, fields) {
-  const video = findById(id);
+  const video = await findById(id);
   if (!video) return null;
   const allowed = ['title', 'description', 'thumbnail_url', 'duration'];
   const updates = {};
@@ -67,13 +79,13 @@ async function update(id, fields) {
     const db = getFirestore();
     await db.collection(COLLECTION).doc(id).update(updates);
   }
-  return video;
+  return syncVideo(video);
 }
 
 async function remove(id) {
-  const idx = videos.findIndex((v) => v.id === id);
-  if (idx === -1) return false;
-  videos.splice(idx, 1);
+  const video = await findById(id);
+  if (!video) return false;
+  videosById.delete(id);
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).delete();
   return true;

@@ -28,13 +28,13 @@ function isInitialized() {
 }
 
 function findByUid(uid) {
-  const user = User.findById(uid);
+  const user = User.findCachedById(uid);
   if (!user) return undefined;
   return _toWalletShape(user);
 }
 
 async function ensureWallet(uid) {
-  let user = User.findById(uid);
+  let user = await User.findById(uid);
   if (!user) return { uid, vpt_units: 0, ngn_balance: 0, updated_at: Date.now() };
   return _toWalletShape(user);
 }
@@ -52,7 +52,7 @@ async function adjustNgnBalance(uid, delta) {
 }
 
 function getAll() {
-  return User.getAll().map(_toWalletShape);
+  return User.getCachedAll().map(_toWalletShape);
 }
 
 async function reloadFromFirestore(uid) {

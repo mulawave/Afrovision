@@ -1,6 +1,48 @@
-export const API_BASE =
+﻿const PRIMARY_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://afrovision-backend-134538542038.us-central1.run.app";
+
+const API_BASE_CANDIDATES = Array.from(
+  new Set(
+    [
+      process.env.NEXT_PUBLIC_API_URL,
+      process.env.NEXT_PUBLIC_API_BASE_URL,
+      "https://afrovision-backend-134538542038.us-central1.run.app",
+      "https://afrovision-backend-zoeqld5lsa-uc.a.run.app",
+    ].filter((value): value is string => Boolean(value && value.trim()))
+  )
+);
+
+export const API_BASE = PRIMARY_API_BASE;
+
+// In the browser, route through Next.js /api/proxy to avoid CORS restrictions.
+// Next.js rewrites /api/proxy/:path* to the backend, so requests are same-origin.
+const BROWSER_PROXY_BASE = "/api/proxy";
+
+async function fetchWithBackendFailover(
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
+  // Browser: always go through the Next.js proxy (no CORS preflight needed).
+  if (typeof window !== "undefined") {
+    return fetch(BROWSER_PROXY_BASE + path, init);
+  }
+
+  // Server-side (SSR/RSC): direct backend with failover.
+  const bases = [PRIMARY_API_BASE, ...API_BASE_CANDIDATES.filter((b) => b !== PRIMARY_API_BASE)];
+  let lastError: unknown = null;
+
+  for (const base of bases) {
+    try {
+      return await fetch(base + path, init);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("All backend endpoints failed");
+}
 
 interface ApiOptions {
   method?: string;
@@ -22,7 +64,7 @@ interface FormDataOptions {
 }
 
 /**
- * Core API client — attaches Bearer token to every authenticated request.
+ * Core API client - attaches Bearer token to every authenticated request.
  * Backend is the ONLY source of truth. Frontend never generates UIDs,
  * wallet data, or auth tokens.
  */
@@ -42,26 +84,34 @@ export async function api<T = unknown>(
   if (token) {
     requestHeaders["Authorization"] = `Bearer ${token}`;
   } else if (requireAuth) {
-    // No token — return 401 without redirecting. Callers handle this.
+    // No token - return 401 without redirecting. Callers handle this.
     return { ok: false, status: 401, data: { error: "Not authenticated" } as T };
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: requestHeaders,
-    body: body ? JSON.stringify(body) : undefined,
-    cache: "no-store",
-    next: { revalidate: 0 },
-  });
+  try {
+    const res = await fetchWithBackendFailover(path, {
+      method,
+      headers: requestHeaders,
+      body: body ? JSON.stringify(body) : undefined,
+      cache: "no-store",
+      next: { revalidate: 0 },
+    });
 
-  const data = await res.json().catch(() => ({}));
+    const data = await res.json().catch(() => ({}));
 
-  // Handle 401 — token expired or invalid. Clear local auth but do NOT redirect.
-  if (res.status === 401 && typeof window !== "undefined") {
-    clearAuth();
+    // Handle 401 — token expired or invalid. Clear local auth but do NOT redirect.
+    if (res.status === 401 && typeof window !== "undefined") {
+      clearAuth();
+    }
+
+    return { ok: res.ok, status: res.status, data: data as T };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      data: { error: "Network request failed" } as T,
+    };
   }
-
-  return { ok: res.ok, status: res.status, data: data as T };
 }
 
 export async function apiFormData<T = unknown>(
@@ -78,21 +128,29 @@ export async function apiFormData<T = unknown>(
     return { ok: false, status: 401, data: { error: "Not authenticated" } as T };
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: requestHeaders,
-    body,
-    cache: "no-store",
-    next: { revalidate: 0 },
-  });
+  try {
+    const res = await fetchWithBackendFailover(path, {
+      method,
+      headers: requestHeaders,
+      body,
+      cache: "no-store",
+      next: { revalidate: 0 },
+    });
 
-  const data = await res.json().catch(() => ({}));
+    const data = await res.json().catch(() => ({}));
 
-  if (res.status === 401 && typeof window !== "undefined") {
-    clearAuth();
+    if (res.status === 401 && typeof window !== "undefined") {
+      clearAuth();
+    }
+
+    return { ok: res.ok, status: res.status, data: data as T };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      data: { error: "Network request failed" } as T,
+    };
   }
-
-  return { ok: res.ok, status: res.status, data: data as T };
 }
 
 // ── Token storage ──────────────────────────────────────────────
@@ -276,6 +334,11 @@ export interface Plan {
   is_active: boolean;
 }
 
+const GIFTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const GIFTS_CACHE_KEY = "afrovision:gifts-cache";
+let cachedGifts: GiftItem[] | null = null;
+let cachedGiftsAt = 0;
+
 export async function getPlansApi() {
   return api<{ plans: Plan[] }>("/subscriptions/plans");
 }
@@ -316,9 +379,46 @@ export async function verifyCheckoutApi(paymentId: string) {
 }
 
 export async function getGiftsApi() {
-  return api<{ gifts: GiftItem[] }>("/interactions/gifts", {
+  const now = Date.now();
+  if (typeof window !== "undefined") {
+    if (cachedGifts && now - cachedGiftsAt < GIFTS_CACHE_TTL_MS) {
+      return { ok: true, status: 200, data: { gifts: cachedGifts } };
+    }
+    try {
+      const raw = window.sessionStorage.getItem(GIFTS_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { at: number; gifts: GiftItem[] };
+        if (Array.isArray(parsed.gifts) && now - parsed.at < GIFTS_CACHE_TTL_MS) {
+          cachedGifts = parsed.gifts;
+          cachedGiftsAt = parsed.at;
+          return { ok: true, status: 200, data: { gifts: parsed.gifts } };
+        }
+      }
+    } catch {
+      // ignore cache read errors
+    }
+  }
+
+  const res = await api<{ gifts: GiftItem[] }>("/interactions/gifts", {
     requireAuth: true,
   });
+
+  if (res.ok && "gifts" in res.data) {
+    cachedGifts = res.data.gifts;
+    cachedGiftsAt = now;
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem(
+          GIFTS_CACHE_KEY,
+          JSON.stringify({ at: cachedGiftsAt, gifts: cachedGifts }),
+        );
+      } catch {
+        // ignore cache write errors
+      }
+    }
+  }
+
+  return res;
 }
 
 export async function getGiftWalletApi() {
@@ -455,7 +555,7 @@ export interface Channel {
   name: string;
   description: string;
   category: string;
-  type: "public" | "private";
+  type: "public" | "private" | "exclusive";
   channel_number: number;
   logo_url: string | null;
   banner_url: string | null;
@@ -463,6 +563,10 @@ export interface Channel {
   created_at: string;
   owner_id: string;
   owner_name: string;
+  owner_display_mode?: "show_owner" | "hide_owner" | "brand_only";
+  owner_brand_name?: string | null;
+  owner_details_visible?: boolean;
+  public_owner_name?: string;
   followers_count?: number;
   requires_payment?: boolean;
   entry_fee_type?: "vpt" | "ngn" | null;
@@ -471,6 +575,24 @@ export interface Channel {
   access_duration_minutes?: number;
   is_live?: boolean;
   viewer_count?: number;
+  is_premium_channel?: boolean;
+  subscription_price_ngn?: number;
+  subscription_interval_count?: number;
+  subscription_interval_unit?: string;
+  premium_elevation_status?: string;
+  exclusive_monthly_fee_ngn?: number;
+  exclusive_fee_currency?: string;
+  exclusive_fee_last_updated_at?: string | null;
+  exclusive_fee_last_updated_by?: string | null;
+  // External stream source fields (AV-STR-002)
+  stream_source_mode?: "native" | "external_url" | "external_youtube" | "external_hls" | "external_dash";
+  external_provider?: string | null;
+  external_url?: string | null;
+  resolved_playback_url?: string | null;
+  // stream_status: unknown | valid | live | scheduled | offline | invalid | access_denied
+  stream_status?: string;
+  last_checked_at?: string | null;
+  provider_metadata?: Record<string, unknown> | null;
 }
 
 export interface Category {
@@ -480,20 +602,130 @@ export interface Category {
   is_active?: boolean;
 }
 
+const CHANNELS_CACHE_TTL_MS = 60 * 1000;
+const CHANNELS_CACHE_KEY = "afrovision:channels-cache";
+let cachedChannels: Channel[] | null = null;
+let cachedChannelsAt = 0;
+
+function clearChannelsCache() {
+  cachedChannels = null;
+  cachedChannelsAt = 0;
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.removeItem(CHANNELS_CACHE_KEY);
+    } catch {
+      // ignore cache clear errors
+    }
+  }
+}
+
 export async function getChannelApi(id: string) {
-  return api<{ channel: Channel } | ErrorResponse>(`/channels/${id}`, {
-    requireAuth: true,
-  });
+  const direct = await api<{ channel: Channel } | ErrorResponse>(`/channels/${id}`);
+  if (direct.ok) {
+    return direct;
+  }
+
+  // Backward-compat fallback for deployments where /channels/:id is still auth-protected.
+  if (direct.status === 401 || direct.status === 403) {
+    const listRes = await getChannelsApi();
+    if (listRes.ok && "channels" in listRes.data) {
+      const matched = listRes.data.channels.find((channel) => channel.id === id);
+      if (matched) {
+        return { ok: true, status: 200, data: { channel: matched } };
+      }
+      return { ok: false, status: 404, data: { error: "Channel not found" } };
+    }
+  }
+
+  return direct;
 }
 
 export async function getChannelsApi() {
-  return api<{ channels: Channel[] }>("/channels/");
+  const now = Date.now();
+  if (typeof window !== "undefined") {
+    if (cachedChannels && now - cachedChannelsAt < CHANNELS_CACHE_TTL_MS) {
+      return { ok: true, status: 200, data: { channels: cachedChannels } };
+    }
+    try {
+      const raw = window.sessionStorage.getItem(CHANNELS_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { at: number; channels: Channel[] };
+        if (Array.isArray(parsed.channels) && now - parsed.at < CHANNELS_CACHE_TTL_MS) {
+          cachedChannels = parsed.channels;
+          cachedChannelsAt = parsed.at;
+          return { ok: true, status: 200, data: { channels: parsed.channels } };
+        }
+      }
+    } catch {
+      // ignore cache read errors
+    }
+  }
+
+  const res = await api<{ channels: Channel[] }>("/channels/");
+  if (res.ok && "channels" in res.data) {
+    cachedChannels = res.data.channels;
+    cachedChannelsAt = now;
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem(
+          CHANNELS_CACHE_KEY,
+          JSON.stringify({ at: cachedChannelsAt, channels: cachedChannels }),
+        );
+      } catch {
+        // ignore cache write errors
+      }
+    }
+  }
+
+  return res;
 }
 
 export async function getMyChannelsApi() {
   return api<{ channels: Channel[] } | ErrorResponse>("/channels/me", {
     requireAuth: true,
   });
+}
+
+export async function updateChannelApi(
+  channelId: string,
+  input: { name?: string; description?: string; category?: string },
+) {
+  const res = await api<{ channel: Channel } | ErrorResponse>(`/channels/${channelId}`, {
+    method: "PATCH",
+    body: input,
+    requireAuth: true,
+  });
+  if (res.ok) clearChannelsCache();
+  return res;
+}
+
+export async function uploadChannelMediaApi(
+  channelId: string,
+  mediaType: "logo" | "banner",
+  file: File,
+) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await apiFormData<{ channel: Channel } | ErrorResponse>(
+    `/channels/${channelId}/upload/${mediaType}`,
+    {
+      method: "POST",
+      body: formData,
+      requireAuth: true,
+    },
+  );
+  if (res.ok) clearChannelsCache();
+  return res;
+}
+
+export async function deleteChannelApi(channelId: string) {
+  const res = await api<{ message: string } | ErrorResponse>(`/channels/${channelId}`, {
+    method: "DELETE",
+    requireAuth: true,
+  });
+  if (res.ok) clearChannelsCache();
+  return res;
 }
 
 export async function getChannelByNumberApi(channelNumber: string) {
@@ -558,6 +790,26 @@ export async function unfollowCreatorApi(creatorUid: string) {
   });
 }
 
+export async function getChannelFollowStatusApi(channelId: string) {
+  return api<FollowStatus | ErrorResponse>(`/users/channel-follows/${channelId}`, {
+    requireAuth: true,
+  });
+}
+
+export async function followChannelApi(channelId: string) {
+  return api<FollowStatus | ErrorResponse>(`/users/channel-follows/${channelId}`, {
+    method: "POST",
+    requireAuth: true,
+  });
+}
+
+export async function unfollowChannelApi(channelId: string) {
+  return api<FollowStatus | ErrorResponse>(`/users/channel-follows/${channelId}`, {
+    method: "DELETE",
+    requireAuth: true,
+  });
+}
+
 export async function getCategoriesApi() {
   return api<{ categories: Category[] }>("/categories/");
 }
@@ -566,7 +818,7 @@ export async function createChannelWithMediaApi(input: {
   name: string;
   description: string;
   category: string;
-  type: "public" | "private";
+  type: "public" | "private" | "exclusive";
   logo?: File | null;
   banner?: File | null;
 }) {
@@ -578,13 +830,67 @@ export async function createChannelWithMediaApi(input: {
   if (input.logo) formData.append("logo", input.logo);
   if (input.banner) formData.append("banner", input.banner);
 
-  return apiFormData<{ channel: Channel } | ErrorResponse>(
+  const res = await apiFormData<{ channel: Channel } | ErrorResponse>(
     "/channels/create-with-media",
     {
       method: "POST",
       body: formData,
       requireAuth: true,
     }
+  );
+  if (res.ok) clearChannelsCache();
+  return res;
+}
+
+export async function updateExclusiveSettingsApi(
+  channelId: string,
+  input: { monthly_fee_ngn: number },
+) {
+  return api<{ channel: Channel } | ErrorResponse>(
+    `/channels/${channelId}/exclusive-settings`,
+    {
+      method: "PATCH",
+      body: input,
+      requireAuth: true,
+    },
+  );
+}
+
+// ── External stream source API (AV-STR-002 / AV-STR-004) ──────────────────
+
+/** Validates a URL against the resolver without persisting anything. */
+export async function resolveSourceApi(url: string) {
+  return api<{
+    stream_source_mode: string;
+    external_provider: string;
+    external_url: string;
+    resolved_playback_url: string;
+    stream_status: string;
+    provider_metadata?: Record<string, unknown>;
+  } | ErrorResponse>("/channels/resolve-source", {
+    method: "POST",
+    body: { url },
+    requireAuth: true,
+  });
+}
+
+/** Updates the external stream source for a channel. The backend classifies
+ *  and probes the URL, returning the enriched channel record. */
+export async function updateExternalSourceApi(
+  channelId: string,
+  input: { stream_source_mode: string; external_url?: string; external_provider?: string },
+) {
+  return api<{ channel: Channel } | ErrorResponse>(
+    `/channels/${channelId}/external-source`,
+    { method: "PATCH", body: input, requireAuth: true },
+  );
+}
+
+/** Re-probes the currently configured source URL and refreshes stream_status. */
+export async function recheckStreamHealthApi(channelId: string) {
+  return api<{ channel: Channel } | ErrorResponse>(
+    `/channels/${channelId}/recheck-source`,
+    { method: "POST", requireAuth: true },
   );
 }
 
@@ -722,7 +1028,7 @@ export async function disconnectExternalWalletApi() {
 }
 
 export async function getConnectedWalletApi() {
-  return api<{ connected: ConnectedWallet | null } | ErrorResponse>("/wallet/connected", {
+  return api<{ connected: ConnectedWallet | null } | ErrorResponse>("/wallet/connected?scan=true", {
     requireAuth: true,
   });
 }
@@ -781,7 +1087,7 @@ export async function getNowPlayingApi(channelId: string) {
     now_playing: NowPlaying | null;
     next_program: NextProgram | null;
     server_time: number;
-  }>(`/broadcast/now-playing/${channelId}`, { requireAuth: true });
+  }>(`/broadcast/now-playing/${channelId}`);
 }
 
 export interface ScheduleProgram {
@@ -1039,6 +1345,10 @@ export interface CreatorSubscription {
   currency: string;
   amount: number;
   status: string;
+  subscribed_at: number;
+  next_billing: number | null;
+  creator_name?: string | null;
+  creator_avatar_url?: string | null;
 }
 
 export async function subscribeToCreatorApi(
@@ -1069,9 +1379,77 @@ export async function cancelCreatorSubApi(subscriptionId: string) {
   );
 }
 
+export async function getMyCreatorSubsApi() {
+  return api<{ subscriptions: CreatorSubscription[] }>(
+    "/subscriptions/creator/mine",
+    { requireAuth: true }
+  );
+}
+
+// ── Channel Subscription API methods ───────────────────────
+
+export interface ChannelSubscription {
+  id: string;
+  subscriber_uid: string;
+  channel_id: string;
+  channel_name: string;
+  channel_logo_url?: string | null;
+  channel_banner_url?: string | null;
+  channel_category?: string | null;
+  channel_description?: string | null;
+  currency: string | null;
+  amount: number;
+  vpt_equivalent: number;
+  status: string;
+  is_premium: boolean;
+  interval_count: number;
+  interval_unit: string;
+  next_billing: number | null;
+  subscribed_at: number;
+}
+
+export async function subscribeToChannelApi(channelId: string) {
+  return api<{ subscription: ChannelSubscription } | ErrorResponse>(
+    "/subscriptions/channel/subscribe",
+    {
+      method: "POST",
+      body: { channelId },
+      requireAuth: true,
+    }
+  );
+}
+
+export async function checkChannelSubApi(channelId: string) {
+  return api<{
+    subscribed: boolean;
+    subscription: ChannelSubscription | null;
+  }>(`/subscriptions/channel/check/${channelId}`, { requireAuth: true });
+}
+
+export async function cancelChannelSubApi(subscriptionId: string) {
+  return api<{ subscription: ChannelSubscription } | ErrorResponse>(
+    `/subscriptions/channel/${subscriptionId}/cancel`,
+    { method: "DELETE", requireAuth: true }
+  );
+}
+
+export async function getMyChannelSubsApi() {
+  return api<{ subscriptions: ChannelSubscription[] }>(
+    "/subscriptions/channel/mine",
+    { requireAuth: true }
+  );
+}
+
+export async function requestPremiumElevationApi(channelId: string) {
+  return api<{ message: string; channel: Channel } | ErrorResponse>(
+    `/channels/${channelId}/request-premium`,
+    { method: "POST", requireAuth: true }
+  );
+}
+
 // ── Home API methods ───────────────────────────────────────
 
-export async function getHomeStatsApi() {
+export async function getHomeCommunityPoolApi() {
   return api<{
     community_pool: {
       total_vpt: number;
@@ -1082,10 +1460,7 @@ export async function getHomeStatsApi() {
       total_distributed_ngn: number;
       total_beneficiaries: number;
     };
-    recent_channels: Channel[];
-    promoted_channels: Channel[];
-    stats: { total_channels: number; total_members: number };
-  }>("/home/stats");
+  }>("/home/community-pool");
 }
 
 // ── Notification API methods ───────────────────────────────
@@ -1304,6 +1679,14 @@ export async function enableAdminChannelApi(channelId: string) {
   return api<{ channel: Channel } | ErrorResponse>(`/admin/channels/${channelId}/enable`, {
     method: "POST",
     body: {},
+    requireAuth: true,
+  });
+}
+
+export async function updateAdminChannelNumberApi(channelId: string, channelNumber: number | string) {
+  return api<{ channel: Channel } | ErrorResponse>(`/admin/channels/${channelId}/number`, {
+    method: "PATCH",
+    body: { channel_number: channelNumber },
     requireAuth: true,
   });
 }
@@ -1625,6 +2008,45 @@ export async function cancelAccountDeletionApi() {
     { method: "DELETE", requireAuth: true }
   );
 }
+
+// ── Subtitle API ──────────────────────────────────────────
+
+export interface SubtitleFile {
+  file_id: number;
+  file_name: string;
+}
+
+export interface SubtitleResult {
+  id: string;
+  title: string;
+  year: number | null;
+  language: string;
+  subtitle_id: string;
+  files: SubtitleFile[];
+  download_count: number;
+  fps: number | null;
+}
+
+export async function searchSubtitlesApi(query: string, language = "en", year?: number) {
+  const params = new URLSearchParams({ query, language });
+  if (year) params.set("year", String(year));
+  return api<{ subtitles: SubtitleResult[] } | ErrorResponse>(`/subtitles/search?${params.toString()}`);
+}
+
+export async function downloadSubtitleApi(fileId: number) {
+  return api<{ link: string; file_name: string; requests: number; remaining: number } | ErrorResponse>(
+    "/subtitles/download",
+    { method: "POST", body: { file_id: fileId } },
+  );
+}
+
+export function getSubtitleProxyUrl(rawUrl: string): string {
+  // In the browser use the same-origin proxy to avoid CORS issues
+  const base = typeof window !== "undefined" ? "/api/proxy" : (process.env.NEXT_PUBLIC_API_URL ?? "");
+  return `${base}/subtitles/proxy?url=${encodeURIComponent(rawUrl)}`;
+}
+
+// ── (remaining exports) ────────────────────────────────────
 
 export async function confirmImmediateDeletionApi(password: string) {
   return api<{ message: string } | ErrorResponse>(

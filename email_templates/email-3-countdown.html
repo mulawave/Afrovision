@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Auditions Open Tomorrow — The Amazons</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d0d0d; font-family: 'Helvetica Neue', Arial, sans-serif; }
+  .wrapper { max-width: 600px; margin: 0 auto; background: #050a30; }
+  .top-bar { height: 4px; background: linear-gradient(90deg, #f39517 0%, #233dff 100%); }
+  .header { padding: 28px 40px 20px; border-bottom: 1px solid rgba(243,149,23,0.2); display: flex; align-items: center; justify-content: space-between; }
+  .header-brand { font-size: 11px; font-weight: 800; color: #f39517; letter-spacing: 3px; text-transform: uppercase; }
+  .header-label { font-size: 9px; font-weight: 700; color: #233dff; letter-spacing: 2px; text-transform: uppercase; background: rgba(35,61,255,0.12); border: 1px solid rgba(35,61,255,0.3); padding: 4px 10px; border-radius: 2px; }
+
+  /* HERO — COUNTDOWN STYLE */
+  .hero { background: linear-gradient(145deg, #0d1a5a 0%, #050a30 100%); padding: 44px 40px 36px; border-bottom: 2px solid #f39517; text-align: center; }
+  .hero-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: #528ff1; margin-bottom: 16px; }
+  .countdown-block { display: inline-block; margin-bottom: 20px; }
+  .countdown-num { font-size: 96px; font-weight: 900; color: #f39517; line-height: 1; letter-spacing: -4px; }
+  .countdown-label { font-size: 11px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: rgba(255,255,255,0.5); margin-top: -4px; }
+  .hero h1 { font-size: 22px; font-weight: 900; color: #ffffff; text-transform: uppercase; letter-spacing: 1px; line-height: 1.2; }
+  .hero h1 span { color: #f39517; }
+  .hero-date { margin-top: 12px; font-size: 13px; color: rgba(255,255,255,0.6); letter-spacing: 2px; text-transform: uppercase; }
+
+  .body-section { padding: 32px 40px; }
+  .body-section p { font-size: 15px; color: rgba(255,255,255,0.82); line-height: 1.75; margin-bottom: 16px; }
+  .body-section p strong { color: #ffffff; }
+  .body-section p .gold { color: #f39517; font-weight: 700; }
+
+  /* CHECKLIST */
+  .checklist { margin: 24px 0; }
+  .check-item { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .check-item:last-child { border-bottom: none; }
+  .check-icon { width: 28px; height: 28px; background: rgba(243,149,23,0.15); border: 1px solid rgba(243,149,23,0.35); border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+  .check-icon svg { width: 12px; height: 12px; }
+  .check-text .check-title { font-size: 13px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .check-text .check-desc { font-size: 12px; color: rgba(255,255,255,0.55); line-height: 1.5; }
+
+  /* URGENCY BLOCK */
+  .urgency { background: rgba(243,149,23,0.07); border: 1px solid rgba(243,149,23,0.25); border-radius: 4px; padding: 20px 24px; margin: 20px 0; text-align: center; }
+  .urgency p { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.8); line-height: 1.6; margin: 0; }
+  .urgency p .gold { color: #f39517; font-weight: 800; }
+
+  .cta-block { margin: 28px 0; text-align: center; }
+  .cta-btn { display: inline-block; background: #f39517; color: #050a30; font-size: 14px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; padding: 18px 40px; text-decoration: none; border-radius: 2px; }
+  .cta-sub { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 10px; letter-spacing: 1px; }
+
+  .share-block { background: rgba(35,61,255,0.06); border: 1px solid rgba(35,61,255,0.15); border-radius: 4px; padding: 16px 20px; margin-top: 20px; }
+  .share-block p { font-size: 12px; color: rgba(255,255,255,0.6); line-height: 1.6; margin: 0; }
+  .share-block a { color: #528ff1; text-decoration: none; font-weight: 600; }
+
+  .footer { padding: 24px 40px; border-top: 1px solid rgba(83,143,241,0.15); }
+  .footer p { font-size: 11px; color: rgba(255,255,255,0.35); line-height: 1.7; }
+  .footer a { color: #528ff1; text-decoration: none; }
+  .footer .brand-footer { font-size: 12px; font-weight: 700; color: #f39517; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+  .bottom-bar { height: 3px; background: linear-gradient(90deg, #233dff 0%, #f39517 100%); }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="top-bar"></div>
+
+  <div class="header">
+    <div class="header-brand">AfroVision</div>
+    <div class="header-label">🔴 Live Tomorrow</div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-eyebrow">Auditions Open In</div>
+    <div class="countdown-block">
+      <div class="countdown-num">1</div>
+      <div class="countdown-label">Day</div>
+    </div>
+    <h1>The Amazons<br/><span>Begins Tomorrow.</span></h1>
+    <div class="hero-date">October 22nd · afrovision.online/challenge</div>
+  </div>
+
+  <div class="body-section">
+    <p>This is your final reminder. <strong>Auditions for AfroVision Challenge: The Amazons open tomorrow, October 22nd.</strong> If you've been waiting, your wait is almost over.</p>
+
+    <p>Before you go to sleep tonight, make sure you've done these three things:</p>
+
+    <div class="checklist">
+      <div class="check-item">
+        <div class="check-icon">
+          <svg viewBox="0 0 12 12" fill="none"><polyline points="1,6 4,9 11,2" stroke="#f39517" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="check-text">
+          <div class="check-title">Your AfroVision account is ready</div>
+          <div class="check-desc">Log in to <a href="https://afrovision.online" style="color:#528ff1;">afrovision.online</a> and confirm your account is active and verified.</div>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="check-icon">
+          <svg viewBox="0 0 12 12" fill="none"><polyline points="1,6 4,9 11,2" stroke="#f39517" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="check-text">
+          <div class="check-title">Read the challenge rules</div>
+          <div class="check-desc">Visit the Challenge tab and review the eligibility criteria, rules, and what the audition process involves.</div>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="check-icon">
+          <svg viewBox="0 0 12 12" fill="none"><polyline points="1,6 4,9 11,2" stroke="#f39517" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="check-text">
+          <div class="check-title">Be on the Challenge page at open</div>
+          <div class="check-desc">October 22nd, go directly to the Challenge page and submit your audition. No delays — the best contestants don't wait.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="urgency">
+      <p>Only <span class="gold">women aged 18–30 in Nigeria</span> are eligible.<br/>No experience required. Just capacity, drive, and the willingness to be tested.</p>
+    </div>
+
+    <div class="cta-block">
+      <a href="https://afrovision.online/challenge" class="cta-btn">Go to Challenge Page →</a>
+      <div class="cta-sub">Auditions open October 22nd · afrovision.online/challenge</div>
+    </div>
+
+    <div class="share-block">
+      <p>Know a woman who belongs on this stage? <a href="https://afrovision.online/challenge">Share this link with her</a> tonight. She'll thank you later — especially after she becomes a co-founder.</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="brand-footer">AfroVision Media</div>
+    <p>You're receiving this as a registered member of <a href="https://afrovision.online">afrovision.online</a>.<br/>
+    <a href="mailto:contact@afrovision.online">contact@afrovision.online</a> · <a href="#">Unsubscribe</a></p>
+  </div>
+  <div class="bottom-bar"></div>
+</div>
+</body>
+</html>

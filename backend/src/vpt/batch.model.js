@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'vpt_batches';
-let batches = [];
-let initialized = false;
 
 /**
  * vPT Batches — groups queue items into a single swap operation.
@@ -25,15 +23,11 @@ async function persist(batch) {
 }
 
 async function init() {
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  batches = snapshot.docs.map((doc) => doc.data());
-  initialized = true;
-  return batches;
+  return [];
 }
 
 function isInitialized() {
-  return initialized;
+  return true;
 }
 
 async function create({ totalNGN, itemIds }) {
@@ -52,17 +46,19 @@ async function create({ totalNGN, itemIds }) {
     swapped_at: null,
     distributed_at: null,
   };
-  batches.push(batch);
   await persist(batch);
   return batch;
 }
 
-function findById(id) {
-  return batches.find((b) => b.id === id);
+async function findById(id) {
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return { ...doc.data(), id: doc.id };
 }
 
 async function setSwapped(id, { totalBNB, totalVPT, totalVPTWei, txHash }) {
-  const batch = findById(id);
+  const batch = await findById(id);
   if (!batch) return null;
   batch.status = 'swapped';
   batch.total_bnb = totalBNB;
@@ -75,7 +71,7 @@ async function setSwapped(id, { totalBNB, totalVPT, totalVPTWei, txHash }) {
 }
 
 async function setDistributed(id) {
-  const batch = findById(id);
+  const batch = await findById(id);
   if (!batch) return null;
   batch.status = 'distributed';
   batch.distributed_at = Date.now();
@@ -84,7 +80,7 @@ async function setDistributed(id) {
 }
 
 async function setFailed(id) {
-  const batch = findById(id);
+  const batch = await findById(id);
   if (!batch) return null;
   batch.status = 'failed';
   batch.retry_count += 1;
@@ -92,13 +88,13 @@ async function setFailed(id) {
   return batch;
 }
 
-function canRetry(id) {
-  const batch = findById(id);
+async function canRetry(id) {
+  const batch = await findById(id);
   return batch && batch.status === 'failed' && batch.retry_count < MAX_RETRIES;
 }
 
 async function resetForRetry(id) {
-  const batch = findById(id);
+  const batch = await findById(id);
   if (!batch || batch.retry_count >= MAX_RETRIES) return null;
   batch.status = 'pending';
   batch.tx_hash = null;
@@ -111,29 +107,44 @@ async function resetForRetry(id) {
   return batch;
 }
 
-function getActive() {
+async function getActive() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  const batches = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
   return batches.find((b) => b.status === 'pending' || b.status === 'swapped');
 }
 
-function getPending() {
-  return batches.filter((b) => b.status === 'pending');
+async function getPending() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('status', '==', 'pending')
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function getFailed() {
-  return batches.filter((b) => b.status === 'failed');
+async function getFailed() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('status', '==', 'failed')
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function getAll() {
-  return batches.sort((a, b) => b.created_at - a.created_at);
+async function getAll() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
+    .sort((a, b) => b.created_at - a.created_at);
 }
 
-function getRecent(limit = 20) {
-  return batches
-    .sort((a, b) => b.created_at - a.created_at)
-    .slice(0, limit);
+async function getRecent(limit = 20) {
+  const all = await getAll();
+  return all.slice(0, limit);
 }
 
-function getStats() {
+async function getStats() {
+  const batches = await getAll();
   return {
     total: batches.length,
     pending: batches.filter((b) => b.status === 'pending').length,

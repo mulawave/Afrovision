@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'ledger';
-let entries = [];
-let initialized = false;
 
 async function persist(entry) {
   const db = getFirestore();
@@ -11,15 +9,11 @@ async function persist(entry) {
 }
 
 async function init() {
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION).get();
-  entries = snapshot.docs.map((doc) => doc.data());
-  initialized = true;
-  return entries;
+  return [];
 }
 
 function isInitialized() {
-  return initialized;
+  return false;
 }
 
 /**
@@ -60,7 +54,6 @@ async function create({ uid, type, amount_ngn, amount_vpt, amount_vpt_wei, tx_ha
     description: description || null,
     created_at: Date.now(),
   };
-  entries.push(entry);
   await persist(entry);
   return entry;
 }
@@ -70,21 +63,28 @@ async function create({ uid, type, amount_ngn, amount_vpt, amount_vpt_wei, tx_ha
  * to keep transactional writes visible without re-loading from Firestore).
  */
 function _pushEntry(entry) {
-  entries.push(entry);
+  return entry;
 }
 
-function getByChannel(channelId) {
-  return entries
-    .filter((e) => e.channel_id === channelId)
+async function getByChannel(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .get();
+  return snapshot.docs
+    .map((doc) => doc.data())
     .sort((a, b) => b.created_at - a.created_at);
 }
 
-function findById(id) {
-  return entries.find((e) => e.id === id);
+async function findById(id) {
+  if (!id) return null;
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  return doc.exists ? doc.data() : null;
 }
 
 async function updateStatus(id, status, updates = {}) {
-  const entry = findById(id);
+  const entry = await findById(id);
   if (!entry) return null;
   entry.status = status;
   Object.assign(entry, updates);
@@ -92,49 +92,116 @@ async function updateStatus(id, status, updates = {}) {
   return entry;
 }
 
-function getByUser(uid) {
-  return entries
-    .filter((e) => e.uid === uid)
+async function getByUser(uid) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('uid', '==', uid)
+    .get();
+  return snapshot.docs
+    .map((doc) => doc.data())
     .sort((a, b) => b.created_at - a.created_at);
 }
 
-function getByType(type) {
-  return entries
-    .filter((e) => e.type === type)
+async function getByType(type) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('type', '==', type)
+    .get();
+  return snapshot.docs
+    .map((doc) => doc.data())
     .sort((a, b) => b.created_at - a.created_at);
 }
 
-function getByMeta(key, value) {
-  return entries.filter((e) => e.meta && e.meta[key] === value);
+async function getByMeta(key, value) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where(`meta.${key}`, '==', value)
+    .get();
+  return snapshot.docs.map((doc) => doc.data());
 }
 
-function getAll() {
-  return entries.sort((a, b) => b.created_at - a.created_at);
+async function getAll() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  return snapshot.docs
+    .map((doc) => doc.data())
+    .sort((a, b) => b.created_at - a.created_at);
 }
 
-function getRecent(limit = 50) {
-  return entries
-    .sort((a, b) => b.created_at - a.created_at)
-    .slice(0, limit);
+async function getRecent(limit = 50) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .orderBy('created_at', 'desc')
+    .limit(limit)
+    .get();
+  return snapshot.docs.map((doc) => doc.data());
 }
 
-function getStats() {
+async function getStats() {
+  const db = getFirestore();
+  const [
+    totalEntriesSnap,
+    planPaymentsSnap,
+    vptDistributionsSnap,
+    totalSwapsSnap,
+    totalFailuresSnap,
+  ] = await Promise.all([
+    db.collection(COLLECTION).count().get(),
+    db.collection(COLLECTION)
+      .where('type', '==', 'PLAN_PAYMENT')
+      .where('status', '==', 'success')
+      .get(),
+    db.collection(COLLECTION)
+      .where('type', '==', 'VPT_DISTRIBUTION')
+      .where('status', '==', 'success')
+      .get(),
+    db.collection(COLLECTION)
+      .where('type', '==', 'VPT_SWAP')
+      .where('status', '==', 'success')
+      .count()
+      .get(),
+    db.collection(COLLECTION)
+      .where('status', '==', 'failed')
+      .count()
+      .get(),
+  ]);
+
+  const totalNgnIn = planPaymentsSnap.docs.reduce((sum, doc) => {
+    const entry = doc.data();
+    return sum + Number(entry.amount_ngn || 0);
+  }, 0);
+
+  const totalVptDistributed = vptDistributionsSnap.docs.reduce((sum, doc) => {
+    const entry = doc.data();
+    return sum + Number(entry.amount_vpt || 0);
+  }, 0);
+
   return {
-    total_entries: entries.length,
-    total_ngn_in: entries
-      .filter((e) => e.type === 'PLAN_PAYMENT' && e.status === 'success')
-      .reduce((sum, e) => sum + e.amount_ngn, 0),
-    total_vpt_distributed: entries
-      .filter((e) => e.type === 'VPT_DISTRIBUTION' && e.status === 'success')
-      .reduce((sum, e) => sum + e.amount_vpt, 0),
-    total_swaps: entries.filter((e) => e.type === 'VPT_SWAP' && e.status === 'success').length,
-    total_failures: entries.filter((e) => e.status === 'failed').length,
+    total_entries: totalEntriesSnap.data().count || 0,
+    total_ngn_in: totalNgnIn,
+    total_vpt_distributed: totalVptDistributed,
+    total_swaps: totalSwapsSnap.data().count || 0,
+    total_failures: totalFailuresSnap.data().count || 0,
   };
 }
 
+async function getSuccessfulDebitsInRange({ currency = 'ngn', startMs = 0, endMs = Date.now() } = {}) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('status', '==', 'success')
+    .where('direction', '==', 'debit')
+    .where('currency', '==', currency)
+    .where('created_at', '>=', startMs)
+    .where('created_at', '<=', endMs)
+    .get();
+
+  return snapshot.docs
+    .map((doc) => doc.data())
+    .sort((a, b) => b.created_at - a.created_at);
+}
+
 function removeFromCache(id) {
-  const idx = entries.findIndex((e) => e.id === id);
-  if (idx !== -1) entries.splice(idx, 1);
+  return id;
 }
 
 module.exports = {
@@ -151,5 +218,6 @@ module.exports = {
   getAll,
   getRecent,
   getStats,
+  getSuccessfulDebitsInRange,
   removeFromCache,
 };

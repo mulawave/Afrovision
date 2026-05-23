@@ -13,14 +13,14 @@ const StreamStats = require('../analytics/stream_stats.model');
  */
 async function checkAccess(req, res) {
   try {
-    const channel = Channel.findById(req.params.id);
+    const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
     if (!channel.requires_payment) {
       return res.json({ has_access: true, reason: 'free' });
     }
 
-    const access = ChannelAccess.findActiveAccess(req.userId, channel.id);
+    const access = await ChannelAccess.findActiveAccess(req.userId, channel.id);
     if (access) {
       return res.json({ has_access: true, expires_at: access.expires_at, access_id: access.id });
     }
@@ -44,7 +44,7 @@ async function checkAccess(req, res) {
  */
 async function payForAccess(req, res) {
   try {
-    const channel = Channel.findById(req.params.id);
+    const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
     if (!channel.requires_payment) {
@@ -52,7 +52,7 @@ async function payForAccess(req, res) {
     }
 
     // Idempotency: already has valid access?
-    const existing = ChannelAccess.findActiveAccess(req.userId, channel.id);
+    const existing = await ChannelAccess.findActiveAccess(req.userId, channel.id);
     if (existing) {
       return res.json({ has_access: true, expires_at: existing.expires_at, access_id: existing.id });
     }
@@ -116,7 +116,7 @@ async function _payWithVPT(req, res, channel) {
       ngn: 0,
       vpt: creatorShare,
     });
-    const activeStream = StreamStats.getActiveByChannel(channel.id);
+    const activeStream = await StreamStats.getActiveByChannel(channel.id);
     if (activeStream) {
       await StreamStats.incrementViewer(activeStream.id);
     }
@@ -178,7 +178,7 @@ async function _payWithNGN(req, res, channel) {
       ngn: creatorShare,
       vpt: 0,
     });
-    const activeStream = StreamStats.getActiveByChannel(channel.id);
+    const activeStream = await StreamStats.getActiveByChannel(channel.id);
     if (activeStream) {
       await StreamStats.incrementViewer(activeStream.id);
     }
@@ -199,7 +199,7 @@ async function _payWithNGN(req, res, channel) {
  */
 async function getMyAccesses(req, res) {
   try {
-    const accesses = ChannelAccess.getByUser(req.userId);
+    const accesses = await ChannelAccess.getByUser(req.userId);
     res.json({ accesses });
   } catch (err) {
     console.error('[PremiumStream] getMyAccesses:', err.message);
@@ -218,7 +218,7 @@ async function adminSetPremium(req, res) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const channel = Channel.findById(req.params.id);
+    const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
     const {
@@ -227,6 +227,11 @@ async function adminSetPremium(req, res) {
       entry_fee_vpt_units,
       entry_fee_ngn,
       access_duration_minutes,
+      subscription_price_ngn,
+      subscription_interval_count,
+      subscription_interval_unit,
+      is_premium_channel,
+      premium_elevation_status,
     } = req.body;
 
     await Channel.updatePremium(req.params.id, {
@@ -235,6 +240,11 @@ async function adminSetPremium(req, res) {
       entry_fee_vpt_units,
       entry_fee_ngn,
       access_duration_minutes,
+      subscription_price_ngn,
+      subscription_interval_count,
+      subscription_interval_unit,
+      is_premium_channel,
+      premium_elevation_status,
     });
 
     await AuditService.logAction(caller.id, 'set_channel_premium', req.params.id, {
@@ -243,9 +253,14 @@ async function adminSetPremium(req, res) {
       entry_fee_vpt_units,
       entry_fee_ngn,
       access_duration_minutes,
+      subscription_price_ngn,
+      subscription_interval_count,
+      subscription_interval_unit,
+      is_premium_channel,
+      premium_elevation_status,
     });
 
-    res.json({ channel: Channel.findById(req.params.id) });
+    res.json({ channel: await Channel.findById(req.params.id) });
   } catch (err) {
     console.error('[PremiumStream] adminSetPremium:', err.message);
     res.status(500).json({ error: 'Internal server error' });
@@ -263,10 +278,61 @@ async function adminListPremiumChannels(req, res) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const channels = Channel.getAll().filter((c) => c.requires_payment);
+    const channels = await Channel.getPremiumChannels();
     res.json({ channels, total: channels.length });
   } catch (err) {
     console.error('[PremiumStream] adminListPremiumChannels:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /channels/:id/request-premium
+ * Creator requests premium elevation for their channel.
+ */
+async function requestPremiumElevation(req, res) {
+  try {
+    const user = User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.is_premium_creator) {
+      return res.status(403).json({ error: 'Only premium creators can request premium elevation' });
+    }
+
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    if (channel.owner_id !== req.userId) {
+      return res.status(403).json({ error: 'You can only request premium elevation for your own channels' });
+    }
+
+    await Channel.updatePremium(req.params.id, {
+      premium_elevation_status: 'pending',
+    });
+
+    res.json({
+      message: 'Premium elevation requested successfully',
+      channel: await Channel.findById(req.params.id),
+    });
+  } catch (err) {
+    console.error('[PremiumStream] requestPremiumElevation:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * GET /admin/channels/premium-requests
+ * Admin: list all channels with pending premium elevation requests.
+ */
+async function adminListPendingPremiumRequests(req, res) {
+  try {
+    const caller = User.findById(req.userId);
+    if (!caller || caller.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const channels = await Channel.getPendingPremiumRequests();
+    res.json({ channels, total: channels.length });
+  } catch (err) {
+    console.error('[PremiumStream] adminListPendingPremiumRequests:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -277,4 +343,6 @@ module.exports = {
   getMyAccesses,
   adminSetPremium,
   adminListPremiumChannels,
+  requestPremiumElevation,
+  adminListPendingPremiumRequests,
 };

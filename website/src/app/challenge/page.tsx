@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { getChallengePageContent, type ChallengePageContent } from "@/lib/challenge-content";
+import ChallengeRouteGate from "./ChallengeRouteGate";
 
 const DEFAULT_CHALLENGE: ChallengePageContent = {
   page_meta_title: "AfroVision Challenge: Amazons - Build. Compete. Win.",
@@ -40,45 +41,54 @@ const DEFAULT_CHALLENGE: ChallengePageContent = {
   ],
   lifecycle_enabled: true,
   lifecycle_title: "Challenge Lifecycle",
-  lifecycle_subtitle: "Each challenge progresses through four distinct phases",
+  lifecycle_subtitle: "Each challenge progresses through five distinct phases",
   lifecycle_current_badge_label: "Current Phase",
   lifecycle_phase_prefix: "Phase",
   lifecycle_phases: [
     {
       id: "phase-1",
       icon: "📋",
-      phase: "Registration",
-      subtitle: "Open Call",
-      desc: "Create your verified AfroVision account and submit a short pitch video.",
+      phase: "Pre-register",
+      subtitle: "Early Access",
+      desc: "Create your verified AfroVision account and express intent to participate.",
       status: "active",
       sort_order: 1,
     },
     {
       id: "phase-2",
-      icon: "🎭",
-      phase: "Audition",
-      subtitle: "Screening & Selection",
-      desc: "Submissions are screened and finalists are announced publicly.",
+      icon: "🎤",
+      phase: "Registration & Audition",
+      subtitle: "Apply and Submit",
+      desc: "Complete registration and submit your audition in one continuous flow.",
       status: "upcoming",
       sort_order: 2,
     },
     {
       id: "phase-3",
-      icon: "🎬",
-      phase: "Running",
-      subtitle: "Live Competition",
-      desc: "Finalists compete, build, defend, and prove ideas under pressure.",
+      icon: "🚀",
+      phase: "Kickoff",
+      subtitle: "Program Start",
+      desc: "Selected participants are onboarded and the challenge officially begins.",
       status: "upcoming",
       sort_order: 3,
     },
     {
       id: "phase-4",
-      icon: "🏆",
-      phase: "Completed",
-      subtitle: "Cooling Off & Launch",
-      desc: "Winners are rewarded and supported as businesses launch publicly.",
+      icon: "🎬",
+      phase: "Running",
+      subtitle: "Live Competition",
+      desc: "Finalists compete, build, defend, and prove ideas under pressure.",
       status: "upcoming",
       sort_order: 4,
+    },
+    {
+      id: "phase-5",
+      icon: "🌱",
+      phase: "Incubation",
+      subtitle: "Support & Growth",
+      desc: "Top participants receive incubation support to scale into durable ventures.",
+      status: "upcoming",
+      sort_order: 5,
     },
   ],
   unstoppable_enabled: true,
@@ -293,6 +303,7 @@ export default async function ChallengePage() {
 
   return (
     <main className="min-h-screen pt-20 pb-16">
+      <ChallengeRouteGate />
       <div className="max-w-6xl mx-auto px-6 lg:px-8">
         {content.hero_enabled !== false ? (
         <div className="text-center mb-20">

@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'categories';
-const categories = [];
-let initialized = false;
 
 const DEFAULTS = [
   { id: 'cat_entertainment', name: 'Entertainment', is_active: true },
@@ -19,7 +17,6 @@ const DEFAULTS = [
 ];
 
 async function init() {
-  if (initialized) return;
   const db = getFirestore();
   const snapshot = await db.collection(COLLECTION).get();
   if (snapshot.empty) {
@@ -27,31 +24,37 @@ async function init() {
     const batch = db.batch();
     for (const cat of DEFAULTS) {
       batch.set(db.collection(COLLECTION).doc(cat.id), cat);
-      categories.push({ ...cat });
     }
     await batch.commit();
     console.log(`[CategoryModel] Seeded ${DEFAULTS.length} default categories`);
+    return DEFAULTS.map((cat) => ({ ...cat }));
   } else {
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      data.id = doc.id;
-      categories.push(data);
-    });
+    const categories = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
     console.log(`[CategoryModel] Loaded ${categories.length} categories from Firestore`);
+    return categories;
   }
-  initialized = true;
 }
 
-function getActive() {
-  return categories.filter((c) => c.is_active);
+async function getActive() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('is_active', '==', true)
+    .get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function getAll(includeInactive) {
-  return includeInactive ? [...categories] : getActive();
+async function getAll(includeInactive) {
+  if (!includeInactive) return getActive();
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION).get();
+  return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 }
 
-function findById(id) {
-  return categories.find((c) => c.id === id);
+async function findById(id) {
+  const db = getFirestore();
+  const doc = await db.collection(COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return { ...doc.data(), id: doc.id };
 }
 
 async function create({ name }) {
@@ -62,12 +65,11 @@ async function create({ name }) {
     is_active: true,
   };
   await db.collection(COLLECTION).doc(category.id).set(category);
-  categories.push(category);
   return category;
 }
 
 async function update(id, fields) {
-  const cat = findById(id);
+  const cat = await findById(id);
   if (!cat) return null;
   const updates = {};
   if (fields.name !== undefined) { cat.name = fields.name; updates.name = fields.name; }
@@ -80,9 +82,8 @@ async function update(id, fields) {
 }
 
 async function remove(id) {
-  const idx = categories.findIndex((c) => c.id === id);
-  if (idx === -1) return false;
-  categories.splice(idx, 1);
+  const existing = await findById(id);
+  if (!existing) return false;
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).delete();
   return true;

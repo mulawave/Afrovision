@@ -14,7 +14,7 @@ interface AdBreakProps {
 
 type Phase = "intro" | "playing" | "outro";
 
-export function AdBreak({ ads, channelName, channelId, onImpression, onComplete }: AdBreakProps) {
+export function AdBreak({ ads, channelName, onImpression, onComplete }: AdBreakProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>("intro");
   const [countdown, setCountdown] = useState(0);
@@ -23,18 +23,22 @@ export function AdBreak({ ads, channelName, channelId, onImpression, onComplete 
 
   const currentAd = ads[currentIndex] ?? null;
   const totalAds = ads.length;
+  const introDelayMs = currentIndex === 0 ? 2000 : 800;
 
   // Phase: intro → playing → (next ad or outro) → complete
   useEffect(() => {
     if (phase === "intro") {
-      const timer = setTimeout(() => setPhase("playing"), 2000);
+      const timer = setTimeout(() => {
+        setCountdown(Math.ceil(currentAd?.duration || 15));
+        setPhase("playing");
+      }, introDelayMs);
       return () => clearTimeout(timer);
     }
     if (phase === "outro") {
       const timer = setTimeout(() => onComplete(), 2000);
       return () => clearTimeout(timer);
     }
-  }, [phase, onComplete]);
+  }, [currentAd, introDelayMs, onComplete, phase]);
 
   // When phase becomes "playing", start the video
   useEffect(() => {
@@ -42,7 +46,6 @@ export function AdBreak({ ads, channelName, channelId, onImpression, onComplete 
     const vid = videoRef.current;
     vid.currentTime = 0;
     vid.play().catch(() => {});
-    setCountdown(Math.ceil(currentAd.duration || 15));
   }, [phase, currentIndex, currentAd]);
 
   // Countdown timer
@@ -66,9 +69,7 @@ export function AdBreak({ ads, channelName, channelId, onImpression, onComplete 
     // Move to next ad or outro
     if (currentIndex < totalAds - 1) {
       setCurrentIndex((i) => i + 1);
-      // Brief pause between ads
       setPhase("intro");
-      setTimeout(() => setPhase("playing"), 800);
     } else {
       setPhase("outro");
     }

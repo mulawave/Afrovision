@@ -6,6 +6,8 @@ import 'dart:io';
 
 class ApiService {
   static final String _baseUrl = AppConfig.baseUrl;
+  static const Duration _timeout = Duration(seconds: 30);
+  static const Duration _uploadTimeout = Duration(seconds: 60);
 
   static Future<Map<String, String>> _headers() async {
     final token = await AuthStorage.getToken();
@@ -37,7 +39,7 @@ class ApiService {
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
       body: jsonEncode(body),
-    );
+    ).timeout(_timeout);
     final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
@@ -52,7 +54,7 @@ class ApiService {
     final response = await http.get(
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
-    );
+    ).timeout(_timeout);
     final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
@@ -71,7 +73,7 @@ class ApiService {
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
       body: jsonEncode(body),
-    );
+    ).timeout(_timeout);
     final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
@@ -90,7 +92,7 @@ class ApiService {
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
       body: jsonEncode(body),
-    );
+    ).timeout(_timeout);
     final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
@@ -105,7 +107,7 @@ class ApiService {
     final response = await http.delete(
       Uri.parse('$_baseUrl$path'),
       headers: await _headers(),
-    );
+    ).timeout(_timeout);
     final data = _decodeJson(response);
     if (response.statusCode >= 400) {
       throw ApiException(
@@ -127,7 +129,7 @@ class ApiService {
       request.headers['Authorization'] = 'Bearer $token';
     }
     request.files.add(await http.MultipartFile.fromPath(fieldName, file.path));
-    final streamedResponse = await request.send();
+    final streamedResponse = await request.send().timeout(_uploadTimeout);
     final response = await http.Response.fromStream(streamedResponse);
     final data = _decodeJson(response);
     if (response.statusCode >= 400) {
@@ -152,7 +154,7 @@ class ApiService {
     }
     request.fields.addAll(fields);
     request.files.add(await http.MultipartFile.fromPath(fieldName, file.path));
-    final streamedResponse = await request.send();
+    final streamedResponse = await request.send().timeout(_uploadTimeout);
     final response = await http.Response.fromStream(streamedResponse);
     final data = _decodeJson(response);
     if (response.statusCode >= 400) {
@@ -169,7 +171,7 @@ class ApiService {
     final response = await http.get(
       Uri.parse('$_baseUrl$path'),
       headers: {'Content-Type': 'application/json'},
-    );
+    ).timeout(_timeout);
     final body = response.body.trimLeft();
     if (body.startsWith('<')) {
       throw ApiException(

@@ -4,6 +4,10 @@ const Ledger = require('../vpt/ledger.model');
 const User = require('../users/user.model');
 const PoolService = require('../vpt/pool.service');
 const NotificationService = require('../notifications/notification.service');
+const {
+  parseMaintenanceRequest,
+  getMaintenanceConfirmationMessage,
+} = require('../utils/maintenance');
 
 /**
  * GET /referrals/my-code
@@ -37,7 +41,7 @@ async function applyReferral(req, res) {
       return res.status(400).json({ error: 'referral_code is required' });
     }
 
-    const referralRecord = ReferralModel.findByCode(referral_code);
+    const referralRecord = await ReferralModel.findByCode(referral_code);
     if (!referralRecord) {
       return res.status(404).json({ error: 'Invalid referral code' });
     }
@@ -49,7 +53,7 @@ async function applyReferral(req, res) {
 
     await ReferralModel.recordInvite(referrerUid, req.userId);
 
-    const updated = ReferralModel.findByUid(referrerUid);
+    const updated = await ReferralModel.findByUid(referrerUid);
     res.json({
       success: true,
       invited_count: updated?.invited_count ?? 0,
@@ -67,12 +71,12 @@ async function applyReferral(req, res) {
 async function getDashboard(req, res) {
   try {
     const referral = await ReferralModel.ensureReferral(req.userId);
-    const earnings = ReferralModel.getEarnings(req.userId);
-    const directReferrals = ReferralModel.getDirectReferrals(req.userId);
+    const earnings = await ReferralModel.getEarnings(req.userId);
+    const directReferrals = await ReferralModel.getDirectReferrals(req.userId);
 
     // Resolve names for direct referrals
-    const referralUsers = directReferrals.map((uid) => {
-      const u = User.findById(uid);
+    const referralUsers = await Promise.all(directReferrals.map(async (uid) => {
+      const u = await User.findById(uid);
       let joinedAt = null;
       if (u?.created_at) {
         joinedAt = typeof u.created_at === 'number' ? u.created_at : new Date(u.created_at).getTime();
@@ -84,15 +88,15 @@ async function getDashboard(req, res) {
         email: u ? _maskEmail(u.email) : null,
         joined_at: joinedAt,
       };
-    });
+    }));
 
     // Resolve referrer chain (who referred me, who referred them, etc.)
     const upline = [];
     let currentUid = req.userId;
     for (let i = 0; i < 5; i++) {
-      const rec = ReferralModel.findByUid(currentUid);
+      const rec = await ReferralModel.findByUid(currentUid);
       if (!rec || !rec.referred_by) break;
-      const referrer = User.findById(rec.referred_by);
+      const referrer = await User.findById(rec.referred_by);
       upline.push({
         level: i + 1,
         uid: rec.referred_by,
@@ -103,18 +107,18 @@ async function getDashboard(req, res) {
     }
 
     // Enrich earnings with names and status
-    const enrichedEarnings = earnings.map((e) => {
-      const source = User.findById(e.source_uid);
+    const enrichedEarnings = await Promise.all(earnings.map(async (e) => {
+      const source = await User.findById(e.source_uid);
       return {
         ...e,
         status: e.status || 'pending_ledger',
         source_name: source?.name || null,
         source_email: source ? _maskEmail(source.email) : null,
       };
-    });
+    }));
 
     // Get ledger balance summary
-    const ledgerSummary = ReferralModel.getLedgerSummary(req.userId);
+    const ledgerSummary = await ReferralModel.getLedgerSummary(req.userId);
 
     res.json({
       referral_code: referral.referral_code,
@@ -160,7 +164,7 @@ async function distributeReferralEarnings({
     if (referralPoolAmount <= 0) return;
 
     const VPT_PRICE = ReferralModel.VPT_PRICE_NGN; // 750
-    const tree = ReferralModel.resolveTree(subscriberUid);
+    const tree = await ReferralModel.resolveTree(subscriberUid);
 
     for (let i = 0; i < 5; i++) {
       const recipientUid = tree[i];
@@ -282,11 +286,15 @@ function _maskEmail(email) {
  */
 async function adminListReferrals(req, res) {
   try {
-    const allReferrals = ReferralModel.getAll();
-    const enriched = allReferrals.map((r) => {
-      const u = User.findById(r.uid);
-      const referrer = r.referred_by ? User.findById(r.referred_by) : null;
-      const summary = ReferralModel.getLedgerSummary(r.uid);
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100;
+    const cursor = String(req.query.cursor || '').trim() || null;
+    const { referrals, nextCursor } = await ReferralModel.listPage({ limit, startAfterUid: cursor });
+
+    const enriched = await Promise.all(referrals.map(async (r) => {
+      const u = await User.findById(r.uid);
+      const referrer = r.referred_by ? await User.findById(r.referred_by) : null;
+      const summary = await ReferralModel.getLedgerSummary(r.uid);
       return {
         uid: r.uid,
         email: u?.email || null,
@@ -302,17 +310,26 @@ async function adminListReferrals(req, res) {
         has_upline: !!r.referred_by,
         created_at: r.created_at,
       };
-    });
+    }));
+
+    const db = require('../utils/firestore').getFirestore();
+    const [totalSnap, withUplineSnap] = await Promise.all([
+      db.collection('referrals').count().get(),
+      db.collection('referrals').where('referred_by', '>=', '').count().get(),
+    ]);
+
+    const total = totalSnap.data().count || 0;
+    const withUpline = withUplineSnap.data().count || 0;
 
     const stats = {
-      total: enriched.length,
-      with_upline: enriched.filter((r) => r.has_upline).length,
-      without_upline: enriched.filter((r) => !r.has_upline).length,
-      total_earnings_ngn: enriched.reduce((s, r) => s + r.total_earnings_ngn, 0),
-      total_pending_ngn: enriched.reduce((s, r) => s + r.ledger_summary.pending_ngn, 0),
+      total,
+      with_upline: withUpline,
+      without_upline: Math.max(0, total - withUpline),
+      page_total_earnings_ngn: enriched.reduce((s, r) => s + r.total_earnings_ngn, 0),
+      page_total_pending_ngn: enriched.reduce((s, r) => s + r.ledger_summary.pending_ngn, 0),
     };
 
-    res.json({ referrals: enriched, stats });
+    res.json({ referrals: enriched, stats, limit, next_cursor: nextCursor, has_more: Boolean(nextCursor) });
   } catch (err) {
     console.error('[Referral] adminListReferrals:', err.message);
     res.status(500).json({ error: 'Internal server error' });
@@ -339,7 +356,7 @@ async function adminAssignUpline(req, res) {
     await ReferralModel.ensureReferral(referrer_uid);
 
     // Check user doesn't already have an upline
-    const existing = ReferralModel.findByUid(uid);
+    const existing = await ReferralModel.findByUid(uid);
     if (existing?.referred_by) {
       return res.status(400).json({ error: 'User already has an upline assigned' });
     }
@@ -349,7 +366,7 @@ async function adminAssignUpline(req, res) {
 
     // Retroactively generate earnings for this user's existing subscriptions
     const CreatorSubscription = require('../subscriptions/creator_subscription.model');
-    const subs = CreatorSubscription.getBySubscriber ? CreatorSubscription.getBySubscriber(uid) : [];
+    const subs = CreatorSubscription.getBySubscriber ? await CreatorSubscription.getBySubscriber(uid) : [];
     let earningsCreated = 0;
 
     for (const sub of subs) {
@@ -361,7 +378,7 @@ async function adminAssignUpline(req, res) {
       const referralPool = Math.floor(amount * 0.15);
       if (referralPool <= 0) continue;
 
-      const tree = ReferralModel.resolveTree(uid);
+      const tree = await ReferralModel.resolveTree(uid);
 
       for (let i = 0; i < 5; i++) {
         const recipientUid = tree[i];
@@ -428,8 +445,8 @@ async function adminAssignUpline(req, res) {
       }
     }
 
-    const updated = ReferralModel.findByUid(uid);
-    const referrerUser = User.findById(referrer_uid);
+    const updated = await ReferralModel.findByUid(uid);
+    const referrerUser = await User.findById(referrer_uid);
 
     res.json({
       success: true,
@@ -470,22 +487,80 @@ async function adminRecalculatePayouts(req, res) {
       }
     }
 
+    const maintenance = parseMaintenanceRequest(req, {
+      confirmationToken: 'RECALCULATE_REFERRALS',
+      defaultLimit: 100,
+      maxLimit: 500,
+    });
+    if (maintenance.error) {
+      return res.status(400).json({ error: maintenance.error });
+    }
+    if (!req._opsAuth && !maintenance.dryRun && !maintenance.confirmed) {
+      return res.status(400).json({
+        error: getMaintenanceConfirmationMessage(maintenance.confirmationToken),
+      });
+    }
+
     const CreatorSubscription = require('../subscriptions/creator_subscription.model');
     const Plan = require('../subscriptions/plan.model');
-    const allCreatorSubs = CreatorSubscription.getAll ? CreatorSubscription.getAll() : [];
-    const allUsers = User.getAll();
-    const usersWithPlans = allUsers.filter((u) =>
+    const creatorCursorSubscribedAt = req.query.cursor_subscribed_at != null
+      ? Number(req.query.cursor_subscribed_at)
+      : null;
+    const creatorCursorId = String(req.query.cursor_id || '').trim() || null;
+    const creatorSubPage = CreatorSubscription.listPage
+      ? await CreatorSubscription.listPage({
+        limit: maintenance.limit,
+        startAfterSubscribedAt: Number.isFinite(creatorCursorSubscribedAt) ? creatorCursorSubscribedAt : null,
+        startAfterId: creatorCursorId,
+      })
+      : { subscriptions: [], nextCursor: null };
+    const allCreatorSubs = creatorSubPage.subscriptions;
+    const db = require('../utils/firestore').getFirestore();
+    const activeUsersSnapshot = await db.collection('users')
+      .where('subscription_status', '==', 'active')
+      .get();
+    const usersWithPlans = activeUsersSnapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((u) =>
       u.subscription_plan && u.subscription_plan !== 'free' && u.subscription_status === 'active'
     );
-    const db = require('../utils/firestore').getFirestore();
     const VPT_PRICE = ReferralModel.VPT_PRICE_NGN; // 750
     const legacySubscriberRewardCleanupRef = db.doc('ops_migrations/subscriber_reward_wallet_cleanup_v1');
     const legacySubscriberRewardCleanupSnap = await legacySubscriberRewardCleanupRef.get();
     const shouldRunLegacySubscriberRewardCleanup = !legacySubscriberRewardCleanupSnap.exists;
+    const allOldEarnings = await ReferralModel.getAllEarnings();
+    const referralRecordsCountSnap = await db.collection('referrals').count().get();
+    const referralRecordsFound = referralRecordsCountSnap.data().count || 0;
+    const oldSubscriberRewards = (await Ledger.getByType('SUBSCRIBER_VPT_REWARD')).filter(
+      (entry) => entry.type === 'SUBSCRIBER_VPT_REWARD' && entry.status === 'success',
+    );
+    const oldReferralEarningsLedger = await Ledger.getByType('REFERRAL_EARNING');
+
+    if (!req._opsAuth && maintenance.dryRun) {
+      return res.json({
+        success: true,
+        maintenance: true,
+        dry_run: true,
+        confirmation_token: maintenance.confirmationToken,
+        preview: {
+          plan_subscriptions_found: usersWithPlans.length,
+          creator_subscriptions_found: allCreatorSubs.length,
+          creator_subscriptions_has_more: Boolean(creatorSubPage.nextCursor),
+          creator_subscriptions_next_cursor: creatorSubPage.nextCursor,
+          old_referral_earnings_found: allOldEarnings.length,
+          old_subscriber_rewards_found: oldSubscriberRewards.length,
+          referral_records_found: referralRecordsFound,
+          legacy_subscriber_wallet_cleanup_pending: shouldRunLegacySubscriberRewardCleanup,
+        },
+        message: 'Dry run only. Re-send this request with confirmation=RECALCULATE_REFERRALS to execute the recalculation.',
+      });
+    }
 
     const report = {
       plan_subscriptions_found: usersWithPlans.length,
       creator_subscriptions_found: allCreatorSubs.length,
+      creator_subscriptions_has_more: Boolean(creatorSubPage.nextCursor),
+      creator_subscriptions_next_cursor: creatorSubPage.nextCursor,
       subscriptions_processed: 0,
       old_referral_earnings_reversed: 0,
       old_subscriber_rewards_reversed: 0,
@@ -499,7 +574,6 @@ async function adminRecalculatePayouts(req, res) {
     };
 
     // ── Phase 1: Reverse ALL old referral earnings from wallets ──────
-    const allOldEarnings = ReferralModel.getAllEarnings();
     for (const earning of allOldEarnings) {
       try {
         const ngnAmount = earning.amount_ngn || 0;
@@ -515,7 +589,7 @@ async function adminRecalculatePayouts(req, res) {
           report.wallet_adjustments++;
         }
 
-        const refRec = ReferralModel.findByUid(earning.recipient_uid);
+        const refRec = await ReferralModel.findByUid(earning.recipient_uid);
         if (refRec) {
           refRec.total_earnings_ngn = Math.max(0, (refRec.total_earnings_ngn || 0) - ngnAmount);
           refRec.total_earnings_vpt_units = Math.max(0, (refRec.total_earnings_vpt_units || 0) - vptAmount);
@@ -525,13 +599,6 @@ async function adminRecalculatePayouts(req, res) {
       } catch (err) {
         report.errors.push(`Reverse earning ${earning.id}: ${err.message}`);
       }
-    }
-
-    // Explicitly zero ALL referral records' earnings totals
-    // (individual subtraction may leave stale values if old data was inconsistent)
-    for (const refRec of ReferralModel.getAll()) {
-      refRec.total_earnings_ngn = 0;
-      refRec.total_earnings_vpt_units = 0;
     }
 
     // Delete all old earnings from Firestore
@@ -546,11 +613,6 @@ async function adminRecalculatePayouts(req, res) {
     if (batchCount > 0) await batch1.commit();
 
     // Delete old REFERRAL_EARNING and SUBSCRIBER_VPT_REWARD ledger entries
-    const allLedger = Ledger.getAll();
-    const oldSubscriberRewards = allLedger.filter(
-      (entry) => entry.type === 'SUBSCRIBER_VPT_REWARD' && entry.status === 'success',
-    );
-
     for (const entry of oldSubscriberRewards) {
       try {
         const vptUnits = entry.amount_vpt_units || entry.amount_vpt || 0;
@@ -564,9 +626,7 @@ async function adminRecalculatePayouts(req, res) {
       }
     }
 
-    const toDeleteIds = allLedger
-      .filter((e) => e.type === 'REFERRAL_EARNING' || e.type === 'SUBSCRIBER_VPT_REWARD')
-      .map((e) => e.id);
+    const toDeleteIds = [...oldReferralEarningsLedger, ...oldSubscriberRewards].map((e) => e.id);
 
     const batch2 = db.batch();
     let batch2Count = 0;
@@ -589,7 +649,7 @@ async function adminRecalculatePayouts(req, res) {
     if (shouldRunLegacySubscriberRewardCleanup) {
       for (const user of usersWithPlans) {
         try {
-          const plan = Plan.findByName(user.subscription_plan);
+          const plan = await Plan.findByName(user.subscription_plan);
           if (!plan || plan.price <= 0) continue;
           const legacyRewardUnits = Math.floor(plan.price * 0.15);
           if (legacyRewardUnits <= 0) continue;
@@ -623,8 +683,9 @@ async function adminRecalculatePayouts(req, res) {
     // Guarantees a clean slate regardless of any stale or inconsistent
     // delta-based adjustments above. vPT lives in the ledger now, not wallets.
     {
-      const allUsers = User.getAll();
-      const zeroSnap = await db.collection('users').get();
+      const zeroSnap = await db.collection('users')
+        .where('subscription_status', '==', 'active')
+        .get();
       let zeroBatch = db.batch();
       let zeroBatchCount = 0;
       for (const doc of zeroSnap.docs) {
@@ -634,7 +695,11 @@ async function adminRecalculatePayouts(req, res) {
       }
       if (zeroBatchCount > 0) await zeroBatch.commit();
       // Sync in-memory cache
-      for (const u of allUsers) u.vpt = 0;
+      for (const u of User.getCachedAll(true)) {
+        if (u.subscription_status === 'active') {
+          u.vpt = 0;
+        }
+      }
       report.wallet_adjustments += zeroSnap.size;
     }
 
@@ -643,7 +708,7 @@ async function adminRecalculatePayouts(req, res) {
       const referralPool = Math.floor(amount * 0.15);
       if (referralPool <= 0) return;
 
-      const tree = ReferralModel.resolveTree(subscriberUid);
+      const tree = await ReferralModel.resolveTree(subscriberUid);
       for (let i = 0; i < 5; i++) {
         const recipientUid = tree[i];
         const levelAmount = Math.floor(referralPool * ReferralModel.LEVEL_DISTRIBUTION[i]);
@@ -715,7 +780,7 @@ async function adminRecalculatePayouts(req, res) {
     // ── Phase 2: Re-distribute for PLAN SUBSCRIPTIONS ───────────────
     for (const user of usersWithPlans) {
       try {
-        const plan = Plan.findByName(user.subscription_plan);
+        const plan = await Plan.findByName(user.subscription_plan);
         if (!plan || plan.price <= 0) continue;
         report.subscriptions_processed++;
 
@@ -772,19 +837,6 @@ async function adminRecalculatePayouts(req, res) {
         await _distributeForSub(sub.subscriber_uid, amount, sub.id, sub.creator_uid, 'creator_subscription');
       } catch (err) {
         report.errors.push(`Creator sub ${sub.id}: ${err.message}`);
-      }
-    }
-
-    // ── Phase 4: Persist updated referral totals ─────────────────────
-    for (const refRec of ReferralModel.getAll()) {
-      try {
-        await db.collection('referrals').doc(refRec.uid).set({
-          total_earnings_ngn: refRec.total_earnings_ngn || 0,
-          total_earnings_vpt_units: refRec.total_earnings_vpt_units || 0,
-          updated_at: Date.now(),
-        }, { merge: true });
-      } catch (err) {
-        report.errors.push(`Persist referral totals for ${refRec.uid}: ${err.message}`);
       }
     }
 

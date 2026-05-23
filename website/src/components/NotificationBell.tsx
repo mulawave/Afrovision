@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   getNotificationUnreadCountApi,
@@ -32,27 +32,47 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const bellRef = useRef<HTMLDivElement>(null);
+  const unreadRequestInFlightRef = useRef(false);
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
+  const loadUnreadCount = useCallback(async () => {
+    if (!isAuthenticated || unreadRequestInFlightRef.current) {
+      return;
+    }
 
-    let cancelled = false;
+    unreadRequestInFlightRef.current = true;
 
-    async function loadUnreadCount() {
+    try {
       const res = await getNotificationUnreadCountApi();
-      if (!cancelled && res.ok && "unread_count" in res.data) {
+      if (res.ok && "unread_count" in res.data) {
         setUnreadCount(res.data.unread_count);
       }
+    } finally {
+      unreadRequestInFlightRef.current = false;
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnreadCount(0);
+      return;
     }
 
     loadUnreadCount();
-    const intervalId = window.setInterval(loadUnreadCount, 30000);
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") {
+        loadUnreadCount();
+      }
+    }
+
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, loadUnreadCount]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

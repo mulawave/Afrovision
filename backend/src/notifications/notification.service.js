@@ -9,7 +9,7 @@ async function notifyUser(
   userId,
   { title, body, data = {}, type = 'system', link = null, source = null, createdBy = null }
 ) {
-  const user = User.findById(userId);
+  const user = await User.findById(userId);
   if (!user) {
     return {
       successCount: 0,
@@ -30,7 +30,7 @@ async function notifyUser(
   });
 
   // Get the current unread count so the device can update its app icon badge
-  const unreadCount = Notification.countUnread(userId);
+  const unreadCount = await Notification.countUnread(userId);
 
   try {
     const pushResult = await fcm.sendToUser(userId, {
@@ -61,16 +61,33 @@ async function notifyUser(
 
 /**
  * Broadcast a push notification to all users who have registered FCM tokens.
+ *
+ * Avoids an N+1 pattern: notifications are created in one parallel batch via
+ * Notification.createMany(), and FCM delivery uses the already-batched
+ * fcm.sendToAll() instead of one sendToUser() call per user.
  */
 async function broadcast(payload) {
-  const userIds = User.getAll().map((user) => user.id);
-  const results = await Promise.all(userIds.map((userId) => notifyUser(userId, payload)));
+  const { title, body, data = {}, type = 'system', link = null, source = null, createdBy = null } = payload;
+  const targets = await fcm.collectBroadcastTargets();
+  const userIds = targets.userIds;
+
+  // Persist in-app notification records for all users in parallel
+  const notifications = await Notification.createMany(userIds, {
+    title, body, data, type, link, source, createdBy,
+  });
+  const persisted = notifications.filter(Boolean).length;
+
+  // Deliver push via batched multicast to the same target set.
+  const pushResult = await fcm.sendToAll(
+    { title, body, data: { ...data, link: link || '', type }, badge: 1 },
+    targets,
+  );
 
   return {
     targeted: userIds.length,
-    persisted: results.filter((result) => result.notification).length,
-    successCount: results.reduce((sum, result) => sum + (result.successCount || 0), 0),
-    failureCount: results.reduce((sum, result) => sum + (result.failureCount || 0), 0),
+    persisted,
+    successCount: pushResult.successCount,
+    failureCount: pushResult.failureCount,
   };
 }
 

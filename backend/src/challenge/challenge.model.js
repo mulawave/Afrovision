@@ -11,12 +11,25 @@ const CHALLENGES_COLLECTION = 'challenges';
 const REGISTRATIONS_COLLECTION = 'challenge_registrations';
 
 /* ── Lifecycle phases ─────────────────────────────────────────── */
-const PHASES = ['registration', 'audition', 'running', 'completed'];
+const PHASES = ['pre-register', 'registration-and-audition', 'kickoff', 'running', 'incubation'];
 
 /* ── In-memory cache ──────────────────────────────────────────── */
-let challenges = [];
-let registrations = [];
-let initialized = false;
+const challengesById = new Map();
+const registrationsById = new Map();
+
+function syncChallenge(challenge) {
+  if (challenge && challenge.id) {
+    challengesById.set(challenge.id, challenge);
+  }
+  return challenge;
+}
+
+function syncRegistration(registration) {
+  if (registration && registration.id) {
+    registrationsById.set(registration.id, registration);
+  }
+  return registration;
+}
 
 /* ── Persistence helpers ──────────────────────────────────────── */
 async function persistChallenge(c) {
@@ -31,14 +44,7 @@ async function persistRegistration(r) {
 
 /* ── Init ─────────────────────────────────────────────────────── */
 async function init() {
-  const db = getFirestore();
-  const [cSnap, rSnap] = await Promise.all([
-    db.collection(CHALLENGES_COLLECTION).get(),
-    db.collection(REGISTRATIONS_COLLECTION).get(),
-  ]);
-  challenges = cSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
-  registrations = rSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
-  initialized = true;
+  return [];
 }
 
 /* ── Challenge CRUD ───────────────────────────────────────────── */
@@ -48,17 +54,28 @@ async function createChallenge(data) {
     title: data.title || 'AfroVision Challenge',
     subtitle: data.subtitle || 'Amazons',
     season: data.season || 1,
-    phase: 'registration',
+    phase: data.phase || 'registration-and-audition',
+    status: data.status || 'active',
     description: data.description || '',
     prize_pool: data.prize_pool || '₦10,000,000',
     max_contestants: data.max_contestants || 15,
     video_min_seconds: data.video_min_seconds || 30,
     video_max_seconds: data.video_max_seconds || 60,
+    // ── Audition Pricing (configurable per challenge) ─────────────────
+    audition_price_ngn: data.audition_price_ngn || 2500,
+    user_reward_vpt_ngn: data.user_reward_vpt_ngn || 1000,
+    community_pool_vpt_ngn: data.community_pool_vpt_ngn || 500,
+    ops_pool_ngn: data.ops_pool_ngn || 1000,
+    // ──────────────────────────────────────────────────────────────────
     phases: {
-      registration: { start: data.registration_start || null, end: data.registration_end || null },
-      audition: { start: data.audition_start || null, end: data.audition_end || null },
+      'pre-register': { start: data.pre_register_start || null, end: data.pre_register_end || null },
+      'registration-and-audition': {
+        start: data.registration_audition_start || data.registration_start || null,
+        end: data.registration_audition_end || data.audition_end || null,
+      },
+      kickoff: { start: data.kickoff_start || null, end: data.kickoff_end || null },
       running: { start: data.running_start || null, end: data.running_end || null },
-      completed: { start: data.completed_start || null, end: null },
+      incubation: { start: data.incubation_start || null, end: data.incubation_end || null },
     },
     prizes: data.prizes || [],
     rules: data.rules || [],
@@ -70,38 +87,56 @@ async function createChallenge(data) {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  challenges.push(challenge);
   await persistChallenge(challenge);
-  return challenge;
+  return syncChallenge(challenge);
 }
 
 async function updateChallenge(id, fields) {
-  const ch = challenges.find((c) => c.id === id);
+  const ch = await getChallengeById(id);
   if (!ch) return null;
   const allowed = [
-    'title', 'subtitle', 'season', 'phase', 'description', 'prize_pool',
+    'title', 'subtitle', 'season', 'phase', 'status', 'description', 'prize_pool',
     'max_contestants', 'video_min_seconds', 'video_max_seconds',
     'phases', 'prizes', 'rules', 'judges', 'sponsors',
     'banner_url', 'trailer_url', 'is_active',
+    'audition_price_ngn', 'user_reward_vpt_ngn', 'community_pool_vpt_ngn', 'ops_pool_ngn',
   ];
   for (const key of allowed) {
     if (fields[key] !== undefined) ch[key] = fields[key];
   }
   ch.updated_at = new Date().toISOString();
   await persistChallenge(ch);
-  return ch;
+  return syncChallenge(ch);
 }
 
-function getActiveChallenge() {
-  return challenges.find((c) => c.is_active) || null;
+async function getActiveChallenge() {
+  const db = getFirestore();
+  const snap = await db.collection(CHALLENGES_COLLECTION)
+    .where('is_active', '==', true)
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+  const doc = snap.docs[0];
+  return syncChallenge({ ...doc.data(), id: doc.id });
 }
 
-function getChallengeById(id) {
-  return challenges.find((c) => c.id === id) || null;
+async function getChallengeById(id) {
+  if (challengesById.has(id)) {
+    return challengesById.get(id) || null;
+  }
+
+  const db = getFirestore();
+  const doc = await db.collection(CHALLENGES_COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return syncChallenge({ ...doc.data(), id: doc.id });
 }
 
-function listChallenges() {
-  return [...challenges].sort((a, b) => b.season - a.season);
+async function listChallenges() {
+  const db = getFirestore();
+  const snap = await db.collection(CHALLENGES_COLLECTION).get();
+  return snap.docs
+    .map((doc) => syncChallenge({ ...doc.data(), id: doc.id }))
+    .sort((a, b) => b.season - a.season);
 }
 
 /* ── Registration (contestant sign-up) ────────────────────────── */
@@ -128,13 +163,12 @@ async function registerContestant(data) {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  registrations.push(reg);
   await persistRegistration(reg);
-  return reg;
+  return syncRegistration(reg);
 }
 
 async function updateRegistration(id, fields) {
-  const reg = registrations.find((r) => r.id === id);
+  const reg = await getRegistrationById(id);
   if (!reg) return null;
   const allowed = [
     'status', 'review_notes', 'reviewer_id', 'reviewed_at',
@@ -147,60 +181,90 @@ async function updateRegistration(id, fields) {
   }
   reg.updated_at = new Date().toISOString();
   await persistRegistration(reg);
-  return reg;
+  return syncRegistration(reg);
 }
 
-function getRegistrationByUserId(challengeId, userId) {
-  return registrations.find((r) => r.challenge_id === challengeId && r.user_id === userId) || null;
+async function getRegistrationByUserId(challengeId, userId) {
+  const db = getFirestore();
+  const snap = await db.collection(REGISTRATIONS_COLLECTION)
+    .where('challenge_id', '==', challengeId)
+    .where('user_id', '==', userId)
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+  const doc = snap.docs[0];
+  return syncRegistration({ ...doc.data(), id: doc.id });
 }
 
-function getRegistrationById(id) {
-  return registrations.find((r) => r.id === id) || null;
+async function getRegistrationById(id) {
+  if (registrationsById.has(id)) {
+    return registrationsById.get(id) || null;
+  }
+
+  const db = getFirestore();
+  const doc = await db.collection(REGISTRATIONS_COLLECTION).doc(id).get();
+  if (!doc.exists) return null;
+  return syncRegistration({ ...doc.data(), id: doc.id });
 }
 
-function listRegistrations({ challenge_id, status, limit = 50, offset = 0 }) {
-  let filtered = [...registrations];
-  if (challenge_id) filtered = filtered.filter((r) => r.challenge_id === challenge_id);
-  if (status) filtered = filtered.filter((r) => r.status === status);
-  filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+async function listRegistrations({ challenge_id, status, limit = 50, offset = 0 }) {
+  const db = getFirestore();
+  let query = db.collection(REGISTRATIONS_COLLECTION);
+  if (challenge_id) query = query.where('challenge_id', '==', challenge_id);
+  if (status) query = query.where('status', '==', status);
+
+  const snap = await query.get();
+  const filtered = snap.docs
+    .map((doc) => syncRegistration({ ...doc.data(), id: doc.id }))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   return {
     items: filtered.slice(offset, offset + limit),
     total: filtered.length,
   };
 }
 
-function countRegistrations(challengeId) {
-  return registrations.filter((r) => r.challenge_id === challengeId).length;
+async function countRegistrations(challengeId) {
+  const db = getFirestore();
+  const snap = await db.collection(REGISTRATIONS_COLLECTION)
+    .where('challenge_id', '==', challengeId)
+    .get();
+  return snap.size;
 }
 
-function getApprovedRegistrations(challengeId) {
-  return registrations.filter(
-    (r) => r.challenge_id === challengeId && ['approved', 'shortlisted', 'finalist', 'winner'].includes(r.status)
-  );
+async function getApprovedRegistrations(challengeId) {
+  const db = getFirestore();
+  const snap = await db.collection(REGISTRATIONS_COLLECTION)
+    .where('challenge_id', '==', challengeId)
+    .where('status', 'in', ['approved', 'shortlisted', 'finalist', 'winner'])
+    .get();
+  return snap.docs
+    .map((doc) => syncRegistration({ ...doc.data(), id: doc.id }))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
 async function deleteRegistration(id) {
-  const idx = registrations.findIndex((r) => r.id === id);
-  if (idx === -1) return null;
-  const removed = registrations.splice(idx, 1)[0];
+  const removed = await getRegistrationById(id);
+  if (!removed) return null;
+  registrationsById.delete(id);
   const db = getFirestore();
   await db.collection(REGISTRATIONS_COLLECTION).doc(id).delete();
   return removed;
 }
 
 async function deleteChallenge(id) {
-  const idx = challenges.findIndex((c) => c.id === id);
-  if (idx === -1) return null;
-  const removed = challenges.splice(idx, 1)[0];
+  const removed = await getChallengeById(id);
+  if (!removed) return null;
+  challengesById.delete(id);
   const db = getFirestore();
   // Delete the challenge document
   await db.collection(CHALLENGES_COLLECTION).doc(id).delete();
   // Delete associated registrations
-  const relatedRegs = registrations.filter((r) => r.challenge_id === id);
-  for (const reg of relatedRegs) {
-    const rIdx = registrations.findIndex((r) => r.id === reg.id);
-    if (rIdx !== -1) registrations.splice(rIdx, 1);
-    await db.collection(REGISTRATIONS_COLLECTION).doc(reg.id).delete();
+  const relatedRegs = await db.collection(REGISTRATIONS_COLLECTION)
+    .where('challenge_id', '==', id)
+    .get();
+  for (const reg of relatedRegs.docs) {
+    registrationsById.delete(reg.id);
+    await reg.ref.delete();
   }
   return removed;
 }

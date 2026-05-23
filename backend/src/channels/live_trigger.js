@@ -7,6 +7,15 @@ const NotificationService = require('../notifications/notification.service');
 // Key: channelId, Value: timestamp of last trigger
 const _recentTriggers = new Map();
 const DEBOUNCE_MS = 60_000; // 1 minute
+const TRIGGER_RETENTION_MS = DEBOUNCE_MS * 60;
+
+function cleanupExpiredTriggers(now = Date.now()) {
+  for (const [cid, ts] of _recentTriggers) {
+    if (now - ts > TRIGGER_RETENTION_MS) {
+      _recentTriggers.delete(cid);
+    }
+  }
+}
 
 /**
  * Called when a creator's channel goes live.
@@ -17,6 +26,8 @@ const DEBOUNCE_MS = 60_000; // 1 minute
  * @returns {{ notified: number, skipped: boolean }}
  */
 async function onCreatorGoLive(creatorUid, channelId) {
+  cleanupExpiredTriggers();
+
   // Debounce — skip if triggered < 1 minute ago for the same channel
   const lastTrigger = _recentTriggers.get(channelId);
   if (lastTrigger && Date.now() - lastTrigger < DEBOUNCE_MS) {
@@ -24,16 +35,8 @@ async function onCreatorGoLive(creatorUid, channelId) {
   }
   _recentTriggers.set(channelId, Date.now());
 
-  // Clean up stale debounce entries every hour
-  setInterval(() => {
-    const now = Date.now();
-    for (const [cid, ts] of _recentTriggers) {
-      if (now - ts > DEBOUNCE_MS * 60) _recentTriggers.delete(cid);
-    }
-  }, 3_600_000).unref();
-
-  const creator = User.findById(creatorUid);
-  const channel = Channel.findById(channelId);
+  const creator = await User.findById(creatorUid);
+  const channel = await Channel.findById(channelId);
   if (!creator || !channel) return { notified: 0, skipped: false };
 
   const creatorName = creator.name || creator.email || 'A creator';
@@ -44,7 +47,7 @@ async function onCreatorGoLive(creatorUid, channelId) {
   if (activeSubs.length === 0) return { notified: 0, skipped: false };
 
   let notified = 0;
-  // Send notifications in parallel batches of 10 to avoid rate limits
+  // Send notifications in parallel batches of 10 to avoid
   const BATCH_SIZE = 10;
   for (let i = 0; i < activeSubs.length; i += BATCH_SIZE) {
     const batch = activeSubs.slice(i, i + BATCH_SIZE);

@@ -31,6 +31,7 @@ class BroadcastPlayer extends ChangeNotifier {
   int _syncTick = 0;
   bool _disposed = false;
   bool _isSeeking = false;
+  bool _isAppActive = true;
 
   VideoPlayerController? get controller => _controller;
 
@@ -59,7 +60,7 @@ class BroadcastPlayer extends ChangeNotifier {
     ctrl.addListener(_onPlayerStateChange);
 
     try {
-      await ctrl.initialize();
+      await ctrl.initialize().timeout(const Duration(seconds: 20));
       if (_disposed) return;
 
       // Loop mode: let VideoPlayer handle native looping
@@ -81,7 +82,9 @@ class BroadcastPlayer extends ChangeNotifier {
     } catch (e) {
       if (_disposed) return;
       hasError = true;
-      errorMessage = 'Failed to load video: $e';
+      errorMessage = e is TimeoutException
+          ? 'Timed out while loading the live stream.'
+          : 'Failed to load video: $e';
       notifyListeners();
     }
   }
@@ -100,7 +103,10 @@ class BroadcastPlayer extends ChangeNotifier {
   }
 
   Future<void> _onSyncTick() async {
-    if (_disposed || _controller == null || !_controller!.value.isInitialized) {
+    if (_disposed ||
+        !_isAppActive ||
+        _controller == null ||
+        !_controller!.value.isInitialized) {
       return;
     }
     if (_isSeeking || isBuffering) return;
@@ -182,6 +188,11 @@ class BroadcastPlayer extends ChangeNotifier {
   }
 
   // ─── Recovery ───
+
+  /// Call when app goes to background / foreground.
+  void setAppActive(bool active) {
+    _isAppActive = active;
+  }
 
   /// Call when app resumes from background.
   void onAppResumed() {

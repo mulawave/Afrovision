@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/api/api_service.dart';
+import '../services/kyc_service.dart';
 
 class KycScreen extends StatefulWidget {
   const KycScreen({super.key});
@@ -72,8 +73,8 @@ class _KycScreenState extends State<KycScreen>
 
   Future<void> _loadKycStatus() async {
     try {
-      final data = await ApiService.get('/kyc/me');
-      if (data['id'] != null) {
+      final data = await KycService.getMe();
+      if (data != null && data['id'] != null) {
         if (mounted) {
           setState(() {
             _existing = data;
@@ -96,6 +97,7 @@ class _KycScreenState extends State<KycScreen>
     setState(() => _loading = true);
     _animCtrl.reset();
     _existing = null;
+    KycService.invalidate();
     await _loadKycStatus();
   }
 
@@ -183,6 +185,7 @@ class _KycScreenState extends State<KycScreen>
       if (_idBackUrl != null) body['id_back_url'] = _idBackUrl;
 
       await ApiService.post('/kyc/submit', body);
+      KycService.invalidate();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

@@ -1,6 +1,7 @@
 const Channel = require('../channels/channel.model');
 const CreatorStats = require('../channels/creator_stats.model');
 const CreatorDailyStats = require('./creator_daily_stats.model');
+const CreatorSupporter = require('./creator_supporter.model');
 const StreamStats = require('./stream_stats.model');
 const User = require('../users/user.model');
 const { getFirestore } = require('../utils/firestore');
@@ -57,6 +58,21 @@ function _generateInsights(last7Days, todayStats, stats) {
   }
 
   return insights;
+}
+
+function _isIndexError(error) {
+  const message = error?.message || '';
+  return message.includes('requires an index') || message.includes('FAILED_PRECONDITION');
+}
+
+async function _countQuery(query, fallbackValue = null) {
+  try {
+    const snapshot = await query.count().get();
+    return Number(snapshot.data().count || 0);
+  } catch (error) {
+    if (_isIndexError(error)) return fallbackValue;
+    throw error;
+  }
 }
 
 /**
@@ -122,9 +138,9 @@ async function getMyStats(req, res) {
  * GET /creator/streams
  * Recent streams for the authenticated creator.
  */
-function getMyStreams(req, res) {
+async function getMyStreams(req, res) {
   try {
-    const streams = StreamStats.getByCreator(req.userId, 20);
+    const streams = await StreamStats.getByCreator(req.userId, 20);
     res.json({ streams });
   } catch (err) {
     console.error('[Analytics] getMyStreams error:', err.message);
@@ -135,73 +151,35 @@ function getMyStreams(req, res) {
 /**
  * GET /creator/supporters
  * Top supporters by total gift spend on the creator's channels.
- * Aggregates gift_stats Firestore documents; results sorted desc.
+ * Reads maintained creator_supporters aggregates and backfills once for legacy data.
  */
 async function getMyTopSupporters(req, res) {
   try {
-    const db = getFirestore();
+    const myChannelsRaw = await Channel.getByOwner(req.userId);
+    if (myChannelsRaw.length === 0) return res.json({ supporters: [] });
 
-    // Get all channel IDs owned by this creator
-    const myChannelsRaw = Channel.getByOwner(req.userId);
-    const myChannels = myChannelsRaw.map((c) => c.id);
-    const channelTypeById = new Map(
-      myChannelsRaw.map((channel) => [channel.id, channel.type || 'public']),
-    );
-    if (myChannels.length === 0) return res.json({ supporters: [] });
-
-    // Firestore `in` query max 10 items — chunk
-    const CHUNK = 10;
-    const chunks = [];
-    for (let i = 0; i < myChannels.length; i += CHUNK) {
-      chunks.push(myChannels.slice(i, i + CHUNK));
+    let topSupporters = await CreatorSupporter.getTopSupporters(req.userId, 10);
+    if (topSupporters.length === 0) {
+      await CreatorSupporter.backfillForCreator(req.userId, myChannelsRaw);
+      topSupporters = await CreatorSupporter.getTopSupporters(req.userId, 10);
     }
 
-    const totals = {}; // key -> { uid, name, ngn, vpt }
-
-    await Promise.all(
-      chunks.map(async (chunk) => {
-        const snapshot = await db.collection('gift_stats')
-          .where('channel_id', 'in', chunk)
-          .get();
-        snapshot.forEach((doc) => {
-          const d = doc.data();
-          const channelType = channelTypeById.get(d.channel_id) || 'public';
-
-          if (channelType === 'private') {
-            const alias = d.sender_alias || 'Anonymous';
-            const key = `anon:${d.channel_id}:${alias}`;
-            if (!totals[key]) {
-              totals[key] = { uid: '', name: alias, ngn: 0, vpt: 0 };
-            }
-            totals[key].ngn += (d.naira || 0) * 0.5;
-            totals[key].vpt += Math.floor((d.vpt_units || 0) * 0.5);
-            return;
-          }
-
-          const uid = d.sender_uid;
-          if (!uid) return;
-          const key = `uid:${uid}`;
-          if (!totals[key]) {
-            totals[key] = { uid, name: null, ngn: 0, vpt: 0 };
-          }
-          totals[key].ngn += (d.naira || 0) * 0.5; // creator's 50% share
-          totals[key].vpt += Math.floor((d.vpt_units || 0) * 0.5);
-        });
-      }),
+    const usersById = new Map(
+      await Promise.all(
+        [...new Set(topSupporters.map((entry) => entry.sender_uid).filter(Boolean))]
+          .map(async (uid) => [uid, await User.findById(uid)]),
+      ),
     );
 
-    const supporters = Object.entries(totals)
-      .map(([, data]) => {
-        const user = data.uid ? User.findById(data.uid) : null;
-        return {
-          uid: data.uid,
-          name: data.name || user?.name || user?.email || 'Anonymous',
-          total_gifts_ngn: Math.round(data.ngn),
-          total_gifts_vpt: data.vpt,
-        };
-      })
-      .sort((a, b) => (b.total_gifts_ngn + b.total_gifts_vpt) - (a.total_gifts_ngn + a.total_gifts_vpt))
-      .slice(0, 10);
+    const supporters = topSupporters.map((entry) => {
+      const user = entry.sender_uid ? usersById.get(entry.sender_uid) : null;
+      return {
+        uid: entry.sender_uid || '',
+        name: entry.sender_alias || user?.name || user?.email || 'Anonymous',
+        total_gifts_ngn: Math.round(entry.total_gifts_ngn || 0),
+        total_gifts_vpt: Math.round(entry.total_gifts_vpt || 0),
+      };
+    });
 
     res.json({ supporters });
   } catch (err) {
@@ -219,11 +197,11 @@ async function endMyStream(req, res) {
     const { channel_id } = req.body;
     if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
 
-    const channel = Channel.findById(channel_id);
+    const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.owner_id !== req.userId) return res.status(403).json({ error: 'Not your channel' });
 
-    const active = StreamStats.getActiveByChannel(channel_id);
+    const active = await StreamStats.getActiveByChannel(channel_id);
     if (!active) return res.json({ message: 'No active stream to end' });
 
     const ended = await StreamStats.endStream(active.id);
@@ -240,13 +218,13 @@ async function endMyStream(req, res) {
  */
 async function adminGetCreatorStats(req, res) {
   try {
-    const caller = User.findById(req.userId);
+    const caller = await User.findById(req.userId);
     if (!caller || caller.role !== 'admin') {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
     const { uid } = req.params;
-    const creator = User.findById(uid);
+    const creator = await User.findById(uid);
     if (!creator) return res.status(404).json({ error: 'Creator not found' });
 
     const [todayStats, last7Days, stats] = await Promise.all([
@@ -305,53 +283,47 @@ async function getChannelAnalytics(req, res) {
     const sinceMs = now - days * 24 * 60 * 60 * 1000;
 
     const db = getFirestore();
+    const eventBaseQuery = db.collection('channel_events')
+      .where('channel_id', '==', channel_id)
+      .where('created_at', '>=', sinceMs);
+    const messageBaseQuery = db.collection('channel_chats').doc(channel_id).collection('messages')
+      .where('created_at', '>=', sinceMs);
+    const sampleEventLimit = Math.min(Math.max(days * 20, 250), 1000);
 
-    // ── Fetch in parallel: events + stream stats + daily stats
-    const [eventsSnap, channelStreams, dailyDocs, chatSnap] = await Promise.all([
-      db.collection('channel_events')
-        .where('channel_id', '==', channel_id)
-        .where('created_at', '>=', sinceMs)
-        .orderBy('created_at', 'asc')
-        .limit(5000)
-        .get(),
+    // Use exact counts for totals and a bounded event sample for hourly/demographic breakdowns.
+    const [reactionCount, giftEventCountRaw, totalComments, eventSampleSnap, channelStreams, dailyDocs] = await Promise.all([
+      _countQuery(eventBaseQuery.where('type', '==', 'reaction')),
+      _countQuery(eventBaseQuery.where('type', '==', 'gift')),
+      _countQuery(messageBaseQuery, 0),
+      eventBaseQuery
+        .orderBy('created_at', 'desc')
+        .limit(sampleEventLimit)
+        .get()
+        .catch(async (error) => {
+          if (!_isIndexError(error)) throw error;
+          return eventBaseQuery.limit(sampleEventLimit).get();
+        }),
       StreamStats.getByChannel ? StreamStats.getByChannel(channel_id) : [],
       db.collection('creator_daily_stats')
         .where('creator_uid', '==', creatorUid)
         .orderBy('date', 'desc')
         .limit(days)
         .get(),
-      db.collection('channel_chats').doc(channel_id).collection('messages')
-        .where('created_at', '>=', sinceMs)
-        .limit(2000)
-        .get().catch(() => ({ size: 0, forEach: () => {} })),
     ]);
 
-    const events = eventsSnap.docs.map((d) => d.data());
-    const reactions = events.filter((e) => e.type === 'reaction');
+    const events = eventSampleSnap.docs.map((d) => d.data());
     const giftEvents = events.filter((e) => e.type === 'gift');
-    const viewEvents = events.filter((e) => e.type === 'view');
-    const totalComments = chatSnap.size || 0;
+    const totalReactions = reactionCount ?? events.filter((e) => e.type === 'reaction').length;
+    const totalGiftsCount = giftEventCountRaw ?? giftEvents.length;
 
-    // ── Derive views from channel_events (unique senders = unique viewers)
-    // Anyone who sent a reaction, gift, comment, or view event has viewed the channel
-    const allSendersByDay = {};
+    // Use a bounded event sample for hourly activity and demographic enrichment only.
+    const sampledSendersByDay = {};
     for (const ev of events) {
       if (!ev.sender_uid) continue;
       const dayKey = new Date(ev.created_at).toISOString().split('T')[0];
-      if (!allSendersByDay[dayKey]) allSendersByDay[dayKey] = new Set();
-      allSendersByDay[dayKey].add(ev.sender_uid);
+      if (!sampledSendersByDay[dayKey]) sampledSendersByDay[dayKey] = new Set();
+      sampledSendersByDay[dayKey].add(ev.sender_uid);
     }
-    // Also count chat senders as viewers
-    const chatSendersByDay = {};
-    chatSnap.forEach((doc) => {
-      const msg = doc.data();
-      if (!msg.sender_uid) return;
-      const dayKey = new Date(msg.created_at).toISOString().split('T')[0];
-      if (!chatSendersByDay[dayKey]) chatSendersByDay[dayKey] = new Set();
-      chatSendersByDay[dayKey].add(msg.sender_uid);
-      if (!allSendersByDay[dayKey]) allSendersByDay[dayKey] = new Set();
-      allSendersByDay[dayKey].add(msg.sender_uid);
-    });
 
     // ── Viewer activity by hour of day (based on event timestamps)
     const hourBuckets = Array.from({ length: 24 }, (_, h) => ({ hour: h, events: 0 }));
@@ -374,8 +346,8 @@ async function getChannelAnalytics(req, res) {
       const dt = new Date(now - i * 24 * 60 * 60 * 1000);
       const key = dt.toISOString().split('T')[0];
       const d = dailyMap[key] || {};
-      // Use daily stats if available; otherwise derive from channel_events unique senders
-      const derivedUniqueViewers = allSendersByDay[key] ? allSendersByDay[key].size : 0;
+      // Prefer daily stats; fall back to the bounded event sample if stats are missing.
+      const derivedUniqueViewers = sampledSendersByDay[key] ? sampledSendersByDay[key].size : 0;
       const statsViewers = d.total_viewers || 0;
       const statsUnique = d.unique_viewers || 0;
       timeline.push({
@@ -407,23 +379,21 @@ async function getChannelAnalytics(req, res) {
       ? Math.max(...filteredStreams.map((s) => s.peak_viewers || 0))
       : 0;
 
-    // ── Gift totals from gift_events
-    let totalGiftsNgn = 0;
-    let totalGiftsVpt = 0;
-    giftEvents.forEach((e) => {
-      totalGiftsNgn += e.naira || e.ngn || 0;
-      totalGiftsVpt += e.vpt_units || e.vpt || 0;
-    });
+    // Use daily aggregates instead of scanning raw gift events for the full period.
+    const totalGiftsNgn = timeline.reduce((sum, day) => sum + (day.gifts_ngn || 0), 0);
+    const totalGiftsVpt = timeline.reduce((sum, day) => sum + (day.gifts_vpt || 0), 0);
 
-    // ── Demographics from KYC records of unique senders
+    // ── Demographics from KYC records of sampled unique senders
     const senderUids = [...new Set(events.map((e) => e.sender_uid).filter(Boolean))];
 
     const genderCounts = { male: 0, female: 0, non_binary: 0, prefer_not_to_say: 0, unknown: 0 };
     const ageCounts = { '13-17': 0, '18-24': 0, '25-34': 0, '35-44': 0, '45-54': 0, '55+': 0, unknown: 0 };
     const countryMap = {};
 
+    const kycRecordsByUser = await KycModel.findManyByUserIds(senderUids);
+
     for (const uid of senderUids) {
-      const kyc = KycModel.findByUserId(uid);
+      const kyc = kycRecordsByUser.get(uid);
       if (!kyc) { genderCounts.unknown++; ageCounts.unknown++; continue; }
 
       // Gender
@@ -476,9 +446,9 @@ async function getChannelAnalytics(req, res) {
         unique_viewers: timeline.reduce((s, d) => s + d.unique_viewers, 0),
         peak_viewers: peakViewers,
         peak_hour: peakHourLabel,
-        total_reactions: reactions.length,
+        total_reactions: totalReactions,
         total_comments: totalComments,
-        total_gifts_count: giftEvents.length,
+        total_gifts_count: totalGiftsCount,
         total_gifts_ngn: Math.round(totalGiftsNgn),
         total_gifts_vpt: Math.round(totalGiftsVpt),
         weekly_views: weeklyViews,

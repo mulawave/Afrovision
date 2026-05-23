@@ -138,5 +138,4 @@ _(Currencies are currently hardcoded with static rates)_
 - [ ] **Activity Log** — GET `/admin/activity` — recent admin actions audit trail
 - [ ] **Notification System** — POST `/admin/notifications` — send system notifications to users
 - [ ] **Maintenance Mode** — POST `/admin/maintenance` — toggle maintenance mode (block non-admin requests)
-- [ ] **Rate Limiting Config** — configurable rate limits per endpoint group
 - [ ] **Backup/Export** — GET `/admin/export` — export all data as JSON (for migration to database)

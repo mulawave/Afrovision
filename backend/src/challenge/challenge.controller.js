@@ -21,12 +21,12 @@ const UserModel = require('../users/user.model');
 
 async function getActiveChallenge(req, res) {
   try {
-    const ch = ChallengeModel.getActiveChallenge();
+    const ch = await ChallengeModel.getActiveChallenge();
     if (!ch) return res.status(404).json({ error: 'No active challenge' });
 
     // Public view — strip admin-only fields
     const { judges, sponsors, ...publicData } = ch;
-    publicData.registration_count = ChallengeModel.countRegistrations(ch.id);
+    publicData.registration_count = await ChallengeModel.countRegistrations(ch.id);
     res.json(publicData);
   } catch (err) {
     console.error('[Challenge] getActive error:', err);
@@ -37,24 +37,24 @@ async function getActiveChallenge(req, res) {
 async function registerForChallenge(req, res) {
   try {
     const userId = req.userId;
-    const user = UserModel.findById(userId);
+    const user = await UserModel.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     // Must have verified email (active account)
     if (user.deleted_at) return res.status(403).json({ error: 'Account is deactivated' });
 
-    const ch = ChallengeModel.getActiveChallenge();
+    const ch = await ChallengeModel.getActiveChallenge();
     if (!ch) return res.status(404).json({ error: 'No active challenge' });
-    if (ch.phase !== 'registration') {
+    if (!['registration-and-audition', 'registration'].includes(ch.phase)) {
       return res.status(400).json({ error: 'Registration phase is not open' });
     }
 
     // Check if already registered
-    const existing = ChallengeModel.getRegistrationByUserId(ch.id, userId);
+    const existing = await ChallengeModel.getRegistrationByUserId(ch.id, userId);
     if (existing) return res.status(409).json({ error: 'Already registered', registration: existing });
 
     // Check max contestants
-    const count = ChallengeModel.countRegistrations(ch.id);
+    const count = await ChallengeModel.countRegistrations(ch.id);
     if (ch.max_contestants && count >= ch.max_contestants) {
       return res.status(400).json({ error: 'Maximum contestants reached' });
     }
@@ -94,10 +94,10 @@ async function registerForChallenge(req, res) {
 
 async function getMyRegistration(req, res) {
   try {
-    const ch = ChallengeModel.getActiveChallenge();
+    const ch = await ChallengeModel.getActiveChallenge();
     if (!ch) return res.status(404).json({ error: 'No active challenge' });
 
-    const reg = ChallengeModel.getRegistrationByUserId(ch.id, req.userId);
+    const reg = await ChallengeModel.getRegistrationByUserId(ch.id, req.userId);
     if (!reg) return res.status(404).json({ error: 'Not registered' });
     res.json(reg);
   } catch (err) {
@@ -108,10 +108,10 @@ async function getMyRegistration(req, res) {
 
 async function listContestants(req, res) {
   try {
-    const ch = ChallengeModel.getActiveChallenge();
+    const ch = await ChallengeModel.getActiveChallenge();
     if (!ch) return res.status(404).json({ error: 'No active challenge', items: [] });
 
-    const approved = ChallengeModel.getApprovedRegistrations(ch.id);
+    const approved = await ChallengeModel.getApprovedRegistrations(ch.id);
     // Return only public-safe fields
     const publicList = approved.map((r) => ({
       id: r.id,
@@ -135,7 +135,7 @@ async function listContestants(req, res) {
 
 async function adminListChallenges(req, res) {
   try {
-    const list = ChallengeModel.listChallenges();
+    const list = await ChallengeModel.listChallenges();
     res.json({ items: list, total: list.length });
   } catch (err) {
     console.error('[Challenge] adminList error:', err);
@@ -166,7 +166,7 @@ async function adminUpdateChallenge(req, res) {
 
 async function adminAdvancePhase(req, res) {
   try {
-    const ch = ChallengeModel.getChallengeById(req.params.id);
+    const ch = await ChallengeModel.getChallengeById(req.params.id);
     if (!ch) return res.status(404).json({ error: 'Challenge not found' });
 
     const currentIdx = ChallengeModel.PHASES.indexOf(ch.phase);
@@ -184,41 +184,24 @@ async function adminAdvancePhase(req, res) {
 }
 
 async function adminListRegistrations(req, res) {
-  try {
-    const { status, limit, offset } = req.query;
-    const result = ChallengeModel.listRegistrations({
-      challenge_id: req.params.id,
-      status,
-      limit: limit ? Number(limit) : 50,
-      offset: offset ? Number(offset) : 0,
-    });
-    res.json(result);
-  } catch (err) {
-    console.error('[Challenge] adminListRegistrations error:', err);
-    res.status(500).json({ error: 'Failed to list registrations' });
-  }
+  return res.status(410).json({
+    error: 'Legacy challenge registrations are disabled. Use /challenge/admin/audition-signups.',
+    code: 'CHALLENGE_REGISTRATIONS_DISABLED',
+  });
 }
 
 async function adminUpdateRegistration(req, res) {
-  try {
-    const reg = await ChallengeModel.updateRegistration(req.params.regId, req.body);
-    if (!reg) return res.status(404).json({ error: 'Registration not found' });
-    res.json(reg);
-  } catch (err) {
-    console.error('[Challenge] adminUpdateRegistration error:', err);
-    res.status(500).json({ error: 'Failed to update registration' });
-  }
+  return res.status(410).json({
+    error: 'Legacy challenge registrations are disabled. Use /challenge/admin/audition-signups.',
+    code: 'CHALLENGE_REGISTRATIONS_DISABLED',
+  });
 }
 
 async function adminDeleteRegistration(req, res) {
-  try {
-    const removed = await ChallengeModel.deleteRegistration(req.params.regId);
-    if (!removed) return res.status(404).json({ error: 'Registration not found' });
-    res.json({ message: 'Registration deleted' });
-  } catch (err) {
-    console.error('[Challenge] adminDeleteRegistration error:', err);
-    res.status(500).json({ error: 'Failed to delete registration' });
-  }
+  return res.status(410).json({
+    error: 'Legacy challenge registrations are disabled. Use /challenge/admin/audition-signups.',
+    code: 'CHALLENGE_REGISTRATIONS_DISABLED',
+  });
 }
 
 async function adminDeleteChallenge(req, res) {
@@ -233,19 +216,10 @@ async function adminDeleteChallenge(req, res) {
 }
 
 async function adminListAllRegistrations(req, res) {
-  try {
-    const { status, limit, offset } = req.query;
-    const result = ChallengeModel.listRegistrations({
-      challenge_id: undefined,
-      status,
-      limit: limit ? Number(limit) : 200,
-      offset: offset ? Number(offset) : 0,
-    });
-    res.json({ registrations: result.items, total: result.total });
-  } catch (err) {
-    console.error('[Challenge] adminListAllRegistrations error:', err);
-    res.status(500).json({ error: 'Failed to list registrations' });
-  }
+  return res.status(410).json({
+    error: 'Legacy challenge registrations are disabled. Use /challenge/admin/audition-signups.',
+    code: 'CHALLENGE_REGISTRATIONS_DISABLED',
+  });
 }
 
 module.exports = {

@@ -66,14 +66,14 @@ async function authenticateSocket(socket, next) {
 }
 
 function registerJoinHandler(socket) {
-  socket.on('channel:join', (payload = {}, ack = () => {}) => {
+  socket.on('channel:join', async (payload = {}, ack = () => {}) => {
     const channelId = payload.channelId;
     if (!channelId) {
       ack({ ok: false, error: 'channelId is required', code: 'CHANNEL_ID_REQUIRED' });
       return;
     }
 
-    const access = ChatService.ensureChatAccess(socket.data.userId, channelId);
+    const access = await ChatService.ensureChatAccess(socket.data.userId, channelId);
     if (!access.ok) {
       ack({ ok: false, error: access.error, code: access.code, status: access.status });
       return;

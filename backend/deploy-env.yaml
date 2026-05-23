@@ -1,4 +1,9 @@
 FIREBASE_PROJECT_ID: raven-ai-6ff76
 GCS_BUCKET: afrovision-media
 ENVIRONMENT: production
-ALLOWED_ORIGINS: "https://afrovision.online,https://admin.afrovision.online,https://afrovision-website.web.app,https://afrovision-admin.web.app"
+WEBSITE_URL: https://afrovision.online
+ALLOWED_ORIGINS: "https://afrovision-website-134538542038.us-central1.run.app,https://afrovision-admin-134538542038.us-central1.run.app,https://afrovision.online,https://admin.afrovision.online"
+# Kill-switch for external link-based streaming (AV-STR-010).
+# Set to 'false' to disable resolve-source, recheck-source, and non-native
+# external-source assignments without a code redeployment.
+EXTERNAL_STREAMING_ENABLED: "true"
