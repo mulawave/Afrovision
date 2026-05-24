@@ -531,6 +531,30 @@ export function ExternalStreamPlayer({
     videoRef.current.muted = volume === 0;
   }, [volume]);
 
+  // Detect embedded subtitle tracks on native uploads and apply subtitle visibility.
+  useEffect(() => {
+    if (!videoRef.current || !isVideoRuntime) return;
+    const video = videoRef.current;
+
+    const syncEmbeddedTracks = () => {
+      const tracks = video.textTracks;
+      const hasEmbeddedTracks = (tracks?.length ?? 0) > 0;
+      if (hasEmbeddedTracks) {
+        setMeta((prev) => ({ ...prev, hasSubtitlesTracks: true }));
+      }
+      for (let i = 0; i < tracks.length; i += 1) {
+        tracks[i].mode = subtitlesEnabled ? "showing" : "hidden";
+      }
+    };
+
+    video.addEventListener("loadedmetadata", syncEmbeddedTracks);
+    window.setTimeout(syncEmbeddedTracks, 0);
+
+    return () => {
+      video.removeEventListener("loadedmetadata", syncEmbeddedTracks);
+    };
+  }, [isVideoRuntime, subtitlesEnabled, activePlaybackUrl]);
+
   // Audio track switch via hls.js
   useEffect(() => {
     if (activeAudioTrack === null || !hlsRef.current) return;
@@ -813,8 +837,8 @@ export function ExternalStreamPlayer({
             </svg>
           </button>
 
-          {/* Quality selector (HLS) with Auto mode */}
-          {runtimeMode === "hls" && qualityOptions.length > 0 && (
+          {/* Quality selector with Auto mode; HLS exposes additional fixed levels */}
+          {isVideoRuntime && qualityOptions.length > 0 && (
             <div className="relative">
               <button
                 onClick={() => { setShowQualityMenu((v) => !v); setShowAudioMenu(false); setShowSubMenu(false); }}

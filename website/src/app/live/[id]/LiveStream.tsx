@@ -5,7 +5,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LivePlayer } from "@/components/LivePlayer";
 import { ExternalStreamPlayer } from "@/components/ExternalStreamPlayer";
 import { ChannelSurfer } from "@/components/ChannelSurfer";
 import { AdBreak } from "@/components/AdBreak";
@@ -404,6 +403,16 @@ export function LiveStream({ id }: { id: string }) {
   const isExternalSource = !!channel?.stream_source_mode && channel.stream_source_mode !== "native";
   const extStreamStatus = channel?.stream_status ?? "unknown";
   const extPlaybackUrl = channel?.resolved_playback_url ?? channel?.external_url ?? null;
+  const nativePlaybackUrl = nowPlaying?.video_url ? resolveWebsiteMediaUrl(nowPlaying.video_url) : null;
+  const playbackUrl = isExternalSource ? extPlaybackUrl : nativePlaybackUrl;
+  const streamMode = isExternalSource ? channel?.stream_source_mode : "external_url";
+  const playbackStatus = isExternalSource
+    ? extStreamStatus
+    : nowPlaying
+      ? "live"
+      : schedule.length > 0
+        ? "scheduled"
+        : "offline";
   const handleSelectSurferChannel = useCallback((channelId: string) => {
     if (channelId === id || pendingChannelId) return;
     setPendingChannelId(channelId);
@@ -572,72 +581,48 @@ export function LiveStream({ id }: { id: string }) {
                   </div>
                 </div>
               )}
-              {/* ── External source player (AV-STR-003) ── */}
-              {isExternalSource ? (
-                <div className="relative w-full overflow-hidden rounded-2xl bg-black" style={{ aspectRatio: "16/9" }}>
-                  <ExternalStreamPlayer
-                    currentChannel={channel}
-                    availableChannels={surferChannels}
-                    onSelectChannel={handleSelectSurferChannel}
-                    channelName={channelName}
-                    channelLogoUrl={channel?.logo_url ?? null}
-                    streamSourceMode={channel?.stream_source_mode}
-                    playbackUrl={extPlaybackUrl}
-                    streamStatus={extStreamStatus}
-                  />
+              <div className="relative w-full overflow-hidden rounded-2xl bg-black" style={{ aspectRatio: "16/9" }}>
+                <ExternalStreamPlayer
+                  currentChannel={channel}
+                  availableChannels={surferChannels}
+                  onSelectChannel={handleSelectSurferChannel}
+                  channelName={channelName}
+                  channelLogoUrl={channel?.logo_url ?? null}
+                  streamSourceMode={streamMode}
+                  playbackUrl={playbackUrl}
+                  streamStatus={playbackStatus}
+                />
+              </div>
 
+              {/* ── DSTV-style Ad Break Overlay ── */}
+              {showAdBreak && adBreakAds.length > 0 && (
+                <AdBreak
+                  ads={adBreakAds}
+                  channelName={channelName}
+                  channelId={id}
+                  onImpression={handleAdImpression}
+                  onComplete={handleAdBreakComplete}
+                />
+              )}
 
+              {/* ── Flash Screen (Coming Up Next / Now Playing) ── */}
+              {flashType && !showAdBreak && (
+                <FlashScreen
+                  type={flashType}
+                  title={flashTitle}
+                  channelName={channelName}
+                  durationMs={4000}
+                  onComplete={hideFlash}
+                />
+              )}
+
+              {/* Gift overlay animation */}
+              {giftOverlay && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                  <div className="gift-send-animation text-6xl bg-black/30 backdrop-blur-sm px-8 py-4 rounded-2xl">
+                    {giftOverlay}
+                  </div>
                 </div>
-              ) : (
-                <>
-                  <LivePlayer
-                    channelName={channelName}
-                    channelLogoUrl={channel?.logo_url ?? undefined}
-                    title={streamTitle}
-                    viewers={0}
-                    isLive={!!nowPlaying}
-                    streamUrl={nowPlaying?.video_url ? resolveWebsiteMediaUrl(nowPlaying.video_url) : undefined}
-                    startTime={nowPlaying?.start_time}
-                    duration={nowPlaying?.duration}
-                    isLoop={nowPlaying?.is_loop}
-                    onProgramEnd={refreshLiveData}
-                    adPlaying={showAdBreak}
-                    currentChannel={channel}
-                    availableChannels={surferChannels}
-                    onSelectChannel={handleSelectSurferChannel}
-                  />
-
-                  {/* ── DSTV-style Ad Break Overlay ── */}
-                  {showAdBreak && adBreakAds.length > 0 && (
-                    <AdBreak
-                      ads={adBreakAds}
-                      channelName={channelName}
-                      channelId={id}
-                      onImpression={handleAdImpression}
-                      onComplete={handleAdBreakComplete}
-                    />
-                  )}
-
-                  {/* ── Flash Screen (Coming Up Next / Now Playing) ── */}
-                  {flashType && !showAdBreak && (
-                    <FlashScreen
-                      type={flashType}
-                      title={flashTitle}
-                      channelName={channelName}
-                      durationMs={4000}
-                      onComplete={hideFlash}
-                    />
-                  )}
-
-                  {/* Gift overlay animation */}
-                  {giftOverlay && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                      <div className="gift-send-animation text-6xl bg-black/30 backdrop-blur-sm px-8 py-4 rounded-2xl">
-                        {giftOverlay}
-                      </div>
-                    </div>
-                  )}
-                </>
               )}
             </div>
 

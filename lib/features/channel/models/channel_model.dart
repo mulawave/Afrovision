@@ -94,50 +94,84 @@ class ChannelModel {
   bool get isStreamLive => streamStatus == 'live';
   bool get isStreamScheduled => streamStatus == 'scheduled';
 
+  static String _asString(dynamic value, {String fallback = ''}) {
+    if (value == null) return fallback;
+    return value.toString();
+  }
+
+  static String? _asNullableString(dynamic value) {
+    if (value == null) return null;
+    final parsed = value.toString();
+    return parsed.isEmpty ? null : parsed;
+  }
+
+  static bool _asBool(dynamic value, {bool fallback = false}) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      if (normalized == 'true' || normalized == '1') return true;
+      if (normalized == 'false' || normalized == '0') return false;
+    }
+    return fallback;
+  }
+
   factory ChannelModel.fromJson(Map<String, dynamic> json) {
     return ChannelModel(
-      id: json['id'] as String,
-      ownerId: json['owner_id'] as String,
-      name: json['name'] as String,
-      description: json['description'] as String?,
-      category: json['category'] as String?,
-      type: json['type'] as String,
-      channelNumber: json['channel_number'] as String,
-      logoUrl: json['logo_url'] as String?,
-      bannerUrl: json['banner_url'] as String?,
-      isActive: json['is_active'] as bool? ?? true,
-      createdAt: json['created_at'] as String,
-      ownerName: json['owner_name'] as String?,
+      id: _asString(json['id']),
+      ownerId: _asString(json['owner_id']),
+      name: _asString(json['name']),
+      description: _asNullableString(json['description']),
+      category: _asNullableString(json['category']),
+      type: _asString(json['type'], fallback: 'public'),
+      channelNumber: _asString(json['channel_number']),
+      logoUrl: _asNullableString(json['logo_url']),
+      bannerUrl: _asNullableString(json['banner_url']),
+      isActive: _asBool(json['is_active'], fallback: true),
+      createdAt: _asString(json['created_at']),
+      ownerName: _asNullableString(json['owner_name']),
       followersCount: (json['followers_count'] as num?)?.toInt() ?? 0,
-      requiresPayment: json['requires_payment'] as bool? ?? false,
-      entryFeeType: json['entry_fee_type'] as String?,
+      requiresPayment: _asBool(json['requires_payment']),
+      entryFeeType: _asNullableString(json['entry_fee_type']),
       entryFeeVptUnits: (json['entry_fee_vpt_units'] as num?)?.toInt() ?? 0,
       entryFeeNgn: (json['entry_fee_ngn'] as num?)?.toDouble() ?? 0,
       accessDurationMinutes:
           (json['access_duration_minutes'] as num?)?.toInt() ?? 120,
-      isSubscriberOnly: json['is_subscriber_only'] as bool? ?? false,
-      isPremiumChannel: json['is_premium_channel'] as bool? ?? false,
+      isSubscriberOnly: _asBool(json['is_subscriber_only']),
+      isPremiumChannel: _asBool(json['is_premium_channel']),
       subscriptionPriceNgn:
           (json['subscription_price_ngn'] as num?)?.toDouble() ?? 0,
       subscriptionIntervalCount:
           (json['subscription_interval_count'] as num?)?.toInt() ?? 1,
-      subscriptionIntervalUnit:
-          json['subscription_interval_unit'] as String? ?? 'month',
-      premiumElevationStatus:
-          json['premium_elevation_status'] as String? ?? 'none',
+      subscriptionIntervalUnit: _asString(
+        json['subscription_interval_unit'],
+        fallback: 'month',
+      ),
+      premiumElevationStatus: _asString(
+        json['premium_elevation_status'],
+        fallback: 'none',
+      ),
       exclusiveMonthlyFeeNgn:
           (json['exclusive_monthly_fee_ngn'] as num?)?.toDouble() ?? 0,
-      exclusiveFeeCurrency: json['exclusive_fee_currency'] as String? ?? 'NGN',
-      exclusiveFeeLastUpdatedAt:
-          json['exclusive_fee_last_updated_at'] as String?,
-      exclusiveFeeLastUpdatedBy:
-          json['exclusive_fee_last_updated_by'] as String?,
-      streamSourceMode: json['stream_source_mode'] as String? ?? 'native',
-      externalProvider: json['external_provider'] as String?,
-      externalUrl: json['external_url'] as String?,
-      resolvedPlaybackUrl: json['resolved_playback_url'] as String?,
-      streamStatus: json['stream_status'] as String? ?? 'unknown',
-      lastCheckedAt: json['last_checked_at'] as String?,
+      exclusiveFeeCurrency: _asString(
+        json['exclusive_fee_currency'],
+        fallback: 'NGN',
+      ),
+      exclusiveFeeLastUpdatedAt: _asNullableString(
+        json['exclusive_fee_last_updated_at'],
+      ),
+      exclusiveFeeLastUpdatedBy: _asNullableString(
+        json['exclusive_fee_last_updated_by'],
+      ),
+      streamSourceMode: _asString(
+        json['stream_source_mode'],
+        fallback: 'native',
+      ),
+      externalProvider: _asNullableString(json['external_provider']),
+      externalUrl: _asNullableString(json['external_url']),
+      resolvedPlaybackUrl: _asNullableString(json['resolved_playback_url']),
+      streamStatus: _asString(json['stream_status'], fallback: 'unknown'),
+      lastCheckedAt: _asNullableString(json['last_checked_at']),
       providerMetadata: (json['provider_metadata'] as Map?)
           ?.cast<String, dynamic>(),
     );
