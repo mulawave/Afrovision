@@ -16,6 +16,8 @@ const {
   generateSignedUploadUrl,
   createResumableUploadSession,
   getGCSObjectMetadata,
+  extractGCSPath,
+  generateSignedReadUrl,
 } = require('../utils/gcs');
 const { getFirestore } = require('../utils/firestore');
 
@@ -30,6 +32,20 @@ const ALLOWED_VIDEO_TYPES = {
 };
 
 const UPLOAD_SESSIONS_COLLECTION = 'broadcast_upload_sessions';
+
+async function resolvePlayableVideoUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+  const gcsPath = extractGCSPath(rawUrl);
+  if (!gcsPath) return rawUrl;
+
+  try {
+    // Keep URL short-lived for browser playback while avoiding ACL assumptions.
+    return await generateSignedReadUrl(gcsPath, 120);
+  } catch (error) {
+    console.warn('[Broadcast] Failed to sign playback URL, falling back to raw URL:', error.message);
+    return rawUrl;
+  }
+}
 
 function buildUploadSessionResponse(session) {
   const isActive = ['initiated', 'uploading', 'paused', 'failed'].includes(session.status);
@@ -802,13 +818,14 @@ async function getNowPlaying(req, res) {
 
     const positionMs = serverTime - program.start_time;
     const positionSec = Math.max(0, Math.floor(positionMs / 1000));
+    const playableVideoUrl = await resolvePlayableVideoUrl(video.video_url);
 
     return res.json({
       now_playing: {
         program_id: program.id,
         channel_id: program.channel_id,
         video_id: video.id,
-        video_url: video.video_url,
+        video_url: playableVideoUrl,
         video_title: video.title,
         video_description: video.description || '',
         thumbnail_url: video.thumbnail_url,
@@ -845,13 +862,14 @@ async function getNowPlaying(req, res) {
       const elapsedMs = serverTime - lastEnded.end_time;
       const elapsedSec = Math.floor(elapsedMs / 1000);
       const loopPosition = elapsedSec % video.duration;
+      const playableVideoUrl = await resolvePlayableVideoUrl(video.video_url);
 
       return res.json({
         now_playing: {
           program_id: lastEnded.id,
           channel_id: lastEnded.channel_id,
           video_id: video.id,
-          video_url: video.video_url,
+          video_url: playableVideoUrl,
           video_title: video.title,
           video_description: video.description || '',
           thumbnail_url: video.thumbnail_url,

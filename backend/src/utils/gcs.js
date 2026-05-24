@@ -118,11 +118,29 @@ async function getGCSObjectMetadata(filename) {
   }
 }
 
+/**
+ * Generate a signed URL for direct client read/download.
+ * @param {string} filename - Object path in bucket (e.g. "videos/uuid.mp4")
+ * @param {number} [expiresMinutes=60] - URL validity in minutes
+ * @returns {Promise<string>} Signed read URL
+ */
+async function generateSignedReadUrl(filename, expiresMinutes = 60) {
+  const bucket = getBucket();
+  const blob = bucket.file(filename);
+  const [url] = await blob.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + expiresMinutes * 60 * 1000,
+  });
+  return url;
+}
+
 module.exports = {
   uploadToGCS,
   deleteFromGCS,
   extractGCSPath,
   generateSignedUploadUrl,
+  generateSignedReadUrl,
   createResumableUploadSession,
   getGCSObjectMetadata,
   BUCKET_NAME,
