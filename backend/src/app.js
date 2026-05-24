@@ -38,9 +38,11 @@ const challengeRoutes = require('./challenge/challenge.routes');
 const kycRoutes = require('./kyc/kyc.routes');
 const adRoutes = require('./ads/ad.routes');
 const subtitleRoutes = require('./subtitles/subtitle.routes');
+const libraryRoutes = require('./library/library.routes');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
 const app = express();
+
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
@@ -111,6 +113,7 @@ app.use('/kyc', kycRoutes);
 app.use('/ads', adRoutes);
 app.use('/subtitles', subtitleRoutes);
 app.use('/reputation', reputationRoutes);
+app.use('/', libraryRoutes);
 
 function getOpsSecret() {
   return process.env.OPS_SECRET || null;

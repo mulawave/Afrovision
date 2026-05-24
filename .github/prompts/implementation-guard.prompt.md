@@ -21,6 +21,7 @@ Blocking behavior:
 - If the request is a new implementation and no compliant tracker exists, STOP and return `Blocked by Implementation Preparation Hook`.
 - In blocked state, create or request the tracker first, then continue implementation only after the checklist is fully satisfied.
 - Do not bypass this hook for speed, urgency, or partial delivery.
+- If code implementation proceeds without updating completion marks in the tracker, STOP and return `Blocked by Implementation Preparation Hook`.
 
 Implement the requested feature or function as a complete end-to-end experience, not as a partial scaffold.
 
@@ -41,6 +42,7 @@ Also confirm all Preparation Hook checklist items are complete:
 - Contracts and non-happy paths are documented
 - Security/observability sections are documented
 - Acceptance criteria and test matrix are present
+- Tracker completion marks are updated for all items completed in this implementation step
 
 Use this standard: if a feature introduces a new visible surface, also build the supporting flow around it so users can meaningfully use it.
 
@@ -59,6 +61,7 @@ Response workflow:
 1.1. Verify the Preparation Hook and cite the tracker file used.
 2. Identify all files, layers, and flows that must change.
 3. Implement the feature end-to-end.
+3.1. Update tracker completion marks in the same implementation pass.
 4. Verify the user experience from entry point to completion, including management actions and non-happy states.
 5. Summarize what is now complete and call out any real blockers or intentionally deferred items.
 

@@ -9,12 +9,14 @@ Follow the project standards in [copilot-instructions](../copilot-instructions.m
 
 Preparation hook validation is mandatory for new implementations:
 - Ensure a tracker exists using [new-feature-end-to-end-implementation-template](../templates/new-feature-end-to-end-implementation-template.md)
+- Ensure tracker completion marks are updated to reflect completed work items in the reviewed change
 - If missing or incomplete, verdict must be `Blocked` or `Not Ready`
 
 Review the provided feature, code, diff, or implementation with a strict completeness standard.
 
 Assess whether the work is actually complete across:
 - Preparation process compliance (tracker/template/hook checklist)
+- Tracker completion-state accuracy (completed/in-progress/not-started marks)
 - User entry points and discovery surfaces
 - Destination pages, dialogs, panels, and linked flows
 - Backend, API, storage, and state wiring

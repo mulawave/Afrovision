@@ -449,6 +449,36 @@ async function cancelVideoUploadSession(req, res) {
   }
 }
 
+async function deleteVideoUploadSession(req, res) {
+  try {
+    const sessionId = req.params.sessionId;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+
+    const db = getFirestore();
+    const ref = db.collection(UPLOAD_SESSIONS_COLLECTION).doc(sessionId);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: 'Upload session not found' });
+
+    const session = snap.data();
+    if (!session || session.creator_uid !== req.userId) {
+      return res.status(403).json({ error: 'Not upload owner' });
+    }
+
+    // Keep active/finalizing sessions immutable for safety.
+    if (['initiated', 'uploading', 'paused', 'finalizing'].includes(session.status)) {
+      return res.status(409).json({
+        error: 'Active upload sessions cannot be deleted. Cancel it first or wait for completion.',
+      });
+    }
+
+    await ref.delete();
+    return res.json({ success: true, session_id: sessionId });
+  } catch (err) {
+    console.error('[Broadcast] deleteVideoUploadSession error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 async function getMyVideoUploadSessions(req, res) {
   try {
     const channelId = typeof req.query.channel_id === 'string' ? req.query.channel_id : null;
@@ -1040,4 +1070,5 @@ module.exports = {
   removeReminder,
   getMyReminders,
   getFlashAudio,
+  deleteVideoUploadSession,
 };

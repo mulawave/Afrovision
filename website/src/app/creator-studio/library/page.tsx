@@ -1,0 +1,969 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import {
+  archiveCreatorChannelLibraryItemApi,
+  Channel,
+  createCreatorLibraryAssetUploadUrlApi,
+  generateCreatorLibraryReaderManifestApi,
+  createCreatorChannelLibraryItemApi,
+  createCreatorChannelLibrarySeriesApi,
+  deleteCreatorChannelLibraryItemApi,
+  getCreatorChannelLibraryItemsApi,
+  getCreatorChannelLibrarySeriesApi,
+  getMyChannelsApi,
+  LibraryItem,
+  LibrarySeries,
+  publishCreatorChannelLibraryItemApi,
+  reorderCreatorChannelLibraryContentApi,
+  uploadFileToGCS,
+} from "@/lib/api";
+
+type ContentType = "book" | "comic" | "magazine" | "other";
+type ItemStatus = "all" | "draft" | "published" | "archived";
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let idx = 0;
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024;
+    idx += 1;
+  }
+  return `${size.toFixed(size >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+export default function CreatorStudioLibraryPage() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [selectedChannelId, setSelectedChannelId] = useState("");
+  const [series, setSeries] = useState<LibrarySeries[]>([]);
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [statusFilter, setStatusFilter] = useState<ItemStatus>("all");
+
+  const [seriesTitle, setSeriesTitle] = useState("");
+  const [seriesDescription, setSeriesDescription] = useState("");
+
+  const [itemTitle, setItemTitle] = useState("");
+  const [itemAuthor, setItemAuthor] = useState("");
+  const [itemDescription, setItemDescription] = useState("");
+  const [itemType, setItemType] = useState<ContentType>("book");
+  const [itemPages, setItemPages] = useState("20");
+  const [itemManifestUrl, setItemManifestUrl] = useState("");
+  const [itemReaderPdfUrl, setItemReaderPdfUrl] = useState("");
+  const [itemCoverUrl, setItemCoverUrl] = useState("");
+  const [itemSeriesId, setItemSeriesId] = useState("");
+  const [itemPdfFileName, setItemPdfFileName] = useState<string | null>(null);
+  const [itemPdfFileSize, setItemPdfFileSize] = useState<number>(0);
+  const [readerPageImages, setReaderPageImages] = useState<Array<{ url: string; name: string; size: number }>>([]);
+  const [manifestUploadProgress, setManifestUploadProgress] = useState(0);
+  const [manifestUploading, setManifestUploading] = useState(false);
+  const [coverUploadProgress, setCoverUploadProgress] = useState(0);
+  const [coverUploading, setCoverUploading] = useState(false);
+
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
+  const pageImagesInputRef = useRef<HTMLInputElement | null>(null);
+
+  const selectedChannel = useMemo(
+    () => channels.find((channel) => channel.id === selectedChannelId) || null,
+    [channels, selectedChannelId],
+  );
+
+  const visibleItems = useMemo(() => {
+    if (statusFilter === "all") return items;
+    return items.filter((item) => item.status === statusFilter);
+  }, [items, statusFilter]);
+
+  const loadChannels = useCallback(async () => {
+    const channelsRes = await getMyChannelsApi();
+    if (!channelsRes.ok || !("channels" in channelsRes.data)) {
+      throw new Error("Failed to load your channels");
+    }
+
+    const exclusiveOnly = channelsRes.data.channels.filter(
+      (channel) => channel.type === "exclusive",
+    );
+    setChannels(exclusiveOnly);
+
+    if (exclusiveOnly.length > 0) {
+      setSelectedChannelId((current) => current || exclusiveOnly[0].id);
+    }
+  }, []);
+
+  const loadLibraryData = useCallback(async (channelId: string) => {
+    const [seriesRes, itemsRes] = await Promise.all([
+      getCreatorChannelLibrarySeriesApi(channelId),
+      getCreatorChannelLibraryItemsApi(channelId),
+    ]);
+
+    if (!seriesRes.ok || !("success" in seriesRes.data)) {
+      throw new Error("Failed to load library series");
+    }
+    if (!itemsRes.ok || !("success" in itemsRes.data)) {
+      throw new Error("Failed to load library items");
+    }
+
+    setSeries(seriesRes.data.data);
+    setItems(itemsRes.data.data);
+  }, []);
+
+  const loadAll = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      await loadChannels();
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  }, [loadChannels]);
+
+  useEffect(() => {
+    void loadAll();
+  }, [loadAll]);
+
+  useEffect(() => {
+    if (!selectedChannelId) {
+      setSeries([]);
+      setItems([]);
+      return;
+    }
+
+    const fetchData = async () => {
+      try {
+        setError(null);
+        await loadLibraryData(selectedChannelId);
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : "Failed to load channel library");
+      }
+    };
+
+    void fetchData();
+  }, [loadLibraryData, selectedChannelId]);
+
+  const refreshActiveChannel = useCallback(async () => {
+    if (!selectedChannelId) return;
+    await loadLibraryData(selectedChannelId);
+  }, [loadLibraryData, selectedChannelId]);
+
+  const handleCreateSeries = async () => {
+    if (!selectedChannelId || !seriesTitle.trim()) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      const res = await createCreatorChannelLibrarySeriesApi(selectedChannelId, {
+        title: seriesTitle.trim(),
+        description: seriesDescription.trim() || undefined,
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to create series");
+      }
+
+      setSeriesTitle("");
+      setSeriesDescription("");
+      setNotice("Series created successfully");
+      await refreshActiveChannel();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Failed to create series");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const uploadLibraryAsset = useCallback(
+    async (file: File, assetType: "cover" | "reader_pdf" | "reader_page", onProgress: (value: number) => void) => {
+      if (!selectedChannelId) {
+        throw new Error("Select a channel first");
+      }
+
+      const uploadUrlRes = await createCreatorLibraryAssetUploadUrlApi(selectedChannelId, {
+        assetType,
+        contentType: file.type,
+        fileName: file.name,
+      });
+
+      if (!uploadUrlRes.ok) {
+        throw new Error(`Failed to prepare ${assetType} upload`);
+      }
+
+      const uploadPayload = uploadUrlRes.data;
+      if (!uploadPayload?.signed_url || !uploadPayload?.public_url) {
+        throw new Error(`Upload URL response missing required fields for ${assetType}`);
+      }
+
+      await uploadFileToGCS(uploadPayload.signed_url, file, onProgress);
+      return uploadPayload.public_url;
+    },
+    [selectedChannelId],
+  );
+
+  const handleReaderPdfSelected = useCallback(
+    async (file: File) => {
+      try {
+        setError(null);
+        setManifestUploading(true);
+        setManifestUploadProgress(0);
+
+        const pdfUrl = await uploadLibraryAsset(file, "reader_pdf", (value) => {
+          setManifestUploadProgress(value);
+        });
+
+        setItemReaderPdfUrl(pdfUrl);
+        setItemPdfFileName(file.name);
+        setItemPdfFileSize(file.size);
+        const manifestRes = await generateCreatorLibraryReaderManifestApi(selectedChannelId, {
+          pdfUrl,
+          pageImageUrls: [],
+        });
+        if (!manifestRes.ok || !manifestRes.data.manifest_url) {
+          throw new Error("Failed to generate manifest from PDF");
+        }
+        setItemManifestUrl(manifestRes.data.manifest_url);
+        if (manifestRes.data.total_pages > 0) {
+          setItemPages(String(manifestRes.data.total_pages));
+        }
+        setNotice("PDF uploaded and reader manifest generated");
+      } catch (uploadError) {
+        setError(uploadError instanceof Error ? uploadError.message : "Failed to upload PDF");
+      } finally {
+        setManifestUploading(false);
+      }
+    },
+    [selectedChannelId, uploadLibraryAsset],
+  );
+
+  const handleReaderPagesSelected = useCallback(
+    async (files: File[]) => {
+      if (!selectedChannelId || files.length === 0) return;
+      try {
+        setError(null);
+        setManifestUploading(true);
+        setManifestUploadProgress(0);
+
+        const uploadedPages: Array<{ url: string; name: string; size: number }> = [];
+        for (let i = 0; i < files.length; i += 1) {
+          const file = files[i];
+          const pageUrl = await uploadLibraryAsset(file, "reader_page", (value) => {
+            const base = (i / files.length) * 100;
+            const scaled = base + value / files.length;
+            setManifestUploadProgress(Math.min(100, Math.round(scaled)));
+          });
+          uploadedPages.push({
+            url: pageUrl,
+            name: file.name,
+            size: file.size,
+          });
+        }
+
+        setReaderPageImages(uploadedPages);
+        const manifestRes = await generateCreatorLibraryReaderManifestApi(selectedChannelId, {
+          pageImageUrls: uploadedPages.map((page) => page.url),
+        });
+
+        if (!manifestRes.ok || !manifestRes.data.manifest_url) {
+          throw new Error("Failed to generate manifest from page images");
+        }
+
+        setItemManifestUrl(manifestRes.data.manifest_url);
+        if (manifestRes.data.pdf_url) {
+          setItemReaderPdfUrl(manifestRes.data.pdf_url);
+        }
+        if (manifestRes.data.total_pages > 0) {
+          setItemPages(String(manifestRes.data.total_pages));
+        }
+        setNotice("Page images uploaded and converted to reader assets");
+      } catch (uploadError) {
+        setError(uploadError instanceof Error ? uploadError.message : "Failed to upload page images");
+      } finally {
+        setManifestUploading(false);
+      }
+    },
+    [selectedChannelId, uploadLibraryAsset],
+  );
+
+  const handleCoverSelected = useCallback(
+    async (file: File) => {
+      try {
+        setError(null);
+        setCoverUploading(true);
+        setCoverUploadProgress(0);
+
+        const coverUrl = await uploadLibraryAsset(file, "cover", (value) => {
+          setCoverUploadProgress(value);
+        });
+
+        setItemCoverUrl(coverUrl);
+        setNotice("Cover image uploaded");
+      } catch (uploadError) {
+        setError(uploadError instanceof Error ? uploadError.message : "Failed to upload cover image");
+      } finally {
+        setCoverUploading(false);
+      }
+    },
+    [uploadLibraryAsset],
+  );
+
+  const handleCreateItem = async () => {
+    if (!selectedChannelId || !itemTitle.trim() || !itemAuthor.trim() || !itemManifestUrl.trim()) {
+      setError("Title, author, and uploaded reader content are required");
+      return;
+    }
+
+    const totalPages = Number(itemPages);
+    if (!Number.isFinite(totalPages) || totalPages <= 0) {
+      setError("Total pages must be a positive number");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      const createRes = await createCreatorChannelLibraryItemApi(selectedChannelId, {
+        title: itemTitle.trim(),
+        author: itemAuthor.trim(),
+        description: itemDescription.trim() || undefined,
+        contentType: itemType,
+        totalPages,
+        readerAssetManifestUrl: itemManifestUrl.trim(),
+        coverAssetUrl: itemCoverUrl.trim() || undefined,
+        seriesId: itemSeriesId || undefined,
+        status: "draft",
+      });
+
+      if (!createRes.ok) {
+        throw new Error("Failed to create library item");
+      }
+
+      setItemTitle("");
+      setItemAuthor("");
+      setItemDescription("");
+      setItemPages("20");
+      setItemManifestUrl("");
+      setItemReaderPdfUrl("");
+      setItemCoverUrl("");
+      setItemPdfFileName(null);
+      setItemPdfFileSize(0);
+      setReaderPageImages([]);
+      setManifestUploadProgress(0);
+      setCoverUploadProgress(0);
+      if (coverInputRef.current) coverInputRef.current.value = "";
+      if (pdfInputRef.current) pdfInputRef.current.value = "";
+      if (pageImagesInputRef.current) pageImagesInputRef.current.value = "";
+      setItemSeriesId("");
+      setNotice("Draft item created successfully");
+      await refreshActiveChannel();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Failed to create item");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePublish = async (itemId: string) => {
+    if (!selectedChannelId) return;
+    try {
+      setSaving(true);
+      setError(null);
+      const res = await publishCreatorChannelLibraryItemApi(selectedChannelId, itemId);
+      if (!res.ok) {
+        throw new Error("Failed to publish item");
+      }
+      setNotice("Item published");
+      await refreshActiveChannel();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Failed to publish item");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleArchive = async (itemId: string) => {
+    if (!selectedChannelId) return;
+    try {
+      setSaving(true);
+      setError(null);
+      const res = await archiveCreatorChannelLibraryItemApi(selectedChannelId, itemId);
+      if (!res.ok) {
+        throw new Error("Failed to archive item");
+      }
+      setNotice("Item archived");
+      await refreshActiveChannel();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Failed to archive item");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (itemId: string) => {
+    if (!selectedChannelId) return;
+
+    const confirmed = window.confirm("Delete this library item? This cannot be undone.");
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      const res = await deleteCreatorChannelLibraryItemApi(selectedChannelId, itemId);
+      if (!res.ok) {
+        throw new Error("Failed to delete item");
+      }
+      setNotice("Item deleted");
+      await refreshActiveChannel();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Failed to delete item");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reorderSeries = async (seriesId: string, direction: "up" | "down") => {
+    if (!selectedChannelId) return;
+    const ordered = [...series].sort((a, b) => a.sortIndex - b.sortIndex);
+    const index = ordered.findIndex((s) => s.id === seriesId);
+    if (index < 0) return;
+
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= ordered.length) return;
+
+    const swapped = [...ordered];
+    [swapped[index], swapped[swapIndex]] = [swapped[swapIndex], swapped[index]];
+
+    const payload = swapped.map((s, idx) => ({
+      seriesId: s.id,
+      sortIndex: idx,
+    }));
+
+    try {
+      setSaving(true);
+      setError(null);
+      const res = await reorderCreatorChannelLibraryContentApi(selectedChannelId, {
+        series: payload,
+      });
+      if (!res.ok) {
+        throw new Error("Failed to reorder series");
+      }
+      setNotice("Series order updated");
+      await refreshActiveChannel();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Failed to reorder series");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reorderSeriesItem = async (itemId: string, direction: "up" | "down") => {
+    if (!selectedChannelId) return;
+
+    const current = items.find((item) => item.id === itemId);
+    if (!current || !current.seriesId) return;
+
+    const siblings = items
+      .filter((item) => item.seriesId === current.seriesId)
+      .sort((a, b) => a.seriesOrderIndex - b.seriesOrderIndex);
+
+    const index = siblings.findIndex((item) => item.id === itemId);
+    if (index < 0) return;
+
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= siblings.length) return;
+
+    const swapped = [...siblings];
+    [swapped[index], swapped[swapIndex]] = [swapped[swapIndex], swapped[index]];
+
+    const payload = swapped.map((item, idx) => ({
+      itemId: item.id,
+      seriesOrderIndex: idx,
+    }));
+
+    try {
+      setSaving(true);
+      setError(null);
+      const res = await reorderCreatorChannelLibraryContentApi(selectedChannelId, {
+        items: payload,
+      });
+      if (!res.ok) {
+        throw new Error("Failed to reorder series items");
+      }
+      setNotice("Series item sequence updated");
+      await refreshActiveChannel();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Failed to reorder series items");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  return (
+    <main className="min-h-screen pb-16 pt-20">
+      <div className="mx-auto max-w-7xl px-6 lg:px-8">
+        <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Library Studio</p>
+            <h1 className="mt-2 text-3xl font-bold text-av-white">Exclusive Channel Library</h1>
+            <p className="mt-2 max-w-3xl text-sm text-av-light-orange">
+              Create series, draft reading items, and control publish/archive lifecycle for your exclusive channels.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/creator-studio"
+              className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
+            >
+              Back to broadcast studio
+            </Link>
+            <Link
+              href="/channels"
+              className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue"
+            >
+              Open discovery
+            </Link>
+          </div>
+        </div>
+
+        {error ? (
+          <div className="mb-6 rounded-2xl border border-av-error/30 bg-av-error/5 p-4 text-sm text-av-error">{error}</div>
+        ) : null}
+
+        {notice ? (
+          <div className="mb-6 rounded-2xl border border-av-success/30 bg-av-success/5 p-4 text-sm text-av-success">{notice}</div>
+        ) : null}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
+          </div>
+        ) : channels.length === 0 ? (
+          <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-8 text-center">
+            <h2 className="text-2xl font-semibold text-av-white">No exclusive channels found</h2>
+            <p className="mt-2 text-sm text-av-light-orange">
+              Library management is available for exclusive channels. Create one in Creator Studio first.
+            </p>
+            <Link
+              href="/create-channel"
+              className="mt-5 inline-flex rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue"
+            >
+              Create exclusive channel
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div className="mb-6 rounded-3xl border border-av-input-border/30 bg-av-card p-5">
+              <label className="text-xs uppercase tracking-[0.24em] text-av-light-orange/80">Active channel</label>
+              <select
+                value={selectedChannelId}
+                onChange={(event) => setSelectedChannelId(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white focus:border-av-orange focus:outline-none"
+              >
+                {channels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    {channel.name}
+                  </option>
+                ))}
+              </select>
+              {selectedChannel ? (
+                <p className="mt-3 text-xs text-av-light-orange/80">
+                  Managing library for {selectedChannel.name}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <section className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+                <h2 className="text-lg font-semibold text-av-white">Create series</h2>
+                <p className="mt-1 text-xs text-av-light-orange/80">Series help readers follow structured content arcs.</p>
+                <input
+                  value={seriesTitle}
+                  onChange={(event) => setSeriesTitle(event.target.value)}
+                  placeholder="Series title"
+                  className="mt-4 w-full rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white placeholder-av-light-orange/60 focus:border-av-orange focus:outline-none"
+                />
+                <textarea
+                  value={seriesDescription}
+                  onChange={(event) => setSeriesDescription(event.target.value)}
+                  placeholder="Series description"
+                  rows={3}
+                  className="mt-3 w-full rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white placeholder-av-light-orange/60 focus:border-av-orange focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={saving || !seriesTitle.trim()}
+                  onClick={handleCreateSeries}
+                  className="mt-4 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Create series
+                </button>
+              </section>
+
+              <section className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+                <h2 className="text-lg font-semibold text-av-white">Create library item</h2>
+                <p className="mt-1 text-xs text-av-light-orange/80">Items start as draft and can be published when ready.</p>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <input
+                    value={itemTitle}
+                    onChange={(event) => setItemTitle(event.target.value)}
+                    placeholder="Title"
+                    className="rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white placeholder-av-light-orange/60 focus:border-av-orange focus:outline-none"
+                  />
+                  <input
+                    value={itemAuthor}
+                    onChange={(event) => setItemAuthor(event.target.value)}
+                    placeholder="Author"
+                    className="rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white placeholder-av-light-orange/60 focus:border-av-orange focus:outline-none"
+                  />
+                  <select
+                    value={itemType}
+                    onChange={(event) => setItemType(event.target.value as ContentType)}
+                    className="rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white focus:border-av-orange focus:outline-none"
+                  >
+                    <option value="book">Book</option>
+                    <option value="comic">Comic</option>
+                    <option value="magazine">Magazine</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <input
+                    value={itemPages}
+                    onChange={(event) => setItemPages(event.target.value)}
+                    type="number"
+                    min={1}
+                    placeholder="Total pages"
+                    className="rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white placeholder-av-light-orange/60 focus:border-av-orange focus:outline-none"
+                  />
+                </div>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-av-input-border/40 bg-av-input/40 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-av-light-orange/75">Book content</p>
+                    <p className="mt-1 text-xs text-av-light-orange/70">Upload one PDF, or upload page images in first-to-last order. We auto-generate reader data for you.</p>
+                    <input
+                      ref={pdfInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        void handleReaderPdfSelected(file);
+                      }}
+                    />
+                    <input
+                      ref={pageImagesInputRef}
+                      type="file"
+                      multiple
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(event) => {
+                        const files = event.target.files ? Array.from(event.target.files) : [];
+                        if (files.length === 0) return;
+                        void handleReaderPagesSelected(files);
+                      }}
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={manifestUploading || !selectedChannelId}
+                        onClick={() => pdfInputRef.current?.click()}
+                        className="rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                      >
+                        {manifestUploading ? "Uploading..." : "Upload PDF"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={manifestUploading || !selectedChannelId}
+                        onClick={() => pageImagesInputRef.current?.click()}
+                        className="rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                      >
+                        {manifestUploading ? "Uploading..." : "Upload page images"}
+                      </button>
+                      {itemManifestUrl ? (
+                        <button
+                          type="button"
+                          disabled={manifestUploading}
+                          onClick={() => {
+                            setItemManifestUrl("");
+                            setItemReaderPdfUrl("");
+                            setItemPdfFileName(null);
+                            setItemPdfFileSize(0);
+                            setReaderPageImages([]);
+                            setManifestUploadProgress(0);
+                            if (pdfInputRef.current) pdfInputRef.current.value = "";
+                            if (pageImagesInputRef.current) pageImagesInputRef.current.value = "";
+                          }}
+                          className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange disabled:opacity-40"
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-av-dark-blue/60">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-av-orange to-av-light-orange transition-all duration-300"
+                        style={{ width: `${Math.max(0, Math.min(100, manifestUploadProgress))}%` }}
+                      />
+                    </div>
+
+                    {itemManifestUrl ? (
+                      <div className="mt-2 space-y-1">
+                        {itemPdfFileName ? (
+                          <p className="text-xs text-av-light-orange/80">PDF: {itemPdfFileName} • {formatBytes(itemPdfFileSize)}</p>
+                        ) : null}
+                        {readerPageImages.length > 0 ? (
+                          <p className="text-xs text-av-light-orange/80">Pages: {readerPageImages.length} image{readerPageImages.length > 1 ? "s" : ""} uploaded</p>
+                        ) : null}
+                        {itemReaderPdfUrl ? (
+                          <a href={itemReaderPdfUrl} target="_blank" rel="noreferrer" className="text-xs text-av-orange hover:text-av-light-orange">
+                            Preview generated PDF
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-av-light-orange/60">No reader content uploaded yet.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-av-input-border/40 bg-av-input/40 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-av-light-orange/75">Cover image (optional)</p>
+                    <p className="mt-1 text-xs text-av-light-orange/70">Upload an image for instant card preview.</p>
+                    <input
+                      ref={coverInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        void handleCoverSelected(file);
+                      }}
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={coverUploading || !selectedChannelId}
+                        onClick={() => coverInputRef.current?.click()}
+                        className="rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                      >
+                        {coverUploading ? "Uploading cover..." : "Upload cover"}
+                      </button>
+                      {itemCoverUrl ? (
+                        <button
+                          type="button"
+                          disabled={coverUploading}
+                          onClick={() => {
+                            setItemCoverUrl("");
+                            setCoverUploadProgress(0);
+                            if (coverInputRef.current) coverInputRef.current.value = "";
+                          }}
+                          className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange disabled:opacity-40"
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-av-dark-blue/60">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-av-orange to-av-light-orange transition-all duration-300"
+                        style={{ width: `${Math.max(0, Math.min(100, coverUploadProgress))}%` }}
+                      />
+                    </div>
+
+                    {itemCoverUrl ? (
+                      <div className="mt-3 overflow-hidden rounded-xl border border-av-input-border/40">
+                        <Image src={itemCoverUrl} alt="Cover preview" width={640} height={224} className="h-28 w-full object-cover" unoptimized />
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-av-light-orange/60">No cover uploaded yet.</p>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  value={itemDescription}
+                  onChange={(event) => setItemDescription(event.target.value)}
+                  rows={3}
+                  placeholder="Description"
+                  className="mt-3 w-full rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white placeholder-av-light-orange/60 focus:border-av-orange focus:outline-none"
+                />
+                <select
+                  value={itemSeriesId}
+                  onChange={(event) => setItemSeriesId(event.target.value)}
+                  className="mt-3 w-full rounded-xl border border-av-input-border bg-av-input px-4 py-3 text-sm text-av-white focus:border-av-orange focus:outline-none"
+                >
+                  <option value="">No series</option>
+                  {series.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  disabled={saving || manifestUploading || coverUploading || !selectedChannelId}
+                  onClick={handleCreateItem}
+                  className="mt-4 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Save as draft
+                </button>
+              </section>
+            </div>
+
+            <div className="mt-8 rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-av-white">Series ordering</h2>
+                <span className="text-xs text-av-light-orange/80">Controls next-book sequencing across each series</span>
+              </div>
+
+              {series.length === 0 ? (
+                <p className="text-sm text-av-light-orange/80">No series created yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {[...series]
+                    .sort((a, b) => a.sortIndex - b.sortIndex)
+                    .map((s, index, orderedSeries) => (
+                      <article key={s.id} className="rounded-2xl border border-av-input-border/30 bg-av-input/35 p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-av-white">{s.title}</p>
+                            <p className="mt-1 text-xs text-av-light-orange/80">Position {index + 1} • {s.status}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              disabled={saving || index === 0}
+                              onClick={() => reorderSeries(s.id, "up")}
+                              className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                            >
+                              Move Up
+                            </button>
+                            <button
+                              type="button"
+                              disabled={saving || index === orderedSeries.length - 1}
+                              onClick={() => reorderSeries(s.id, "down")}
+                              className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                            >
+                              Move Down
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h2 className="text-lg font-semibold text-av-white">Library items</h2>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value as ItemStatus)}
+                  className="rounded-xl border border-av-input-border bg-av-input px-4 py-2.5 text-sm text-av-white focus:border-av-orange focus:outline-none"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+
+              {visibleItems.length === 0 ? (
+                <p className="text-sm text-av-light-orange/80">No items for this filter yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {visibleItems.map((item) => (
+                    <article
+                      key={item.id}
+                      className="rounded-2xl border border-av-input-border/30 bg-av-input/40 p-4"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="text-base font-semibold text-av-white">{item.title}</p>
+                          <p className="mt-1 text-xs text-av-light-orange/80">
+                            {item.author} • {item.contentType} • {item.totalPages} pages
+                          </p>
+                          <p className="mt-1 text-xs text-av-light-orange/70">
+                            {item.seriesId ? `Series sequence #${item.seriesOrderIndex + 1}` : "Standalone item"}
+                          </p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-av-orange/80">{item.status}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {item.seriesId ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => reorderSeriesItem(item.id, "up")}
+                                disabled={saving}
+                                className="rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Seq Up
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => reorderSeriesItem(item.id, "down")}
+                                disabled={saving}
+                                className="rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Seq Down
+                              </button>
+                            </>
+                          ) : null}
+                          {item.status !== "published" ? (
+                            <button
+                              type="button"
+                              onClick={() => handlePublish(item.id)}
+                              disabled={saving}
+                              className="rounded-full bg-av-success/20 px-4 py-2 text-xs font-semibold text-av-success disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Publish
+                            </button>
+                          ) : null}
+                          {item.status !== "archived" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleArchive(item.id)}
+                              disabled={saving}
+                              className="rounded-full bg-av-warning/20 px-4 py-2 text-xs font-semibold text-av-warning disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Archive
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(item.id)}
+                            disabled={saving}
+                            className="rounded-full bg-av-error/20 px-4 py-2 text-xs font-semibold text-av-error disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}

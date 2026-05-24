@@ -10,13 +10,12 @@ import {
   getChannelScheduleApi,
   getMyChannelsApi,
   getMyVideosApi,
-  createVideoResumableSessionApi,
   cancelVideoUploadSessionApi,
-  completeVideoResumableSessionApi,
+  deleteVideoUploadSessionApi,
   getMyVideoUploadSessionsApi,
-  updateVideoUploadSessionProgressApi,
-  getGCSResumableUploadOffset,
-  uploadFileToGCSResumable,
+  getVideoUploadUrlApi,
+  uploadFileToGCS,
+  registerUploadedVideoApi,
   uploadVideoApi,
   scheduleProgramApi,
   scheduleSequentialApi,
@@ -113,6 +112,12 @@ interface UploadEntry {
   registeredVideoId: string | null;
 }
 
+function parseDurationInput(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.round(parsed));
+}
+
 /* ── page component ──────────────────────────────────── */
 
 export default function CreatorStudioPage() {
@@ -140,6 +145,7 @@ export default function CreatorStudioPage() {
   const [recentUploadSessions, setRecentUploadSessions] = useState<VideoUploadSession[]>([]);
   const [loadingUploadSessions, setLoadingUploadSessions] = useState(false);
   const [cancelingSessionId, setCancelingSessionId] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Auto-schedule state
@@ -392,33 +398,30 @@ export default function CreatorStudioPage() {
     );
 
     for (const entry of pending) {
+      let resolvedDuration = entry.duration;
+      if (resolvedDuration <= 0 || entry.detecting) {
+        updateEntry(entry.id, { detecting: true });
+        resolvedDuration = await detectDuration(entry.file);
+        updateEntry(entry.id, { duration: resolvedDuration, detecting: false });
+      }
+
+      if (!Number.isFinite(resolvedDuration) || resolvedDuration <= 0) {
+        updateEntry(entry.id, {
+          error: "Duration detection failed. Set a duration manually before uploading.",
+          progress: -1,
+          detecting: false,
+        });
+        continue;
+      }
+
       const title = entry.title.trim() || titleFromFilename(entry.file.name);
       const description = entry.description.trim();
-      let sessionIdForFailure: string | null = null;
-      let uploadedBytesForFailure = 0;
-
-      const syncSessionProgress = async (
-        sessionId: string,
-        input: {
-          uploadedBytes: number;
-          status: "uploading" | "paused" | "failed";
-          error?: string | null;
-        },
-      ) => {
-        try {
-          await updateVideoUploadSessionProgressApi(sessionId, input);
-        } catch {
-          // Progress sync should not block the upload pipeline.
-        }
-      };
-
-      const fallbackToDirectUpload = async () => {
-        updateEntry(entry.id, { progress: 5, error: null });
+      const fallbackToLegacyUpload = async () => {
         const directRes = await uploadVideoApi({
           channelId: selectedChannelId,
           title,
           description,
-          duration: entry.duration,
+          duration: resolvedDuration,
           file: entry.file,
         });
 
@@ -430,16 +433,6 @@ export default function CreatorStudioPage() {
                 : "Direct upload failed",
             progress: -1,
           });
-          if (sessionIdForFailure) {
-            await syncSessionProgress(sessionIdForFailure, {
-              uploadedBytes: uploadedBytesForFailure,
-              status: "failed",
-              error:
-                "error" in directRes.data
-                  ? directRes.data.error
-                  : "Direct upload failed",
-            });
-          }
           return;
         }
 
@@ -451,135 +444,49 @@ export default function CreatorStudioPage() {
       };
 
       try {
-        // Step 1: Reuse an existing resumable session when possible.
+        // Fast one-shot flow: signed URL upload + register.
         updateEntry(entry.id, { progress: 0, error: null });
-        const matchingSession = recentUploadSessions.find((session) =>
-          session.channel_id === selectedChannelId
-          && session.file_name === entry.file.name
-          && session.total_bytes === entry.file.size
-          && session.content_type === (entry.file.type || "video/mp4")
-          && !["completed", "canceled", "finalizing"].includes(session.status)
-          && Number(session.expires_at || 0) > Date.now()
-          && Boolean(session.upload_url),
-        );
 
-        let uploadSession = matchingSession ?? null;
-        if (!uploadSession) {
-          const sessionRes = await createVideoResumableSessionApi({
-            channelId: selectedChannelId,
-            title,
-            description,
-            duration: entry.duration,
-            fileName: entry.file.name,
-            fileSize: entry.file.size,
-            contentType: entry.file.type || "video/mp4",
-          });
+        const signedRes = await getVideoUploadUrlApi({
+          contentType: entry.file.type || "video/mp4",
+          fileName: entry.file.name,
+        });
 
-          if (!sessionRes.ok || !("session" in sessionRes.data) || !sessionRes.data.session.upload_url) {
-            await fallbackToDirectUpload();
-            continue;
-          }
-          uploadSession = sessionRes.data.session;
-        }
-
-        if (!uploadSession.upload_url) {
-          await fallbackToDirectUpload();
+        if (!signedRes.ok || !("signed_url" in signedRes.data)) {
+          await fallbackToLegacyUpload();
           continue;
         }
 
-        sessionIdForFailure = uploadSession.id;
-
-        await syncSessionProgress(uploadSession.id, {
-          uploadedBytes: 0,
-          status: "uploading",
-          error: null,
+        await uploadFileToGCS(signedRes.data.signed_url, entry.file, (pct) => {
+          updateEntry(entry.id, { progress: pct, error: null });
         });
 
-        // Step 2: Chunked resumable upload with retry and offset recovery.
-        let attempts = 0;
-        let committedOffset = 0;
-        while (attempts < 3) {
-          try {
-            const offset = await getGCSResumableUploadOffset(uploadSession.upload_url, entry.file.size);
-            committedOffset = offset;
-            uploadedBytesForFailure = offset;
-
-            await uploadFileToGCSResumable(uploadSession.upload_url, entry.file, {
-              startOffset: offset,
-              chunkSizeBytes: 8 * 1024 * 1024,
-              onProgress: (pct) => {
-                updateEntry(entry.id, { progress: pct, error: null });
-              },
-              onOffsetChange: (nextOffset) => {
-                committedOffset = nextOffset;
-                uploadedBytesForFailure = nextOffset;
-              },
-            });
-            break;
-          } catch (uploadErr) {
-            attempts += 1;
-            const isLastAttempt = attempts >= 3;
-            if (isLastAttempt) {
-              await syncSessionProgress(uploadSession.id, {
-                uploadedBytes: committedOffset,
-                status: "failed",
-                error: uploadErr instanceof Error ? uploadErr.message : "Resumable upload failed",
-              });
-              throw uploadErr;
-            }
-          }
-        }
-
-        await syncSessionProgress(uploadSession.id, {
-          uploadedBytes: entry.file.size,
-          status: "uploading",
-          error: null,
+        const registerRes = await registerUploadedVideoApi({
+          channelId: selectedChannelId,
+          title,
+          description,
+          duration: resolvedDuration,
+          videoUrl: signedRes.data.public_url,
         });
 
-        // Step 3: Finalize and register uploaded video
-        const completeRes = await completeVideoResumableSessionApi(uploadSession.id);
-
-        if (!completeRes.ok || !("video" in completeRes.data)) {
-          if (completeRes.status === 409) {
-            const sessionRefresh = await getMyVideoUploadSessionsApi(selectedChannelId);
-            if (sessionRefresh.ok && "sessions" in sessionRefresh.data) {
-              const refreshedSession = sessionRefresh.data.sessions.find((session) => session.id === uploadSession.id);
-              if (refreshedSession?.status === "completed" && refreshedSession.video_id) {
-                updateEntry(entry.id, {
-                  progress: 101,
-                  registeredVideoId: refreshedSession.video_id,
-                  error: null,
-                });
-                continue;
-              }
-            }
-          }
-
+        if (!registerRes.ok || !("video" in registerRes.data)) {
           updateEntry(entry.id, {
             error:
-              "error" in completeRes.data
-                ? completeRes.data.error
+              "error" in registerRes.data
+                ? registerRes.data.error
                 : "Registration failed",
             progress: -1,
           });
-          await syncSessionProgress(uploadSession.id, {
-            uploadedBytes: uploadedBytesForFailure,
-            status: "failed",
-            error:
-              "error" in completeRes.data
-                ? completeRes.data.error
-                : "Registration failed",
-          });
-        } else {
-          const vid = completeRes.data.video;
-          updateEntry(entry.id, {
-            progress: 101,
-            registeredVideoId: vid?.id ?? null,
-            error: null,
-          });
+          continue;
         }
+
+        updateEntry(entry.id, {
+          progress: 101,
+          registeredVideoId: registerRes.data.video.id,
+          error: null,
+        });
       } catch {
-        await fallbackToDirectUpload();
+        await fallbackToLegacyUpload();
       }
     }
 
@@ -858,6 +765,19 @@ export default function CreatorStudioPage() {
     await loadUploadSessions(selectedChannelId || undefined);
   }
 
+  async function handleDeleteUploadSession(sessionId: string) {
+    setDeletingSessionId(sessionId);
+    const res = await deleteVideoUploadSessionApi(sessionId);
+    setDeletingSessionId(null);
+
+    if (!res.ok) {
+      setError("error" in res.data ? res.data.error : "Failed to delete upload session.");
+      return;
+    }
+
+    await loadUploadSessions(selectedChannelId || undefined);
+  }
+
   /* ── derived ───────────────────────────────────────── */
 
   const pendingUploads = uploadEntries.filter((e) => e.progress === -1);
@@ -1114,6 +1034,12 @@ export default function CreatorStudioPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
+              <Link
+                href="/creator-studio/library"
+                className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
+              >
+                Library Studio
+              </Link>
               <Link
                 href="/create-channel"
                 className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue"
@@ -1541,7 +1467,7 @@ export default function CreatorStudioPage() {
                                 }`}>
                                   {session.status}
                                 </span>
-                                {session.status !== "completed" && session.status !== "canceled" && session.status !== "finalizing" && (
+                                {session.status !== "completed" && session.status !== "canceled" && session.status !== "finalizing" ? (
                                   <button
                                     type="button"
                                     onClick={() => void handleCancelUploadSession(session.id)}
@@ -1550,7 +1476,17 @@ export default function CreatorStudioPage() {
                                   >
                                     {cancelingSessionId === session.id ? "..." : "Cancel"}
                                   </button>
-                                )}
+                                ) : null}
+                                {session.status === "failed" || session.status === "canceled" || session.status === "completed" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDeleteUploadSession(session.id)}
+                                    disabled={deletingSessionId === session.id}
+                                    className="rounded-md border border-av-input-border/35 bg-av-input-fill/30 px-2 py-0.5 text-[10px] font-semibold text-av-light-orange hover:border-av-orange/35 hover:text-av-white disabled:opacity-50"
+                                  >
+                                    {deletingSessionId === session.id ? "..." : "Delete"}
+                                  </button>
+                                ) : null}
                               </div>
                             </div>
                           ))}
@@ -1697,6 +1633,27 @@ export default function CreatorStudioPage() {
                                   )}
                                 </div>
 
+                                {entry.progress === -1 && (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <label className="text-[11px] text-av-light-orange/90">Duration (seconds)</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      step={1}
+                                      value={entry.duration > 0 ? String(entry.duration) : ""}
+                                      onChange={(e) =>
+                                        updateEntry(entry.id, {
+                                          duration: parseDurationInput(e.target.value),
+                                          error: null,
+                                        })
+                                      }
+                                      className="h-8 w-28 rounded-md border border-av-input-border/35 bg-av-input-fill/40 px-2 text-xs text-av-white focus:border-av-orange/40 focus:outline-none"
+                                      placeholder="e.g. 540"
+                                    />
+                                    <span className="text-[11px] text-av-light-orange/70">Required for auto scheduling</span>
+                                  </div>
+                                )}
+
                                 {/* Progress bar */}
                                 {entry.progress >= 0 &&
                                   entry.progress <= 100 && (
@@ -1743,7 +1700,7 @@ export default function CreatorStudioPage() {
                           <button
                             type="button"
                             onClick={handleUploadAll}
-                            disabled={uploadingAll || !selectedChannelId || pendingUploads.some((e) => !e.description.trim())}
+                            disabled={uploadingAll || !selectedChannelId || pendingUploads.some((e) => !e.description.trim() || e.detecting || e.duration <= 0)}
                             className="mt-3 w-full rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-3 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
                           >
                             {uploadingAll ? (

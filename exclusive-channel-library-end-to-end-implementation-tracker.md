@@ -1,5 +1,46 @@
 # Exclusive Channel Library End-to-End Implementation Tracker
 
+## Implementation Status (Compulsory Update Per Implementation)
+
+Last Updated: 2026-05-24 (Phases 4-7 completed + AV-LIB-073/074 creator upload UX simplification)
+
+### Completed
+
+- [x] AV-LIB-010 Create series/item/progress/bookmark/favorite schemas.
+- [x] AV-LIB-011 Add creator/admin CRUD APIs and validation.
+- [x] AV-LIB-012 Add viewer list/detail/reader/progress/bookmark/favorite APIs.
+- [x] AV-LIB-013 Add entitlement-aware favorites retrieval.
+- [x] AV-LIB-020 Add Library tab and gated loading on exclusive channel page.
+- [x] AV-LIB-021 Build premium responsive library grid and states.
+- [x] AV-LIB-022 Build detail modal with Read Now, Save to Favorites, See Next.
+- [x] AV-LIB-023 Implement See Next in-modal navigation and list bounds handling.
+- [x] AV-LIB-030 Build fullscreen immersive reader scene.
+- [x] AV-LIB-031 Implement two-page spread pagination and slick page-flip animation.
+- [x] AV-LIB-032 Progress autosave, bookmarks, and resume behavior.
+- [x] AV-LIB-033 Auto-next in series upon completion.
+- [x] AV-LIB-040 Creator upload and content lifecycle controls.
+- [x] AV-LIB-041 Series ordering and next-book sequencing controls.
+- [x] AV-LIB-042 Admin moderation and audit tooling for library content.
+- [x] AV-LIB-050 Bookmark reminder nudges.
+- [x] AV-LIB-051 New-in-series and new-library-item notifications.
+- [x] AV-LIB-052 Related-content recommendation service and UI integrations.
+- [x] AV-LIB-060 Persona E2E tests for gating and full flows.
+- [x] AV-LIB-061 Security abuse tests (direct URL bypass, token replay, unauthorized assets).
+- [x] AV-LIB-062 Reader performance tests on low-end devices and web.
+- [x] AV-LIB-070 Feature flag and staged rollout controls.
+- [x] AV-LIB-071 SLO dashboard and runbook updates.
+- [x] AV-LIB-072 Go-live checklist and 48-hour monitoring plan.
+- [x] AV-LIB-073 Standardize library asset uploads to file picker + progress + instant preview (remove URL-input upload UX).
+- [x] AV-LIB-074 Creator-friendly reader upload flow: PDF or ordered page images with auto PDF/manifest generation (no manual JSON upload).
+
+### In Progress
+
+- [ ] None
+
+### Not Started
+
+- [ ] None
+
 ## Objective
 
 Deliver a production-ready Exclusive Library capability for exclusive channels with complete end-to-end behavior across website, Flutter app, backend, admin, storage, notifications, personalization, analytics, QA, and rollout operations.
@@ -145,6 +186,10 @@ This implementation must satisfy all of the following:
 9. POST /creator/channels/:id/library/items/:itemId/assets
    - staged upload, validation, and publish confirmation
 10. GET /creator/channels/:id/library/metrics
+11. POST /creator/channels/:id/library/upload-url
+   - returns signed upload URL for cover image and reader manifest uploads
+12. POST /creator/channels/:id/library/reader-assets/manifest
+   - auto-generates reader manifest from uploaded PDF or ordered page images; creates PDF from images when needed
 
 All APIs must enforce exclusive + PIC policy checks server-side.
 

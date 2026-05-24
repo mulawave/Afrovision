@@ -39,6 +39,13 @@ function validateValue(key, value) {
       throw new Error('EXCLUSIVE_ROLLOUT_PERCENT must be a number between 0 and 100');
     }
   }
+
+  if (key === 'LIBRARY_ROLLOUT_PERCENT') {
+    const asNumber = Number(value);
+    if (!Number.isFinite(asNumber) || asNumber < 0 || asNumber > 100) {
+      throw new Error('LIBRARY_ROLLOUT_PERCENT must be a number between 0 and 100');
+    }
+  }
 }
 
 function shouldApplyDefault(existingData, definition) {

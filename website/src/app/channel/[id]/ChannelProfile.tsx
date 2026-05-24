@@ -10,12 +10,18 @@ import { useAuth } from "@/lib/AuthContext";
 import {
   type Channel,
   type ChannelVideo,
+  type LibraryItem,
+  type LibraryItemDetail,
   type ScheduleProgram,
   type NowPlaying,
   getChannelApi,
   getNowPlayingApi,
   getChannelVideosApi,
   getChannelScheduleApi,
+  getChannelLibraryApi,
+  getChannelLibraryItemDetailApi,
+  addChannelLibraryFavoriteApi,
+  removeChannelLibraryFavoriteApi,
   checkChannelSubApi,
   subscribeToChannelApi,
   cancelChannelSubApi,
@@ -64,7 +70,13 @@ function formatScheduleTime(epoch: number): string {
   });
 }
 
-type Tab = "streams" | "about" | "schedule";
+function extractLibraryItemEpoch(itemId: string): number {
+  const match = /^li_(\d+)_/.exec(itemId || "");
+  if (!match) return 0;
+  return Number(match[1] || 0);
+}
+
+type Tab = "streams" | "about" | "schedule" | "library";
 
 export function ChannelProfile({ id }: { id: string }) {
   const router = useRouter();
@@ -75,6 +87,12 @@ export function ChannelProfile({ id }: { id: string }) {
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
   const [videos, setVideos] = useState<ChannelVideo[]>([]);
   const [schedule, setSchedule] = useState<ScheduleProgram[]>([]);
+  const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
+  const [libraryDetail, setLibraryDetail] = useState<LibraryItemDetail | null>(null);
+  const [libraryModalOpen, setLibraryModalOpen] = useState(false);
+  const [libraryModalLoading, setLibraryModalLoading] = useState(false);
+  const [libraryFavoriteItemIds, setLibraryFavoriteItemIds] = useState<Record<string, boolean>>({});
+  const [newLibraryItemsCount, setNewLibraryItemsCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subId, setSubId] = useState<string | null>(null);
   const [subLoading, setSubLoading] = useState(false);
@@ -90,6 +108,8 @@ export function ChannelProfile({ id }: { id: string }) {
   const [activeTab, setActiveTab] = useState<Tab>("streams");
   const [videosLoaded, setVideosLoaded] = useState(false);
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const isExclusive = channel?.type === "exclusive";
 
   // Fetch channel + now-playing on mount
   useEffect(() => {
@@ -244,6 +264,74 @@ export function ChannelProfile({ id }: { id: string }) {
     return () => { cancelled = true; };
   }, [activeTab, scheduleLoaded, id]);
 
+  // Lazy-load library when library tab is activated for exclusive channels
+  useEffect(() => {
+    if (activeTab !== "library" || libraryLoaded || !isExclusive || !hasAccess) return;
+    let cancelled = false;
+
+    getChannelLibraryApi(id).then((res) => {
+      if (cancelled) return;
+      if (res.ok && "data" in res.data) {
+        const nextItems = res.data.data.items || [];
+        setLibraryItems(nextItems);
+
+        if (typeof window !== "undefined") {
+          const key = `afrovision:library:last-seen:${id}`;
+          const lastSeenRaw = window.localStorage.getItem(key);
+          const lastSeen = Number(lastSeenRaw || 0);
+          const newCount = nextItems.filter((item) => {
+            const createdAt = extractLibraryItemEpoch(item.id);
+            return createdAt > lastSeen;
+          }).length;
+          setNewLibraryItemsCount(newCount);
+        }
+      }
+      setLibraryLoaded(true);
+    });
+
+    return () => { cancelled = true; };
+  }, [activeTab, libraryLoaded, isExclusive, hasAccess, id]);
+
+  const acknowledgeLibraryNewItems = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const key = `afrovision:library:last-seen:${id}`;
+    window.localStorage.setItem(key, String(Date.now()));
+    setNewLibraryItemsCount(0);
+  }, [id]);
+
+  const openLibraryDetail = useCallback(async (itemId: string) => {
+    setLibraryModalOpen(true);
+    setLibraryModalLoading(true);
+    const detailRes = await getChannelLibraryItemDetailApi(id, itemId);
+    if (detailRes.ok && "data" in detailRes.data) {
+      setLibraryDetail(detailRes.data.data);
+    }
+    setLibraryModalLoading(false);
+  }, [id]);
+
+  const handleLibrarySeeNext = useCallback(async () => {
+    const nextItemId = libraryDetail?.navigation?.nextItemId;
+    if (!nextItemId) return;
+    await openLibraryDetail(nextItemId);
+  }, [libraryDetail?.navigation?.nextItemId, openLibraryDetail]);
+
+  const handleLibraryFavoriteToggle = useCallback(async () => {
+    const itemId = libraryDetail?.item?.id;
+    if (!itemId) return;
+
+    const isFav = !!libraryFavoriteItemIds[itemId];
+    const res = isFav
+      ? await removeChannelLibraryFavoriteApi(id, itemId)
+      : await addChannelLibraryFavoriteApi(id, itemId);
+
+    if (!res.ok) return;
+
+    setLibraryFavoriteItemIds((prev) => ({
+      ...prev,
+      [itemId]: !isFav,
+    }));
+  }, [libraryDetail?.item?.id, libraryFavoriteItemIds, id]);
+
   const handleSubscribe = useCallback(() => {
     requireAuth(async () => {
       if (!channel) return;
@@ -308,7 +396,6 @@ export function ChannelProfile({ id }: { id: string }) {
   const isExternalSource = !!channel?.stream_source_mode && channel.stream_source_mode !== "native";
   const extStreamStatus = channel?.stream_status ?? "unknown";
   const isExternalLive = isExternalSource && (extStreamStatus === "live" || extStreamStatus === "valid");
-  const isExclusive = channel?.type === "exclusive";
   const ownerDetailsVisible = channel?.owner_details_visible !== false;
   const ownerDisplayMode = channel?.owner_display_mode || "show_owner";
   const publicOwnerName = channel?.public_owner_name || channel?.owner_name || "";
@@ -327,6 +414,7 @@ export function ChannelProfile({ id }: { id: string }) {
     { key: "streams", label: "Past Streams" },
     { key: "about", label: "About" },
     { key: "schedule", label: "Schedule" },
+    ...(isExclusive ? [{ key: "library" as Tab, label: "Library" }] : []),
   ];
 
   // Loading state
@@ -677,6 +765,83 @@ export function ChannelProfile({ id }: { id: string }) {
                 )}
               </div>
             )}
+
+            {/* Library tab (exclusive channels only) */}
+            {activeTab === "library" && isExclusive && (
+              <div className="space-y-4">
+                {newLibraryItemsCount > 0 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-av-orange/30 bg-av-card p-3">
+                    <p className="text-xs text-av-light-orange">
+                      {newLibraryItemsCount} new library item{newLibraryItemsCount > 1 ? "s" : ""} since your last visit.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={acknowledgeLibraryNewItems}
+                      className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-3 py-1.5 text-xs font-semibold text-av-dark-blue"
+                    >
+                      Mark viewed
+                    </button>
+                  </div>
+                ) : null}
+
+                {!hasAccess ? (
+                  <div className="text-center py-16 rounded-xl bg-av-card/50 border border-av-input-border/20">
+                    <p className="text-3xl mb-2">🔒</p>
+                    <p className="text-sm text-av-light-orange">Unlock exclusive access to view this library</p>
+                    <button
+                      onClick={() => router.push(`/channel/${id}/exclusive-access`)}
+                      className="mt-4 rounded-xl bg-gradient-to-r from-av-orange to-av-light-orange px-4 py-2 text-sm font-semibold text-av-dark-blue"
+                    >
+                      Open Exclusive Access
+                    </button>
+                  </div>
+                ) : !libraryLoaded ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {Array.from({ length: 6 }).map((_, idx) => (
+                      <div key={idx} className="rounded-xl bg-av-card border border-av-input-border/20 p-3 animate-pulse">
+                        <div className="h-40 rounded-lg bg-av-input-fill/60" />
+                        <div className="mt-3 h-4 w-3/4 rounded bg-av-input-fill/60" />
+                        <div className="mt-2 h-3 w-1/2 rounded bg-av-input-fill/60" />
+                      </div>
+                    ))}
+                  </div>
+                ) : libraryItems.length === 0 ? (
+                  <div className="text-center py-16 rounded-xl bg-av-card/50 border border-av-input-border/20">
+                    <p className="text-3xl mb-2">📚</p>
+                    <p className="text-sm text-av-light-orange">No library content published yet</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {libraryItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => void openLibraryDetail(item.id)}
+                        className="text-left rounded-xl bg-av-card border border-av-input-border/20 hover:border-av-orange/30 transition-all overflow-hidden"
+                      >
+                        <div className="h-44 bg-gradient-to-br from-av-light-blue/20 to-av-dark-blue/50 overflow-hidden">
+                          {item.coverAssetUrl ? (
+                            <img
+                              src={item.coverAssetUrl}
+                              alt={item.title}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-4xl">📘</div>
+                          )}
+                        </div>
+                        <div className="p-4">
+                          <p className="text-sm font-semibold text-av-white truncate">{item.title}</p>
+                          <p className="mt-1 text-xs text-av-light-orange truncate">{item.author}</p>
+                          <p className="mt-2 text-[11px] text-av-light-orange/80">
+                            {item.totalPages} pages · {item.estimatedReadMinutes} min read
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Sidebar */}
@@ -737,6 +902,65 @@ export function ChannelProfile({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      {libraryModalOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-av-card border border-av-input-border/30 p-6 relative">
+            <button
+              onClick={() => {
+                setLibraryModalOpen(false);
+                setLibraryDetail(null);
+              }}
+              className="absolute top-4 right-4 text-av-light-orange hover:text-av-white"
+            >
+              ✕
+            </button>
+
+            {libraryModalLoading || !libraryDetail ? (
+              <div className="py-20 flex items-center justify-center">
+                <div className="w-6 h-6 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
+              </div>
+            ) : (
+              <div>
+                <p className="text-xl font-bold text-av-white">{libraryDetail.item.title}</p>
+                <p className="mt-1 text-sm text-av-light-orange">{libraryDetail.item.author}</p>
+                <p className="mt-4 text-sm text-av-light-orange leading-relaxed">
+                  {libraryDetail.item.description || "No description provided."}
+                </p>
+                <div className="mt-5 flex items-center gap-2 flex-wrap">
+                  {(libraryDetail.item.tags || []).slice(0, 6).map((tag) => (
+                    <span key={tag} className="text-[11px] px-2 py-1 rounded-full border border-av-input-border/30 text-av-light-orange">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    onClick={() => router.push(`/channel/${id}/library/${libraryDetail.item.id}`)}
+                    className="rounded-xl bg-gradient-to-r from-av-orange to-av-light-orange px-4 py-3 text-sm font-semibold text-av-dark-blue"
+                  >
+                    Read Now
+                  </button>
+                  <button
+                    onClick={() => void handleLibraryFavoriteToggle()}
+                    className="rounded-xl border border-av-input-border/30 px-4 py-3 text-sm font-semibold text-av-white hover:border-av-orange/35"
+                  >
+                    {libraryFavoriteItemIds[libraryDetail.item.id] ? "Saved ✓" : "Save to Favorites"}
+                  </button>
+                  <button
+                    disabled={!libraryDetail.navigation.nextItemId}
+                    onClick={() => void handleLibrarySeeNext()}
+                    className="rounded-xl border border-av-input-border/30 px-4 py-3 text-sm font-semibold text-av-white disabled:opacity-40 hover:border-av-orange/35"
+                  >
+                    See Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

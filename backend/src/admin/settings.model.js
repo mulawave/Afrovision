@@ -136,6 +136,24 @@ const SETTING_DEFINITIONS = {
     sensitive: false,
     defaultValue: '',
   },
+  LIBRARY_ROLLOUT_ENABLED: {
+    category: 'system',
+    description: 'Global kill-switch for exclusive library rollout (true/false).',
+    sensitive: false,
+    defaultValue: 'true',
+  },
+  LIBRARY_ROLLOUT_PERCENT: {
+    category: 'system',
+    description: 'Percentage (0-100) of eligible users included in exclusive library rollout.',
+    sensitive: false,
+    defaultValue: '5',
+  },
+  LIBRARY_ROLLOUT_ALLOWLIST_USER_IDS: {
+    category: 'system',
+    description: 'Optional comma-separated user IDs always included in library rollout regardless of percent.',
+    sensitive: false,
+    defaultValue: '',
+  },
   WALLET_SECRET: {
     category: 'blockchain',
     description: 'AES-256-CBC wallet encryption secret',

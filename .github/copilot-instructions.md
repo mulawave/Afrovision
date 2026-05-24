@@ -28,6 +28,8 @@
 
 7. **Example Standard**: If implementing header notifications, the implementation must include the notification icon, badge counter, dropdown or panel, read and unread distinction, clear notification list presentation, mark all as read, links from each notification to relevant content, and a fully wired notifications page with controls such as mark as read, archive, delete, select all, delete all, and any other necessary management actions.
 
+8. **Upload UX Standard (Mandatory)**: For any image, video, document, or asset upload flow, use the default application-wide pattern: local file picker, upload progress, success/failure state, and instant preview/confirmation. Do not use URL text inputs for uploads by default.
+
 ## Implementation Preparation Hook (MANDATORY BLOCKER)
 
 All new implementation requests must pass a preparation gate before coding starts.
@@ -44,11 +46,15 @@ Required process:
 	- user flows
 	- security and observability
 	- acceptance criteria and test matrix
+4. During implementation, the tracker MUST be updated with explicit completion marks for finished tickets/items.
+5. Implementation is not considered complete unless completion marks are updated in the tracker within the same change set.
 
 Blocking rule:
 
 - If a new implementation task does not use this process and template, agents must stop and return: `Blocked by Implementation Preparation Hook`.
 - Agents may proceed only after the tracker and checklist are complete.
+- If implementation changes are made but the tracker completion marks are not updated, agents must stop and return: `Blocked by Implementation Preparation Hook`.
+- If an upload feature is implemented with URL-based input fields instead of the default upload+progress+preview flow, agents must stop and return: `Blocked by Implementation Preparation Hook` unless the user explicitly instructs URL-based uploads.
 
 Enforcement reference:
 

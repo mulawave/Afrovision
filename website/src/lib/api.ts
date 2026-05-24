@@ -1179,6 +1179,340 @@ export interface ChannelVideo {
   created_at: string;
 }
 
+export interface LibraryItem {
+  id: string;
+  channelId: string;
+  seriesId: string | null;
+  seriesOrderIndex: number;
+  contentType: "book" | "comic" | "magazine" | "other";
+  title: string;
+  subtitle: string | null;
+  author: string;
+  description: string;
+  tags: string[];
+  coverAssetUrl: string | null;
+  totalPages: number;
+  estimatedReadMinutes: number;
+  status: "draft" | "published" | "archived";
+}
+
+export interface LibraryItemDetail {
+  item: LibraryItem;
+  progress: {
+    currentSpreadIndex: number;
+    currentPageLeft: number | null;
+    currentPageRight: number | null;
+    isCompleted: boolean;
+  } | null;
+  navigation: {
+    previousItemId: string | null;
+    nextItemId: string | null;
+  };
+}
+
+export interface LibraryReaderManifestResponse {
+  manifestUrl: string;
+  itemId: string;
+  totalPages: number;
+}
+
+export interface LibraryProgress {
+  currentSpreadIndex: number;
+  currentPageLeft: number | null;
+  currentPageRight: number | null;
+  isCompleted: boolean;
+}
+
+export interface LibraryBookmark {
+  id: string;
+  userId: string;
+  channelId: string;
+  itemId: string;
+  spreadIndex: number;
+  page: number | null;
+  note: string | null;
+  createdAt: string | number;
+  updatedAt: string | number;
+}
+
+export interface LibrarySeries {
+  id: string;
+  channelId: string;
+  title: string;
+  description: string | null;
+  coverAssetUrl: string | null;
+  sortIndex: number;
+  status: "active" | "archived";
+}
+
+export async function createCreatorLibraryAssetUploadUrlApi(
+  channelId: string,
+  input: {
+    assetType: "cover" | "manifest" | "reader_pdf" | "reader_page";
+    contentType: string;
+    fileName: string;
+  },
+) {
+  return api<{ success: boolean; signed_url: string; public_url: string; filename: string }>(
+    `/creator/channels/${channelId}/library/upload-url`,
+    {
+      method: "POST",
+      body: {
+        asset_type: input.assetType,
+        content_type: input.contentType,
+        file_name: input.fileName,
+      },
+      requireAuth: true,
+    },
+  );
+}
+
+export async function generateCreatorLibraryReaderManifestApi(
+  channelId: string,
+  input: {
+    pdfUrl?: string;
+    pageImageUrls?: string[];
+  },
+) {
+  return api<{ success: boolean; manifest_url: string; pdf_url: string | null; total_pages: number }>(
+    `/creator/channels/${channelId}/library/reader-assets/manifest`,
+    {
+      method: "POST",
+      body: {
+        pdf_url: input.pdfUrl,
+        page_image_urls: input.pageImageUrls || [],
+      },
+      requireAuth: true,
+    },
+  );
+}
+
+export async function getChannelLibraryApi(channelId: string, params?: {
+  page?: number;
+  limit?: number;
+  seriesId?: string;
+  contentType?: "book" | "comic" | "magazine" | "other";
+}) {
+  const query = new URLSearchParams();
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.seriesId) query.set("seriesId", params.seriesId);
+  if (params?.contentType) query.set("contentType", params.contentType);
+  const qs = query.toString() ? `?${query.toString()}` : "";
+
+  return api<{
+    data: {
+      items: LibraryItem[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        pages: number;
+      };
+    };
+  } | ErrorResponse>(`/channels/${channelId}/library${qs}`, {
+    requireAuth: true,
+  });
+}
+
+export async function getChannelLibraryItemDetailApi(channelId: string, itemId: string) {
+  return api<{ data: LibraryItemDetail } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}`,
+    { requireAuth: true },
+  );
+}
+
+export async function getChannelLibraryReaderManifestApi(channelId: string, itemId: string) {
+  return api<{ data: LibraryReaderManifestResponse } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}/reader-manifest`,
+    { requireAuth: true },
+  );
+}
+
+export async function getChannelLibraryProgressApi(channelId: string, itemId: string) {
+  return api<{ data: LibraryProgress } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}/progress`,
+    { requireAuth: true },
+  );
+}
+
+export async function updateChannelLibraryProgressApi(
+  channelId: string,
+  itemId: string,
+  payload: LibraryProgress,
+) {
+  return api<{ data: LibraryProgress } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}/progress`,
+    {
+      method: "PUT",
+      body: payload,
+      requireAuth: true,
+    },
+  );
+}
+
+export async function listChannelLibraryBookmarksApi(channelId: string, itemId: string) {
+  return api<{ data: LibraryBookmark[] } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}/bookmarks`,
+    { requireAuth: true },
+  );
+}
+
+export async function createChannelLibraryBookmarkApi(
+  channelId: string,
+  itemId: string,
+  payload: { spreadIndex: number; page?: number; note?: string },
+) {
+  return api<{ data: LibraryBookmark } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}/bookmarks`,
+    {
+      method: "POST",
+      body: payload,
+      requireAuth: true,
+    },
+  );
+}
+
+export async function deleteChannelLibraryBookmarkApi(channelId: string, itemId: string, bookmarkId: string) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}/bookmarks/${bookmarkId}`,
+    {
+      method: "DELETE",
+      requireAuth: true,
+    },
+  );
+}
+
+export async function getChannelLibraryRecommendationsApi(channelId: string, limit = 5) {
+  return api<{ data: LibraryItem[] } | ErrorResponse>(
+    `/channels/${channelId}/library/recommendations?limit=${limit}`,
+    { requireAuth: true },
+  );
+}
+
+export async function getCreatorChannelLibraryItemsApi(channelId: string) {
+  return api<{ success: boolean; data: LibraryItem[] } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/items`,
+    { requireAuth: true },
+  );
+}
+
+export async function getCreatorChannelLibrarySeriesApi(channelId: string) {
+  return api<{ success: boolean; data: LibrarySeries[] } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/series`,
+    { requireAuth: true },
+  );
+}
+
+export async function createCreatorChannelLibrarySeriesApi(
+  channelId: string,
+  payload: { title: string; description?: string; coverAssetUrl?: string },
+) {
+  return api<{ success: boolean; data: LibrarySeries } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/series`,
+    {
+      method: "POST",
+      body: payload,
+      requireAuth: true,
+    },
+  );
+}
+
+export async function createCreatorChannelLibraryItemApi(
+  channelId: string,
+  payload: {
+    title: string;
+    subtitle?: string;
+    author: string;
+    description?: string;
+    tags?: string[];
+    contentType: "book" | "comic" | "magazine" | "other";
+    totalPages: number;
+    estimatedReadMinutes?: number;
+    coverAssetUrl?: string;
+    readerAssetManifestUrl?: string;
+    seriesId?: string;
+    seriesOrderIndex?: number;
+    status?: "draft" | "published" | "archived";
+  },
+) {
+  return api<{ success: boolean; data: LibraryItem } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/items`,
+    {
+      method: "POST",
+      body: payload,
+      requireAuth: true,
+    },
+  );
+}
+
+export async function publishCreatorChannelLibraryItemApi(channelId: string, itemId: string) {
+  return api<{ success: boolean; data: LibraryItem } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/items/${itemId}/publish`,
+    {
+      method: "POST",
+      requireAuth: true,
+    },
+  );
+}
+
+export async function archiveCreatorChannelLibraryItemApi(channelId: string, itemId: string) {
+  return api<{ success: boolean; data: LibraryItem } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/items/${itemId}/archive`,
+    {
+      method: "POST",
+      requireAuth: true,
+    },
+  );
+}
+
+export async function deleteCreatorChannelLibraryItemApi(channelId: string, itemId: string) {
+  return api<{ success: boolean; message: string } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/items/${itemId}`,
+    {
+      method: "DELETE",
+      requireAuth: true,
+    },
+  );
+}
+
+export async function reorderCreatorChannelLibraryContentApi(
+  channelId: string,
+  payload: {
+    items?: Array<{ itemId: string; seriesOrderIndex: number }>;
+    series?: Array<{ seriesId: string; sortIndex: number }>;
+  },
+) {
+  return api<{ success: boolean; message: string } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/order`,
+    {
+      method: "PATCH",
+      body: payload,
+      requireAuth: true,
+    },
+  );
+}
+
+export async function addChannelLibraryFavoriteApi(channelId: string, itemId: string) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}/favorite`,
+    {
+      method: "POST",
+      requireAuth: true,
+    },
+  );
+}
+
+export async function removeChannelLibraryFavoriteApi(channelId: string, itemId: string) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/channels/${channelId}/library/${itemId}/favorite`,
+    {
+      method: "DELETE",
+      requireAuth: true,
+    },
+  );
+}
+
 export async function getChannelVideosApi(channelId: string) {
   return api<{ videos: ChannelVideo[] }>(
     `/broadcast/videos/channel/${channelId}`,
@@ -1301,6 +1635,16 @@ export async function getMyVideoUploadSessionsApi(channelId?: string) {
 export async function cancelVideoUploadSessionApi(sessionId: string) {
   return api<{ session: VideoUploadSession } | ErrorResponse>(
     `/broadcast/videos/upload-sessions/${sessionId}`,
+    {
+      method: "DELETE",
+      requireAuth: true,
+    },
+  );
+}
+
+export async function deleteVideoUploadSessionApi(sessionId: string) {
+  return api<{ success: boolean; session_id: string } | ErrorResponse>(
+    `/broadcast/videos/upload-sessions/${sessionId}/purge`,
     {
       method: "DELETE",
       requireAuth: true,
