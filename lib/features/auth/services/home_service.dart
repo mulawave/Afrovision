@@ -159,16 +159,19 @@ class RecentChannel {
     required this.ownerName,
   });
 
+  static String _s(dynamic v, {String fallback = ''}) =>
+      v == null ? fallback : v.toString();
+
   factory RecentChannel.fromJson(Map<String, dynamic> json) {
     return RecentChannel(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      category: json['category'] as String?,
-      channelNumber: json['channel_number'] as String,
-      logoUrl: json['logo_url'] as String?,
-      bannerUrl: json['banner_url'] as String?,
-      createdAt: json['created_at'] as String,
-      ownerName: json['owner_name'] as String? ?? 'Unknown',
+      id: _s(json['id']),
+      name: _s(json['name']),
+      category: json['category'] == null ? null : json['category'].toString(),
+      channelNumber: _s(json['channel_number']),
+      logoUrl: json['logo_url'] == null ? null : json['logo_url'].toString(),
+      bannerUrl: json['banner_url'] == null ? null : json['banner_url'].toString(),
+      createdAt: _s(json['created_at']),
+      ownerName: _s(json['owner_name'], fallback: 'Unknown'),
     );
   }
 }
@@ -190,14 +193,17 @@ class PromotedChannel {
     this.bannerUrl,
   });
 
+  static String _s(dynamic v, {String fallback = ''}) =>
+      v == null ? fallback : v.toString();
+
   factory PromotedChannel.fromJson(Map<String, dynamic> json) {
     return PromotedChannel(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      category: json['category'] as String?,
-      channelNumber: json['channel_number'] as String,
-      logoUrl: json['logo_url'] as String?,
-      bannerUrl: json['banner_url'] as String?,
+      id: _s(json['id']),
+      name: _s(json['name']),
+      category: json['category'] == null ? null : json['category'].toString(),
+      channelNumber: _s(json['channel_number']),
+      logoUrl: json['logo_url'] == null ? null : json['logo_url'].toString(),
+      bannerUrl: json['banner_url'] == null ? null : json['banner_url'].toString(),
     );
   }
 }

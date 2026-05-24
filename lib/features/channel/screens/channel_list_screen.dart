@@ -21,6 +21,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
   bool _loading = true;
   bool _loadingCategories = false;
   bool _categoriesError = false;
+  String? _channelsError;
   String _selectedCategory = 'All';
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -68,6 +69,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
       if (!mounted) return;
       setState(() {
         _channels = channels;
+        _channelsError = null;
         _categories = categories;
         _categoriesError = categoriesError;
         _loadingCategories = false;
@@ -75,11 +77,12 @@ class _ChannelListScreenState extends State<ChannelListScreen>
         _loading = false;
       });
       _animController.forward();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _loadingCategories = false;
+        _channelsError = e.toString();
       });
     }
   }
@@ -155,6 +158,8 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                           ),
                         ),
                       )
+                    : _channelsError != null
+                    ? _buildChannelsError()
                     : _channels.isEmpty
                     ? _buildEmpty()
                     : _filteredChannels.isEmpty
@@ -256,6 +261,43 @@ class _ChannelListScreenState extends State<ChannelListScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildChannelsError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline_rounded, color: AppColors.orange, size: 48),
+            const SizedBox(height: 16),
+            const Text(
+              'Failed to load channels',
+              style: TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _channelsError ?? '',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.white, fontSize: 12),
+            ),
+            const SizedBox(height: 20),
+            GestureDetector(
+              onTap: _loadChannels,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.orange,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text('Retry', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
