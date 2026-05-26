@@ -12,6 +12,21 @@ function sortNotifications(notifications) {
   return notifications.sort((a, b) => b.created_at - a.created_at);
 }
 
+function matchesFilters(notification, { type = null, channelId = null } = {}) {
+  if (type && notification.type !== type) {
+    return false;
+  }
+
+  if (channelId) {
+    const notificationChannelId = notification.data?.channel_id || notification.data?.channelId || null;
+    if (String(notificationChannelId || '') !== String(channelId)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 async function loadUserNotifications(userId) {
   const db = getFirestore();
   const snapshot = await db.collection(NOTIFICATIONS_COLLECTION)
@@ -99,7 +114,7 @@ async function createMany(userIds, payload) {
   return Promise.all(uniqueUserIds.map((userId) => create({ userId, ...payload })));
 }
 
-async function listForUser(userId, { scope = 'inbox', unreadOnly = false, limit = 50 } = {}) {
+async function listForUser(userId, { scope = 'inbox', unreadOnly = false, limit = 50, type = null, channelId = null } = {}) {
   const normalizedLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
   const notifications = await ensureUserLoaded(userId);
 
@@ -111,16 +126,17 @@ async function listForUser(userId, { scope = 'inbox', unreadOnly = false, limit 
       return true;
     })
     .filter((notification) => (unreadOnly ? !notification.is_read : true))
+    .filter((notification) => matchesFilters(notification, { type, channelId }))
     .sort((a, b) => b.created_at - a.created_at)
     .slice(0, normalizedLimit);
 }
 
-async function countUnread(userId) {
+async function countUnread(userId, filters = {}) {
   const notifications = await ensureUserLoaded(userId);
   return notifications.filter(
     (notification) =>
       notification.user_id === userId && !notification.archived && !notification.is_read
-  ).length;
+  ).filter((notification) => matchesFilters(notification, filters)).length;
 }
 
 async function update(notification, updates) {
@@ -181,10 +197,14 @@ async function remove(userId, id) {
   return true;
 }
 
-async function markAllRead(userId) {
+async function markAllRead(userId, filters = {}) {
   const notifications = await ensureUserLoaded(userId);
   const unread = notifications.filter(
-    (notification) => notification.user_id === userId && !notification.archived && !notification.is_read
+    (notification) =>
+      notification.user_id === userId &&
+      !notification.archived &&
+      !notification.is_read &&
+      matchesFilters(notification, filters)
   );
   await Promise.all(
     unread.map((notification) =>

@@ -118,6 +118,24 @@ body {
   50% { transform: scale(1.15); }
   100% { transform: scale(1); }
 }
+
+/* Wave next-up border: clockwise rotating white light on border */
+@keyframes nextWaveSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.wave-next-border {
+  animation: nextWaveSpin 2s linear infinite;
+}
+
+/* Wave page desktop: ECG timeline playhead pulse */
+@keyframes playheadPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+.wave-playhead-pulse {
+  animation: playheadPulse 1s ease-in-out infinite;
+}
 .gift-send-animation {
   animation: giftSendPulse 0.5s ease-in-out;
 }

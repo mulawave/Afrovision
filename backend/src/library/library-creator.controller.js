@@ -10,7 +10,7 @@
 
 const LibraryService = require('./library.service');
 const LibraryPolicyService = require('./library-policy.service');
-const { generateSignedUploadUrl } = require('../utils/gcs');
+const { generateSignedUploadUrl, extractGCSPath, downloadFromGCS, BUCKET_NAME } = require('../utils/gcs');
 const admin = require('firebase-admin');
 const { PDFDocument } = require('pdf-lib');
 const crypto = require('crypto');
@@ -50,7 +50,16 @@ const LIBRARY_ASSET_EXTENSIONS = {
   'text/json': '.json',
 };
 
+/**
+ * Download a buffer from GCS using the SDK (respects service-account credentials,
+ * no public-read required) or falls back to HTTP fetch for non-GCS URLs.
+ */
 async function fetchBufferFromUrl(url) {
+  const gcsPath = extractGCSPath(url);
+  if (gcsPath) {
+    return downloadFromGCS(gcsPath);
+  }
+  // External URL – fall back to HTTP
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch asset: ${response.status}`);
@@ -73,8 +82,12 @@ async function buildPdfFromImageUrls(imageUrls) {
     const lower = String(imageUrl).toLowerCase();
     let embedded;
 
+    // pdf-lib supports PNG and JPEG only; skip WebP (manifest will use image URLs)
     if (lower.includes('.png')) {
       embedded = await pdf.embedPng(imageBytes);
+    } else if (lower.includes('.webp')) {
+      // WebP is not supported by pdf-lib — skip this page in PDF synthesis
+      continue;
     } else {
       embedded = await pdf.embedJpg(imageBytes);
     }
@@ -219,19 +232,28 @@ exports.generateReaderManifest = async (req, res) => {
       });
     }
 
-    const bucket = admin.storage().bucket();
+    const bucket = admin.storage().bucket(BUCKET_NAME);
     let resolvedPdfUrl = typeof pdf_url === 'string' && pdf_url.trim().length > 0 ? pdf_url.trim() : null;
     let totalPages = 0;
 
+    // Build a PDF for page-image uploads when possible, but do not fail
+    // manifest generation if PDF synthesis fails for an otherwise valid image set.
     if (!resolvedPdfUrl && pageImageUrls.length > 0) {
-      const pdfBuffer = await buildPdfFromImageUrls(pageImageUrls);
-      const pdfFilename = `library/books/${channelId}/${crypto.randomUUID()}.pdf`;
-      const pdfFile = bucket.file(pdfFilename);
-      await pdfFile.save(pdfBuffer, {
-        contentType: 'application/pdf',
-        resumable: false,
-      });
-      resolvedPdfUrl = `https://storage.googleapis.com/${bucket.name}/${pdfFilename}`;
+      try {
+        const pdfBuffer = await buildPdfFromImageUrls(pageImageUrls);
+        const pdfFilename = `library/books/${channelId}/${crypto.randomUUID()}.pdf`;
+        const pdfFile = bucket.file(pdfFilename);
+        await pdfFile.save(pdfBuffer, {
+          contentType: 'application/pdf',
+          resumable: false,
+        });
+        resolvedPdfUrl = `https://storage.googleapis.com/${bucket.name}/${pdfFilename}`;
+      } catch (pdfBuildError) {
+        console.warn('PDF synthesis from page images failed; proceeding with image-only manifest:', {
+          channelId,
+          error: pdfBuildError?.message || String(pdfBuildError),
+        });
+      }
     }
 
     if (resolvedPdfUrl) {
@@ -439,6 +461,12 @@ exports.updateItem = async (req, res) => {
       description: req.body.description,
       tags: req.body.tags,
       estimatedReadMinutes: req.body.estimatedReadMinutes,
+      contentType: req.body.contentType,
+      totalPages: req.body.totalPages,
+      coverAssetUrl: req.body.coverAssetUrl,
+      readerAssetManifestUrl: req.body.readerAssetManifestUrl,
+      seriesId: req.body.seriesId,
+      seriesOrderIndex: req.body.seriesOrderIndex,
     };
 
     // Remove undefined fields

@@ -25,9 +25,6 @@ const { getFirestore } = require('../utils/firestore');
 
 const ALLOWED_VIDEO_TYPES = {
   'video/mp4': '.mp4',
-  'video/quicktime': '.mov',
-  'video/x-msvideo': '.avi',
-  'video/x-matroska': '.mkv',
   'video/webm': '.webm',
 };
 

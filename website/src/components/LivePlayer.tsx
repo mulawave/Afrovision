@@ -366,7 +366,7 @@ export function LivePlayer({
       )}
 
       {/* Bottom controls bar — TV mode: mute + fullscreen only, NO play/pause */}
-      {streamUrl && (
+      {streamUrl && !isYouTubeEmbed && (
         <div
           className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}
         >

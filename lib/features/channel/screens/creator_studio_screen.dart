@@ -38,7 +38,10 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
   }
 
   Future<void> _loadChannels() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final channels = await ChannelService.getMyChannels();
       if (!mounted) return;
@@ -49,7 +52,10 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
       _animController.forward();
     } catch (e) {
       if (!mounted) return;
-      setState(() { _loading = false; _error = e.toString(); });
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
     }
   }
 
@@ -181,28 +187,48 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline_rounded, color: AppColors.orange, size: 48),
+            const Icon(
+              Icons.error_outline_rounded,
+              color: AppColors.orange,
+              size: 48,
+            ),
             const SizedBox(height: 16),
             const Text(
               'Failed to load channels',
-              style: TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: AppColors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               _error ?? '',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.white.withValues(alpha: 0.6), fontSize: 12),
+              style: TextStyle(
+                color: AppColors.white.withValues(alpha: 0.6),
+                fontSize: 12,
+              ),
             ),
             const SizedBox(height: 20),
             GestureDetector(
               onTap: _loadChannels,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.orange,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Text('Retry', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Retry',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ),
           ],

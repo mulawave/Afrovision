@@ -59,6 +59,40 @@ async function notifyUser(
   }
 }
 
+async function notifyUsers(userIds, payload) {
+  const uniqueUserIds = [...new Set((userIds || []).filter(Boolean))];
+  if (uniqueUserIds.length === 0) {
+    return {
+      targeted: 0,
+      successCount: 0,
+      failureCount: 0,
+      notifications: [],
+    };
+  }
+
+  const results = await Promise.allSettled(uniqueUserIds.map((userId) => notifyUser(userId, payload)));
+  const notifications = [];
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      notifications.push(result.value.notification);
+      successCount += result.value.notification ? 1 : 0;
+      failureCount += result.value.failureCount || 0;
+    } else {
+      failureCount += 1;
+    }
+  }
+
+  return {
+    targeted: uniqueUserIds.length,
+    successCount,
+    failureCount,
+    notifications,
+  };
+}
+
 /**
  * Broadcast a push notification to all users who have registered FCM tokens.
  *
@@ -91,4 +125,4 @@ async function broadcast(payload) {
   };
 }
 
-module.exports = { notifyUser, broadcast };
+module.exports = { notifyUser, notifyUsers, broadcast };

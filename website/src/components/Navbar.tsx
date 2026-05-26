@@ -14,6 +14,7 @@ import { ReputationBadge } from "@/components/ReputationBadge";
 const NAV_LINKS = [
   { label: "Home", href: "/" },
   { label: "Live", href: "/live" },
+  { label: "Wave", href: "/wave" },
   { label: "Channels", href: "/channels" },
   { label: "Pricing", href: "/pricing" },
   { label: "Challenge", href: "/challenge" },

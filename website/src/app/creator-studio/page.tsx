@@ -31,6 +31,12 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
+import { WaveUploadPanel } from "@/components/WaveUploadPanel";
+
+/** Thin wrapper so the panel uses the studio's already-selected channel. */
+function WaveUploadPanelInStudio({ selectedChannelId }: { selectedChannelId: string }) {
+  return <WaveUploadPanel channelId={selectedChannelId || undefined} />;
+}
 
 /* ── helpers ─────────────────────────────────────────── */
 
@@ -73,6 +79,33 @@ function formatTimeAgo(value: string | number | null | undefined): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+const SUPPORTED_VIDEO_MIME_TYPES = new Set([
+  "video/mp4",
+  "video/webm",
+]);
+
+const SUPPORTED_VIDEO_EXTENSIONS = new Set([
+  ".mp4",
+  ".webm",
+]);
+
+function isSupportedVideoFile(file: File): boolean {
+  const type = String(file.type || "").toLowerCase();
+  if (type && SUPPORTED_VIDEO_MIME_TYPES.has(type)) return true;
+  const dotIndex = file.name.lastIndexOf(".");
+  const ext = dotIndex >= 0 ? file.name.toLowerCase().slice(dotIndex) : "";
+  return SUPPORTED_VIDEO_EXTENSIONS.has(ext);
+}
+
+function getVideoContentType(file: File): string {
+  const type = String(file.type || "").toLowerCase();
+  if (SUPPORTED_VIDEO_MIME_TYPES.has(type)) return type;
+  const dotIndex = file.name.lastIndexOf(".");
+  const ext = dotIndex >= 0 ? file.name.toLowerCase().slice(dotIndex) : "";
+  if (ext === ".webm") return "video/webm";
+  return "video/mp4";
 }
 
 const ITEMS_PER_PAGE = 6;
@@ -306,15 +339,16 @@ export default function CreatorStudioPage() {
     const newEntries: UploadEntry[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      const supported = isSupportedVideoFile(file);
       newEntries.push({
         id: `${Date.now()}-${i}`,
         file,
         title: titleFromFilename(file.name),
         description: "",
         duration: 0,
-        detecting: true,
+        detecting: supported,
         progress: -1,
-        error: null,
+        error: supported ? null : "Unsupported format. Upload MP4 (H.264/AAC) or WebM (VP9/Opus).",
         registeredVideoId: null,
       });
     }
@@ -322,6 +356,9 @@ export default function CreatorStudioPage() {
 
     // Detect durations in parallel
     for (const entry of newEntries) {
+      if (!isSupportedVideoFile(entry.file)) {
+        continue;
+      }
       detectDuration(entry.file).then((dur) => {
         setUploadEntries((prev) =>
           prev.map((e) =>
@@ -398,6 +435,14 @@ export default function CreatorStudioPage() {
     );
 
     for (const entry of pending) {
+      if (!isSupportedVideoFile(entry.file)) {
+        updateEntry(entry.id, {
+          error: "Unsupported format. Upload MP4 (H.264/AAC) or WebM (VP9/Opus).",
+          progress: -1,
+          detecting: false,
+        });
+        continue;
+      }
       let resolvedDuration = entry.duration;
       if (resolvedDuration <= 0 || entry.detecting) {
         updateEntry(entry.id, { detecting: true });
@@ -448,7 +493,7 @@ export default function CreatorStudioPage() {
         updateEntry(entry.id, { progress: 0, error: null });
 
         const signedRes = await getVideoUploadUrlApi({
-          contentType: entry.file.type || "video/mp4",
+          contentType: getVideoContentType(entry.file),
           fileName: entry.file.name,
         });
 
@@ -1500,7 +1545,7 @@ export default function CreatorStudioPage() {
                         <input
                           ref={fileInputRef}
                           type="file"
-                          accept="video/*"
+                          accept="video/mp4,video/webm"
                           multiple
                           className="hidden"
                           onChange={(e) => handleFilesSelected(e.target.files)}
@@ -1528,7 +1573,7 @@ export default function CreatorStudioPage() {
                             Select video files
                           </p>
                           <p className="mt-1 text-xs text-av-light-orange">
-                            Choose multiple files at once · Duration auto-detected
+                            Choose multiple files at once · MP4 or WebM only · Duration auto-detected
                           </p>
                           <p className="mt-1 text-[11px] text-av-light-orange/80">
                             Re-selecting the same file resumes its existing upload session when available.
@@ -2152,6 +2197,30 @@ export default function CreatorStudioPage() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* ════ FULL-WIDTH ROW — Afrovision Wave ════ */}
+              <div className="mt-6 rounded-3xl border border-av-input-border/30 bg-av-card">
+                <div className="flex items-center gap-3 border-b border-av-input-border/15 px-6 py-5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: "rgba(249,150,23,0.15)" }}>
+                    <span className="text-lg">⚡</span>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-av-white">Afrovision Wave</h2>
+                    <p className="text-xs text-av-light-orange">Upload short clips to the Wave feed</p>
+                  </div>
+                  <a
+                    href="/wave"
+                    className="ml-auto text-xs text-av-orange hover:underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    View Wave feed ↗
+                  </a>
+                </div>
+                <div className="p-6">
+                  <WaveUploadPanelInStudio selectedChannelId={selectedChannelId} />
                 </div>
               </div>
             </>

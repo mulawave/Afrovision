@@ -9,6 +9,7 @@ const admin = require('firebase-admin');
 const LibraryService = require('./library.service');
 const LibraryPolicyService = require('./library-policy.service');
 const { isLibraryRolloutEnabledForUser } = require('./library-rollout.service');
+const { extractGCSPath, generateSignedReadUrl, getGCSObjectMetadata } = require('../utils/gcs');
 
 const db = {
   collection: (...args) => admin.firestore().collection(...args),
@@ -16,7 +17,8 @@ const db = {
 const libraryService = new LibraryService();
 const policyService = new LibraryPolicyService();
 
-async function enforceLibraryRollout(userId, res) {
+async function enforceLibraryRollout(userId, res, isChannelAdmin = false) {
+  if (isChannelAdmin) return true;
   const enabled = await isLibraryRolloutEnabledForUser(userId);
   if (!enabled) {
     res.status(403).json({
@@ -36,16 +38,17 @@ exports.listItems = async (req, res) => {
   try {
     const { channelId } = req.params;
     const userId = req.userId;
-        if (!(await enforceLibraryRollout(userId, res))) {
-          return;
-        }
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+      return;
+    }
 
     const { seriesId, contentType, tags, page = 1, limit = 20 } = req.query;
     const pageNumber = Number.parseInt(page, 10) || 1;
     const limitNumber = Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 20));
 
     // Entitlement check
-    const hasAccess = await policyService.canViewLibraryList(userId, channelId);
+    const hasAccess = await policyService.canViewLibraryList(userId, channelId, isChannelAdmin);
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -53,30 +56,55 @@ exports.listItems = async (req, res) => {
       });
     }
 
-    // Build query
-    let query = db.collection('channel_library_items').where('channelId', '==', channelId);
-    query = query.where('status', '==', 'published');
-
-    if (seriesId) {
-      query = query.where('seriesId', '==', seriesId);
-    }
-
-    if (contentType) {
-      query = query.where('contentType', '==', contentType);
-    }
-
-    // Fetch with pagination
     const offset = (pageNumber - 1) * limitNumber;
-    const snapshot = await query.orderBy('createdAt', 'desc').offset(offset).limit(limitNumber).get();
+    let items = [];
+    let total = 0;
 
-    const items = snapshot.docs.map((doc) => ({
+    const mapDoc = (doc) => ({
       ...doc.data(),
       id: doc.id,
-    }));
+    });
 
-    // Get total count for pagination
-    const countSnapshot = await query.get();
-    const total = countSnapshot.size;
+    try {
+      // Preferred path: use Firestore ordering when the composite index is available.
+      let query = db.collection('channel_library_items').where('channelId', '==', channelId);
+      query = query.where('status', '==', 'published');
+
+      if (seriesId) {
+        query = query.where('seriesId', '==', seriesId);
+      }
+
+      if (contentType) {
+        query = query.where('contentType', '==', contentType);
+      }
+
+      const snapshot = await query.orderBy('createdAt', 'desc').offset(offset).limit(limitNumber).get();
+      items = snapshot.docs.map(mapDoc);
+      const countSnapshot = await query.get();
+      total = countSnapshot.size;
+    } catch (queryError) {
+      console.warn('Library list index fallback:', queryError.message);
+
+      // Fallback path: fetch by channel only, then filter/sort in memory.
+      const fallbackSnap = await db
+        .collection('channel_library_items')
+        .where('channelId', '==', channelId)
+        .get();
+
+      const filtered = fallbackSnap.docs
+        .map(mapDoc)
+        .filter((item) => item.status === 'published')
+        .filter((item) => (seriesId ? item.seriesId === seriesId : true))
+        .filter((item) => (contentType ? item.contentType === contentType : true))
+        .sort((left, right) => {
+          const leftAt = new Date(left.createdAt || 0).getTime();
+          const rightAt = new Date(right.createdAt || 0).getTime();
+          return rightAt - leftAt;
+        });
+
+      total = filtered.length;
+      items = filtered.slice(offset, offset + limitNumber);
+    }
 
     // Record engagement event
     await libraryService.recordEngagementEvent(userId, channelId, null, 'item-opened', {
@@ -115,13 +143,14 @@ exports.getItemDetail = async (req, res) => {
   try {
     const { channelId, itemId } = req.params;
     const userId = req.userId;
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res))) {
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
       return;
     }
 
     // Entitlement check
-    const hasAccess = await policyService.canViewLibraryItemDetail(userId, channelId, itemId);
+    const hasAccess = await policyService.canViewLibraryItemDetail(userId, channelId, itemId, isChannelAdmin);
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -140,50 +169,118 @@ exports.getItemDetail = async (req, res) => {
 
     const item = { ...itemDoc.data(), id: itemDoc.id };
 
-    // Get current reading progress
-    const progress = await libraryService.getReaderProgress(userId, channelId, itemId);
+    // Progress and navigation are helpful, but they should never block the detail response.
+    let progress = null;
+    try {
+      progress = await libraryService.getReaderProgress(userId, channelId, itemId);
+    } catch (progressError) {
+      console.warn('Error getting library reader progress:', progressError);
+    }
 
     // Get all items in same series for next/previous navigation
     let previousItemId = null;
     let nextItemId = null;
 
-    if (item.seriesId) {
-      const seriesItems = await db
-        .collection('channel_library_items')
-        .where('seriesId', '==', item.seriesId)
-        .where('status', '==', 'published')
-        .orderBy('seriesOrderIndex', 'asc')
-        .get();
+    try {
+      if (item.seriesId) {
+        const loadSeriesItems = async (useFallback = false) => {
+          if (!useFallback) {
+            return db
+              .collection('channel_library_items')
+              .where('seriesId', '==', item.seriesId)
+              .where('status', '==', 'published')
+              .orderBy('seriesOrderIndex', 'asc')
+              .get();
+          }
 
-      const items = seriesItems.docs.map((doc) => doc.id);
-      const currentIndex = items.indexOf(itemId);
+          return db
+            .collection('channel_library_items')
+            .where('seriesId', '==', item.seriesId)
+            .get();
+        };
 
-      if (currentIndex > 0) {
-        previousItemId = items[currentIndex - 1];
-      }
-      if (currentIndex < items.length - 1) {
-        nextItemId = items[currentIndex + 1];
-      }
-    } else {
-      // Single items: get next by creation order
-      const nextQuery = await db
-        .collection('channel_library_items')
-        .where('channelId', '==', channelId)
-        .where('status', '==', 'published')
-        .where('seriesId', '==', null)
-        .orderBy('createdAt', 'desc')
-        .get();
+        let seriesItems;
+        try {
+          seriesItems = await loadSeriesItems(false);
+        } catch (seriesError) {
+          console.warn('Library series navigation index fallback:', seriesError.message);
+          seriesItems = await loadSeriesItems(true);
+        }
 
-      const items = nextQuery.docs.map((doc) => doc.id);
-      const currentIndex = items.indexOf(itemId);
+        const seriesEntries = seriesItems.docs
+          .map((doc) => ({ ...doc.data(), id: doc.id }))
+          .filter((entry) => entry.status === 'published')
+          .sort((left, right) => {
+            const leftIndex = Number(left.seriesOrderIndex ?? 0);
+            const rightIndex = Number(right.seriesOrderIndex ?? 0);
+            if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+            return String(left.createdAt || '').localeCompare(String(right.createdAt || ''));
+          });
 
-      if (currentIndex > 0) {
-        previousItemId = items[currentIndex - 1];
+        const itemIds = seriesEntries.map((entry) => entry.id);
+        const currentIndex = itemIds.indexOf(itemId);
+
+        if (currentIndex > 0) {
+          previousItemId = itemIds[currentIndex - 1];
+        }
+        if (currentIndex < itemIds.length - 1) {
+          nextItemId = itemIds[currentIndex + 1];
+        }
+      } else {
+        const loadSingleItems = async (useFallback = false) => {
+          if (!useFallback) {
+            return db
+              .collection('channel_library_items')
+              .where('channelId', '==', channelId)
+              .where('status', '==', 'published')
+              .where('seriesId', '==', null)
+              .orderBy('createdAt', 'desc')
+              .get();
+          }
+
+          return db
+            .collection('channel_library_items')
+            .where('channelId', '==', channelId)
+            .get();
+        };
+
+        let nextQuery;
+        try {
+          nextQuery = await loadSingleItems(false);
+        } catch (singleError) {
+          console.warn('Library item navigation index fallback:', singleError.message);
+          nextQuery = await loadSingleItems(true);
+        }
+
+        const items = nextQuery.docs
+          .map((doc) => ({ ...doc.data(), id: doc.id }))
+          .filter((entry) => entry.status === 'published')
+          .filter((entry) => entry.seriesId == null)
+          .sort((left, right) => {
+            const leftAt = new Date(left.createdAt || 0).getTime();
+            const rightAt = new Date(right.createdAt || 0).getTime();
+            return rightAt - leftAt;
+          })
+          .map((entry) => entry.id);
+
+        const currentIndex = items.indexOf(itemId);
+
+        if (currentIndex > 0) {
+          previousItemId = items[currentIndex - 1];
+        }
+        if (currentIndex < items.length - 1) {
+          nextItemId = items[currentIndex + 1];
+        }
       }
-      if (currentIndex < items.length - 1) {
-        nextItemId = items[currentIndex + 1];
-      }
+    } catch (navigationError) {
+      console.warn('Error getting library item navigation:', navigationError);
     }
+
+    libraryService.recordEngagementEvent(userId, channelId, itemId, 'item-opened', {
+      itemId,
+    }).catch((engagementError) => {
+      console.warn('Error recording library item open:', engagementError);
+    });
 
     return res.status(200).json({
       success: true,
@@ -213,13 +310,14 @@ exports.getReaderManifest = async (req, res) => {
   try {
     const { channelId, itemId } = req.params;
     const userId = req.userId;
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res))) {
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
       return;
     }
 
     // Strict entitlement check for reader access
-    const canAccess = await policyService.canAccessReader(userId, channelId, itemId);
+    const canAccess = await policyService.canAccessReader(userId, channelId, itemId, isChannelAdmin);
     if (!canAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -246,26 +344,30 @@ exports.getReaderManifest = async (req, res) => {
       });
     }
 
-    // Read manifest from GCS (or return signed URL to it)
-    // For now, return manifest path for client to fetch
-    const bucket = admin.storage().bucket();
-    const file = bucket.file(manifestPath);
+    const objectPath = extractGCSPath(manifestPath)
+      || (!/^https?:\/\//i.test(String(manifestPath || '')) ? String(manifestPath) : null);
 
-    // Check if file exists
-    const [exists] = await file.exists();
-    if (!exists) {
+    if (!objectPath) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          manifestUrl: manifestPath,
+          itemId,
+          totalPages: item.totalPages,
+        },
+      });
+    }
+
+    const metadata = await getGCSObjectMetadata(objectPath);
+    if (!metadata) {
       return res.status(404).json({
         error: 'Not found',
         message: 'Reader manifest not found',
       });
     }
 
-    // Get signed URL with 1-hour expiry
-    const [signedUrl] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 60 * 60 * 1000, // 1 hour
-    });
+    // Get signed URL with 1-hour expiry (helper wraps GCS file.getSignedUrl)
+    const signedUrl = await generateSignedReadUrl(objectPath, 60);
 
     // Record engagement event
     await libraryService.recordEngagementEvent(userId, channelId, itemId, 'read-start', {
@@ -297,13 +399,14 @@ exports.getProgress = async (req, res) => {
   try {
     const { channelId, itemId } = req.params;
     const userId = req.userId;
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res))) {
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
       return;
     }
 
     // Entitlement check
-    const hasAccess = await policyService.hasLibraryAccess(userId, channelId);
+    const hasAccess = isChannelAdmin || await policyService.hasLibraryAccess(userId, channelId);
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -339,13 +442,14 @@ exports.updateProgress = async (req, res) => {
   try {
     const { channelId, itemId } = req.params;
     const userId = req.userId;
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res))) {
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
       return;
     }
 
     // Entitlement check
-    const hasAccess = await policyService.hasLibraryAccess(userId, channelId);
+    const hasAccess = isChannelAdmin || await policyService.hasLibraryAccess(userId, channelId);
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -390,13 +494,14 @@ exports.createBookmark = async (req, res) => {
   try {
     const { channelId, itemId } = req.params;
     const userId = req.userId;
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res))) {
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
       return;
     }
 
     // Entitlement check
-    const hasAccess = await policyService.hasLibraryAccess(userId, channelId);
+    const hasAccess = isChannelAdmin || await policyService.hasLibraryAccess(userId, channelId);
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -433,13 +538,14 @@ exports.listBookmarks = async (req, res) => {
   try {
     const { channelId, itemId } = req.params;
     const userId = req.userId;
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res))) {
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
       return;
     }
 
     // Entitlement check
-    const hasAccess = await policyService.hasLibraryAccess(userId, channelId);
+    const hasAccess = isChannelAdmin || await policyService.hasLibraryAccess(userId, channelId);
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -494,13 +600,14 @@ exports.addToFavorites = async (req, res) => {
   try {
     const { channelId, itemId } = req.params;
     const userId = req.userId;
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res))) {
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
       return;
     }
 
     // Entitlement check
-    const canFav = await policyService.canModifyFavorites(userId, channelId, itemId);
+    const canFav = isChannelAdmin || await policyService.canModifyFavorites(userId, channelId, itemId);
     if (!canFav) {
       return res.status(403).json({
         error: 'Access denied',
@@ -556,13 +663,14 @@ exports.getRecommendations = async (req, res) => {
     const { channelId } = req.params;
     const userId = req.userId;
     const { limit = 5 } = req.query;
+    const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res))) {
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
       return;
     }
 
     // Entitlement check
-    const hasAccess = await policyService.canViewLibraryList(userId, channelId);
+    const hasAccess = await policyService.canViewLibraryList(userId, channelId, isChannelAdmin);
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',

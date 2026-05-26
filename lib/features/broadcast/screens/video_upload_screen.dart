@@ -7,6 +7,8 @@ import '../../../core/widgets/app_button.dart';
 import '../models/video_model.dart';
 import '../services/broadcast_service.dart';
 
+const Set<String> _supportedVideoExtensions = {'mp4', 'webm'};
+
 /// Data class for each video in the upload queue.
 class _VideoEntry {
   final File file;
@@ -108,7 +110,8 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
 
   Future<void> _pickVideos() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
+      type: FileType.custom,
+      allowedExtensions: _supportedVideoExtensions.toList(),
       allowMultiple: true,
     );
     if (result == null || result.files.isEmpty) return;
@@ -116,6 +119,14 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
     final newEntries = <_VideoEntry>[];
     for (final pf in result.files) {
       if (pf.path == null) continue;
+      if (!_isSupportedVideoFile(pf.name)) {
+        final entry = _VideoEntry(file: File(pf.path!), fileName: pf.name)
+          ..detectingDuration = false
+          ..uploadStatus = 'error'
+          ..uploadError = 'Unsupported format. Upload MP4 or WebM.';
+        newEntries.add(entry);
+        continue;
+      }
       newEntries.add(_VideoEntry(file: File(pf.path!), fileName: pf.name));
     }
 
@@ -123,8 +134,14 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
 
     // Detect durations in parallel
     for (final entry in newEntries) {
+      if (entry.uploadStatus == 'error') continue;
       _detectDuration(entry);
     }
+  }
+
+  bool _isSupportedVideoFile(String fileName) {
+    final ext = fileName.split('.').last.toLowerCase();
+    return _supportedVideoExtensions.contains(ext);
   }
 
   Future<void> _detectDuration(_VideoEntry entry) async {
@@ -502,12 +519,6 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
     switch (ext) {
       case 'mp4':
         return 'video/mp4';
-      case 'mov':
-        return 'video/quicktime';
-      case 'avi':
-        return 'video/x-msvideo';
-      case 'mkv':
-        return 'video/x-matroska';
       case 'webm':
         return 'video/webm';
       default:
@@ -518,9 +529,10 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
   // ─── Upload + Schedule ─────────────────────────────────
 
   bool get _canUpload {
-    if (_videos.isEmpty) return false;
+    final eligible = _videos.where((v) => v.uploadStatus != 'error').toList();
+    if (eligible.isEmpty) return false;
     if (_uploading) return false;
-    return _videos.every(
+    return eligible.every(
       (v) =>
           !v.detectingDuration &&
           v.durationSec != null &&
@@ -544,6 +556,14 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
 
     for (int i = 0; i < _videos.length; i++) {
       final entry = _videos[i];
+      if (!_isSupportedVideoFile(entry.fileName)) {
+        setState(() {
+          entry.uploadStatus = 'error';
+          entry.uploadError = 'Unsupported format. Upload MP4 or WebM.';
+          entry.detectingDuration = false;
+        });
+        continue;
+      }
       setState(() {
         entry.uploadStatus = 'uploading';
         entry.uploadProgress = 0;
@@ -925,7 +945,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Select multiple videos at once\nMP4, MOV, AVI, MKV, WEBM',
+                      'Select multiple videos at once\nMP4, WEBM',
                       style: TextStyle(
                         color: AppColors.goldText,
                         fontSize: 12,

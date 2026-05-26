@@ -154,6 +154,7 @@ export function ExternalStreamPlayer({
   const [volume, setVolume] = useState(100);
   const [showControls, setShowControls] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Stream metadata ────────────────────────────────────────────────────────
   const [meta, setMeta] = useState<StreamMeta>({ title: null, language: null, audioTracks: [], hasSubtitlesTracks: false });
@@ -220,8 +221,22 @@ export function ExternalStreamPlayer({
     return buildYouTubeEmbedUrl(playbackUrl);
   }, [runtimeMode, playbackUrl]);
 
+  const clearPlaybackNoticeTimer = useCallback(() => {
+    if (playbackNoticeTimer.current) {
+      clearTimeout(playbackNoticeTimer.current);
+      playbackNoticeTimer.current = null;
+    }
+  }, []);
+
+  const clearPlaybackNotice = useCallback(() => {
+    setPlaybackError(null);
+    setRecovering(false);
+    clearPlaybackNoticeTimer();
+  }, [clearPlaybackNoticeTimer, setRecovering]);
+
   // Reset on URL change
   useEffect(() => {
+    clearPlaybackNoticeTimer();
     setPlaybackError(null);
     setRecovering(false);
     setStreamUnavailable(false);
@@ -236,7 +251,22 @@ export function ExternalStreamPlayer({
     setSubtitlesEnabled(true);
     setSubResults([]);
     setSubStatus(null);
-  }, [playbackUrl, runtimeMode, setRecovering, retryToken]);
+  }, [playbackUrl, runtimeMode, setRecovering, retryToken, clearPlaybackNoticeTimer]);
+
+  // Keep transient recovery notices informative but non-sticky.
+  useEffect(() => {
+    if (!playbackError || streamUnavailable) return;
+    clearPlaybackNoticeTimer();
+    playbackNoticeTimer.current = setTimeout(() => {
+      setPlaybackError(null);
+      setRecovering(false);
+      playbackNoticeTimer.current = null;
+    }, 4500);
+
+    return () => {
+      clearPlaybackNoticeTimer();
+    };
+  }, [playbackError, streamUnavailable, clearPlaybackNoticeTimer, setRecovering]);
 
   // HTTP fallback in local dev
   useEffect(() => {
@@ -266,8 +296,15 @@ export function ExternalStreamPlayer({
 
     const handlePlaying = () => {
       if (cancelled) return;
-      setRecovering(false);
-      setPlaybackError(null);
+      clearPlaybackNotice();
+    };
+
+    const handleProgress = () => {
+      if (cancelled) return;
+      if (!recoveringRef.current) return;
+      if (video.paused) return;
+      if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      clearPlaybackNotice();
     };
 
     const handleStalled = () => {
@@ -290,6 +327,8 @@ export function ExternalStreamPlayer({
 
     video.addEventListener("waiting", handleWaiting);
     video.addEventListener("playing", handlePlaying);
+    video.addEventListener("canplay", handleProgress);
+    video.addEventListener("timeupdate", handleProgress);
     video.addEventListener("stalled", handleStalled);
 
     const boot = async () => {
@@ -515,6 +554,8 @@ export function ExternalStreamPlayer({
       cancelled = true;
       video.removeEventListener("waiting", handleWaiting);
       video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("canplay", handleProgress);
+      video.removeEventListener("timeupdate", handleProgress);
       video.removeEventListener("stalled", handleStalled);
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (dashInstance) dashInstance.reset();
@@ -522,7 +563,7 @@ export function ExternalStreamPlayer({
       video.load();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtimeMode, activePlaybackUrl, setRecovering]);
+  }, [runtimeMode, activePlaybackUrl, setRecovering, clearPlaybackNotice]);
 
   // Volume sync
   useEffect(() => {
@@ -780,6 +821,7 @@ export function ExternalStreamPlayer({
       )}
 
       {/* ── Controls overlay — bottom bar ── */}
+      {runtimeMode !== "youtube" && (
       <div
         className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pb-3 pt-8 px-3 flex items-end justify-between gap-2 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}
       >
@@ -1001,6 +1043,7 @@ export function ExternalStreamPlayer({
           </button>
         </div>
       </div>
+      )}
 
       {/* ── Fatal error banner ── */}
       {playbackError && isVideoRuntime && !streamUnavailable && (
@@ -1011,7 +1054,7 @@ export function ExternalStreamPlayer({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setPlaybackError(null);
+                  clearPlaybackNotice();
                   setRecovering(true);
                   setStreamUnavailable(false);
                   setUnavailableReason(null);

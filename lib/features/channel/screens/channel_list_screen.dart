@@ -272,11 +272,19 @@ class _ChannelListScreenState extends State<ChannelListScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline_rounded, color: AppColors.orange, size: 48),
+            const Icon(
+              Icons.error_outline_rounded,
+              color: AppColors.orange,
+              size: 48,
+            ),
             const SizedBox(height: 16),
             const Text(
               'Failed to load channels',
-              style: TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: AppColors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -288,12 +296,21 @@ class _ChannelListScreenState extends State<ChannelListScreen>
             GestureDetector(
               onTap: _loadChannels,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.orange,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Text('Retry', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Retry',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ),
           ],

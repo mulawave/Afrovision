@@ -75,17 +75,27 @@ function getScope(scope) {
   return 'inbox';
 }
 
+function getNotificationFilters(query) {
+  return {
+    type: typeof query.type === 'string' && query.type.trim() ? query.type.trim() : null,
+    channelId: typeof query.channel_id === 'string' && query.channel_id.trim() ? query.channel_id.trim() : null,
+  };
+}
+
 async function listMine(req, res) {
+  const filters = getNotificationFilters(req.query);
   const notifications = await Notification.listForUser(req.userId, {
     scope: getScope(req.query.scope),
     unreadOnly: req.query.unread_only === '1',
     limit: req.query.limit,
+    ...filters,
   });
-  res.json({ notifications, unread_count: await Notification.countUnread(req.userId) });
+  res.json({ notifications, unread_count: await Notification.countUnread(req.userId, filters) });
 }
 
 async function getUnreadCount(req, res) {
-  res.json({ unread_count: await Notification.countUnread(req.userId) });
+  const filters = getNotificationFilters(req.query);
+  res.json({ unread_count: await Notification.countUnread(req.userId, filters) });
 }
 
 async function markRead(req, res) {
@@ -119,8 +129,9 @@ async function remove(req, res) {
 }
 
 async function markAllRead(req, res) {
-  const updated = await Notification.markAllRead(req.userId);
-  res.json({ updated, unread_count: await Notification.countUnread(req.userId) });
+  const filters = getNotificationFilters(req.query);
+  const updated = await Notification.markAllRead(req.userId, filters);
+  res.json({ updated, unread_count: await Notification.countUnread(req.userId, filters) });
 }
 
 async function bulkUpdate(req, res) {

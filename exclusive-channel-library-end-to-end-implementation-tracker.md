@@ -2,7 +2,7 @@
 
 ## Implementation Status (Compulsory Update Per Implementation)
 
-Last Updated: 2026-05-24 (Phases 4-7 completed + AV-LIB-073/074 creator upload UX simplification)
+Last Updated: 2026-05-25 (AV-LIB-075 library publish notifications + tab counter in progress)
 
 ### Completed
 
@@ -35,11 +35,37 @@ Last Updated: 2026-05-24 (Phases 4-7 completed + AV-LIB-073/074 creator upload U
 
 ### In Progress
 
-- [ ] None
+- [ ] AV-LIB-075 Notify active PIC holders on library publishes and show unread badge on Library tab.
 
 ### Not Started
 
 - [ ] None
+
+## AV-LIB-075 Library publish notifications and tab badge
+
+### Completion Contract
+
+1. Publishing a new exclusive library item creates in-app notifications for all active PIC holders of that channel.
+2. Notifications link back to the channel library and carry enough metadata to identify the channel and item.
+3. The Library tab header shows an unread counter badge next to the Library label for the current channel.
+4. The unread counter reflects unread library notifications for the signed-in user only and clears when the user marks them read or opens the notifications.
+5. Subscribers without an active PIC must not receive library publish notifications.
+6. The feature must preserve all existing library publish and reader behavior.
+
+### Business Rules
+
+1. Only active PIC holders are eligible for library publish notifications.
+2. Library notifications are created only when an item transitions to published.
+3. Notification counts are scoped per user and per channel.
+4. Badge counters must not leak unread counts for other channels.
+
+### Acceptance Criteria and Test Matrix
+
+1. Publishing a new library item creates notifications for all active PIC holders of the channel.
+2. A notified subscriber sees the Library tab counter increment on the channel page.
+3. Opening/marking the notification read clears the badge for that channel.
+4. Users without PIC entitlement receive no library publish notification.
+5. Backend and frontend validation pass for the touched paths.
 
 ## Objective
 

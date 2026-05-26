@@ -166,10 +166,10 @@ class RecentChannel {
     return RecentChannel(
       id: _s(json['id']),
       name: _s(json['name']),
-      category: json['category'] == null ? null : json['category'].toString(),
+      category: json['category']?.toString(),
       channelNumber: _s(json['channel_number']),
-      logoUrl: json['logo_url'] == null ? null : json['logo_url'].toString(),
-      bannerUrl: json['banner_url'] == null ? null : json['banner_url'].toString(),
+      logoUrl: json['logo_url']?.toString(),
+      bannerUrl: json['banner_url']?.toString(),
       createdAt: _s(json['created_at']),
       ownerName: _s(json['owner_name'], fallback: 'Unknown'),
     );
@@ -200,10 +200,10 @@ class PromotedChannel {
     return PromotedChannel(
       id: _s(json['id']),
       name: _s(json['name']),
-      category: json['category'] == null ? null : json['category'].toString(),
+      category: json['category']?.toString(),
       channelNumber: _s(json['channel_number']),
-      logoUrl: json['logo_url'] == null ? null : json['logo_url'].toString(),
-      bannerUrl: json['banner_url'] == null ? null : json['banner_url'].toString(),
+      logoUrl: json['logo_url']?.toString(),
+      bannerUrl: json['banner_url']?.toString(),
     );
   }
 }

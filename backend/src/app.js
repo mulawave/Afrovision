@@ -39,6 +39,7 @@ const kycRoutes = require('./kyc/kyc.routes');
 const adRoutes = require('./ads/ad.routes');
 const subtitleRoutes = require('./subtitles/subtitle.routes');
 const libraryRoutes = require('./library/library.routes');
+const waveRoutes = require('./wave/wave.routes');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
 const app = express();
@@ -114,6 +115,7 @@ app.use('/ads', adRoutes);
 app.use('/subtitles', subtitleRoutes);
 app.use('/reputation', reputationRoutes);
 app.use('/', libraryRoutes);
+app.use('/wave', waveRoutes);
 
 function getOpsSecret() {
   return process.env.OPS_SECRET || null;

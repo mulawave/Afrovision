@@ -6,12 +6,12 @@ const { uploadToGCS } = require('../utils/gcs');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  const allowed = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
+  const allowed = ['.mp4', '.webm'];
   const ext = path.extname(file.originalname).toLowerCase();
   if (allowed.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('Only mp4, mov, avi, mkv, and webm video files are allowed'));
+    cb(new Error('Only mp4 and webm video files are allowed'));
   }
 };
 

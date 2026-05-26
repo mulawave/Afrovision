@@ -9,6 +9,7 @@ import {
   createCreatorLibraryAssetUploadUrlApi,
   generateCreatorLibraryReaderManifestApi,
   createCreatorChannelLibraryItemApi,
+  updateCreatorChannelLibraryItemApi,
   createCreatorChannelLibrarySeriesApi,
   deleteCreatorChannelLibraryItemApi,
   getCreatorChannelLibraryItemsApi,
@@ -36,11 +37,36 @@ function formatBytes(bytes: number): string {
   return `${size.toFixed(size >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
+function getApiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
+
+function Spinner({ size = "sm" }: { size?: "sm" | "xs" }) {
+  const cls = size === "xs" ? "h-3 w-3" : "h-3.5 w-3.5";
+  return (
+    <svg className={`animate-spin ${cls}`} fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
 export default function CreatorStudioLibraryPage() {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingSeries, setSavingSeries] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [publishingNewItem, setPublishingNewItem] = useState(false);
+  const [busyItemId, setBusyItemId] = useState<string | null>(null);
+  const [busySeriesId, setBusySeriesId] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<LibraryItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // "Add to Series" modal state
+  const [addToSeriesItem, setAddToSeriesItem] = useState<LibraryItem | null>(null);
+  const [addToSeriesTargetId, setAddToSeriesTargetId] = useState("");
+  const [addingToSeries, setAddingToSeries] = useState(false);
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState("");
@@ -159,7 +185,7 @@ export default function CreatorStudioLibraryPage() {
     if (!selectedChannelId || !seriesTitle.trim()) return;
 
     try {
-      setSaving(true);
+      setSavingSeries(true);
       setError(null);
       const res = await createCreatorChannelLibrarySeriesApi(selectedChannelId, {
         title: seriesTitle.trim(),
@@ -175,9 +201,9 @@ export default function CreatorStudioLibraryPage() {
       setNotice("Series created successfully");
       await refreshActiveChannel();
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Failed to create series");
+      setError(getApiErrorMessage(createError, "Failed to create series"));
     } finally {
-      setSaving(false);
+      setSavingSeries(false);
     }
   };
 
@@ -314,20 +340,167 @@ export default function CreatorStudioLibraryPage() {
     [uploadLibraryAsset],
   );
 
-  const handleCreateItem = async () => {
-    if (!selectedChannelId || !itemTitle.trim() || !itemAuthor.trim() || !itemManifestUrl.trim()) {
-      setError("Title, author, and uploaded reader content are required");
+  const resetItemForm = () => {
+    setItemTitle("");
+    setItemAuthor("");
+    setItemDescription("");
+    setItemPages("20");
+    setItemManifestUrl("");
+    setItemReaderPdfUrl("");
+    setItemCoverUrl("");
+    setItemPdfFileName(null);
+    setItemPdfFileSize(0);
+    setReaderPageImages([]);
+    setManifestUploadProgress(0);
+    setCoverUploadProgress(0);
+    if (coverInputRef.current) coverInputRef.current.value = "";
+    if (pdfInputRef.current) pdfInputRef.current.value = "";
+    if (pageImagesInputRef.current) pageImagesInputRef.current.value = "";
+    setItemSeriesId("");
+    setEditingItem(null);
+  };
+
+  const handleEditItem = (item: LibraryItem) => {
+    setEditingItem(item);
+    setItemTitle(item.title ?? "");
+    setItemAuthor(item.author ?? "");
+    setItemDescription(item.description ?? "");
+    setItemType((item.contentType as ContentType) ?? "book");
+    setItemPages(String(item.totalPages ?? 20));
+    setItemManifestUrl(item.readerAssetManifestUrl ?? "");
+    setItemReaderPdfUrl("");
+    setItemCoverUrl(item.coverAssetUrl ?? "");
+    setItemSeriesId(item.seriesId ?? "");
+    setItemPdfFileName(null);
+    setItemPdfFileSize(0);
+    setReaderPageImages([]);
+    setManifestUploadProgress(item.readerAssetManifestUrl ? 100 : 0);
+    setCoverUploadProgress(item.coverAssetUrl ? 100 : 0);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleUpdateDraft = async () => {
+    if (!selectedChannelId || !editingItem) return;
+    const totalPages = Math.max(1, Number(itemPages) || 1);
+    try {
+      setSavingDraft(true);
+      setError(null);
+      const res = await updateCreatorChannelLibraryItemApi(selectedChannelId, editingItem.id, {
+        title: itemTitle.trim() || "Untitled draft",
+        author: itemAuthor.trim() || "Unknown",
+        description: itemDescription.trim() || undefined,
+        contentType: itemType,
+        totalPages,
+        readerAssetManifestUrl: itemManifestUrl.trim() || undefined,
+        coverAssetUrl: itemCoverUrl.trim() || undefined,
+        seriesId: itemSeriesId || undefined,
+      });
+      if (!res.ok) {
+        throw new Error("Failed to update draft");
+      }
+      resetItemForm();
+      setNotice("Draft updated successfully");
+      await refreshActiveChannel();
+    } catch (updateError) {
+      setError(getApiErrorMessage(updateError, "Failed to update draft"));
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handleUpdateAndPublish = async () => {
+    if (!selectedChannelId || !editingItem) return;
+    if (!itemTitle.trim() || !itemAuthor.trim()) {
+      setError("Title and author are required to publish");
       return;
     }
-
+    if (!itemManifestUrl.trim()) {
+      setError("Upload reader content before publishing");
+      return;
+    }
     const totalPages = Number(itemPages);
     if (!Number.isFinite(totalPages) || totalPages <= 0) {
       setError("Total pages must be a positive number");
       return;
     }
-
     try {
-      setSaving(true);
+      setPublishingNewItem(true);
+      setError(null);
+      const res = await updateCreatorChannelLibraryItemApi(selectedChannelId, editingItem.id, {
+        title: itemTitle.trim(),
+        author: itemAuthor.trim(),
+        description: itemDescription.trim() || undefined,
+        contentType: itemType,
+        totalPages,
+        readerAssetManifestUrl: itemManifestUrl.trim(),
+        coverAssetUrl: itemCoverUrl.trim() || undefined,
+        seriesId: itemSeriesId || undefined,
+      });
+      if (!res.ok) {
+        throw new Error("Failed to update item");
+      }
+      // Now publish it
+      const pubRes = await publishCreatorChannelLibraryItemApi(selectedChannelId, editingItem.id);
+      if (!pubRes.ok) {
+        throw new Error("Item updated but failed to publish — use the Publish button");
+      }
+      resetItemForm();
+      setNotice("Item updated and published");
+      await refreshActiveChannel();
+    } catch (updateError) {
+      setError(getApiErrorMessage(updateError, "Failed to update and publish"));
+    } finally {
+      setPublishingNewItem(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!selectedChannelId) return;
+    const totalPages = Math.max(1, Number(itemPages) || 1);
+    try {
+      setSavingDraft(true);
+      setError(null);
+      const createRes = await createCreatorChannelLibraryItemApi(selectedChannelId, {
+        title: itemTitle.trim() || "Untitled draft",
+        author: itemAuthor.trim() || "Unknown",
+        description: itemDescription.trim() || undefined,
+        contentType: itemType,
+        totalPages,
+        readerAssetManifestUrl: itemManifestUrl.trim() || undefined,
+        coverAssetUrl: itemCoverUrl.trim() || undefined,
+        seriesId: itemSeriesId || undefined,
+        status: "draft",
+      });
+      if (!createRes.ok) {
+        throw new Error("Failed to save draft");
+      }
+      resetItemForm();
+      setNotice("Draft saved successfully");
+      await refreshActiveChannel();
+    } catch (createError) {
+      setError(getApiErrorMessage(createError, "Failed to save draft"));
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handlePublishNewItem = async () => {
+    if (!selectedChannelId) return;
+    if (!itemTitle.trim() || !itemAuthor.trim()) {
+      setError("Title and author are required to publish");
+      return;
+    }
+    if (!itemManifestUrl.trim()) {
+      setError("Upload reader content before publishing");
+      return;
+    }
+    const totalPages = Number(itemPages);
+    if (!Number.isFinite(totalPages) || totalPages <= 0) {
+      setError("Total pages must be a positive number");
+      return;
+    }
+    try {
+      setPublishingNewItem(true);
       setError(null);
       const createRes = await createCreatorChannelLibraryItemApi(selectedChannelId, {
         title: itemTitle.trim(),
@@ -338,42 +511,25 @@ export default function CreatorStudioLibraryPage() {
         readerAssetManifestUrl: itemManifestUrl.trim(),
         coverAssetUrl: itemCoverUrl.trim() || undefined,
         seriesId: itemSeriesId || undefined,
-        status: "draft",
+        status: "published",
       });
-
       if (!createRes.ok) {
-        throw new Error("Failed to create library item");
+        throw new Error("Failed to publish item");
       }
-
-      setItemTitle("");
-      setItemAuthor("");
-      setItemDescription("");
-      setItemPages("20");
-      setItemManifestUrl("");
-      setItemReaderPdfUrl("");
-      setItemCoverUrl("");
-      setItemPdfFileName(null);
-      setItemPdfFileSize(0);
-      setReaderPageImages([]);
-      setManifestUploadProgress(0);
-      setCoverUploadProgress(0);
-      if (coverInputRef.current) coverInputRef.current.value = "";
-      if (pdfInputRef.current) pdfInputRef.current.value = "";
-      if (pageImagesInputRef.current) pageImagesInputRef.current.value = "";
-      setItemSeriesId("");
-      setNotice("Draft item created successfully");
+      resetItemForm();
+      setNotice("Item published successfully");
       await refreshActiveChannel();
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Failed to create item");
+      setError(getApiErrorMessage(createError, "Failed to publish item"));
     } finally {
-      setSaving(false);
+      setPublishingNewItem(false);
     }
   };
 
   const handlePublish = async (itemId: string) => {
     if (!selectedChannelId) return;
     try {
-      setSaving(true);
+      setBusyItemId(itemId);
       setError(null);
       const res = await publishCreatorChannelLibraryItemApi(selectedChannelId, itemId);
       if (!res.ok) {
@@ -382,16 +538,16 @@ export default function CreatorStudioLibraryPage() {
       setNotice("Item published");
       await refreshActiveChannel();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Failed to publish item");
+      setError(getApiErrorMessage(actionError, "Failed to publish item"));
     } finally {
-      setSaving(false);
+      setBusyItemId(null);
     }
   };
 
   const handleArchive = async (itemId: string) => {
     if (!selectedChannelId) return;
     try {
-      setSaving(true);
+      setBusyItemId(itemId);
       setError(null);
       const res = await archiveCreatorChannelLibraryItemApi(selectedChannelId, itemId);
       if (!res.ok) {
@@ -400,9 +556,9 @@ export default function CreatorStudioLibraryPage() {
       setNotice("Item archived");
       await refreshActiveChannel();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Failed to archive item");
+      setError(getApiErrorMessage(actionError, "Failed to archive item"));
     } finally {
-      setSaving(false);
+      setBusyItemId(null);
     }
   };
 
@@ -413,7 +569,7 @@ export default function CreatorStudioLibraryPage() {
     if (!confirmed) return;
 
     try {
-      setSaving(true);
+      setBusyItemId(itemId);
       setError(null);
       const res = await deleteCreatorChannelLibraryItemApi(selectedChannelId, itemId);
       if (!res.ok) {
@@ -422,9 +578,9 @@ export default function CreatorStudioLibraryPage() {
       setNotice("Item deleted");
       await refreshActiveChannel();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Failed to delete item");
+      setError(getApiErrorMessage(actionError, "Failed to delete item"));
     } finally {
-      setSaving(false);
+      setBusyItemId(null);
     }
   };
 
@@ -446,7 +602,7 @@ export default function CreatorStudioLibraryPage() {
     }));
 
     try {
-      setSaving(true);
+      setBusySeriesId(seriesId);
       setError(null);
       const res = await reorderCreatorChannelLibraryContentApi(selectedChannelId, {
         series: payload,
@@ -457,9 +613,9 @@ export default function CreatorStudioLibraryPage() {
       setNotice("Series order updated");
       await refreshActiveChannel();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Failed to reorder series");
+      setError(getApiErrorMessage(actionError, "Failed to reorder series"));
     } finally {
-      setSaving(false);
+      setBusySeriesId(null);
     }
   };
 
@@ -488,7 +644,7 @@ export default function CreatorStudioLibraryPage() {
     }));
 
     try {
-      setSaving(true);
+      setBusyItemId(itemId);
       setError(null);
       const res = await reorderCreatorChannelLibraryContentApi(selectedChannelId, {
         items: payload,
@@ -499,9 +655,44 @@ export default function CreatorStudioLibraryPage() {
       setNotice("Series item sequence updated");
       await refreshActiveChannel();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Failed to reorder series items");
+      setError(getApiErrorMessage(actionError, "Failed to reorder series items"));
     } finally {
-      setSaving(false);
+      setBusyItemId(null);
+    }
+  };
+
+  const openAddToSeriesModal = (item: LibraryItem) => {
+    setAddToSeriesItem(item);
+    setAddToSeriesTargetId(item.seriesId ?? "");
+  };
+
+  const handleAddToSeries = async () => {
+    if (!selectedChannelId || !addToSeriesItem || !addToSeriesTargetId) return;
+
+    try {
+      setAddingToSeries(true);
+      setError(null);
+
+      const siblings = items.filter((item) => item.seriesId === addToSeriesTargetId);
+      const nextOrderIndex = siblings.length;
+
+      const res = await updateCreatorChannelLibraryItemApi(selectedChannelId, addToSeriesItem.id, {
+        seriesId: addToSeriesTargetId,
+        seriesOrderIndex: nextOrderIndex,
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to add item to series");
+      }
+
+      setNotice("Item added to series");
+      setAddToSeriesItem(null);
+      setAddToSeriesTargetId("");
+      await refreshActiveChannel();
+    } catch (actionError) {
+      setError(getApiErrorMessage(actionError, "Failed to add item to series"));
+    } finally {
+      setAddingToSeries(false);
     }
   };
 
@@ -604,17 +795,34 @@ export default function CreatorStudioLibraryPage() {
                 />
                 <button
                   type="button"
-                  disabled={saving || !seriesTitle.trim()}
+                  disabled={savingSeries || !seriesTitle.trim()}
                   onClick={handleCreateSeries}
-                  className="mt-4 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-4 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Create series
+                  {savingSeries ? <><Spinner />Creating...</> : "Create series"}
                 </button>
               </section>
 
               <section className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
-                <h2 className="text-lg font-semibold text-av-white">Create library item</h2>
-                <p className="mt-1 text-xs text-av-light-orange/80">Items start as draft and can be published when ready.</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold text-av-white">
+                      {editingItem ? `Editing: ${editingItem.title}` : "Create library item"}
+                    </h2>
+                    <p className="mt-1 text-xs text-av-light-orange/80">
+                      {editingItem ? "Make your changes, then save the draft or publish." : "Items start as draft and can be published when ready."}
+                    </p>
+                  </div>
+                  {editingItem ? (
+                    <button
+                      type="button"
+                      onClick={resetItemForm}
+                      className="shrink-0 rounded-full border border-av-input-border/40 px-3 py-1.5 text-xs font-semibold text-av-light-orange hover:border-av-orange/50 hover:text-av-white"
+                    >
+                      Cancel edit
+                    </button>
+                  ) : null}
+                </div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <input
@@ -681,17 +889,17 @@ export default function CreatorStudioLibraryPage() {
                         type="button"
                         disabled={manifestUploading || !selectedChannelId}
                         onClick={() => pdfInputRef.current?.click()}
-                        className="rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
                       >
-                        {manifestUploading ? "Uploading..." : "Upload PDF"}
+                        {manifestUploading ? <><Spinner size="xs" />Uploading...</> : "Upload PDF"}
                       </button>
                       <button
                         type="button"
                         disabled={manifestUploading || !selectedChannelId}
                         onClick={() => pageImagesInputRef.current?.click()}
-                        className="rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
                       >
-                        {manifestUploading ? "Uploading..." : "Upload page images"}
+                        {manifestUploading ? <><Spinner size="xs" />Uploading...</> : "Upload page images"}
                       </button>
                       {itemManifestUrl ? (
                         <button
@@ -759,9 +967,9 @@ export default function CreatorStudioLibraryPage() {
                         type="button"
                         disabled={coverUploading || !selectedChannelId}
                         onClick={() => coverInputRef.current?.click()}
-                        className="rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/50 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
                       >
-                        {coverUploading ? "Uploading cover..." : "Upload cover"}
+                        {coverUploading ? <><Spinner size="xs" />Uploading...</> : "Upload cover"}
                       </button>
                       {itemCoverUrl ? (
                         <button
@@ -815,14 +1023,24 @@ export default function CreatorStudioLibraryPage() {
                   ))}
                 </select>
 
-                <button
-                  type="button"
-                  disabled={saving || manifestUploading || coverUploading || !selectedChannelId}
-                  onClick={handleCreateItem}
-                  className="mt-4 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Save as draft
-                </button>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    disabled={savingDraft || publishingNewItem || manifestUploading || coverUploading || !selectedChannelId}
+                    onClick={editingItem ? handleUpdateDraft : handleSaveDraft}
+                    className="inline-flex items-center gap-2 rounded-full border border-av-input-border/40 px-5 py-2.5 text-sm font-semibold text-av-light-orange disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingDraft ? <><Spinner />Saving...</> : (editingItem ? "Update draft" : "Save as draft")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingDraft || publishingNewItem || manifestUploading || coverUploading || !selectedChannelId}
+                    onClick={editingItem ? handleUpdateAndPublish : handlePublishNewItem}
+                    className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {publishingNewItem ? <><Spinner />Publishing...</> : (editingItem ? "Update & publish" : "Publish")}
+                  </button>
+                </div>
               </section>
             </div>
 
@@ -848,18 +1066,20 @@ export default function CreatorStudioLibraryPage() {
                           <div className="flex gap-2">
                             <button
                               type="button"
-                              disabled={saving || index === 0}
+                              disabled={busySeriesId === s.id || index === 0}
                               onClick={() => reorderSeries(s.id, "up")}
-                              className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                              className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
                             >
+                              {busySeriesId === s.id ? <Spinner size="xs" /> : null}
                               Move Up
                             </button>
                             <button
                               type="button"
-                              disabled={saving || index === orderedSeries.length - 1}
+                              disabled={busySeriesId === s.id || index === orderedSeries.length - 1}
                               onClick={() => reorderSeries(s.id, "down")}
-                              className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
+                              className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-white disabled:opacity-40"
                             >
+                              {busySeriesId === s.id ? <Spinner size="xs" /> : null}
                               Move Down
                             </button>
                           </div>
@@ -906,22 +1126,43 @@ export default function CreatorStudioLibraryPage() {
                           <p className="mt-1 text-xs uppercase tracking-[0.2em] text-av-orange/80">{item.status}</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
+                          {item.status === "draft" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleEditItem(item)}
+                              disabled={busyItemId === item.id}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-av-orange/40 px-4 py-2 text-xs font-semibold text-av-light-orange disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Edit
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => openAddToSeriesModal(item)}
+                            disabled={busyItemId === item.id || series.length === 0}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white disabled:cursor-not-allowed disabled:opacity-60"
+                            title={series.length === 0 ? "Create a series first" : "Add this item to a series"}
+                          >
+                            Add to Series
+                          </button>
                           {item.seriesId ? (
                             <>
                               <button
                                 type="button"
                                 onClick={() => reorderSeriesItem(item.id, "up")}
-                                disabled={saving}
-                                className="rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white disabled:cursor-not-allowed disabled:opacity-60"
+                                disabled={busyItemId === item.id}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white disabled:cursor-not-allowed disabled:opacity-60"
                               >
+                                {busyItemId === item.id ? <Spinner size="xs" /> : null}
                                 Seq Up
                               </button>
                               <button
                                 type="button"
                                 onClick={() => reorderSeriesItem(item.id, "down")}
-                                disabled={saving}
-                                className="rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white disabled:cursor-not-allowed disabled:opacity-60"
+                                disabled={busyItemId === item.id}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white disabled:cursor-not-allowed disabled:opacity-60"
                               >
+                                {busyItemId === item.id ? <Spinner size="xs" /> : null}
                                 Seq Down
                               </button>
                             </>
@@ -930,9 +1171,10 @@ export default function CreatorStudioLibraryPage() {
                             <button
                               type="button"
                               onClick={() => handlePublish(item.id)}
-                              disabled={saving}
-                              className="rounded-full bg-av-success/20 px-4 py-2 text-xs font-semibold text-av-success disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={busyItemId === item.id}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-av-success/20 px-4 py-2 text-xs font-semibold text-av-success disabled:cursor-not-allowed disabled:opacity-60"
                             >
+                              {busyItemId === item.id ? <Spinner size="xs" /> : null}
                               Publish
                             </button>
                           ) : null}
@@ -940,18 +1182,20 @@ export default function CreatorStudioLibraryPage() {
                             <button
                               type="button"
                               onClick={() => handleArchive(item.id)}
-                              disabled={saving}
-                              className="rounded-full bg-av-warning/20 px-4 py-2 text-xs font-semibold text-av-warning disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={busyItemId === item.id}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-av-warning/20 px-4 py-2 text-xs font-semibold text-av-warning disabled:cursor-not-allowed disabled:opacity-60"
                             >
+                              {busyItemId === item.id ? <Spinner size="xs" /> : null}
                               Archive
                             </button>
                           ) : null}
                           <button
                             type="button"
                             onClick={() => handleDelete(item.id)}
-                            disabled={saving}
-                            className="rounded-full bg-av-error/20 px-4 py-2 text-xs font-semibold text-av-error disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={busyItemId === item.id}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-av-error/20 px-4 py-2 text-xs font-semibold text-av-error disabled:cursor-not-allowed disabled:opacity-60"
                           >
+                            {busyItemId === item.id ? <Spinner size="xs" /> : null}
                             Delete
                           </button>
                         </div>
@@ -963,6 +1207,60 @@ export default function CreatorStudioLibraryPage() {
             </div>
           </>
         )}
+
+        {addToSeriesItem ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-av-dark-blue/80 px-4">
+            <div className="w-full max-w-lg rounded-3xl border border-av-input-border/40 bg-av-card p-6">
+              <div className="mb-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-av-light-orange">Library item</p>
+                <h3 className="mt-1 text-xl font-semibold text-av-white">Add to series</h3>
+                <p className="mt-2 text-sm text-av-light-orange/80">{addToSeriesItem.title}</p>
+              </div>
+
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-av-light-orange/70">
+                Choose series
+              </label>
+              <select
+                value={addToSeriesTargetId}
+                onChange={(event) => setAddToSeriesTargetId(event.target.value)}
+                className="w-full rounded-2xl border border-av-input-border/30 bg-av-input/40 px-4 py-3 text-sm text-av-white outline-none transition focus:border-av-orange/50"
+              >
+                <option value="" disabled>
+                  Select a series
+                </option>
+                {series.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.title}
+                  </option>
+                ))}
+              </select>
+
+              <div className="mt-6 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (addingToSeries) return;
+                    setAddToSeriesItem(null);
+                    setAddToSeriesTargetId("");
+                  }}
+                  disabled={addingToSeries}
+                  className="inline-flex items-center rounded-full border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-light-orange disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddToSeries}
+                  disabled={addingToSeries || !addToSeriesTargetId}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-4 py-2 text-xs font-semibold text-av-dark-blue disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {addingToSeries ? <Spinner size="xs" /> : null}
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );

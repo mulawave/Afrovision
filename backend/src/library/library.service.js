@@ -6,6 +6,8 @@
  */
 
 const admin = require('firebase-admin');
+const ExclusiveAccess = require('../channels/exclusive_access.model');
+const NotificationService = require('../notifications/notification.service');
 const {
   COLLECTION_PATHS,
   DocumentHelpers,
@@ -16,6 +18,38 @@ const db = {
   collection: (...args) => admin.firestore().collection(...args),
 };
 
+async function notifyLibrarySubscribers(channelId, item, userId, action = 'published') {
+  const activeAccesses = await ExclusiveAccess.listActiveAccesses();
+  const targetUserIds = activeAccesses
+    .filter((access) => String(access.channel_id) === String(channelId))
+    .map((access) => access.user_uid)
+    .filter(Boolean);
+
+  if (targetUserIds.length === 0) {
+    return { targeted: 0, successCount: 0, failureCount: 0, notifications: [] };
+  }
+
+  const title = `New Library Item: ${item.title}`;
+  const body = `${item.author} just ${action === 'published' ? 'published' : 'added'} ${item.title}.`;
+  const link = `/channel/${channelId}/library/${item.id}`;
+
+  return NotificationService.notifyUsers(targetUserIds, {
+    title,
+    body,
+    data: {
+      channel_id: String(channelId),
+      item_id: String(item.id),
+      item_title: String(item.title || ''),
+      content_type: String(item.contentType || ''),
+      action,
+    },
+    type: 'library',
+    link,
+    source: 'library_publish',
+    createdBy: userId,
+  });
+}
+
 class LibraryService {
   /**
    * Create library item (creator/admin only)
@@ -25,7 +59,19 @@ class LibraryService {
    * @returns {Promise<object>} created item
    */
   async createLibraryItem(channelId, itemPayload, userId) {
-    const { valid, errors } = ValidationRules.validateItemPayload(itemPayload);
+    // Auto-compute seriesOrderIndex when a seriesId is provided but no index was supplied.
+    // Place the new item at the end of the series (count of existing items in that series).
+    let resolvedPayload = itemPayload;
+    if (itemPayload.seriesId && itemPayload.seriesOrderIndex === undefined) {
+      const existingSnap = await db
+        .collection(COLLECTION_PATHS.LIBRARY_ITEMS)
+        .where('channelId', '==', channelId)
+        .where('seriesId', '==', itemPayload.seriesId)
+        .get();
+      resolvedPayload = { ...itemPayload, seriesOrderIndex: existingSnap.size };
+    }
+
+    const { valid, errors } = ValidationRules.validateItemPayload(resolvedPayload);
     if (!valid) {
       throw new Error(`Invalid item payload: ${errors.join(', ')}`);
     }
@@ -36,19 +82,19 @@ class LibraryService {
     const itemData = {
       id: itemId,
       channelId,
-      seriesId: itemPayload.seriesId || null,
-      seriesOrderIndex: itemPayload.seriesOrderIndex !== undefined ? itemPayload.seriesOrderIndex : 0,
-      contentType: itemPayload.contentType,
-      title: itemPayload.title.trim(),
-      subtitle: itemPayload.subtitle || null,
-      author: itemPayload.author.trim(),
-      description: itemPayload.description || '',
-      tags: Array.isArray(itemPayload.tags) ? itemPayload.tags : [],
-      coverAssetUrl: itemPayload.coverAssetUrl || null,
-      readerAssetManifestUrl: itemPayload.readerAssetManifestUrl || null,
-      totalPages: itemPayload.totalPages,
-      estimatedReadMinutes: itemPayload.estimatedReadMinutes || 0,
-      status: itemPayload.status || 'draft', // default draft
+      seriesId: resolvedPayload.seriesId || null,
+      seriesOrderIndex: resolvedPayload.seriesOrderIndex !== undefined ? resolvedPayload.seriesOrderIndex : 0,
+      contentType: resolvedPayload.contentType,
+      title: resolvedPayload.title.trim(),
+      subtitle: resolvedPayload.subtitle || null,
+      author: resolvedPayload.author.trim(),
+      description: resolvedPayload.description || '',
+      tags: Array.isArray(resolvedPayload.tags) ? resolvedPayload.tags : [],
+      coverAssetUrl: resolvedPayload.coverAssetUrl || null,
+      readerAssetManifestUrl: resolvedPayload.readerAssetManifestUrl || null,
+      totalPages: resolvedPayload.totalPages,
+      estimatedReadMinutes: resolvedPayload.estimatedReadMinutes || 0,
+      status: resolvedPayload.status || 'draft', // default draft
       publishedAt: null,
       createdBy: userId,
       updatedBy: userId,
@@ -70,6 +116,12 @@ class LibraryService {
       userId,
       status: itemData.status,
     });
+
+    if (itemData.status === 'published') {
+      notifyLibrarySubscribers(channelId, itemData, userId, 'published').catch((error) => {
+        console.warn('Library publish notification fanout failed after create:', error);
+      });
+    }
 
     return itemData;
   }
@@ -97,6 +149,8 @@ class LibraryService {
       'description',
       'tags',
       'estimatedReadMinutes',
+      'contentType',
+      'totalPages',
       'seriesId',
       'seriesOrderIndex',
       'coverAssetUrl',
@@ -142,6 +196,8 @@ class LibraryService {
       throw new Error(`Library item not found: ${itemId}`);
     }
 
+    const wasAlreadyPublished = itemSnap.data().status === 'published';
+
     const now = admin.firestore.Timestamp.now();
     await itemRef.update({
       status: 'published',
@@ -155,6 +211,13 @@ class LibraryService {
       itemId,
       userId,
     });
+
+    if (!wasAlreadyPublished) {
+      const updatedItem = await itemRef.get();
+      notifyLibrarySubscribers(channelId, updatedItem.data(), userId, 'published').catch((error) => {
+        console.warn('Library publish notification fanout failed:', error);
+      });
+    }
 
     const updated = await itemRef.get();
     return updated.data();

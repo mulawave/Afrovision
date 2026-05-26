@@ -136,8 +136,12 @@ async function getAdUploadUrl(req, res) {
     if (!content_type) return res.status(400).json({ error: 'content_type is required' });
 
     const ALLOWED_TYPES = {
-      'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
-      'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+      'video/mp4': '.mp4',
+      'video/webm': '.webm',
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/gif': '.gif',
+      'image/webp': '.webp',
     };
 
     if (!ALLOWED_TYPES[content_type]) {

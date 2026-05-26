@@ -135,10 +135,23 @@ async function generateSignedReadUrl(filename, expiresMinutes = 60) {
   return url;
 }
 
+/**
+ * Download a file from GCS by its object path.
+ * Uses the @google-cloud/storage SDK (service-account credentials via ADC).
+ * @param {string} filename - Object path in bucket (e.g. "library/books/uuid.pdf")
+ * @returns {Promise<Buffer>}
+ */
+async function downloadFromGCS(filename) {
+  const bucket = getBucket();
+  const [contents] = await bucket.file(filename).download();
+  return Buffer.isBuffer(contents) ? contents : Buffer.from(contents);
+}
+
 module.exports = {
   uploadToGCS,
   deleteFromGCS,
   extractGCSPath,
+  downloadFromGCS,
   generateSignedUploadUrl,
   generateSignedReadUrl,
   createResumableUploadSession,

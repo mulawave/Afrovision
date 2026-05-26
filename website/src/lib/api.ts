@@ -1191,6 +1191,7 @@ export interface LibraryItem {
   description: string;
   tags: string[];
   coverAssetUrl: string | null;
+  readerAssetManifestUrl: string | null;
   totalPages: number;
   estimatedReadMinutes: number;
   status: "draft" | "published" | "archived";
@@ -1440,6 +1441,31 @@ export async function createCreatorChannelLibraryItemApi(
     `/creator/channels/${channelId}/library/items`,
     {
       method: "POST",
+      body: payload,
+      requireAuth: true,
+    },
+  );
+}
+
+export async function updateCreatorChannelLibraryItemApi(
+  channelId: string,
+  itemId: string,
+  payload: {
+    title?: string;
+    author?: string;
+    description?: string;
+    contentType?: "book" | "comic" | "magazine" | "other";
+    totalPages?: number;
+    coverAssetUrl?: string;
+    readerAssetManifestUrl?: string;
+    seriesId?: string | null;
+    seriesOrderIndex?: number;
+  },
+) {
+  return api<{ success: boolean; data: LibraryItem } | ErrorResponse>(
+    `/creator/channels/${channelId}/library/items/${itemId}`,
+    {
+      method: "PATCH",
       body: payload,
       requireAuth: true,
     },
@@ -2073,11 +2099,15 @@ export async function getNotificationsApi(options?: {
   scope?: "inbox" | "archived" | "all";
   unreadOnly?: boolean;
   limit?: number;
+  type?: string;
+  channelId?: string;
 }) {
   const params = new URLSearchParams();
   if (options?.scope) params.set("scope", options.scope);
   if (options?.unreadOnly) params.set("unread_only", "1");
   if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.type) params.set("type", options.type);
+  if (options?.channelId) params.set("channel_id", options.channelId);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return api<{ notifications: NotificationItem[]; unread_count: number }>(
     `/notifications/me${suffix}`,
@@ -2085,8 +2115,15 @@ export async function getNotificationsApi(options?: {
   );
 }
 
-export async function getNotificationUnreadCountApi() {
-  return api<{ unread_count: number }>("/notifications/unread-count", {
+export async function getNotificationUnreadCountApi(options?: {
+  type?: string;
+  channelId?: string;
+}) {
+  const params = new URLSearchParams();
+  if (options?.type) params.set("type", options.type);
+  if (options?.channelId) params.set("channel_id", options.channelId);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return api<{ unread_count: number }>(`/notifications/unread-count${suffix}`, {
     requireAuth: true,
   });
 }
@@ -2126,9 +2163,16 @@ export async function deleteNotificationApi(id: string) {
   });
 }
 
-export async function markAllNotificationsReadApi() {
+export async function markAllNotificationsReadApi(options?: {
+  type?: string;
+  channelId?: string;
+}) {
+  const params = new URLSearchParams();
+  if (options?.type) params.set("type", options.type);
+  if (options?.channelId) params.set("channel_id", options.channelId);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
   return api<{ updated: number; unread_count: number }>(
-    "/notifications/mark-all-read",
+    `/notifications/mark-all-read${suffix}`,
     { method: "POST", body: {}, requireAuth: true }
   );
 }
@@ -2640,4 +2684,199 @@ export async function confirmImmediateDeletionApi(password: string) {
     "/users/delete-account/confirm",
     { method: "POST", body: { password }, requireAuth: true }
   );
+}
+
+// ── Afrovision Wave API ────────────────────────────────────
+
+export interface Wave {
+  id: string;
+  channel_id: string;
+  creator_uid: string;
+  title: string;
+  description: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  duration: number;
+  pulse_count: number;
+  comment_count: number;
+  bookmark_count: number;
+  pulse_score: number;
+  status: "active" | "hidden" | "deleted" | "reported";
+  created_at: number;
+  views_count?: number;
+  views?: number;
+  total_views?: number;
+  repeat_play_count?: number;
+  is_bookmarked?: boolean;
+}
+
+export interface WaveComment {
+  id: string;
+  wave_id: string;
+  user_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  text: string;
+  created_at: number;
+}
+
+export interface WavePulseMoment {
+  second: number;
+  intensity_sum: number;
+}
+
+export async function getWaveFeedApi(limit = 20, cursor?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return api<{ waves: Wave[]; next_cursor: string | null }>(`/wave/feed?${params.toString()}`);
+}
+
+export async function getWaveApi(waveId: string) {
+  return api<Wave | ErrorResponse>(`/wave/${waveId}`);
+}
+
+export async function getChannelWavesApi(channelId: string, options?: { includeHidden?: boolean }) {
+  const params = new URLSearchParams();
+  if (options?.includeHidden) params.set("include_hidden", "true");
+  const query = params.toString();
+  const path = query ? `/wave/channel/${channelId}?${query}` : `/wave/channel/${channelId}`;
+  return api<Wave[] | ErrorResponse>(path);
+}
+
+export async function getWaveUploadUrlApi(channelId: string, contentType: string) {
+  return api<{ signed_url: string; public_url: string; filename: string } | ErrorResponse>(
+    "/wave/upload-url",
+    { method: "POST", body: { channel_id: channelId, content_type: contentType }, requireAuth: true }
+  );
+}
+
+export async function registerWaveApi(input: {
+  channel_id: string;
+  title: string;
+  description?: string;
+  video_url: string;
+  thumbnail_url?: string;
+  duration?: number;
+}) {
+  return api<Wave | ErrorResponse>("/wave/register", {
+    method: "POST",
+    body: input,
+    requireAuth: true,
+  });
+}
+
+export async function deleteWaveApi(waveId: string) {
+  return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}`, {
+    method: "DELETE",
+    requireAuth: true,
+  });
+}
+
+export async function setWaveTimelineVisibilityApi(waveId: string, hidden: boolean) {
+  return api<{ success: boolean; wave: Wave } | ErrorResponse>(`/wave/${waveId}/timeline-visibility`, {
+    method: "POST",
+    body: { hidden },
+    requireAuth: true,
+  });
+}
+
+export async function bulkDeleteWavesApi(waveIds: string[]) {
+  return api<{
+    success: boolean;
+    requested_count: number;
+    deleted_count: number;
+    deleted_ids: string[];
+    failed: Record<string, string>;
+  } | ErrorResponse>(`/wave/bulk-delete`, {
+    method: "POST",
+    body: { wave_ids: waveIds },
+    requireAuth: true,
+  });
+}
+
+export async function bulkSetWaveTimelineVisibilityApi(waveIds: string[], hidden: boolean) {
+  return api<{
+    success: boolean;
+    requested_count: number;
+    updated_count: number;
+    updated_ids: string[];
+    hidden: boolean;
+    failed: Record<string, string>;
+  } | ErrorResponse>(`/wave/bulk-timeline-visibility`, {
+    method: "POST",
+    body: { wave_ids: waveIds, hidden },
+    requireAuth: true,
+  });
+}
+
+export async function addWavePulseApi(waveId: string, intensity: 1 | 2 | 3, momentSeconds: number) {
+  return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}/pulse`, {
+    method: "POST",
+    body: { intensity, moment_seconds: momentSeconds },
+    requireAuth: true,
+  });
+}
+
+export async function getWavePulseMomentsApi(waveId: string) {
+  return api<{ moments: WavePulseMoment[]; duration: number } | ErrorResponse>(
+    `/wave/${waveId}/pulses/moments`
+  );
+}
+
+export async function getWaveCommentsApi(waveId: string) {
+  return api<WaveComment[] | ErrorResponse>(`/wave/${waveId}/comments`);
+}
+
+export async function postWaveCommentApi(waveId: string, text: string) {
+  return api<WaveComment | ErrorResponse>(`/wave/${waveId}/comments`, {
+    method: "POST",
+    body: { text },
+    requireAuth: true,
+  });
+}
+
+export async function deleteWaveCommentApi(waveId: string, commentId: string) {
+  return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}/comments/${commentId}`, {
+    method: "DELETE",
+    requireAuth: true,
+  });
+}
+
+export async function trackWaveViewApi(waveId: string) {
+  return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}/view`, {
+    method: "POST",
+  });
+}
+
+export async function toggleWaveBookmarkApi(waveId: string) {
+  return api<{ bookmarked: boolean } | ErrorResponse>(`/wave/${waveId}/bookmark`, {
+    method: "POST",
+    requireAuth: true,
+  });
+}
+
+export async function getWaveBookmarkStatusApi(waveId: string) {
+  return api<{ bookmarked: boolean } | ErrorResponse>(`/wave/${waveId}/bookmark`, {
+    requireAuth: true,
+  });
+}
+
+export async function getMyWaveBookmarksApi() {
+  return api<Wave[] | ErrorResponse>("/wave/me/bookmarks", { requireAuth: true });
+}
+
+export async function setWaveInterestApi(waveId: string, signal: "interested" | "not_interested") {
+  return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}/interest`, {
+    method: "POST",
+    body: { signal },
+    requireAuth: true,
+  });
+}
+
+export async function reportWaveApi(waveId: string, reason: string) {
+  return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}/report`, {
+    method: "POST",
+    body: { reason },
+    requireAuth: true,
+  });
 }
