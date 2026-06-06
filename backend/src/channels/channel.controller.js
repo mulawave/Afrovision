@@ -3,9 +3,7 @@ const User = require('../users/user.model');
 const CreatorSub = require('../subscriptions/creator_subscription.model');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
-const ExclusiveAccess = require('./exclusive_access.model');
 const { isAdultKycVerified } = require('./exclusive_policy.service');
-const { isExclusiveRolloutEnabledForUser } = require('./exclusive_rollout.service');
 const { getFirestore } = require('../utils/firestore');
 const crypto = require('crypto');
 const StreamResolver = require('./stream_resolver.service');
@@ -76,11 +74,27 @@ async function getPublicChannels(req, res) {
   const channels = await Channel.getAll();
   let canSeeExclusive = false;
   if (req.userId) {
-    const [eligibleByKyc, rolloutEnabled] = await Promise.all([
-      isAdultKycVerified(req.userId),
-      isExclusiveRolloutEnabledForUser(req.userId),
-    ]);
-    canSeeExclusive = eligibleByKyc && rolloutEnabled;
+    canSeeExclusive = await isAdultKycVerified(req.userId);
+  }
+
+  const visibleChannels = channels.filter((channel) => {
+    if (channel.type === 'public') return true;
+    if (channel.type === 'exclusive') return canSeeExclusive;
+    return false;
+  });
+
+  const enriched = await Promise.all(visibleChannels.map(async (ch) => {
+    const owner = await getOwnerSafely(ch.owner_id);
+    return safeEnrichChannel(ch, owner, req.userId || null);
+  }));
+  res.json({ channels: enriched });
+}
+
+async function getFeaturedChannels(req, res) {
+  const channels = await Channel.getFeaturedChannels(5);
+  let canSeeExclusive = false;
+  if (req.userId) {
+    canSeeExclusive = await isAdultKycVerified(req.userId);
   }
 
   const visibleChannels = channels.filter((channel) => {
@@ -110,28 +124,11 @@ async function getChannelById(req, res) {
 
     const isOwner = channel.owner_id === req.userId;
     if (!isOwner) {
-      const rolloutEnabled = await isExclusiveRolloutEnabledForUser(req.userId);
-      if (!rolloutEnabled) {
-        return res.status(403).json({
-          error: 'Exclusive channels are not available for your account yet',
-          rollout_blocked: true,
-        });
-      }
-
       const eligibleByKyc = await isAdultKycVerified(req.userId);
       if (!eligibleByKyc) {
         return res.status(403).json({
           error: 'Adult KYC verification is required for exclusive channels',
           requires_kyc: true,
-        });
-      }
-
-      const access = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
-      if (!access) {
-        return res.status(403).json({
-          error: 'Personal identifier code access required',
-          requires_pic: true,
-          requires_payment: true,
         });
       }
     }
@@ -148,28 +145,11 @@ async function getChannelByNumber(req, res) {
   if (channel.type === 'exclusive') {
     const isOwner = channel.owner_id === req.userId;
     if (!isOwner) {
-      const rolloutEnabled = await isExclusiveRolloutEnabledForUser(req.userId);
-      if (!rolloutEnabled) {
-        return res.status(403).json({
-          error: 'Exclusive channels are not available for your account yet',
-          rollout_blocked: true,
-        });
-      }
-
       const eligibleByKyc = await isAdultKycVerified(req.userId);
       if (!eligibleByKyc) {
         return res.status(403).json({
           error: 'Adult KYC verification is required for exclusive channels',
           requires_kyc: true,
-        });
-      }
-
-      const access = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
-      if (!access) {
-        return res.status(403).json({
-          error: 'Personal identifier code access required',
-          requires_pic: true,
-          requires_payment: true,
         });
       }
     }
@@ -723,10 +703,34 @@ async function recheckStreamHealth(req, res) {
   return res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
 }
 
+/**
+ * PATCH /channels/admin/:id/featured
+ * Sets or unsets a channel as featured (admin only).
+ * Body: { featured: boolean }
+ */
+async function adminSetFeatured(req, res) {
+  const user = req.user || await User.findById(req.userId);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin only' });
+  }
+
+  const { featured } = req.body;
+  if (typeof featured !== 'boolean') {
+    return res.status(400).json({ error: 'featured must be a boolean' });
+  }
+
+  const updated = await Channel.setFeatured(req.params.id, featured, req.userId);
+  if (!updated) return res.status(404).json({ error: 'Channel not found' });
+
+  const owner = await getOwnerSafely(updated.owner_id);
+  res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
+}
+
 module.exports = {
   createChannel,
   createChannelWithMedia,
   getPublicChannels,
+  getFeaturedChannels,
   getChannelById,
   getChannelByNumber,
   updateChannel,
@@ -739,4 +743,5 @@ module.exports = {
   uploadMedia,
   getSubscriberFeed,
   recordView,
+  adminSetFeatured,
 };

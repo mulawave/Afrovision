@@ -12,6 +12,7 @@ class ChannelModel {
   final String createdAt;
   final String? ownerName;
   final int followersCount;
+  final int viewerCount;
 
   // Module 11 — Premium stream fields
   final bool requiresPayment;
@@ -59,6 +60,7 @@ class ChannelModel {
     required this.createdAt,
     this.ownerName,
     this.followersCount = 0,
+    this.viewerCount = 0,
     this.requiresPayment = false,
     this.entryFeeType,
     this.entryFeeVptUnits = 0,
@@ -131,6 +133,7 @@ class ChannelModel {
       createdAt: _asString(json['created_at']),
       ownerName: _asNullableString(json['owner_name']),
       followersCount: (json['followers_count'] as num?)?.toInt() ?? 0,
+      viewerCount: (json['viewer_count'] as num?)?.toInt() ?? 0,
       requiresPayment: _asBool(json['requires_payment']),
       entryFeeType: _asNullableString(json['entry_fee_type']),
       entryFeeVptUnits: (json['entry_fee_vpt_units'] as num?)?.toInt() ?? 0,

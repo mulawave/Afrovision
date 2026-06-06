@@ -7,6 +7,8 @@ const creatorAnalyticsCtrl = require('../analytics/creator_analytics.controller'
 const designCtrl = require('../design/homepage-design.controller');
 const challengeContentCtrl = require('../design/challenge-content.controller');
 const staticPagesContentCtrl = require('../design/static-pages-content.controller');
+const cersAdminCtrl = require('./cers.admin.controller');
+const aiVideoAdminCtrl = require('../ai_video/ai_video.admin.controller');
 const referralCtrl = require('../referrals/referral.controller');
 const promoModalCtrl = require('../promo/promo-modal.controller');
 const { upload, uploadSingleToGCS, uploadFieldsToGCS } = require('../utils/upload');
@@ -60,6 +62,13 @@ router.patch('/content/challenge', authenticateToken, challengeContentCtrl.updat
 router.get('/content/pages/:slug', authenticateToken, staticPagesContentCtrl.getAdminPageContent);
 router.patch('/content/pages/:slug', authenticateToken, staticPagesContentCtrl.updateAdminPageContent);
 
+// CERS policy + moderation management
+router.get('/cers/policy', authenticateToken, cersAdminCtrl.getPolicy);
+router.patch('/cers/policy', authenticateToken, cersAdminCtrl.updatePolicy);
+router.get('/cers/cases', authenticateToken, cersAdminCtrl.listModerationCases);
+router.patch('/cers/cases/:caseId/review', authenticateToken, cersAdminCtrl.reviewModerationCase);
+router.get('/cers/reporter-state/:userId', authenticateToken, cersAdminCtrl.getReporterState);
+
 // User management
 router.get('/users', authenticateToken, ctrl.listUsers);
 router.delete('/users/:uid', authenticateToken, ctrl.deleteUser);
@@ -111,6 +120,13 @@ router.delete('/creator-subscriptions/:id/cancel', authenticateToken, creatorSub
 // Feature flags
 router.get('/features', authenticateToken, ctrl.getFeatureFlags);
 router.post('/features', authenticateToken, ctrl.setFeatureFlag);
+
+// AI video generator management
+router.get('/ai-video/config', authenticateToken, aiVideoAdminCtrl.getConfig);
+router.put('/ai-video/config', authenticateToken, aiVideoAdminCtrl.updateConfig);
+router.get('/ai-video/providers', authenticateToken, aiVideoAdminCtrl.getProviders);
+router.put('/ai-video/providers/:providerKey', authenticateToken, aiVideoAdminCtrl.updateProvider);
+router.post('/ai-video/providers/:providerKey/test', authenticateToken, aiVideoAdminCtrl.testProvider);
 
 // Dashboard
 router.get('/dashboard', authenticateToken, ctrl.getDashboard);

@@ -802,6 +802,7 @@ async function getChannelEvents(req, res) {
 
       const event = {
         id: d.id || doc.id,
+        channel_id: d.channel_id || channelId,
         type: d.type,
         sender_name: senderName,
         created_at: d.created_at,

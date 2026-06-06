@@ -225,7 +225,20 @@ export function LiveStream({ id }: { id: string }) {
           setExclusiveGateReason("login");
           setAccess({ checked: true, has_access: false });
         } else {
-          const exRes = await getExclusiveAccessStatusApi(id);
+          let exRes = await getExclusiveAccessStatusApi(id);
+          if (
+            exRes.ok &&
+            "eligibleByKyc" in exRes.data &&
+            !exRes.data.eligibleByKyc &&
+            user?.kyc_status === "verified"
+          ) {
+            await refreshUser();
+            const retryRes = await getExclusiveAccessStatusApi(id);
+            if (!cancelled && retryRes.ok && "eligibleByKyc" in retryRes.data) {
+              exRes = retryRes;
+            }
+          }
+
           if (exRes.ok && "eligibleByKyc" in exRes.data) {
             const allowed = exRes.data.eligibleByKyc && exRes.data.hasActiveEntitlement;
             setAccess({ checked: true, has_access: allowed });
@@ -296,7 +309,7 @@ export function LiveStream({ id }: { id: string }) {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [id, isAuthenticated, applyLiveDataSnapshot, fetchLiveDataSnapshot]);
+  }, [id, isAuthenticated, applyLiveDataSnapshot, fetchLiveDataSnapshot, user?.kyc_status, refreshUser]);
 
   // Precision timer: auto-refresh exactly when the current program ends
   useEffect(() => {

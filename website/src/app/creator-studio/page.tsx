@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
   deleteProgramApi,
   deleteChannelApi,
@@ -151,9 +152,20 @@ function parseDurationInput(value: string): number {
   return Math.max(0, Math.round(parsed));
 }
 
+function Spinner({ size = "sm" }: { size?: "sm" | "xs" }) {
+  const cls = size === "xs" ? "h-3 w-3" : "h-3.5 w-3.5";
+  return (
+    <svg className={`animate-spin ${cls}`} fill="none" viewBox="0 0 24 24" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
 /* ── page component ──────────────────────────────────── */
 
 export default function CreatorStudioPage() {
+  const router = useRouter();
   const { isAuthenticated, user } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [videos, setVideos] = useState<ChannelVideo[]>([]);
@@ -204,6 +216,8 @@ export default function CreatorStudioPage() {
   const [deletingBulk, setDeletingBulk] = useState(false);
   const [channelsPage, setChannelsPage] = useState(1);
   const [schedulePage, setSchedulePage] = useState(1);
+  const [channelsPaging, setChannelsPaging] = useState<"prev" | "next" | null>(null);
+  const [navPendingKey, setNavPendingKey] = useState<string | null>(null);
 
   // ── External stream source state (AV-STR-003)
   const [extSourceMode, setExtSourceMode] = useState<string>("native");
@@ -330,6 +344,26 @@ export default function CreatorStudioPage() {
     () => videos.reduce((sum, video) => sum + video.duration, 0) / 3600,
     [videos],
   );
+
+  useEffect(() => {
+    if (!navPendingKey) return;
+    const timeoutId = window.setTimeout(() => setNavPendingKey(null), 8000);
+    return () => window.clearTimeout(timeoutId);
+  }, [navPendingKey]);
+
+  function handleStudioNavigation(
+    event: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+    key: string,
+  ) {
+    if (navPendingKey) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    setNavPendingKey(key);
+    router.push(href);
+  }
 
   /* ── Multi-file picker ─────────────────────────────── */
 
@@ -1080,22 +1114,72 @@ export default function CreatorStudioPage() {
             </div>
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/creator-studio/library"
-                className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
+                href="/creator-studio/ai-video"
+                onClick={(event) =>
+                  handleStudioNavigation(event, "/creator-studio/ai-video", "header-ai-video")
+                }
+                aria-disabled={navPendingKey !== null}
+                className="inline-flex items-center gap-2 rounded-full border border-av-light-orange/35 bg-av-light-orange/10 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-light-orange/60 hover:text-av-white aria-disabled:pointer-events-none aria-disabled:opacity-60"
               >
-                Library Studio
+                {navPendingKey === "header-ai-video" ? (
+                  <>
+                    <Spinner />
+                    Opening...
+                  </>
+                ) : (
+                  "AI Video Generator"
+                )}
+              </Link>
+              <Link
+                href="/creator-studio/library"
+                onClick={(event) =>
+                  handleStudioNavigation(event, "/creator-studio/library", "header-library")
+                }
+                aria-disabled={navPendingKey !== null}
+                className="inline-flex items-center gap-2 rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white aria-disabled:pointer-events-none aria-disabled:opacity-60"
+              >
+                {navPendingKey === "header-library" ? (
+                  <>
+                    <Spinner />
+                    Opening...
+                  </>
+                ) : (
+                  "Library Studio"
+                )}
               </Link>
               <Link
                 href="/create-channel"
-                className="rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue"
+                onClick={(event) =>
+                  handleStudioNavigation(event, "/create-channel", "header-create")
+                }
+                aria-disabled={navPendingKey !== null}
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue aria-disabled:pointer-events-none aria-disabled:opacity-60"
               >
-                Create channel
+                {navPendingKey === "header-create" ? (
+                  <>
+                    <Spinner />
+                    Opening...
+                  </>
+                ) : (
+                  "Create channel"
+                )}
               </Link>
               <Link
                 href="/channels"
-                className="rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
+                onClick={(event) =>
+                  handleStudioNavigation(event, "/channels", "header-discovery")
+                }
+                aria-disabled={navPendingKey !== null}
+                className="inline-flex items-center gap-2 rounded-full border border-av-input-border/30 px-5 py-2.5 text-sm font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white aria-disabled:pointer-events-none aria-disabled:opacity-60"
               >
-                Discovery
+                {navPendingKey === "header-discovery" ? (
+                  <>
+                    <Spinner />
+                    Opening...
+                  </>
+                ) : (
+                  "Discovery"
+                )}
               </Link>
             </div>
           </div>
@@ -1184,35 +1268,80 @@ export default function CreatorStudioPage() {
                               <button
                                 type="button"
                                 onClick={() => startChannelEdit(channel)}
-                                className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white"
+                                disabled={deletingChannelId === channel.id}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Edit
+                                {editingChannelId === channel.id ? "Editing" : "Edit"}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteChannel(channel.id, channel.name)}
                                 disabled={deletingChannelId === channel.id}
-                                className="rounded-full border border-red-500/35 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 rounded-full border border-red-500/35 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 disabled:opacity-50"
                               >
-                                {deletingChannelId === channel.id ? "Deleting…" : "Delete"}
+                                {deletingChannelId === channel.id ? (
+                                  <>
+                                    <Spinner size="xs" />
+                                    Deleting...
+                                  </>
+                                ) : (
+                                  "Delete"
+                                )}
                               </button>
                               <Link
                                 href={`/channel/${channel.id}`}
-                                className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange"
+                                onClick={(event) =>
+                                  handleStudioNavigation(event, `/channel/${channel.id}`, `channel-link-${channel.id}`)
+                                }
+                                aria-disabled={navPendingKey !== null}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange aria-disabled:pointer-events-none aria-disabled:opacity-60"
                               >
-                                Channel
+                                {navPendingKey === `channel-link-${channel.id}` ? (
+                                  <>
+                                    <Spinner size="xs" />
+                                    Opening...
+                                  </>
+                                ) : (
+                                  "Channel"
+                                )}
                               </Link>
                               <Link
                                 href={`/live/${channel.id}`}
-                                className="rounded-full border border-av-orange/30 bg-av-orange/10 px-3 py-1.5 text-xs font-semibold text-av-orange"
+                                onClick={(event) =>
+                                  handleStudioNavigation(event, `/live/${channel.id}`, `live-link-${channel.id}`)
+                                }
+                                aria-disabled={navPendingKey !== null}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-av-orange/30 bg-av-orange/10 px-3 py-1.5 text-xs font-semibold text-av-orange aria-disabled:pointer-events-none aria-disabled:opacity-60"
                               >
-                                Live page
+                                {navPendingKey === `live-link-${channel.id}` ? (
+                                  <>
+                                    <Spinner size="xs" />
+                                    Opening...
+                                  </>
+                                ) : (
+                                  "Live page"
+                                )}
                               </Link>
                               <Link
                                 href={`/channel-analytics?channel_id=${channel.id}`}
-                                className="rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-xs font-semibold text-green-400"
+                                onClick={(event) =>
+                                  handleStudioNavigation(
+                                    event,
+                                    `/channel-analytics?channel_id=${channel.id}`,
+                                    `analytics-link-${channel.id}`,
+                                  )
+                                }
+                                aria-disabled={navPendingKey !== null}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-xs font-semibold text-green-400 aria-disabled:pointer-events-none aria-disabled:opacity-60"
                               >
-                                Analytics
+                                {navPendingKey === `analytics-link-${channel.id}` ? (
+                                  <>
+                                    <Spinner size="xs" />
+                                    Opening...
+                                  </>
+                                ) : (
+                                  "Analytics"
+                                )}
                               </Link>
                             </div>
                           </div>
@@ -1295,9 +1424,16 @@ export default function CreatorStudioPage() {
                                   type="button"
                                   onClick={() => saveChannelEdit(channel.id)}
                                   disabled={savingChannelEdit}
-                                  className="rounded-lg bg-gradient-to-r from-av-orange to-av-light-orange px-3 py-1.5 text-xs font-semibold text-av-dark-blue disabled:opacity-60"
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-av-orange to-av-light-orange px-3 py-1.5 text-xs font-semibold text-av-dark-blue disabled:opacity-60"
                                 >
-                                  {savingChannelEdit ? "Saving..." : "Save changes"}
+                                  {savingChannelEdit ? (
+                                    <>
+                                      <Spinner size="xs" />
+                                      Saving...
+                                    </>
+                                  ) : (
+                                    "Save changes"
+                                  )}
                                 </button>
                               </div>
                             </div>
@@ -1309,24 +1445,44 @@ export default function CreatorStudioPage() {
                         <div className="flex items-center justify-between rounded-2xl border border-av-input-border/20 bg-av-input-fill/20 px-3 py-2">
                           <button
                             type="button"
-                            onClick={() => setChannelsPage((prev) => Math.max(1, prev - 1))}
-                            disabled={clampedChannelsPage === 1}
-                            className="rounded-lg border border-av-input-border/30 px-3 py-1 text-xs font-semibold text-av-light-orange transition-colors hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-40"
+                            onClick={() => {
+                              setChannelsPaging("prev");
+                              setChannelsPage((prev) => Math.max(1, prev - 1));
+                              window.setTimeout(() => setChannelsPaging(null), 250);
+                            }}
+                            disabled={clampedChannelsPage === 1 || channelsPaging !== null}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-av-input-border/30 px-3 py-1 text-xs font-semibold text-av-light-orange transition-colors hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            Previous
+                            {channelsPaging === "prev" ? (
+                              <>
+                                <Spinner size="xs" />
+                                Loading...
+                              </>
+                            ) : (
+                              "Previous"
+                            )}
                           </button>
                           <p className="text-xs text-av-light-orange">
                             Page {clampedChannelsPage} of {channelsPageCount}
                           </p>
                           <button
                             type="button"
-                            onClick={() =>
-                              setChannelsPage((prev) => Math.min(channelsPageCount, prev + 1))
-                            }
-                            disabled={clampedChannelsPage === channelsPageCount}
-                            className="rounded-lg border border-av-input-border/30 px-3 py-1 text-xs font-semibold text-av-light-orange transition-colors hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-40"
+                            onClick={() => {
+                              setChannelsPaging("next");
+                              setChannelsPage((prev) => Math.min(channelsPageCount, prev + 1));
+                              window.setTimeout(() => setChannelsPaging(null), 250);
+                            }}
+                            disabled={clampedChannelsPage === channelsPageCount || channelsPaging !== null}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-av-input-border/30 px-3 py-1 text-xs font-semibold text-av-light-orange transition-colors hover:border-av-orange/40 hover:text-av-white disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            Next
+                            {channelsPaging === "next" ? (
+                              <>
+                                <Spinner size="xs" />
+                                Loading...
+                              </>
+                            ) : (
+                              "Next"
+                            )}
                           </button>
                         </div>
                       )}

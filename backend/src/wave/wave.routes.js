@@ -12,9 +12,14 @@ router.post('/register', authenticateToken, ctrl.registerWave);
 router.get('/feed', optionalAuth, ctrl.getFeed);
 router.get('/channel/:channelId', optionalAuth, ctrl.getChannelWaves);
 router.get('/me/bookmarks', authenticateToken, ctrl.getMyBookmarks);
+router.get('/creator/lock-status', authenticateToken, ctrl.getCreatorLockStatus);
+router.post('/creator/lock-pay', authenticateToken, ctrl.payCreatorLock);
 router.get('/:waveId', optionalAuth, ctrl.getWave);
+router.post('/:waveId/access-check', optionalAuth, ctrl.checkWaveAccess);
+router.post('/:waveId/access-consent', authenticateToken, ctrl.acknowledgeAdultConsent);
 
 // ─── Wave management ─────────────────────────────────────────────────────────
+router.patch('/:waveId', authenticateToken, ctrl.updateWave);
 router.delete('/:waveId', authenticateToken, ctrl.deleteWave);
 router.post('/:waveId/timeline-visibility', authenticateToken, ctrl.setTimelineVisibility);
 router.post('/bulk-delete', authenticateToken, ctrl.bulkDeleteWaves);
@@ -37,5 +42,6 @@ router.post('/:waveId/bookmark', authenticateToken, ctrl.toggleBookmark);
 // ─── Signals ─────────────────────────────────────────────────────────────────
 router.post('/:waveId/interest', authenticateToken, ctrl.setInterest);
 router.post('/:waveId/report', authenticateToken, ctrl.reportWave);
+router.post('/:waveId/classification-report', authenticateToken, ctrl.reportWave);
 
 module.exports = router;

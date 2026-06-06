@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:video_player/video_player.dart';
-import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/services/watch_history_service.dart';
 import '../services/broadcast_service.dart';
 import '../widgets/broadcast_player.dart';
 import '../widgets/ad_break_overlay.dart';
@@ -18,6 +21,9 @@ import '../../channel/models/channel_model.dart';
 import '../../channel/services/channel_service.dart';
 import '../../channel/services/premium_stream_service.dart';
 import '../../../core/api/api_service.dart';
+import '../../static_pages/static_pages_registry.dart';
+import '../../../core/services/pip_service.dart';
+import '../../../core/services/floating_player_service.dart';
 
 class ChannelPlayerScreen extends StatefulWidget {
   const ChannelPlayerScreen({super.key});
@@ -34,6 +40,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   String? _channelId;
   ChannelModel? _channel;
   BroadcastPlayer? _player;
+  WebViewController? _ytWebViewController;
   final GlobalKey<GiftOverlayState> _overlayKey = GlobalKey<GiftOverlayState>();
   Timer? _eventTimer;
 
@@ -45,6 +52,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   Map<String, dynamic>? _nextProgram;
   bool _isLoop = false;
   int _lastEventAt = 0;
+  final List<ChannelEventModel> _recentEvents = [];
 
   // Program info
   int _duration = 0;
@@ -82,8 +90,42 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   // Channel surfer state
   List<ChannelModel> _surferChannels = [];
   bool _surferLoading = false;
+  bool _surferSwitching = false;
+  int _surferSwitchDirection = 0;
   int _surferIndex = -1;
   String? _surferError;
+  bool _youtubeReady = false;
+  bool _ytEmbedBlocked = false;
+  double _ytVolume = 1.0; // YouTube WebView volume (0.0–1.0)
+  String _externalRuntimeMode = 'native';
+  String? _activePlaybackKey;
+  bool _refreshInFlight = false;
+  int _eventPollSession = 0;
+  DateTime? _lastAccessDeniedRecoveryAt;
+  bool _accessDeniedRecoveryInFlight = false;
+
+  // ── Silent network-recovery state ──
+  // When the channel is actively playing and a transient network hiccup
+  // returns an empty payload or throws, we retry silently rather than
+  // tearing down the player and showing "no program" to the user.
+  int _silentRetryCount = 0;
+  static const int _maxSilentRetries = 4;
+  Timer? _silentRetryTimer;
+  bool _isReconnecting = false;
+
+  // ── Background / PiP state ────────────────────────────────────────────────
+  bool _isInBackground = false;
+  // HTML page used to recreate playback in the native system-overlay service
+  // when the app goes to the background while floating mode is active.
+  String? _activeStreamHtml;
+  bool _isInPiPMode = false;
+  // Set to true before popping to floating mode so dispose() doesn't kill
+  // the controllers that the floating overlay is still using.
+  bool _isHandedOffToFloat = false;
+
+  // ── Freeze detection ──
+  Duration? _lastKnownPosition;
+  Timer? _freezeWatchdogTimer;
 
   @override
   void initState() {
@@ -97,6 +139,18 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       begin: 0,
       end: 1,
     ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
+
+    // Listen for native PiP mode changes so we can switch to the minimal
+    // PiP layout and restore the full UI when the user expands the window.
+    PipService.setModeChangedCallback((isInPiP) {
+      if (!mounted) return;
+      setState(() => _isInPiPMode = isInPiP);
+      if (!isInPiP) {
+        // Restored to full screen — restart polling and watchdog.
+        if (_channelId != null && _eventTimer == null) _startEventPolling();
+        _startFreezeWatchdog();
+      }
+    });
   }
 
   @override
@@ -114,9 +168,16 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // Disable PiP auto-enter so it doesn't trigger on unrelated screens.
+    PipService.setAutoEnterEnabled(false);
+    // If we handed off the controllers to the floating overlay, don't stop
+    // or dispose them — the overlay is still using them.
+    if (!_isHandedOffToFloat) _stopPlaybackForRetune();
     _eventTimer?.cancel();
     _hideControlsTimer?.cancel();
-    _player?.dispose();
+
+    _silentRetryTimer?.cancel();
+    _freezeWatchdogTimer?.cancel();
     _animCtrl.dispose();
     // Restore portrait orientation
     SystemChrome.setPreferredOrientations([
@@ -132,7 +193,90 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _player?.onAppResumed();
+      _isInBackground = false;
+      // If floating mode was active, stop the native overlay service and
+      // resume playback in the in-app overlay.
+      if (FloatingPlayerService.instance.isActive) {
+        FloatingPlayerService.instance.onAppForeground();
+      } else {
+        // Normal resume — resync native player and restart polling.
+        _player?.setAppActive(true);
+        _player?.onAppResumed();
+        if (_externalRuntimeMode == 'youtube' && _ytWebViewController != null) {
+          _ytWebViewController!
+              .runJavaScript(
+                'try{document.getElementById("yt").contentWindow'
+                '.postMessage(\'{"event":"command","func":"playVideo","args":[]}\', "*");}catch(e){}',
+              )
+              .catchError((_) {});
+        }
+      }
+      if (_channelId != null && _eventTimer == null) _startEventPolling();
+      _startFreezeWatchdog();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _isInBackground = true;
+      // If floating mode is active, hand off to the native system overlay
+      // so the video keeps playing above all other apps / home screen.
+      if (FloatingPlayerService.instance.isActive) {
+        FloatingPlayerService.instance.onAppBackground();
+      }
+      // Pause the in-app controllers (PiP keeps playing in its own window).
+      _player?.setAppActive(false);
+      if (!_isInPiPMode) {
+        _player?.controller?.pause();
+        _pauseYouTubePlayback();
+      }
+      _eventTimer?.cancel();
+      _eventTimer = null;
+      _freezeWatchdogTimer?.cancel();
+      _silentRetryTimer?.cancel();
+    }
+  }
+
+  Future<void> _pauseYouTubePlayback() async {
+    try {
+      await _ytWebViewController?.runJavaScript(
+        'try{document.getElementById("yt").contentWindow'
+        '.postMessage(\'{"event":"command","func":"pauseVideo","args":[]}\', "*");}catch(e){}',
+      );
+    } catch (_) {}
+  }
+
+  void _stopPlaybackForRetune() {
+    _eventTimer?.cancel();
+    _eventPollSession++;
+    final player = _player;
+    _player = null;
+    if (player != null) {
+      player.controller?.pause();
+      player.dispose();
+    }
+    _pauseYouTubePlayback();
+    _ytWebViewController = null;
+    _youtubeReady = false;
+
+    _ytEmbedBlocked = false;
+
+    _externalRuntimeMode = 'native';
+    _silentRetryTimer?.cancel();
+    _freezeWatchdogTimer?.cancel();
+    _lastKnownPosition = null;
+    _silentRetryCount = 0;
+    _isReconnecting = false;
+    _overlayKey.currentState?.clear();
+  }
+
+  Future<void> _onPullToRefresh() async {
+    if (_refreshInFlight) return;
+    _refreshInFlight = true;
+    HapticFeedback.selectionClick();
+    try {
+      await _fetchNowPlaying();
+      HapticFeedback.lightImpact();
+    } finally {
+      _refreshInFlight = false;
     }
   }
 
@@ -171,22 +315,59 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   // ─── Core: fetch what's playing ───
 
   Future<void> _fetchNowPlaying() async {
+    final channelId = _channelId;
+    if (channelId == null) return;
+    // Never fetch while the app is in the background — the result is
+    // unreliable and can tear down a healthy player on resume.
+    if (_isInBackground) return;
+
+    final cachedChannel = ChannelService.getCachedChannelById(channelId);
+    final playableSnapshot = BroadcastService.getCachedPlayableSnapshot(
+      channelId,
+    );
     setState(() {
       _loading = true;
       _error = null;
       _premiumBlocked = false;
+      _youtubeReady = false;
+      if (cachedChannel != null) {
+        _channel = cachedChannel;
+      }
     });
 
     try {
-      _channel = await ChannelService.getChannelById(_channelId!);
+      final channelFuture = ChannelService.getChannelById(channelId);
+      final offsetFuture = BroadcastService.syncServerOffset();
+      final nowPlayingFuture = BroadcastService.getNowPlaying(
+        channelId,
+        preferCache: false,
+      );
+
+      if (cachedChannel != null && playableSnapshot != null) {
+        await _applyPlaybackPayload(
+          channelId,
+          playableSnapshot,
+          triggerAdChecks: false,
+        );
+      }
+
+      _channel = await channelFuture;
+
+      // Keep Recently Visited in sync even when opening channels directly
+      // in the live player (without passing through channel profile screen).
+      WatchHistoryService.record(
+        channelId: _channel!.id,
+        channelName: _channel!.name,
+        channelLogo: _channel!.logoUrl,
+      ).catchError((_) {});
 
       // Keep analytics parity with website by recording channel view on open.
-      ChannelService.recordView(_channelId!).catchError((_) {});
+      ChannelService.recordView(channelId).catchError((_) {});
       _loadFollowStatus();
       _loadSurferChannels();
 
       if (_channel!.requiresPayment) {
-        final access = await PremiumStreamService.checkAccess(_channelId!);
+        final access = await PremiumStreamService.checkAccess(channelId);
         if ((access['has_access'] as bool? ?? false) != true) {
           if (!mounted) return;
           setState(() {
@@ -198,56 +379,16 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         }
       }
 
-      await BroadcastService.syncServerOffset();
+      await offsetFuture;
 
-      final data = await BroadcastService.getNowPlaying(_channelId!);
+      final data = await nowPlayingFuture.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () =>
+            BroadcastService.getCachedNowPlaying(channelId) ??
+            <String, dynamic>{},
+      );
       if (!mounted) return;
-
-      _nowPlaying = data['now_playing'] as Map<String, dynamic>?;
-      _nextProgram = data['next_program'] as Map<String, dynamic>?;
-
-      if (_nowPlaying != null) {
-        final startTime = (_nowPlaying!['start_time'] as num?)?.toInt() ?? 0;
-        final endTime = (_nowPlaying!['end_time'] as num?)?.toInt() ?? 0;
-        _duration = (_nowPlaying!['duration'] as num?)?.toInt() ?? 0;
-        _videoTitle = _nowPlaying!['video_title'] as String? ?? '';
-        _isLoop = _nowPlaying!['is_loop'] as bool? ?? false;
-        final positionSec = (_nowPlaying!['position'] as num?)?.toInt() ?? 0;
-        final videoUrl = _nowPlaying!['video_url'] as String? ?? '';
-        // Use video URL directly if it's already a full URL (GCS),
-        // otherwise prepend the backend base URL
-        final fullUrl = videoUrl.startsWith('http')
-            ? videoUrl
-            : '${AppConfig.baseUrl}$videoUrl';
-
-        // Check if this is an external stream
-        if (_channel != null && _channel!.streamSourceMode != 'native') {
-          await _initExternalStream(_channel!, startTime, endTime, _duration);
-        } else {
-          await _initBroadcastPlayer(
-            fullUrl,
-            startTime,
-            endTime,
-            _duration,
-            positionSec,
-            _isLoop,
-          );
-        }
-
-        // Trigger pre-roll (first load) or mid-roll (program change)
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!_preRollDone) {
-            _checkPreRoll();
-          } else {
-            _checkMidRoll();
-          }
-        });
-      } else {
-        _isLoop = false;
-        _eventTimer?.cancel();
-        setState(() => _loading = false);
-        _animCtrl.forward();
-      }
+      await _applyPlaybackPayload(channelId, data);
     } catch (e) {
       if (e is ApiException && _channelId != null) {
         final msg = e.message.toLowerCase();
@@ -272,11 +413,180 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       }
 
       if (!mounted) return;
+
+      // For transient network errors during active playback, retry silently
+      // instead of tearing down the player with an error screen.
+      final hadActivePlayback =
+          _activePlaybackKey != null || _isExternalPlaybackReady();
+      final isTransientError = e is! ApiException;
+      if (hadActivePlayback &&
+          isTransientError &&
+          _silentRetryCount < _maxSilentRetries) {
+        _silentRetryCount++;
+        _silentRetryTimer?.cancel();
+        final delay = Duration(seconds: 3 * _silentRetryCount);
+        _silentRetryTimer = Timer(delay, () {
+          if (mounted) _fetchNowPlaying();
+        });
+        setState(() {
+          _isReconnecting = true;
+          _loading = false;
+        });
+        _animCtrl.forward();
+        return;
+      }
+
       setState(() {
-        _error = e.toString();
+        _error = BroadcastPlayer.sanitizeError(e);
         _loading = false;
       });
       _eventTimer?.cancel();
+      _animCtrl.forward();
+    }
+  }
+
+  Future<void> _applyPlaybackPayload(
+    String channelId,
+    Map<String, dynamic> data, {
+    bool triggerAdChecks = true,
+  }) async {
+    _nowPlaying = data['now_playing'] as Map<String, dynamic>?;
+    _nextProgram = data['next_program'] as Map<String, dynamic>?;
+
+    if (_nowPlaying != null) {
+      final startTime = (_nowPlaying!['start_time'] as num?)?.toInt() ?? 0;
+      final endTime = (_nowPlaying!['end_time'] as num?)?.toInt() ?? 0;
+      _duration = (_nowPlaying!['duration'] as num?)?.toInt() ?? 0;
+      _videoTitle = _nowPlaying!['video_title'] as String? ?? '';
+      _isLoop = _nowPlaying!['is_loop'] as bool? ?? false;
+      final positionSec = (_nowPlaying!['position'] as num?)?.toInt() ?? 0;
+      final videoUrl = _nowPlaying!['video_url'] as String? ?? '';
+      final fullUrl = _resolvePlaybackUrl(videoUrl);
+      final runtimeMode = _inferExternalRuntimeMode(
+        _channel?.streamSourceMode,
+        fullUrl,
+      );
+      final playbackKey =
+          '$channelId|$runtimeMode|${_nowPlaying!['program_id'] ?? ''}|$fullUrl';
+
+      if (_activePlaybackKey != playbackKey) {
+        _activePlaybackKey = playbackKey;
+        if (runtimeMode == 'youtube' && _channel != null) {
+          // YouTube needs embed rendering path.
+          await _initExternalStream(_channel!, startTime, endTime, _duration);
+        } else {
+          // Default player path for native/HLS/DASH/URL playback from now_playing.
+          await _initBroadcastPlayer(
+            fullUrl,
+            startTime,
+            endTime,
+            _duration,
+            positionSec,
+            _isLoop,
+          );
+        }
+      } else if (mounted) {
+        setState(() => _loading = false);
+        _animCtrl.forward();
+      }
+
+      if (triggerAdChecks) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_preRollDone) {
+            _checkPreRoll();
+          } else {
+            _checkMidRoll();
+          }
+        });
+      }
+      return;
+    }
+
+    if (_channel != null && _canFallbackToExternalPlayback(_channel!)) {
+      _videoTitle = _channel!.name;
+      _duration = 0;
+      _isLoop = false;
+      final playbackUrl =
+          _channel!.resolvedPlaybackUrl ?? _channel!.externalUrl ?? '';
+      final runtimeMode = _inferExternalRuntimeMode(
+        _channel!.streamSourceMode,
+        playbackUrl,
+      );
+      final playbackKey = '$channelId|$runtimeMode|external|$playbackUrl';
+      if (_activePlaybackKey != playbackKey) {
+        _activePlaybackKey = playbackKey;
+        await _initExternalStream(_channel!, 0, 0, 0);
+      } else if (mounted) {
+        setState(() => _loading = false);
+        _animCtrl.forward();
+      }
+      return;
+    }
+
+    if (channelId.isNotEmpty) {
+      final surferFallback = _surferChannels
+          .where((c) => c.id == channelId)
+          .cast<ChannelModel?>()
+          .firstWhere(
+            (c) => c != null && _canFallbackToExternalPlayback(c),
+            orElse: () => null,
+          );
+      if (surferFallback != null) {
+        _channel = surferFallback;
+        _videoTitle = surferFallback.name;
+        _duration = 0;
+        _isLoop = false;
+        final playbackUrl =
+            surferFallback.resolvedPlaybackUrl ??
+            surferFallback.externalUrl ??
+            '';
+        final runtimeMode = _inferExternalRuntimeMode(
+          surferFallback.streamSourceMode,
+          playbackUrl,
+        );
+        final playbackKey = '$channelId|$runtimeMode|external|$playbackUrl';
+        if (_activePlaybackKey != playbackKey) {
+          _activePlaybackKey = playbackKey;
+          await _initExternalStream(surferFallback, 0, 0, 0);
+        } else if (mounted) {
+          setState(() => _loading = false);
+          _animCtrl.forward();
+        }
+        return;
+      }
+    }
+
+    // ── Silent retry: don't show "no program" on a transient empty response ──
+    // If we had active playback and the network briefly returned nothing,
+    // keep the existing player alive and retry in the background.
+    final hadActivePlayback =
+        _activePlaybackKey != null || _isExternalPlaybackReady();
+    if (hadActivePlayback && _silentRetryCount < _maxSilentRetries) {
+      _silentRetryCount++;
+      _silentRetryTimer?.cancel();
+      // Exponential-ish backoff: 3s, 6s, 9s, 12s
+      final delay = Duration(seconds: 3 * _silentRetryCount);
+      _silentRetryTimer = Timer(delay, () {
+        if (mounted) _fetchNowPlaying();
+      });
+      if (mounted) {
+        setState(() {
+          _isReconnecting = true;
+          _loading = false;
+        });
+        _animCtrl.forward();
+      }
+      return;
+    }
+
+    // Max retries exhausted or genuinely no active program — clear and show standby.
+    _silentRetryCount = 0;
+    _isReconnecting = false;
+    _activePlaybackKey = null;
+    _isLoop = false;
+    _eventTimer?.cancel();
+    if (mounted) {
+      setState(() => _loading = false);
       _animCtrl.forward();
     }
   }
@@ -285,7 +595,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     final ch = _channel;
     if (ch == null) return;
     try {
-      final status = await ChannelService.getFollowStatus(ch.ownerId);
+      final status = await ChannelService.getChannelFollowStatus(ch.id);
       if (!mounted) return;
       setState(() {
         _isFollowing = status.followed;
@@ -306,8 +616,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     setState(() => _followLoading = true);
     try {
       final status = _isFollowing
-          ? await ChannelService.unfollowCreator(ch.ownerId)
-          : await ChannelService.followCreator(ch.ownerId);
+          ? await ChannelService.unfollowChannel(ch.id)
+          : await ChannelService.followChannel(ch.id);
       if (!mounted) return;
       setState(() {
         _isFollowing = status.followed;
@@ -330,6 +640,22 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     }
   }
 
+  Future<void> _shareChannel() async {
+    final channelId = _channelId;
+    if (channelId == null) return;
+
+    final shareUrl = '${StaticPagesRegistry.websiteBaseUrl}/live/$channelId';
+
+    await Clipboard.setData(ClipboardData(text: shareUrl));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Live link copied to clipboard.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _loadSurferChannels() async {
     if (_channelId == null) return;
     setState(() {
@@ -340,7 +666,17 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       final channels = await ChannelService.getPublicChannels();
       if (!mounted) return;
 
-      var list = channels;
+      var list = channels
+          .where(
+            (c) =>
+                _canFallbackToExternalPlayback(c) ||
+                c.isStreamLive ||
+                c.isStreamScheduled,
+          )
+          .toList();
+      if (list.isEmpty) {
+        list = channels;
+      }
       final current = _channel;
       if (current != null && list.indexWhere((c) => c.id == current.id) == -1) {
         list = [current, ...list];
@@ -352,6 +688,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         _surferIndex = idx >= 0 ? idx : 0;
         _surferError = null;
       });
+      _prefetchNearbyNowPlaying();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -373,22 +710,95 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   }
 
   Future<void> _switchToChannel(ChannelModel next) async {
-    if (_channelId == next.id || _loading) return;
+    if (_channelId == next.id) return;
+
+    _stopPlaybackForRetune();
+
     setState(() {
+      _loading = true;
+      _error = null;
+      _premiumBlocked = false;
       _channelId = next.id;
+      _channel = next;
+      _nowPlaying = null;
+      _nextProgram = null;
+      _videoTitle = next.name;
+      _surferIndex = _surferChannels.indexWhere((c) => c.id == next.id);
+      _youtubeReady = false;
+      _externalRuntimeMode = 'native';
+      _activePlaybackKey = null;
+      _recentEvents.clear();
+      _lastEventAt = 0;
     });
-    await _loadReminders();
+    _eventTimer?.cancel();
+    final remindersFuture = _loadReminders();
     await _fetchNowPlaying();
+    await remindersFuture;
+    _prefetchNearbyNowPlaying();
   }
 
-  void _switchRelative(int direction) {
-    if (_surferChannels.isEmpty || _surferIndex < 0) return;
+  void _prefetchNearbyNowPlaying() {
+    if (_surferChannels.isEmpty) return;
+
+    final indices = <int>{
+      if (_surferIndex >= 0) _surferIndex,
+      if (_surferIndex > 0) _surferIndex - 1,
+      if (_surferIndex >= 0 && _surferIndex < _surferChannels.length - 1)
+        _surferIndex + 1,
+    };
+
+    for (final index in indices) {
+      final candidate = _surferChannels[index];
+      BroadcastService.prefetchNowPlaying(candidate.id).then((_) {
+        _prewarmCandidatePlayback(candidate);
+      });
+    }
+  }
+
+  void _prewarmCandidatePlayback(ChannelModel candidate) {
+    final snapshot = BroadcastService.getCachedPlayableSnapshot(candidate.id);
+    if (snapshot == null) return;
+
+    final nowPlaying = snapshot['now_playing'] as Map<String, dynamic>?;
+    if (nowPlaying != null) {
+      final videoUrl = nowPlaying['video_url'] as String? ?? '';
+      if (videoUrl.isNotEmpty) {
+        BroadcastService.prewarmPlaybackUrl(videoUrl);
+        return;
+      }
+    }
+
+    final externalUrl = candidate.resolvedPlaybackUrl ?? candidate.externalUrl;
+    if (externalUrl != null && externalUrl.isNotEmpty) {
+      BroadcastService.prewarmPlaybackUrl(externalUrl);
+    }
+  }
+
+  Future<void> _switchRelative(int direction) async {
+    if (_surferChannels.isEmpty || _surferIndex < 0 || _surferSwitching) {
+      return;
+    }
     final nextIndex = (_surferIndex + direction).clamp(
       0,
       _surferChannels.length - 1,
     );
     if (nextIndex == _surferIndex) return;
-    _switchToChannel(_surferChannels[nextIndex]);
+
+    setState(() {
+      _surferSwitching = true;
+      _surferSwitchDirection = direction;
+    });
+
+    try {
+      await _switchToChannel(_surferChannels[nextIndex]);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _surferSwitching = false;
+          _surferSwitchDirection = 0;
+        });
+      }
+    }
   }
 
   void _openSurferSheet() {
@@ -563,6 +973,23 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     int positionSec,
     bool loop,
   ) async {
+    _externalRuntimeMode = 'native';
+    // Build an HTML5 video page so the native overlay service can play this
+    // stream while the app is in the background.
+    _activeStreamHtml =
+        '''<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#000;overflow:hidden}
+video{width:100%;height:100%;object-fit:contain}</style>
+</head>
+<body>
+<video src="$url" autoplay playsinline></video>
+</body>
+</html>''';
+    _ytWebViewController = null;
+    _youtubeReady = false;
     _player?.dispose();
 
     final player = BroadcastPlayer();
@@ -572,8 +999,18 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       if (mounted) _fetchNowPlaying();
     };
 
+    player.onAccessDenied = _handleAccessDeniedRecovery;
+
     player.addListener(() {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      setState(() {
+        if (player.hasError && player.errorMessage != null) {
+          _error = player.errorMessage;
+          _loading = false;
+        } else if (_error == player.errorMessage) {
+          _error = null;
+        }
+      });
     });
 
     try {
@@ -588,16 +1025,67 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       if (!mounted) return;
 
       _startEventPolling();
+      _startFreezeWatchdog();
+      _silentRetryCount = 0;
+      _isReconnecting = false;
       setState(() => _loading = false);
       _animCtrl.forward();
+      // Enable automatic PiP entry so the video continues when user leaves app.
+      unawaited(PipService.setAutoEnterEnabled(true));
     } catch (e) {
+      final currentChannel = _channel;
+      final fallbackRawUrl =
+          currentChannel?.resolvedPlaybackUrl ?? currentChannel?.externalUrl;
+      final fallbackResolvedUrl = fallbackRawUrl == null
+          ? ''
+          : _resolvePlaybackUrl(fallbackRawUrl);
+      final canTryExternalFallback =
+          currentChannel != null &&
+          _canFallbackToExternalPlayback(currentChannel) &&
+          fallbackResolvedUrl.isNotEmpty &&
+          fallbackResolvedUrl != url;
+
+      if (canTryExternalFallback) {
+        if (!mounted) return;
+        setState(() {
+          _error = null;
+          _loading = true;
+        });
+        await _initExternalStream(currentChannel, 0, 0, 0);
+        return;
+      }
+
       if (!mounted) return;
       setState(() {
-        _error = 'Failed to load video: $e';
+        _error = BroadcastPlayer.sanitizeError(e);
         _loading = false;
       });
       _eventTimer?.cancel();
       _animCtrl.forward();
+    }
+  }
+
+  Future<void> _handleAccessDeniedRecovery() async {
+    if (!mounted || _accessDeniedRecoveryInFlight) return;
+
+    final now = DateTime.now();
+    final lastAttempt = _lastAccessDeniedRecoveryAt;
+    if (lastAttempt != null && now.difference(lastAttempt).inSeconds < 8) {
+      return;
+    }
+
+    _lastAccessDeniedRecoveryAt = now;
+    _accessDeniedRecoveryInFlight = true;
+
+    try {
+      if (!mounted) return;
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+      await _fetchNowPlaying();
+    } finally {
+      _accessDeniedRecoveryInFlight = false;
     }
   }
 
@@ -617,11 +1105,20 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       return;
     }
 
-    if (channel.streamSourceMode == 'external_youtube') {
-      await _resolveYouTubeStream(playbackUrl, startTime, endTime, duration);
-    } else if (channel.streamSourceMode == 'external_hls' ||
-        channel.streamSourceMode == 'external_dash') {
-      await _playExternalStream(playbackUrl, startTime, endTime, duration);
+    final runtimeMode = _inferExternalRuntimeMode(
+      channel.streamSourceMode,
+      playbackUrl,
+    );
+    _externalRuntimeMode = runtimeMode;
+
+    if (runtimeMode == 'youtube') {
+      await _initYouTubeEmbedPlayer(playbackUrl);
+    } else if (runtimeMode == 'hls' ||
+        runtimeMode == 'dash' ||
+        runtimeMode == 'url') {
+      // External streams are continuous feeds, so avoid schedule-based
+      // program window sync/end checks that can retrigger "tuning" loops.
+      await _playExternalStream(playbackUrl, 0, 0, 0);
     } else {
       setState(() {
         _error =
@@ -632,48 +1129,217 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     }
   }
 
-  Future<void> _resolveYouTubeStream(
-    String url,
-    int startTime,
-    int endTime,
-    int duration,
-  ) async {
-    final yt = YoutubeExplode();
+  String _inferExternalRuntimeMode(
+    String? streamSourceMode,
+    String playbackUrl,
+  ) {
+    final lower = playbackUrl.toLowerCase();
+    if (lower.contains('youtube.com') ||
+        lower.contains('youtube-nocookie.com') ||
+        lower.contains('youtu.be')) {
+      return 'youtube';
+    }
+
+    if (streamSourceMode == 'external_youtube') return 'youtube';
+    if (streamSourceMode == 'external_hls') return 'hls';
+    if (streamSourceMode == 'external_dash') return 'dash';
+
+    if (lower.contains('.m3u8')) return 'hls';
+    if (lower.contains('.mpd')) return 'dash';
+    if (lower.startsWith('http')) return 'url';
+    return 'unknown';
+  }
+
+  String _resolvePlaybackUrl(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    if (trimmed.isEmpty) return trimmed;
+
+    final parsed = Uri.tryParse(trimmed);
+    if (parsed != null && parsed.hasScheme) {
+      return trimmed;
+    }
+
+    final base = AppConfig.baseUrl.endsWith('/')
+        ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1)
+        : AppConfig.baseUrl;
+    final path = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return '$base$path';
+  }
+
+  bool _canFallbackToExternalPlayback(ChannelModel channel) {
+    if (channel.streamStatus == 'invalid' ||
+        channel.streamStatus == 'access_denied') {
+      return false;
+    }
+    final url = channel.resolvedPlaybackUrl ?? channel.externalUrl;
+    if (url == null || url.isEmpty) return false;
+
+    final lowerMode = channel.streamSourceMode.toLowerCase();
+    if (lowerMode == 'native') {
+      final lowerUrl = url.toLowerCase();
+      return lowerUrl.startsWith('http') ||
+          lowerUrl.contains('youtube') ||
+          lowerUrl.contains('.m3u8') ||
+          lowerUrl.contains('.mpd');
+    }
+    return true;
+  }
+
+  bool _isExternalPlaybackReady() {
+    if (_externalRuntimeMode == 'youtube') {
+      return _ytWebViewController != null;
+    }
+    final controller = _player?.controller;
+    return controller != null && controller.value.isInitialized;
+  }
+
+  String? _extractYouTubeVideoId(String rawUrl) {
     try {
-      final videoId = VideoId.parseVideoId(url);
-      if (videoId == null) {
-        throw Exception('Invalid YouTube URL: $url');
+      final parsed = Uri.parse(rawUrl);
+      final host = parsed.host.toLowerCase();
+      final segments = parsed.pathSegments;
+
+      if (host.contains('youtu.be') && segments.isNotEmpty) {
+        return segments.first;
       }
 
-      final manifest = await yt.videos.streamsClient
-          .getManifest(videoId)
-          .timeout(const Duration(seconds: 15));
+      final v = parsed.queryParameters['v'];
+      if (v != null && v.isNotEmpty) return v;
 
-      // Prefer muxed streams so video + audio are both available.
-      final muxed = manifest.muxed.sortByBitrate();
-      final info = muxed.isNotEmpty
-          ? muxed.last
-          : (throw Exception('No playable YouTube stream variants found.'));
+      final embedIndex = segments.indexOf('embed');
+      if (embedIndex >= 0 && embedIndex + 1 < segments.length) {
+        return segments[embedIndex + 1];
+      }
 
-      await _initBroadcastPlayer(
-        info.url.toString(),
-        startTime,
-        endTime,
-        duration,
-        0,
-        false,
-      );
-    } catch (e) {
+      if (segments.length >= 2 &&
+          (segments[0] == 'live' || segments[0] == 'shorts')) {
+        return segments[1];
+      }
+
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _initYouTubeEmbedPlayer(String playbackUrl) async {
+    final videoId = _extractYouTubeVideoId(playbackUrl);
+    if (videoId == null || videoId.isEmpty) {
       if (!mounted) return;
       setState(() {
-        _error = 'Could not resolve YouTube playback stream: $e';
+        _error = 'Invalid YouTube stream URL.';
         _loading = false;
+        _youtubeReady = false;
       });
       _eventTimer?.cancel();
       _animCtrl.forward();
-    } finally {
-      yt.close();
+      return;
     }
+
+    _player?.dispose();
+    _player = null;
+    _ytWebViewController = null;
+
+    _ytEmbedBlocked = false;
+
+    // Use youtube-nocookie.com — it has more permissive embedding rules than
+    // youtube.com and is less likely to return error 150/152 for live streams.
+    final embedUrl = Uri.https('www.youtube-nocookie.com', '/embed/$videoId', {
+      'autoplay': '1',
+      'controls': '0',
+      'mute': '0',
+      'playsinline': '1',
+      'enablejsapi': '1',
+      'rel': '0',
+      'iv_load_policy': '3',
+      'modestbranding': '1',
+      'disablekb': '1',
+      'origin': 'https://www.youtube-nocookie.com',
+    }).toString();
+
+    // Wrap the embed in a minimal full-bleed HTML page.
+    // Also saved to _activeStreamHtml so the native overlay service can
+    // reload the same content when the app goes to the background.
+    final html =
+        '''<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+</style>
+</head>
+<body>
+<iframe id="yt" src="$embedUrl"
+  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+  allowfullscreen></iframe>
+</body>
+</html>''';
+
+    // Configure the WebView for inline autoplay with sound.
+    // On iOS we use WebKitWebViewControllerCreationParams to allow inline media
+    // without a user gesture. On Android, setMediaPlaybackRequiresUserGesture(false)
+    // serves the same purpose.
+    late final PlatformWebViewControllerCreationParams creationParams;
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      creationParams = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      creationParams = const PlatformWebViewControllerCreationParams();
+    }
+
+    final ctrl = WebViewController.fromPlatformCreationParams(creationParams)
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      // Spoof Chrome Mobile UA — Android WebView's default UA contains "wv"
+      // which YouTube's server detects and uses to block embedding (error 152).
+      // A real Chrome UA passes YouTube's origin checks cleanly.
+      ..setUserAgent(
+        'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            if (!mounted) return;
+            setState(() {
+              _youtubeReady = true;
+            });
+          },
+        ),
+      );
+
+    final platform = ctrl.platform;
+    if (platform is AndroidWebViewController) {
+      AndroidWebViewController.enableDebugging(false);
+      platform.setMediaPlaybackRequiresUserGesture(false);
+    }
+
+    // baseUrl = youtube-nocookie.com so the iframe origin matches the src.
+    await ctrl.loadHtmlString(
+      html,
+      baseUrl: 'https://www.youtube-nocookie.com',
+    );
+
+    if (!mounted) return;
+
+    _activeStreamHtml = html; // saved for cross-app overlay service
+
+    setState(() {
+      _ytWebViewController = ctrl;
+      _youtubeReady = false;
+      _loading = false;
+      _error = null;
+    });
+
+    _startEventPolling();
+    _silentRetryCount = 0;
+    _isReconnecting = false;
+    _animCtrl.forward();
   }
 
   Future<void> _playExternalStream(
@@ -682,23 +1348,95 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     int endTime,
     int duration,
   ) async {
-    final fullUrl = url.startsWith('http') ? url : '${AppConfig.baseUrl}$url';
+    final fullUrl = _resolvePlaybackUrl(url);
     await _initBroadcastPlayer(fullUrl, startTime, endTime, duration, 0, false);
   }
 
+  // ─── Freeze watchdog (bug 4) ───
+  // Detects when the native player stops advancing despite reporting "playing"
+  // and triggers a recovery — player is re-initialised from the current live
+  // position without showing any error to the user.
+
+  void _startFreezeWatchdog() {
+    _freezeWatchdogTimer?.cancel();
+    _lastKnownPosition = null;
+    _freezeWatchdogTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _checkForFreeze();
+    });
+  }
+
+  void _checkForFreeze() {
+    if (_isInBackground) return;
+    final ctrl = _player?.controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+    if (!ctrl.value.isPlaying || (_player?.isBuffering ?? false)) return;
+
+    final pos = ctrl.value.position;
+    final last = _lastKnownPosition;
+    if (last != null &&
+        (pos - last).abs() < const Duration(milliseconds: 400)) {
+      // Position hasn't advanced — player is frozen. Recover silently.
+      _recoverFrozenPlayer();
+    }
+    _lastKnownPosition = pos;
+  }
+
+  Future<void> _recoverFrozenPlayer() async {
+    _freezeWatchdogTimer?.cancel();
+    _lastKnownPosition = null;
+    final ctrl = _player?.controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+    try {
+      // Seek to current position + 1s to kick ExoPlayer out of the freeze.
+      final target = ctrl.value.position + const Duration(seconds: 1);
+      await ctrl.seekTo(target);
+      await ctrl.play();
+    } catch (_) {
+      // If seek fails, do a full silent refresh.
+      if (mounted && !_isInBackground) _fetchNowPlaying();
+    }
+    _startFreezeWatchdog();
+  }
+
   void _startEventPolling() {
+    final channelId = _channelId;
+    if (channelId == null) return;
+
+    final session = ++_eventPollSession;
     _eventTimer?.cancel();
-    _lastEventAt = DateTime.now().millisecondsSinceEpoch;
-    _eventTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-      if (_channelId == null) return;
+    _recentEvents.clear();
+    _lastEventAt = 0;
+
+    Future<void> poll([bool initial = false]) async {
+      if (!mounted || session != _eventPollSession) return;
       try {
         final events = await InteractionService.getChannelEvents(
-          _channelId!,
-          _lastEventAt,
+          channelId,
+          initial || _lastEventAt <= 0 ? null : _lastEventAt,
         );
+        if (!mounted ||
+            session != _eventPollSession ||
+            _channelId != channelId) {
+          return;
+        }
         if (events.isEmpty) return;
 
+        var latestSeenAt = _lastEventAt;
+        final appended = <ChannelEventModel>[];
+
         for (final event in events) {
+          if (event.channelId != channelId) {
+            continue;
+          }
+          if (event.createdAt > latestSeenAt) {
+            latestSeenAt = event.createdAt;
+          }
+
+          if (_recentEvents.any((existing) => existing.id == event.id)) {
+            continue;
+          }
+          appended.add(event);
+
           if (event.type == 'reaction' && event.emoji != null) {
             _overlayKey.currentState?.addReaction(event.emoji!);
           }
@@ -711,13 +1449,27 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
               senderRepLevel: event.senderRepLevel,
             );
           }
-          if (event.createdAt > _lastEventAt) {
-            _lastEventAt = event.createdAt;
-          }
         }
+
+        if (!mounted) return;
+        setState(() {
+          _lastEventAt = latestSeenAt;
+          if (appended.isNotEmpty) {
+            _recentEvents.addAll(appended);
+            _recentEvents.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+            if (_recentEvents.length > 12) {
+              _recentEvents.removeRange(12, _recentEvents.length);
+            }
+          }
+        });
       } catch (e) {
         debugPrint('[ChannelPlayer] event poll error: $e');
       }
+    }
+
+    poll(true);
+    _eventTimer = Timer.periodic(const Duration(seconds: 20), (_) async {
+      await poll();
     });
   }
 
@@ -814,29 +1566,87 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
   // ─── Build ───
 
+  // ─── Minimal PiP view (shown when the activity is in PiP overlay) ───
+
+  Widget _buildPiPView() {
+    // Show only the video surface. We intentionally reuse the same player
+    // widgets (VideoPlayer / WebViewWidget) that are already rendering —
+    // creating new instances would interrupt playback.
+    final ctrl = _player?.controller;
+    final initialized = ctrl != null && ctrl.value.isInitialized;
+    final useYT =
+        _externalRuntimeMode == 'youtube' && _ytWebViewController != null;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: useYT
+          ? WebViewWidget(controller: _ytWebViewController!)
+          : initialized
+          ? Center(
+              child: AspectRatio(
+                aspectRatio: ctrl.value.aspectRatio,
+                child: VideoPlayer(ctrl),
+              ),
+            )
+          : const SizedBox.shrink(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // When Android has shrunk the activity into the native PiP overlay
+    // (home-button PiP), show only the raw video without rebuilding the
+    // player widget — rebuilding would interrupt playback.
+    if (_isInPiPMode) return _buildPiPView();
     if (_isFullscreen) return _buildFullscreenPlayer();
-    return Scaffold(
-      backgroundColor: AppColors.darkBlue,
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildHeader(),
-              Expanded(
-                child: _loading
-                    ? _buildLoadingState()
-                    : FadeTransition(opacity: _fadeIn, child: _buildBody()),
-              ),
-            ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleBackPress();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.darkBlue,
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
+          child: SafeArea(
+            child: Column(
+              children: [
+                _buildHeader(),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _onPullToRefresh,
+                    color: AppColors.orange,
+                    backgroundColor: AppColors.cardBg,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        return ListView(
+                          physics: const AlwaysScrollableScrollPhysics(
+                            parent: BouncingScrollPhysics(),
+                          ),
+                          padding: EdgeInsets.zero,
+                          children: [
+                            SizedBox(
+                              height: constraints.maxHeight,
+                              child: _loading
+                                  ? _buildLoadingState()
+                                  : FadeTransition(
+                                      opacity: _fadeIn,
+                                      child: _buildBody(),
+                                    ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
-    );
+        ), // closes Container (Scaffold body)
+      ), // closes Scaffold (PopScope child)
+    ); // closes PopScope
   }
 
   // ─── Branded Loading Screen ───
@@ -1039,6 +1849,40 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Channel surfer picker
+        GestureDetector(
+          onTap: _surferChannels.isEmpty ? null : _openSurferSheet,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.sensors_rounded,
+              color: AppColors.white,
+              size: 22,
+            ),
+          ),
+        ),
+        // Channel surfer grid
+        GestureDetector(
+          onTap: _surferChannels.isEmpty ? null : _openSurferSheet,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.grid_view_rounded,
+              color: AppColors.white,
+              size: 22,
+            ),
+          ),
+        ),
         // Gift button
         GestureDetector(
           onTap: () {
@@ -1116,8 +1960,105 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             ),
           ),
         ),
+        const SizedBox(width: 8),
+        // Dashboard quick jump
+        GestureDetector(
+          onTap: _goDashboard,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.home_rounded,
+              color: AppColors.white,
+              size: 22,
+            ),
+          ),
+        ),
       ],
     );
+  }
+
+  void _goDashboard() {
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+  }
+
+  /// Handles the back button / back gesture on the player screen.
+  ///
+  /// When content is actively playing, shows an in-app floating mini-player
+  /// so the user can navigate to other AfroVision screens while the video
+  /// keeps playing above them.  Falls back to a plain pop when nothing is
+  /// playing.
+  Future<void> _handleBackPress() async {
+    final isNativePlaying =
+        _player?.controller?.value.isInitialized == true &&
+        _player!.controller!.value.isPlaying;
+    final isYouTubePlaying =
+        _externalRuntimeMode == 'youtube' &&
+        _ytWebViewController != null &&
+        _youtubeReady;
+
+    if (isNativePlaying || isYouTubePlaying) {
+      _enterFloatingMode();
+    } else {
+      if (mounted) Navigator.pop(context);
+    }
+  }
+
+  void _onManualPiPTap() {
+    final isNativePlaying =
+        _player?.controller?.value.isInitialized == true &&
+        _player!.controller!.value.isPlaying;
+    final isYouTubePlaying =
+        _externalRuntimeMode == 'youtube' &&
+        _ytWebViewController != null &&
+        _youtubeReady;
+
+    if (isNativePlaying || isYouTubePlaying) {
+      _enterFloatingMode();
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          'Start playback before entering mini-player mode',
+          style: TextStyle(color: AppColors.white),
+        ),
+        backgroundColor: AppColors.cardBg,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _enterFloatingMode() {
+    if (!mounted) return;
+
+    final channelId = _channelId ?? '';
+
+    // Mark that controllers are being handed to the overlay so dispose()
+    // won't stop them when this screen is popped.
+    _isHandedOffToFloat = true;
+
+    FloatingPlayerService.instance.show(
+      context: context,
+      videoController: _externalRuntimeMode != 'youtube'
+          ? _player?.controller
+          : null,
+      ytController: _externalRuntimeMode == 'youtube'
+          ? _ytWebViewController
+          : null,
+      channelId: channelId,
+      channelName: _channel?.name,
+      channelLogoUrl: _channel?.logoUrl,
+      externalMode: _externalRuntimeMode,
+      streamHtml: _activeStreamHtml,
+    );
+
+    Navigator.pop(context);
   }
 
   Widget _buildTimerOverlay(VideoPlayerController ctrl) {
@@ -1222,7 +2163,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => Navigator.pop(context),
+            onTap: _handleBackPress,
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -1251,60 +2192,130 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
               ),
             ),
           ),
-          if (_channel != null)
-            Container(
-              margin: const EdgeInsets.only(right: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.cardBg,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: AppColors.inputBorder.withValues(alpha: 0.4),
-                ),
-              ),
-              child: Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
-                    Icons.people_alt_rounded,
-                    color: AppColors.goldText,
-                    size: 12,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '$_followersCount',
-                    style: const TextStyle(
-                      color: AppColors.goldText,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
+                  GestureDetector(
+                    onTap: _onManualPiPTap,
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 10),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.inputBorder.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.picture_in_picture_alt_rounded,
+                        color: AppColors.lightOrange,
+                        size: 16,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
                   GestureDetector(
-                    onTap: _followLoading ? null : _toggleFollow,
-                    child: _followLoading
-                        ? const SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.orange,
-                            ),
-                          )
-                        : Text(
-                            _isFollowing ? 'Following' : 'Follow',
-                            style: TextStyle(
-                              color: _isFollowing
-                                  ? AppColors.lightOrange
-                                  : AppColors.orange,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                    onTap: _shareChannel,
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 10),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.inputBorder.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.share_rounded,
+                        color: AppColors.lightOrange,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: _goDashboard,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.inputBorder.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.home_rounded,
+                        color: AppColors.lightOrange,
+                        size: 16,
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
+              if (_channel != null) ...[
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: _followLoading ? null : _toggleFollow,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardBg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppColors.inputBorder.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.people_alt_rounded,
+                          color: AppColors.goldText,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$_followersCount',
+                          style: const TextStyle(
+                            color: AppColors.goldText,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _followLoading
+                            ? const SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.orange,
+                                ),
+                              )
+                            : Text(
+                                _isFollowing ? 'Following' : 'Follow',
+                                style: TextStyle(
+                                  color: _isFollowing
+                                      ? AppColors.lightOrange
+                                      : AppColors.orange,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
           if (_nowPlaying != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -1354,48 +2365,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
   Widget _buildBody() {
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                color: AppColors.errorRed,
-                size: 48,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _error!,
-                style: const TextStyle(color: AppColors.errorRed, fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              GestureDetector(
-                onTap: _fetchNowPlaying,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: AppColors.buttonGradient,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    'Retry',
-                    style: TextStyle(
-                      color: AppColors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+      return _buildSignalLostScreen(_error!);
     }
 
     if (_premiumBlocked && _channel != null) {
@@ -1460,13 +2430,300 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       );
     }
 
-    // No program currently playing
-    if (_nowPlaying == null) {
+    // Silent retry in progress — keep showing the active player with a
+    // subtle reconnecting badge rather than flashing "no program".
+    if (_isReconnecting && _isExternalPlaybackReady()) {
+      return Stack(children: [_buildPlayer(), _buildReconnectingBadge()]);
+    }
+
+    // No program currently playing (and no external stream fallback active)
+    if (_nowPlaying == null && !_isExternalPlaybackReady()) {
       return _buildNoProgram();
     }
 
     // Playing
     return _buildPlayer();
+  }
+
+  // ─── Reconnecting badge (shown over the live player during silent retry) ───
+
+  Widget _buildReconnectingBadge() {
+    return Positioned(
+      top: 12,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: AppColors.darkBlue.withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: AppColors.inputBorder.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 11,
+                height: 11,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.8,
+                  color: AppColors.orange,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Reconnecting...',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Signal Lost (error) screen ───
+
+  Widget _buildSignalLostScreen(String message) {
+    final hasLogo = _channel?.logoUrl != null;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Static noise bars — evoke "no signal" on a TV
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                height: 5,
+                width: 240,
+                child: Row(
+                  children: const [
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF444466),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF2A2A44),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF444466),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF1A1A33),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF444466),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF2A2A44),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Color(0xFF444466),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            // Channel logo or signal icon
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: AppColors.cardBg,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: AppColors.inputBorder.withValues(alpha: 0.4),
+                ),
+              ),
+              child: hasLogo
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(17),
+                      child: Image.network(
+                        AppConfig.mediaUrl(_channel!.logoUrl!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.signal_wifi_off_rounded,
+                          color: AppColors.goldText,
+                          size: 32,
+                        ),
+                      ),
+                    )
+                  : const Icon(
+                      Icons.signal_wifi_off_rounded,
+                      color: AppColors.goldText,
+                      size: 32,
+                    ),
+            ),
+            const SizedBox(height: 20),
+            // "SIGNAL LOST" badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE53935).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: const Color(0xFFE53935).withValues(alpha: 0.4),
+                ),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.wifi_tethering_error_rounded,
+                    color: Color(0xFFE53935),
+                    size: 13,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'SIGNAL LOST',
+                    style: TextStyle(
+                      color: Color(0xFFE53935),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_channel != null)
+              Text(
+                _channel!.name,
+                style: const TextStyle(
+                  color: AppColors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            const SizedBox(height: 10),
+            // User-friendly message — never a raw exception
+            Text(
+              message,
+              style: TextStyle(
+                color: AppColors.white.withValues(alpha: 0.75),
+                fontSize: 13,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 28),
+            // Action row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: _fetchNowPlaying,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 28,
+                      vertical: 13,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: AppColors.buttonGradient,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.refresh_rounded,
+                          color: AppColors.white,
+                          size: 16,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Retry',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_surferChannels.length > 1) ...[
+                  const SizedBox(width: 12),
+                  GestureDetector(
+                    onTap: _openSurferSheet,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 13,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.inputBorder.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.sensors_rounded,
+                            color: AppColors.lightOrange,
+                            size: 16,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Switch',
+                            style: TextStyle(
+                              color: AppColors.lightOrange,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            // Show surfer bar if channels loaded
+            if (_surferChannels.length > 1) ...[
+              const SizedBox(height: 28),
+              _buildSurferBar(),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildNoProgram() {
@@ -1621,6 +2878,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 ),
               ],
             ),
+            const SizedBox(height: 20),
+            SizedBox(width: double.infinity, child: _buildSurferBar()),
             if (_nextProgram != null) ...[
               const SizedBox(height: 32),
               _buildUpNextCard(),
@@ -1713,6 +2972,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   Widget _buildPlayer() {
     final ctrl = _player?.controller;
     final initialized = ctrl != null && ctrl.value.isInitialized;
+    final useYouTubeEmbed =
+        _externalRuntimeMode == 'youtube' && _ytWebViewController != null;
 
     return Column(
       children: [
@@ -1730,6 +2991,11 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                       child: VideoPlayer(ctrl),
                     ),
                   )
+                else if (useYouTubeEmbed)
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: WebViewWidget(controller: _ytWebViewController!),
+                  )
                 else
                   AspectRatio(
                     aspectRatio: 16 / 9,
@@ -1743,7 +3009,9 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                     ),
                   ),
                 // Buffering overlay
-                if (_player?.isBuffering == true && initialized)
+                if (!useYouTubeEmbed &&
+                    _player?.isBuffering == true &&
+                    initialized)
                   AspectRatio(
                     aspectRatio: ctrl.value.aspectRatio,
                     child: Container(
@@ -1764,6 +3032,128 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                             ),
                           ],
                         ),
+                      ),
+                    ),
+                  ),
+                if (useYouTubeEmbed && !_youtubeReady)
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(color: AppColors.orange),
+                            SizedBox(height: 12),
+                            Text(
+                              'Preparing channel...',
+                              style: TextStyle(
+                                color: AppColors.hintText,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                // Stream unavailable overlay (embed restricted by content owner)
+                if (useYouTubeEmbed && _ytEmbedBlocked)
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.92),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardBg,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: AppColors.inputBorder.withValues(
+                                  alpha: 0.4,
+                                ),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.signal_wifi_off_rounded,
+                              color: AppColors.goldText,
+                              size: 36,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFFE53935,
+                              ).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: const Color(
+                                  0xFFE53935,
+                                ).withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.wifi_tethering_error_rounded,
+                                  color: Color(0xFFE53935),
+                                  size: 13,
+                                ),
+                                SizedBox(width: 6),
+                                Text(
+                                  'SIGNAL LOST',
+                                  style: TextStyle(
+                                    color: Color(0xFFE53935),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'This stream is currently unavailable.',
+                            style: TextStyle(
+                              color: AppColors.white.withValues(alpha: 0.8),
+                              fontSize: 13,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                          GestureDetector(
+                            onTap: _fetchNowPlaying,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 11,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: AppColors.buttonGradient,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Text(
+                                'Retry',
+                                style: TextStyle(
+                                  color: AppColors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -1798,25 +3188,26 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
                 if (_channel != null)
                   Positioned(top: 8, right: 8, child: _buildChannelBadge()),
                 // Fullscreen toggle (bottom-right)
-                Positioned(
-                  bottom: 8,
-                  right: 8,
-                  child: GestureDetector(
-                    onTap: _enterFullscreen,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.fullscreen_rounded,
-                        color: AppColors.white,
-                        size: 22,
+                if (!useYouTubeEmbed)
+                  Positioned(
+                    bottom: 8,
+                    right: 8,
+                    child: GestureDetector(
+                      onTap: _enterFullscreen,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.fullscreen_rounded,
+                          color: AppColors.white,
+                          size: 22,
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ),
@@ -1829,38 +3220,60 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title (tap for description)
-                GestureDetector(
-                  onTap: () {
-                    final desc =
-                        _nowPlaying?['video_description'] as String? ?? '';
-                    _showDescriptionPopup(_videoTitle, desc);
-                  },
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _videoTitle,
-                          style: const TextStyle(
-                            color: AppColors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
+                // Title row — hidden when the title duplicates the channel
+                // name (YouTube/external mode). The info icon always stays
+                // visible; when the title is suppressed it moves to the
+                // trailing end of the channel info row below.
+                if (_videoTitle.isNotEmpty &&
+                    _videoTitle != (_channel?.name ?? '')) ...[
+                  GestureDetector(
+                    onTap: () {
+                      final desc =
+                          _nowPlaying?['video_description'] as String? ?? '';
+                      _showDescriptionPopup(_videoTitle, desc);
+                    },
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _videoTitle,
+                            style: const TextStyle(
+                              color: AppColors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.info_outline,
-                        color: AppColors.goldText,
-                        size: 20,
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.info_outline,
+                          color: AppColors.goldText,
+                          size: 20,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 14),
+                ],
+
+                // Channel info row — logo, name, badge, category.
+                // When the title row is hidden the info icon is shown here.
+                if (_channel != null)
+                  _buildChannelInfoRow(
+                    showInfoIcon:
+                        _videoTitle.isEmpty ||
+                        _videoTitle == (_channel?.name ?? ''),
+                  ),
+
                 const SizedBox(height: 12),
 
                 // Live position indicator (read-only, no seek)
                 _buildLiveIndicator(),
+
+                const SizedBox(height: 16),
+
+                // Volume control (only control allowed)
+                _buildVolumeControl(),
 
                 const SizedBox(height: 16),
 
@@ -1873,21 +3286,131 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
                 const SizedBox(height: 16),
 
-                // Volume control (only control allowed)
-                _buildVolumeControl(),
+                _buildEngagementTabsPanel(),
 
                 // Up next
                 if (_nextProgram != null) ...[
                   const SizedBox(height: 28),
                   _buildUpNextCard(),
                 ],
-
-                const SizedBox(height: 28),
-                LiveChatPanel(channelId: _channelId!),
               ],
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  // ─── Channel info row ───
+  // Logo (left, spans both name + category rows) | Name + badge / Category
+
+  Widget _buildChannelInfoRow({bool showInfoIcon = false}) {
+    final ch = _channel;
+    if (ch == null) return const SizedBox.shrink();
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Tappable section: logo + name + badge + category
+        Expanded(
+          child: GestureDetector(
+            onTap: () =>
+                Navigator.pushNamed(context, '/channel-view', arguments: ch.id),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Logo — fixed size, visually spans both text rows
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: AppColors.cardBg,
+                    border: Border.all(
+                      color: AppColors.inputBorder.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: ch.logoUrl != null
+                      ? Image.network(
+                          AppConfig.mediaUrl(ch.logoUrl!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.tv_rounded,
+                            color: AppColors.goldText,
+                            size: 24,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.tv_rounded,
+                          color: AppColors.goldText,
+                          size: 24,
+                        ),
+                ),
+                const SizedBox(width: 12),
+                // Name + badge (row 1) and category (row 2)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              ch.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          const Icon(
+                            Icons.verified_user_rounded,
+                            color: AppColors.goldText,
+                            size: 15,
+                          ),
+                        ],
+                      ),
+                      if (ch.category != null && ch.category!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          ch.category!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.goldText,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        // Info icon — shown when the title row is suppressed (title == channel name)
+        if (showInfoIcon) ...[
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: () {
+              final desc = _nowPlaying?['video_description'] as String? ?? '';
+              _showDescriptionPopup(ch.name, desc);
+            },
+            child: Icon(
+              Icons.info_outline,
+              color: AppColors.goldText,
+              size: 20,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1908,11 +3431,43 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   }
 
   Widget _buildVolumeControl() {
+    // YouTube WebView mode — control via postMessage
+    if (_externalRuntimeMode == 'youtube' && _ytWebViewController != null) {
+      return Row(
+        children: [
+          Icon(
+            _ytVolume > 0 ? Icons.volume_up : Icons.volume_off,
+            color: AppColors.hintText,
+            size: 22,
+          ),
+          Expanded(
+            child: Slider(
+              value: _ytVolume,
+              onChanged: (v) {
+                setState(() => _ytVolume = v);
+                final vol = (v * 100).round();
+                final js = v == 0
+                    ? 'try{document.getElementById("yt").contentWindow'
+                          '.postMessage(\'{"event":"command","func":"mute","args":[]}\', "*");}catch(e){}'
+                    : 'try{document.getElementById("yt").contentWindow'
+                          '.postMessage(\'{"event":"command","func":"unMute","args":[]}\', "*");}catch(e){};'
+                          'try{document.getElementById("yt").contentWindow'
+                          '.postMessage(\'{"event":"command","func":"setVolume","args":[$vol]}\', "*");}catch(e){}';
+                _ytWebViewController!.runJavaScript(js).catchError((_) {});
+              },
+              activeColor: AppColors.orange,
+              inactiveColor: AppColors.inputBorder.withValues(alpha: 0.3),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Native player mode
     final ctrl = _player?.controller;
     if (ctrl == null || !ctrl.value.isInitialized) {
       return const SizedBox.shrink();
     }
-
     return ValueListenableBuilder(
       valueListenable: ctrl,
       builder: (_, value, __) {
@@ -2249,10 +3804,162 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     );
   }
 
+  Widget _buildEngagementTabsPanel() {
+    if (_channelId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return DefaultTabController(
+      length: 2,
+      initialIndex: 0,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppColors.inputBorder.withValues(alpha: 0.3),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TabBar(
+              labelColor: AppColors.white,
+              unselectedLabelColor: AppColors.goldText,
+              indicatorColor: AppColors.orange,
+              indicatorWeight: 3,
+              tabs: const [
+                Tab(text: 'Live Chat'),
+                Tab(text: 'Live Activity'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 430,
+              child: TabBarView(
+                children: [
+                  LiveChatPanel(channelId: _channelId!, embedded: true),
+                  SingleChildScrollView(child: _buildLiveActivityContent()),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLiveActivityContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text(
+              'Live Activity',
+              style: TextStyle(
+                color: AppColors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              'Updates every 20s',
+              style: TextStyle(
+                color: AppColors.lightOrange.withValues(alpha: 0.85),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_recentEvents.isEmpty)
+          Text(
+            'No reactions or gifts yet for this session.',
+            style: TextStyle(
+              color: AppColors.lightOrange.withValues(alpha: 0.9),
+              fontSize: 12,
+            ),
+          )
+        else
+          Column(
+            children: _recentEvents.take(5).map((event) {
+              final created = DateTime.fromMillisecondsSinceEpoch(
+                event.createdAt,
+              );
+              final hh = created.hour.toString().padLeft(2, '0');
+              final mm = created.minute.toString().padLeft(2, '0');
+              final actionText = event.type == 'gift'
+                  ? 'sent ${event.giftIcon ?? '🎁'} ${event.giftName ?? 'a gift'}'
+                  : 'reacted ${event.emoji ?? '🔥'}';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.inputFill.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: RichText(
+                        overflow: TextOverflow.ellipsis,
+                        text: TextSpan(
+                          children: [
+                            TextSpan(
+                              text: event.senderName,
+                              style: const TextStyle(
+                                color: AppColors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            TextSpan(
+                              text: ' $actionText',
+                              style: TextStyle(
+                                color: AppColors.lightOrange.withValues(
+                                  alpha: 0.95,
+                                ),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$hh:$mm',
+                      style: TextStyle(
+                        color: AppColors.lightOrange.withValues(alpha: 0.75),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
   Widget _buildSurferBar() {
     final canGoPrev = _surferIndex > 0;
     final canGoNext =
         _surferIndex >= 0 && _surferIndex < _surferChannels.length - 1;
+    final prevLoading = _surferSwitching && _surferSwitchDirection < 0;
+    final nextLoading = _surferSwitching && _surferSwitchDirection > 0;
 
     return Container(
       width: double.infinity,
@@ -2269,6 +3976,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
           _surferArrow(
             icon: Icons.skip_previous_rounded,
             enabled: canGoPrev,
+            loading: prevLoading,
             onTap: () => _switchRelative(-1),
           ),
           const SizedBox(width: 8),
@@ -2337,6 +4045,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
           _surferArrow(
             icon: Icons.skip_next_rounded,
             enabled: canGoNext,
+            loading: nextLoading,
             onTap: () => _switchRelative(1),
           ),
         ],
@@ -2347,12 +4056,13 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   Widget _surferArrow({
     required IconData icon,
     required bool enabled,
+    bool loading = false,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
-      onTap: enabled ? onTap : null,
+      onTap: enabled && !loading && !_surferSwitching ? onTap : null,
       child: AnimatedOpacity(
-        opacity: enabled ? 1 : 0.35,
+        opacity: enabled || loading ? 1 : 0.35,
         duration: const Duration(milliseconds: 180),
         child: Container(
           width: 34,
@@ -2362,7 +4072,15 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: AppColors.inputBorder),
           ),
-          child: Icon(icon, color: AppColors.white, size: 18),
+          child: loading
+              ? const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.lightOrange,
+                  ),
+                )
+              : Icon(icon, color: AppColors.white, size: 18),
         ),
       ),
     );

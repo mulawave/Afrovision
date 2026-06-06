@@ -133,6 +133,7 @@ export interface ChallengePageContent {
   bottom_cta_primary_href: string;
   bottom_cta_secondary_label: string;
   bottom_cta_secondary_href: string;
+  no_active_challenge?: boolean;
 }
 
 export async function getChallengePageContent(): Promise<ChallengePageContent | null> {

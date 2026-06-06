@@ -13,9 +13,13 @@ export default function ChallengeRulesPage() {
         <div className="mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Challenge</p>
           <h1 className="mt-2 text-3xl lg:text-4xl font-bold text-av-white">Rules &amp; Prizes</h1>
-          <p className="mt-2 text-xs text-av-light-orange">Season 1 — Updated April 5, 2026</p>
         </div>
 
+        <div className="rounded-2xl bg-av-card border border-av-input-border/30 p-8 text-center">
+          <p className="text-lg text-av-light-orange">Coming soon, we are reviewing our challenge Rules for this season.</p>
+        </div>
+
+        {/* 
         <article className="space-y-8">
           <Section title="Eligibility">
             <ul className="list-disc list-inside space-y-1">
@@ -119,11 +123,14 @@ export default function ChallengeRulesPage() {
             <p>AfroVision reserves the right to modify these rules at any time. Changes will be communicated via email and in-app notification at least 7 days before they take effect. Continued participation after notification constitutes acceptance of the updated rules.</p>
           </Section>
         </article>
+        */}
       </div>
     </main>
   );
 }
 
+// Commented out until rules are ready
+/*
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-2xl bg-av-card border border-av-input-border/30 p-6">
@@ -132,3 +139,4 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </section>
   );
 }
+*/

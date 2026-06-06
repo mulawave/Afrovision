@@ -6,6 +6,8 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
+import '../../auth/services/auth_service.dart';
+import '../../kyc/services/kyc_service.dart';
 
 class ExclusiveAccessPaywallScreen extends StatefulWidget {
   const ExclusiveAccessPaywallScreen({super.key});
@@ -100,7 +102,16 @@ class _ExclusiveAccessPaywallScreenState
     });
 
     try {
-      final status = await ChannelService.getExclusiveAccessStatus(_channelId!);
+      var status = await ChannelService.getExclusiveAccessStatus(_channelId!);
+      final currentUser = await AuthService.getCurrentUser();
+      if (!status.eligibleByKyc && currentUser.kycStatus == 'verified') {
+        try {
+          await KycService.getMe(forceRefresh: true);
+          status = await ChannelService.getExclusiveAccessStatus(_channelId!);
+        } catch (_) {
+          // ignore and fall through to existing blocking behaviour
+        }
+      }
       if (!mounted) return;
 
       setState(() {

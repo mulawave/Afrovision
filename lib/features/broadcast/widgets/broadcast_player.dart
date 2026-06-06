@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../../../core/config/app_config.dart';
+import '../../../core/storage/auth_storage.dart';
 import '../services/broadcast_service.dart';
 
 /// Centralized broadcast player wrapper.
@@ -32,11 +34,19 @@ class BroadcastPlayer extends ChangeNotifier {
   bool _disposed = false;
   bool _isSeeking = false;
   bool _isAppActive = true;
+  bool _isContinuousStream = false;
+  String? _currentVideoUrl;
+
+  bool get _hasProgramWindow =>
+      !_isContinuousStream &&
+      programStartTime > 0 &&
+      programEndTime > programStartTime;
 
   VideoPlayerController? get controller => _controller;
 
   /// Callback when current program ends (non-loop only).
   VoidCallback? onProgramEnded;
+  VoidCallback? onAccessDenied;
 
   /// Initialize the player with a video URL and seek to the correct live position.
   Future<void> initialize({
@@ -51,10 +61,20 @@ class BroadcastPlayer extends ChangeNotifier {
     programEndTime = endTime;
     videoDuration = duration;
     isLoop = loop;
+    final lowerUrl = videoUrl.toLowerCase();
+    _isContinuousStream =
+        lowerUrl.contains('.m3u8') ||
+        lowerUrl.contains('.mpd') ||
+        lowerUrl.contains('application/vnd.apple.mpegurl');
+    _currentVideoUrl = videoUrl;
 
     await _disposeController();
 
-    final ctrl = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+    final httpHeaders = await _buildNetworkHeaders(videoUrl);
+    final ctrl = VideoPlayerController.networkUrl(
+      Uri.parse(videoUrl),
+      httpHeaders: httpHeaders,
+    );
     _controller = ctrl;
 
     ctrl.addListener(_onPlayerStateChange);
@@ -82,11 +102,30 @@ class BroadcastPlayer extends ChangeNotifier {
     } catch (e) {
       if (_disposed) return;
       hasError = true;
-      errorMessage = e is TimeoutException
-          ? 'Timed out while loading the live stream.'
-          : 'Failed to load video: $e';
+      errorMessage = sanitizeError(e);
       notifyListeners();
     }
+  }
+
+  Future<Map<String, String>> _buildNetworkHeaders(String videoUrl) async {
+    final uri = Uri.tryParse(videoUrl);
+    final appUri = Uri.tryParse(AppConfig.baseUrl);
+    if (uri == null || appUri == null) {
+      return const <String, String>{};
+    }
+
+    final isSameBackend =
+        uri.host.toLowerCase() == appUri.host.toLowerCase() &&
+        (uri.port == appUri.port || uri.port == 0 || appUri.port == 0);
+    if (!isSameBackend) {
+      return const <String, String>{};
+    }
+
+    final token = await AuthStorage.getToken();
+    if (token == null || token.isEmpty) {
+      return const <String, String>{};
+    }
+    return <String, String>{'Authorization': 'Bearer $token'};
   }
 
   // ─── Sync Engine ───
@@ -122,6 +161,13 @@ class BroadcastPlayer extends ChangeNotifier {
       // Loop mode: no sync needed — native looping handles playback.
       // Just ensure the video is still playing.
       if (isLoop) {
+        if (!_controller!.value.isPlaying && !isBuffering) {
+          _controller!.play();
+        }
+        return;
+      }
+
+      if (!_hasProgramWindow) {
         if (!_controller!.value.isPlaying && !isBuffering) {
           _controller!.play();
         }
@@ -179,7 +225,14 @@ class BroadcastPlayer extends ChangeNotifier {
     // Network/error recovery
     if (value.hasError && !hasError) {
       hasError = true;
-      errorMessage = value.errorDescription ?? 'Playback error';
+      final description = value.errorDescription ?? '';
+      if (description.contains('403')) {
+        errorMessage = 'Stream access denied. Please sign in again.';
+        notifyListeners();
+        onAccessDenied?.call();
+        return;
+      }
+      errorMessage = sanitizeError(description);
       notifyListeners();
       _retryPlayback();
     }
@@ -199,7 +252,7 @@ class BroadcastPlayer extends ChangeNotifier {
     if (_controller == null || !_controller!.value.isInitialized) return;
 
     // For live mode, resync to current position
-    if (!isLoop) {
+    if (!isLoop && _hasProgramWindow) {
       final correctedTime = BroadcastService.correctedNow;
       if (correctedTime >= programEndTime) {
         onProgramEnded?.call();
@@ -221,12 +274,26 @@ class BroadcastPlayer extends ChangeNotifier {
     if (_disposed) return;
 
     try {
+      final url = _currentVideoUrl;
+      if (url != null && url.isNotEmpty) {
+        final headers = await _buildNetworkHeaders(url);
+        final replacement = VideoPlayerController.networkUrl(
+          Uri.parse(url),
+          httpHeaders: headers,
+        );
+        replacement.addListener(_onPlayerStateChange);
+        final previous = _controller;
+        _controller = replacement;
+        previous?.removeListener(_onPlayerStateChange);
+        await previous?.dispose();
+      }
+
       await _controller!.initialize();
       if (isLoop) {
         await _controller!.setLooping(true);
       }
       // Seek to approximate current position for live mode
-      if (!isLoop) {
+      if (!isLoop && _hasProgramWindow) {
         final correctedTime = BroadcastService.correctedNow;
         final expectedMs = correctedTime - programStartTime;
         await _controller!.seekTo(Duration(milliseconds: expectedMs));
@@ -258,7 +325,7 @@ class BroadcastPlayer extends ChangeNotifier {
     _adPaused = false;
     if (_controller != null && _controller!.value.isInitialized) {
       // Resync position for live mode
-      if (!isLoop) {
+      if (!isLoop && _hasProgramWindow) {
         final correctedTime = BroadcastService.correctedNow;
         if (correctedTime < programEndTime) {
           final expectedMs = correctedTime - programStartTime;
@@ -277,6 +344,54 @@ class BroadcastPlayer extends ChangeNotifier {
 
   double get volume => _controller?.value.volume ?? 1.0;
 
+  // ─── Error Sanitizer ───
+
+  /// Translates raw platform/network exceptions into user-friendly messages.
+  /// Public so callers outside this class can sanitize errors consistently.
+  static String sanitizeError(dynamic error) {
+    final raw = error.toString().toLowerCase();
+
+    if (raw.contains('403') || raw.contains('forbidden')) {
+      return 'Stream access denied. Please sign in again.';
+    }
+    if (raw.contains('404') || raw.contains('not found')) {
+      return 'This stream is currently unavailable.';
+    }
+    if (raw.contains('401') || raw.contains('unauthorized')) {
+      return 'Your session has expired. Please sign in again.';
+    }
+    if (raw.contains('timeout') || raw.contains('timed out')) {
+      return 'Connection timed out. Check your signal and retry.';
+    }
+    if (raw.contains('network') ||
+        raw.contains('no internet') ||
+        raw.contains('socketexception') ||
+        raw.contains('connection refused') ||
+        raw.contains('unreachable')) {
+      return 'No signal. Please check your connection and retry.';
+    }
+    // Catches ExoPlayer / Media3 / VideoPlayer platform errors
+    if (raw.contains('exoplayer') ||
+        raw.contains('exoplaybackexception') ||
+        raw.contains('media3') ||
+        raw.contains('androidx') ||
+        raw.contains('source error') ||
+        raw.contains('videoerror') ||
+        raw.contains('platformexception')) {
+      return 'Unable to load this stream. The source may be temporarily unavailable.';
+    }
+    if (raw.contains('format') ||
+        raw.contains('codec') ||
+        raw.contains('unsupported')) {
+      return 'This stream format is not supported on your device.';
+    }
+    if (raw.contains('drm') || raw.contains('decrypt')) {
+      return 'This content is protected and cannot be played here.';
+    }
+    // Generic fallback — never expose raw stack traces
+    return 'Something went wrong. Please retry or check back later.';
+  }
+
   // ─── Cleanup ───
 
   Future<void> _disposeController() async {
@@ -289,7 +404,9 @@ class BroadcastPlayer extends ChangeNotifier {
     isInitialized = false;
     isBuffering = false;
     hasError = false;
+    errorMessage = null;
     _isSeeking = false;
+    _isContinuousStream = false;
   }
 
   @override

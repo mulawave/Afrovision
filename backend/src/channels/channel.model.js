@@ -179,6 +179,10 @@ async function create({ ownerId, name, description, category, type }) {
     // Public owner display policy fields
     owner_display_mode: 'show_owner',
     owner_brand_name: null,
+    // Featured/promoted channels for homepage
+    is_featured: false,
+    featured_at: null,
+    featured_by: null,
     exclusive_monthly_fee_ngn: 0,
     exclusive_fee_currency: 'NGN',
     exclusive_fee_last_updated_at: null,
@@ -487,6 +491,36 @@ async function getRecentPublicWithBanner(limit = 5, scanLimit = 20) {
     .slice(0, limit);
 }
 
+async function getFeaturedChannels(limit = 5) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('type', '==', 'public')
+    .where('is_active', '==', true)
+    .where('is_featured', '==', true)
+    .orderBy('featured_at', 'desc')
+    .limit(limit)
+    .get();
+
+  return snapshot.docs.map((doc) => cacheChannel({ ...doc.data(), id: doc.id }));
+}
+
+async function setFeatured(id, featured, adminId) {
+  const channel = await findAnyById(id);
+  if (!channel) return null;
+
+  const updates = {
+    is_featured: !!featured,
+    featured_at: featured ? new Date().toISOString() : null,
+    featured_by: featured ? adminId : null,
+  };
+
+  const db = getFirestore();
+  await db.collection(COLLECTION).doc(id).update(updates);
+
+  Object.assign(channel, updates);
+  return cacheChannel(channel);
+}
+
 async function getAll() {
   try {
     const db = getFirestore();
@@ -622,6 +656,8 @@ module.exports = {
   getPublicChannels,
   getRecentPublic,
   getRecentPublicWithBanner,
+  getFeaturedChannels,
+  setFeatured,
   getAll,
   getPremiumChannels,
   getPendingPremiumRequests,

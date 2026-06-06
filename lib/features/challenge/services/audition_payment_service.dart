@@ -47,12 +47,14 @@ class AuditionSignupStatus {
   final String paymentStatus; // pending | paid | failed
   final bool vptCredited;
   final String? enrolledAt;
+  final String? journeyStep; // signup_received | shortlisted | audition_submitted | final_selected
 
   const AuditionSignupStatus({
     required this.signupStatus,
     required this.paymentStatus,
     required this.vptCredited,
     this.enrolledAt,
+    this.journeyStep,
   });
 
   factory AuditionSignupStatus.fromJson(Map<String, dynamic> json) {
@@ -62,6 +64,7 @@ class AuditionSignupStatus {
       paymentStatus: signup['payment_status'] as String? ?? 'pending',
       vptCredited: signup['vpt_credited'] as bool? ?? false,
       enrolledAt: signup['enrolled_at'] as String?,
+      journeyStep: signup['journey_step'] as String?,
     );
   }
 

@@ -36,12 +36,46 @@ class ExclusiveAccessStatusModel {
   });
 
   factory ExclusiveAccessStatusModel.fromJson(Map<String, dynamic> json) {
+    bool parseBool(dynamic v) {
+      if (v == null) return false;
+      if (v is bool) return v;
+      if (v is String) return v.toLowerCase() == 'true';
+      if (v is num) return v != 0;
+      return false;
+    }
+
+    String? parseString(dynamic v) {
+      if (v == null) return null;
+      return v.toString();
+    }
+
+    final eligible =
+        json['eligibleByKyc'] ??
+        json['eligible_by_kyc'] ??
+        json['eligible_byKyc'];
+    final hasEnt =
+        json['hasActiveEntitlement'] ??
+        json['has_active_entitlement'] ??
+        json['has_activeEntitlement'];
+    final renew =
+        json['renewalRequired'] ??
+        json['renewal_required'] ??
+        json['renewalRequired'];
+    final expires =
+        json['expiresAt'] ?? json['expires_at'] ?? json['expires_at'];
+    final monthly =
+        json['monthlyFeeNgn'] ??
+        json['monthly_fee_ngn'] ??
+        json['monthly_fee_ngn'];
+
     return ExclusiveAccessStatusModel(
-      eligibleByKyc: json['eligibleByKyc'] as bool? ?? false,
-      hasActiveEntitlement: json['hasActiveEntitlement'] as bool? ?? false,
-      renewalRequired: json['renewalRequired'] as bool? ?? false,
-      expiresAt: json['expiresAt'] as String?,
-      monthlyFeeNgn: (json['monthlyFeeNgn'] as num?)?.toDouble() ?? 0,
+      eligibleByKyc: parseBool(eligible),
+      hasActiveEntitlement: parseBool(hasEnt),
+      renewalRequired: parseBool(renew),
+      expiresAt: parseString(expires),
+      monthlyFeeNgn: (monthly is num)
+          ? monthly.toDouble()
+          : double.tryParse(monthly?.toString() ?? '') ?? 0,
     );
   }
 }
@@ -95,6 +129,65 @@ class ExclusivePicVerificationResultModel {
 }
 
 class ChannelService {
+  static const Duration _publicChannelsCacheTtl = Duration(minutes: 3);
+  static List<ChannelModel>? _publicChannelsCache;
+  static DateTime? _publicChannelsCachedAt;
+  static final Map<String, ChannelModel> _channelByIdCache =
+      <String, ChannelModel>{};
+  static final Map<String, DateTime> _channelByIdCachedAt =
+      <String, DateTime>{};
+
+  static bool _hasFreshPublicChannelCache() {
+    final cachedAt = _publicChannelsCachedAt;
+    if (cachedAt == null || _publicChannelsCache == null) {
+      return false;
+    }
+    return DateTime.now().difference(cachedAt) < _publicChannelsCacheTtl;
+  }
+
+  static void _storePublicChannelCache(List<ChannelModel> channels) {
+    _publicChannelsCache = List<ChannelModel>.from(channels);
+    _publicChannelsCachedAt = DateTime.now();
+    for (final channel in channels) {
+      _storeChannelByIdCache(channel);
+    }
+  }
+
+  static void _storeChannelByIdCache(ChannelModel channel) {
+    _channelByIdCache[channel.id] = channel;
+    _channelByIdCachedAt[channel.id] = DateTime.now();
+  }
+
+  static bool _hasFreshChannelByIdCache(String id) {
+    final cachedAt = _channelByIdCachedAt[id];
+    if (cachedAt == null || !_channelByIdCache.containsKey(id)) {
+      return false;
+    }
+    return DateTime.now().difference(cachedAt) < _publicChannelsCacheTtl;
+  }
+
+  static ChannelModel? getCachedChannelById(String id) {
+    if (_hasFreshChannelByIdCache(id)) {
+      return _channelByIdCache[id];
+    }
+
+    final list = _publicChannelsCache;
+    if (_hasFreshPublicChannelCache() && list != null) {
+      for (final channel in list) {
+        if (channel.id == id) {
+          _storeChannelByIdCache(channel);
+          return channel;
+        }
+      }
+    }
+    return null;
+  }
+
+  static void _invalidatePublicChannelCache() {
+    _publicChannelsCache = null;
+    _publicChannelsCachedAt = null;
+  }
+
   static Future<List<CategoryModel>> getCategories() async {
     final data = await ApiService.get('/categories');
     final list = data['categories'] as List<dynamic>;
@@ -115,20 +208,45 @@ class ChannelService {
       'category': category,
       'type': type,
     });
+    _invalidatePublicChannelCache();
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
   }
 
-  static Future<List<ChannelModel>> getPublicChannels() async {
-    final data = await ApiService.get('/channels');
-    final list = data['channels'] as List<dynamic>;
-    return list
-        .map((e) => ChannelModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+  static Future<List<ChannelModel>> getPublicChannels({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && _hasFreshPublicChannelCache()) {
+      return List<ChannelModel>.from(_publicChannelsCache!);
+    }
+
+    try {
+      final data = await ApiService.get('/channels');
+      final list = data['channels'] as List<dynamic>;
+      final channels = list
+          .map((e) => ChannelModel.fromJson(e as Map<String, dynamic>))
+          .toList();
+      _storePublicChannelCache(channels);
+      return channels;
+    } catch (_) {
+      if (_publicChannelsCache != null) {
+        return List<ChannelModel>.from(_publicChannelsCache!);
+      }
+      rethrow;
+    }
   }
 
   static Future<ChannelModel> getChannelById(String id) async {
+    final cached = getCachedChannelById(id);
+    if (cached != null) {
+      return cached;
+    }
+
     final data = await ApiService.get('/channels/$id');
-    return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
+    final channel = ChannelModel.fromJson(
+      data['channel'] as Map<String, dynamic>,
+    );
+    _storeChannelByIdCache(channel);
+    return channel;
   }
 
   static Future<ChannelModel> getChannelByNumber(String number) async {
@@ -147,11 +265,13 @@ class ChannelService {
       if (description != null) 'description': description,
       if (category != null) 'category': category,
     });
+    _invalidatePublicChannelCache();
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
   }
 
   static Future<void> deleteChannel(String id) async {
     await ApiService.delete('/channels/$id');
+    _invalidatePublicChannelCache();
   }
 
   static Future<List<ChannelModel>> getMyChannels() async {
@@ -164,11 +284,13 @@ class ChannelService {
 
   static Future<ChannelModel> enableChannel(String id) async {
     final data = await ApiService.patch('/channels/$id/enable', {});
+    _invalidatePublicChannelCache();
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
   }
 
   static Future<ChannelModel> uploadLogo(String id, File file) async {
     final data = await ApiService.uploadFile('/channels/$id/upload/logo', file);
+    _invalidatePublicChannelCache();
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
   }
 
@@ -177,6 +299,7 @@ class ChannelService {
       '/channels/$id/upload/banner',
       file,
     );
+    _invalidatePublicChannelCache();
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
   }
 
@@ -201,6 +324,23 @@ class ChannelService {
 
   static Future<FollowStatusModel> unfollowCreator(String creatorId) async {
     final data = await ApiService.delete('/users/follows/$creatorId');
+    return FollowStatusModel.fromJson(data);
+  }
+
+  static Future<FollowStatusModel> getChannelFollowStatus(
+    String channelId,
+  ) async {
+    final data = await ApiService.get('/users/channel-follows/$channelId');
+    return FollowStatusModel.fromJson(data);
+  }
+
+  static Future<FollowStatusModel> followChannel(String channelId) async {
+    final data = await ApiService.post('/users/channel-follows/$channelId', {});
+    return FollowStatusModel.fromJson(data);
+  }
+
+  static Future<FollowStatusModel> unfollowChannel(String channelId) async {
+    final data = await ApiService.delete('/users/channel-follows/$channelId');
     return FollowStatusModel.fromJson(data);
   }
 

@@ -40,6 +40,7 @@ async function getMyAuditionStatus(req, res) {
             payment_status: signup.payment_status,
             enrolled_at: signup.enrolled_at,
             vpt_allocated: signup.vpt_allocated,
+            journey_step: signup.journey_step,
             created_at: signup.created_at,
           }
         : null,
@@ -141,6 +142,7 @@ async function adminUpdateSignup(req, res) {
       'email_last_attempt_at',
       'campaign_tags',
       'cancel_reason',
+      'journey_step',
     ];
 
     // Admin can also manually cancel a signup that's stuck in pending_payment

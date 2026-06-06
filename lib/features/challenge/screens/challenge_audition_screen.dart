@@ -469,26 +469,26 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
           child: _buildPaymentStateCard(ch),
         ),
         const SizedBox(height: 16),
-        // 3. Fee breakdown
+        // 3. Manifesto (THE TRUTH section - now the first card)
+        _buildManifesto(),
+        const SizedBox(height: 40),
+        // 4. The Gauntlet
+        _buildGauntlet(),
+        const SizedBox(height: 40),
+        // 5. Transformation arc
+        _buildTransformationArc(),
+        const SizedBox(height: 40),
+        // 6. The Prize
+        _buildPrizeSection(),
+        const SizedBox(height: 40),
+        // 7. Fee breakdown
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: _buildFeeBreakdownCard(),
         ),
         const SizedBox(height: 24),
-        // 4. Eligibility pills
+        // 8. Eligibility pills
         _buildEligibilityRow(),
-        const SizedBox(height: 40),
-        // 5. Manifesto
-        _buildManifesto(),
-        const SizedBox(height: 40),
-        // 6. The Gauntlet
-        _buildGauntlet(),
-        const SizedBox(height: 40),
-        // 7. Transformation arc
-        _buildTransformationArc(),
-        const SizedBox(height: 40),
-        // 8. The Prize
-        _buildPrizeSection(),
         const SizedBox(height: 40),
         // 9. Final CTA section
         _buildFinalCTA(auditionOpen),
@@ -842,25 +842,25 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
               const SizedBox(height: 20),
               for (final item in [
                 (
-                  true,
+                  _isStepDone('signup_received'),
                   '1',
                   'Signup Received',
                   'Your audition record is created and your slot is in the queue.',
                 ),
                 (
-                  false,
+                  _isStepDone('shortlisted'),
                   '2',
                   'Shortlisting',
                   'The AfroVision team reviews all applicants and shortlists challengers.',
                 ),
                 (
-                  false,
+                  _isStepDone('audition_submitted'),
                   '3',
                   'Audition Submission',
                   'Selected participants receive instructions to submit their audition content.',
                 ),
                 (
-                  false,
+                  _isStepDone('final_selected'),
                   '4',
                   'Final Selection',
                   'Finalists are announced and the challenge officially begins.',
@@ -883,6 +883,23 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
         const SizedBox(height: 16),
       ],
     );
+  }
+
+  bool _isStepDone(String step) {
+    final currentStep = _signupStatus?.journeyStep;
+    if (currentStep == null) return false;
+
+    final stepOrder = [
+      'signup_received',
+      'shortlisted',
+      'audition_submitted',
+      'final_selected',
+    ];
+
+    final currentIndex = stepOrder.indexOf(currentStep);
+    final stepIndex = stepOrder.indexOf(step);
+
+    return currentIndex >= stepIndex;
   }
 
   Widget _buildNextStep({
@@ -1028,7 +1045,7 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
             icon: Icons.open_in_browser_rounded,
             title: 'Payment Opened',
             body:
-                'Complete your ₦2,500 payment in the browser. Once done, tap the button below to confirm your enrollment.',
+                'Complete your ₦${_pricing?.feeNgn.toStringAsFixed(0) ?? '2,500'} payment in the browser. Once done, tap the button below to confirm your enrollment.',
           ),
           const SizedBox(height: 12),
           // Verify / "I've Paid" button
@@ -1128,6 +1145,7 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
     final open = ch.phase == 'audition';
     final registrationOnly = ch.phase == 'registration';
     if (open || registrationOnly) {
+      final vptValueNgn = (_pricing?.vptAllocated ?? 0) * (_pricing?.vptPriceAtSignup ?? 0);
       return _stateCard(
         color: open ? _kOrange : AppColors.successGreen,
         icon: open
@@ -1135,7 +1153,7 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
             : Icons.event_available_rounded,
         title: open ? 'Auditions Are Open' : 'Registration Phase',
         body: open
-            ? 'Pay ₦2,500 to secure your slot and receive ₦1,000 worth of vPT.'
+            ? 'Pay ₦${_pricing?.feeNgn.toStringAsFixed(0) ?? '2,500'} to secure your slot and receive ₦${vptValueNgn.toStringAsFixed(0)} worth of vPT.'
             : 'The challenge is in registration phase. Audition signups open when the audition phase begins.',
       );
     }
@@ -1287,7 +1305,7 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
           _breakdownRow(
             icon: Icons.payments_rounded,
             label: 'Audition Fee',
-            value: '₦2,500',
+            value: '₦${p?.feeNgn.toStringAsFixed(0) ?? '2,500'}',
             highlight: true,
           ),
           Padding(
@@ -1295,7 +1313,7 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
             child: Divider(color: _kWhite.withValues(alpha: 0.08), height: 1),
           ),
           Text(
-            'Your fee allocation:',
+            'Audition Bonus Reward: ',
             style: TextStyle(
               color: _kWhite.withValues(alpha: 0.4),
               fontSize: 11,
@@ -1305,32 +1323,32 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
           _breakdownRow(
             icon: Icons.account_balance_wallet_rounded,
             iconColor: AppColors.successGreen,
-            label: 'Your vPT Reward',
+            label: 'vPT Reward',
             value: p != null
                 ? '${p.vptAllocated.toStringAsFixed(2)} vPT'
-                : '≡ ₦1,000 in vPT',
-            sublabel: 'Credited to your wallet at current vPT price',
+                : '≡ ₦${((_pricing?.vptAllocated ?? 0) * (_pricing?.vptPriceAtSignup ?? 0)).toStringAsFixed(0)} in vPT',
+            sublabel: 'Credited to your off-chain wallet',
           ),
           const SizedBox(height: 10),
-          _breakdownRow(
-            icon: Icons.groups_rounded,
-            iconColor: AppColors.infoBlue,
-            label: 'Community Pool',
-            value: p != null
-                ? '${p.communityPoolAllocated.toStringAsFixed(2)} vPT'
-                : '≡ ₦500 in vPT',
-            sublabel: 'Contributed to the AfroVision community pool',
-          ),
-          const SizedBox(height: 10),
-          _breakdownRow(
-            icon: Icons.settings_rounded,
-            iconColor: AppColors.hintText,
-            label: 'Operations',
-            value: p != null
-                ? '${p.opsPoolAllocated.toStringAsFixed(2)} vPT'
-                : '≡ ₦1,000 in vPT',
-            sublabel: 'Challenge production and operations',
-          ),
+         // _breakdownRow(
+          //  icon: Icons.groups_rounded,
+          //  iconColor: AppColors.infoBlue,
+          //  label: 'Community Pool',
+           // value: p != null
+          //      ? '${p.communityPoolAllocated.toStringAsFixed(2)} vPT'
+          //      : '≡ ₦500 in vPT',
+          //  sublabel: 'Contributed to the AfroVision community pool',
+        //  ),
+       //   const SizedBox(height: 10),
+        //  _breakdownRow(
+        //    icon: Icons.settings_rounded,
+        //    iconColor: AppColors.hintText,
+        //    label: 'Operations',
+       //     value: p != null
+      //          ? '${p.opsPoolAllocated.toStringAsFixed(2)} vPT'
+       //         : '≡ ₦1,000 in vPT',
+       //     sublabel: 'Challenge production and operations',
+       //   ),
           if (p != null) ...[
             const SizedBox(height: 12),
             Container(
@@ -1559,7 +1577,7 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
       label = 'OPENING PAYMENT...';
       icon = Icons.hourglass_top_rounded;
     } else if (active) {
-      label = 'REGISTER FOR AUDITION NOW';
+      label = 'REGISTER FOR AUDITION';
       icon = Icons.how_to_reg_rounded;
     } else {
       label = 'SIGNUPS NOT AVAILABLE';
@@ -1567,7 +1585,7 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: GestureDetector(
         onTap: canTap ? _onRegisterTap : null,
         child: Container(
@@ -1627,17 +1645,19 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
                   size: 20,
                 ),
               const SizedBox(width: 10),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isEnrolled
-                      ? AppColors.successGreen
-                      : canTap
-                      ? _kWhite
-                      : _kWhite.withValues(alpha: 0.3),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isEnrolled
+                        ? AppColors.successGreen
+                        : canTap
+                        ? _kWhite
+                        : _kWhite.withValues(alpha: 0.3),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                  ),
                 ),
               ),
             ],
@@ -2242,7 +2262,7 @@ class _ChallengeAuditionScreenState extends State<ChallengeAuditionScreen>
             const SizedBox(height: 16),
             Text(
               'By proceeding, you agree to the AfroVision Challenge terms.\n'
-              'The ₦2,500 audition fee is non-refundable once payment is confirmed.',
+              'The ₦${_pricing?.feeNgn.toStringAsFixed(0) ?? '2,500'} audition fee is non-refundable once payment is confirmed.',
               style: TextStyle(
                 color: _kWhite.withValues(alpha: 0.25),
                 fontSize: 11,

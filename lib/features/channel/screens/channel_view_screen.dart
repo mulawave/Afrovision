@@ -2,11 +2,54 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/services/watch_history_service.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
+import '../../broadcast/services/channel_library_service.dart';
 import '../../auth/services/auth_service.dart';
+import '../../kyc/services/kyc_service.dart';
 import '../../subscription/models/channel_subscription_model.dart';
 import '../../subscription/services/channel_subscription_service.dart';
+import '../../wave/models/wave_model.dart';
+import '../../wave/services/wave_service.dart';
+
+enum ChannelSection { about, streams, library, waves, schedule, manage }
+
+extension ChannelSectionX on ChannelSection {
+  String get label {
+    switch (this) {
+      case ChannelSection.about:
+        return 'About';
+      case ChannelSection.streams:
+        return 'Past Streams';
+      case ChannelSection.library:
+        return 'Library';
+      case ChannelSection.waves:
+        return 'Waves';
+      case ChannelSection.schedule:
+        return 'Schedule';
+      case ChannelSection.manage:
+        return 'Manage';
+    }
+  }
+
+  String get queryKey {
+    switch (this) {
+      case ChannelSection.about:
+        return 'about';
+      case ChannelSection.streams:
+        return 'past-streams';
+      case ChannelSection.library:
+        return 'library';
+      case ChannelSection.waves:
+        return 'waves';
+      case ChannelSection.schedule:
+        return 'schedule';
+      case ChannelSection.manage:
+        return 'manage';
+    }
+  }
+}
 
 class ChannelViewScreen extends StatefulWidget {
   const ChannelViewScreen({super.key});
@@ -19,11 +62,20 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     with SingleTickerProviderStateMixin {
   ChannelModel? _channel;
   bool _loading = true;
+  bool _argsHandled = false;
   bool _exclusiveBlocked = false;
   String? _blockedChannelId;
+  bool _canManage = false;
+  int _libraryUnreadCount = 0;
+  bool _libraryUnreadLoading = false;
   bool _followLoading = false;
   bool _isFollowing = false;
   int _followersCount = 0;
+  ChannelSection _activeSection = ChannelSection.about;
+  List<WaveModel> _channelWaves = const <WaveModel>[];
+  bool _wavesLoading = false;
+  String? _wavesError;
+  String? _waveActionId;
 
   // Channel subscription state
   bool _subLoading = false;
@@ -50,17 +102,71 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_channel == null && _loading) {
-      final args = ModalRoute.of(context)?.settings.arguments;
-      if (args is String) {
-        _loadChannel(args);
-      } else if (args is ChannelModel) {
+    if (_argsHandled) return;
+    _argsHandled = true;
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+    String? channelId;
+    ChannelSection? section;
+
+    if (args is ChannelModel) {
+      setState(() {
+        _channel = args;
+        _loading = false;
+      });
+      _animController.forward();
+      channelId = args.id;
+    } else if (args is String) {
+      if (args.contains('?')) {
+        final uri = Uri.tryParse(args);
+        if (uri != null) {
+          channelId = uri.queryParameters['channelId'];
+          section = _parseSection(uri.queryParameters['section']);
+        }
+      } else {
+        channelId = args;
+      }
+    } else if (args is Map) {
+      channelId = (args['channelId'] ?? args['id'])?.toString();
+      section = _parseSection(args['section']?.toString());
+      final channelArg = args['channel'];
+      if (channelArg is ChannelModel) {
         setState(() {
-          _channel = args;
+          _channel = channelArg;
           _loading = false;
         });
         _animController.forward();
       }
+    }
+
+    if (section != null) {
+      _activeSection = section;
+    }
+
+    if (channelId != null && channelId.isNotEmpty) {
+      _loadChannel(channelId);
+    }
+  }
+
+  ChannelSection? _parseSection(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    switch (raw.trim().toLowerCase()) {
+      case 'about':
+        return ChannelSection.about;
+      case 'past-streams':
+      case 'streams':
+        return ChannelSection.streams;
+      case 'library':
+        return ChannelSection.library;
+      case 'waves':
+        return ChannelSection.waves;
+      case 'schedule':
+        return ChannelSection.schedule;
+      case 'manage':
+        return ChannelSection.manage;
+      default:
+        debugPrint('[ChannelView] channel_section_fallback_invalid: $raw');
+        return ChannelSection.about;
     }
   }
 
@@ -73,34 +179,59 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   Future<void> _loadChannel(String id) async {
     try {
       final channel = await ChannelService.getChannelById(id);
+      bool canManage = false;
+      ChannelSubscriptionModel? sub;
 
-      if (channel.isExclusive) {
-        try {
+      try {
+        final me = await AuthService.getCurrentUser();
+        canManage = me.id == channel.ownerId || me.role == 'admin';
+
+        if (channel.isExclusive && !canManage) {
+          var status = await ChannelService.getExclusiveAccessStatus(
+            channel.id,
+          );
+
+          // If backend reports KYC ineligible but the local user is marked
+          // verified (e.g. admin-updated KYC), retry once to allow for
+          // eventual consistency between admin updates and access checks.
           final me = await AuthService.getCurrentUser();
-          final isOwner = me.id == channel.ownerId;
-          if (!isOwner) {
-            final status = await ChannelService.getExclusiveAccessStatus(
-              channel.id,
-            );
-            if (!status.eligibleByKyc || !status.hasActiveEntitlement) {
-              if (!mounted) return;
-              setState(() {
-                _exclusiveBlocked = true;
-                _blockedChannelId = channel.id;
-                _loading = false;
-              });
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted || _blockedChannelId == null) return;
-                Navigator.pushReplacementNamed(
-                  context,
-                  '/exclusive-access',
-                  arguments: _blockedChannelId!,
-                );
-              });
-              return;
+          if (!status.eligibleByKyc && me.kycStatus == 'verified') {
+            try {
+              // Refresh any cached KYC record and re-query the access status.
+              await KycService.getMe(forceRefresh: true);
+              status = await ChannelService.getExclusiveAccessStatus(
+                channel.id,
+              );
+            } catch (_) {
+              // ignore and fall through to existing blocking behaviour
             }
           }
-        } catch (_) {
+
+          if (!status.eligibleByKyc || !status.hasActiveEntitlement) {
+            if (!mounted) return;
+            setState(() {
+              _exclusiveBlocked = true;
+              _blockedChannelId = channel.id;
+              _loading = false;
+            });
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted || _blockedChannelId == null) return;
+              Navigator.pushReplacementNamed(
+                context,
+                '/exclusive-access',
+                arguments: _blockedChannelId!,
+              );
+            });
+            return;
+          }
+        }
+
+        final result = await ChannelSubscriptionService.check(id);
+        if (result['success'] == true && result['subscription'] != null) {
+          sub = result['subscription'] as ChannelSubscriptionModel;
+        }
+      } catch (_) {
+        if (channel.isExclusive) {
           if (!mounted) return;
           setState(() {
             _exclusiveBlocked = true;
@@ -121,37 +252,217 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
 
       FollowStatusModel? followStatus;
       try {
-        followStatus = await ChannelService.getFollowStatus(channel.ownerId);
+        followStatus = await ChannelService.getChannelFollowStatus(channel.id);
       } catch (e) {
         debugPrint('[ChannelView] follow status error: $e');
       }
-      // Check channel subscription status
-      ChannelSubscriptionModel? sub;
-      try {
-        final result = await ChannelSubscriptionService.check(id);
-        if (result['success'] == true && result['subscription'] != null) {
-          sub = result['subscription'] as ChannelSubscriptionModel;
-        }
-      } catch (e) {
-        debugPrint('[ChannelView] subscription check error: $e');
-      }
+
       if (!mounted) return;
       setState(() {
         _exclusiveBlocked = false;
         _blockedChannelId = null;
         _channel = channel;
+        _canManage = canManage;
         _followersCount =
             followStatus?.followersCount ?? channel.followersCount;
         _isFollowing = followStatus?.followed ?? false;
         _subscription = sub;
         _loading = false;
       });
+
+      _loadLibraryUnreadCount();
+      _loadChannelWaves();
+
+      if (_activeSection == ChannelSection.manage && !_canManage) {
+        _activeSection = ChannelSection.about;
+      }
+
       _animController.forward();
       // Record view for analytics (fire and forget)
       ChannelService.recordView(id).catchError((_) {});
+      WatchHistoryService.record(
+        channelId: channel.id,
+        channelName: channel.name,
+        channelLogo: channel.logoUrl,
+      ).catchError((_) {});
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadChannelWaves() async {
+    final ch = _channel;
+    if (ch == null) return;
+
+    setState(() {
+      _wavesLoading = true;
+      _wavesError = null;
+    });
+
+    try {
+      final waves = await WaveService.getChannelWaves(
+        ch.id,
+        includeHidden: _canManage,
+      );
+      if (!mounted) return;
+      setState(() {
+        _channelWaves = waves;
+        _wavesLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _wavesLoading = false;
+        _wavesError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _editWave(WaveModel wave) async {
+    final result = await Navigator.pushNamed(
+      context,
+      '/wave-edit',
+      arguments: wave,
+    );
+    if (!mounted) return;
+    if (result is WaveModel) {
+      setState(() {
+        _channelWaves = _channelWaves
+            .map((item) => item.id == result.id ? result : item)
+            .toList(growable: false);
+      });
+    } else if (result == true) {
+      await _loadChannelWaves();
+    }
+  }
+
+  Future<void> _toggleWaveHidden(WaveModel wave) async {
+    if (_waveActionId != null) return;
+    setState(() => _waveActionId = wave.id);
+    try {
+      final updated = await WaveService.setTimelineVisibility(
+        wave.id,
+        hidden: wave.status == 'active',
+      );
+      if (!mounted) return;
+      setState(() {
+        _channelWaves = _channelWaves
+            .map((item) => item.id == updated.id ? updated : item)
+            .toList(growable: false);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _waveActionId = null);
+    }
+  }
+
+  Future<void> _deleteWave(WaveModel wave) async {
+    if (_waveActionId != null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.cardBg,
+          title: const Text(
+            'Delete Wave',
+            style: TextStyle(color: AppColors.white),
+          ),
+          content: Text(
+            'Delete "${wave.title}"? This cannot be undone.',
+            style: const TextStyle(color: AppColors.hintText),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text(
+                'Delete',
+                style: TextStyle(color: AppColors.errorRed),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _waveActionId = wave.id);
+    try {
+      await WaveService.deleteWave(wave.id);
+      if (!mounted) return;
+      setState(() {
+        _channelWaves = _channelWaves
+            .where((item) => item.id != wave.id)
+            .toList(growable: false);
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Wave deleted')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _waveActionId = null);
+    }
+  }
+
+  Future<void> _loadLibraryUnreadCount() async {
+    final ch = _channel;
+    if (ch == null || !ch.isExclusive) {
+      if (!mounted) return;
+      setState(() => _libraryUnreadCount = 0);
+      return;
+    }
+
+    setState(() => _libraryUnreadLoading = true);
+    try {
+      final unread = await ChannelLibraryService.getLibraryUnreadCount(ch.id);
+      if (!mounted) return;
+      setState(() => _libraryUnreadCount = unread);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _libraryUnreadCount = 0);
+    } finally {
+      if (mounted) {
+        setState(() => _libraryUnreadLoading = false);
+      }
+    }
+  }
+
+  Future<void> _markLibraryViewed() async {
+    final ch = _channel;
+    if (ch == null || !ch.isExclusive) return;
+
+    try {
+      await ChannelLibraryService.markLibraryViewed(ch.id);
+      if (!mounted) return;
+      setState(() => _libraryUnreadCount = 0);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Library notifications marked as viewed'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Unable to update notifications right now.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+        ),
+      );
     }
   }
 
@@ -221,8 +532,8 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     setState(() => _followLoading = true);
     try {
       final status = _isFollowing
-          ? await ChannelService.unfollowCreator(ch.ownerId)
-          : await ChannelService.followCreator(ch.ownerId);
+          ? await ChannelService.unfollowChannel(ch.id)
+          : await ChannelService.followChannel(ch.id);
       if (!mounted) return;
       setState(() {
         _isFollowing = status.followed;
@@ -232,9 +543,9 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            e.toString(),
-            style: const TextStyle(color: AppColors.white),
+          content: const Text(
+            'Unable to update follow status. Please try again.',
+            style: TextStyle(color: AppColors.white),
           ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
@@ -408,9 +719,9 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            e.toString(),
-            style: const TextStyle(color: AppColors.white),
+          content: const Text(
+            'Unable to disable channel right now. Please retry.',
+            style: TextStyle(color: AppColors.white),
           ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
@@ -666,242 +977,11 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                 ),
                 const SizedBox(height: 24),
 
-                if (ch.isExclusive) ...[
-                  _buildInfoCard(
-                    icon: Icons.payments_rounded,
-                    label: 'Exclusive Monthly Fee',
-                    value:
-                        'NGN ${ch.exclusiveMonthlyFeeNgn.toStringAsFixed(0)}',
-                    valueColor: AppColors.orange,
-                  ),
-                  const SizedBox(height: 12),
-                ],
-
-                // Info cards
-                _buildInfoCard(
-                  icon: Icons.tag_rounded,
-                  label: 'Channel Number',
-                  value: '#${ch.channelNumber}',
-                  valueColor: AppColors.lightOrange,
-                  trailing: GestureDetector(
-                    onTap: () {
-                      Clipboard.setData(ClipboardData(text: ch.channelNumber));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text(
-                            'Channel number copied',
-                            style: TextStyle(color: AppColors.white),
-                          ),
-                          backgroundColor: const Color(
-                            0xFF4CAF50,
-                          ).withValues(alpha: 0.9),
-                          behavior: SnackBarBehavior.floating,
-                          duration: const Duration(seconds: 2),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.orange.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.copy_rounded,
-                        color: AppColors.orange,
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                ),
-                if (ch.description != null)
-                  _buildInfoCard(
-                    icon: Icons.description_rounded,
-                    label: 'Description',
-                    value: ch.description!,
-                  ),
-                if (ch.category != null)
-                  _buildInfoCard(
-                    icon: Icons.category_rounded,
-                    label: 'Category',
-                    value: ch.category!,
-                  ),
-                if (!ch.isPrivate)
-                  _buildInfoCard(
-                    icon: Icons.person_rounded,
-                    label: 'Creator',
-                    value: ch.ownerName ?? 'Unknown',
-                  ),
-                _buildInfoCard(
-                  icon: Icons.people_alt_rounded,
-                  label: 'Followers',
-                  value: '$_followersCount',
-                ),
-                if (ch.requiresPayment)
-                  _buildInfoCard(
-                    icon: Icons.lock_rounded,
-                    label: 'Access',
-                    value: ch.entryFeeType == 'ngn'
-                        ? '₦${ch.entryFeeNgn.toStringAsFixed(0)} · ${ch.accessDurationMinutes}min'
-                        : '${ch.entryFeeVptUnits} vPT · ${ch.accessDurationMinutes}min',
-                    valueColor: AppColors.lightOrange,
-                  ),
-                _buildInfoCard(
-                  icon: Icons.calendar_today_rounded,
-                  label: 'Created',
-                  value: _formatDate(ch.createdAt),
-                ),
-
-                const SizedBox(height: 24),
-
-                GestureDetector(
-                  onTap: _followLoading ? null : _toggleFollow,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    decoration: BoxDecoration(
-                      color: _isFollowing
-                          ? AppColors.orange.withValues(alpha: 0.12)
-                          : AppColors.inputFill,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: _isFollowing
-                            ? AppColors.orange.withValues(alpha: 0.35)
-                            : AppColors.inputBorder,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _isFollowing
-                              ? Icons.notifications_active_rounded
-                              : Icons.notifications_none_rounded,
-                          color: _isFollowing
-                              ? AppColors.orange
-                              : AppColors.white,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _followLoading
-                              ? 'Updating...'
-                              : _isFollowing
-                              ? 'Following'
-                              : 'Follow Creator',
-                          style: TextStyle(
-                            color: _isFollowing
-                                ? AppColors.orange
-                                : AppColors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                // Subscribe / Unsubscribe button
-                GestureDetector(
-                  onTap: _subLoading ? null : _toggleSubscription,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    decoration: BoxDecoration(
-                      gradient:
-                          ch.isPremiumChannel &&
-                              !(_subscription != null &&
-                                  _subscription!.isActive)
-                          ? const LinearGradient(
-                              colors: [Color(0xFFFFD700), Color(0xFFB8860B)],
-                            )
-                          : (_subscription != null && _subscription!.isActive
-                                ? LinearGradient(
-                                    colors: [
-                                      const Color(
-                                        0xFF4CAF50,
-                                      ).withValues(alpha: 0.25),
-                                      const Color(
-                                        0xFF4CAF50,
-                                      ).withValues(alpha: 0.1),
-                                    ],
-                                  )
-                                : AppColors.buttonGradient),
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(
-                          color:
-                              ch.isPremiumChannel &&
-                                  !(_subscription != null &&
-                                      _subscription!.isActive)
-                              ? const Color(0xFFFFD700).withAlpha(80)
-                              : AppColors.orange.withValues(alpha: 0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _subLoading
-                              ? Icons.hourglass_top
-                              : (_subscription != null &&
-                                        _subscription!.isActive
-                                    ? Icons.favorite_rounded
-                                    : Icons.favorite_border_rounded),
-                          color:
-                              ch.isPremiumChannel &&
-                                  !(_subscription != null &&
-                                      _subscription!.isActive)
-                              ? AppColors.darkBlue
-                              : AppColors.white,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _subLoading
-                              ? 'Updating...'
-                              : (_subscription != null &&
-                                        _subscription!.isActive
-                                    ? (ch.isPremiumChannel
-                                          ? 'Subscribed Premium'
-                                          : 'Subscribed')
-                                    : (ch.isPremiumChannel
-                                          ? 'Subscribe Premium'
-                                          : 'Subscribe Free')),
-                          style: TextStyle(
-                            color:
-                                ch.isPremiumChannel &&
-                                    !(_subscription != null &&
-                                        _subscription!.isActive)
-                                ? AppColors.darkBlue
-                                : AppColors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                // External stream status indicator (AV-STR-006)
-                if (ch.hasExternalSource) _buildStreamStatusIndicator(ch),
-
-                // Watch Live button
                 GestureDetector(
                   onTap: () => _watchLive(ch),
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                     decoration: BoxDecoration(
                       gradient: _isStreamPlayable(ch)
                           ? AppColors.buttonGradient
@@ -910,30 +990,16 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                           ? null
                           : AppColors.inputBorder,
                       borderRadius: BorderRadius.circular(14),
-                      boxShadow: _isStreamPlayable(ch)
-                          ? [
-                              BoxShadow(
-                                color: AppColors.orange.withValues(alpha: 0.3),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ]
-                          : null,
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          ch.hasExternalSource &&
-                                  (ch.streamStatus == 'offline' ||
-                                      ch.streamStatus == 'invalid' ||
-                                      ch.streamStatus == 'access_denied')
-                              ? Icons.tv_off_rounded
-                              : Icons.play_circle_filled,
+                          Icons.play_circle_fill_rounded,
                           color: _isStreamPlayable(ch)
                               ? AppColors.white
                               : AppColors.hintText,
-                          size: 22,
+                          size: 20,
                         ),
                         const SizedBox(width: 8),
                         Text(
@@ -942,7 +1008,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                             color: _isStreamPlayable(ch)
                                 ? AppColors.white
                                 : AppColors.hintText,
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -950,47 +1016,968 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                     ),
                   ),
                 ),
-                const SizedBox(height: 14),
 
-                // Delete button (shown always — backend will enforce ownership)
-                GestureDetector(
-                  onTap: _deleteChannel,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    decoration: BoxDecoration(
-                      color: AppColors.errorRed.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: AppColors.errorRed.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.delete_rounded,
-                          color: AppColors.errorRed,
-                          size: 20,
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          'Disable Channel',
-                          style: TextStyle(
-                            color: AppColors.errorRed,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                const SizedBox(height: 12),
+
+                _buildSectionBar(ch),
+                const SizedBox(height: 16),
+                _buildSectionContent(ch),
                 const SizedBox(height: 32),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSectionBar(ChannelModel ch) {
+    final sections = <ChannelSection>[
+      ChannelSection.about,
+      ChannelSection.streams,
+      if (ch.isExclusive) ChannelSection.library,
+      ChannelSection.waves,
+      ChannelSection.schedule,
+      if (_canManage) ChannelSection.manage,
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: sections.map((section) {
+          final selected = _activeSection == section;
+          return GestureDetector(
+            onTap: () => setState(() => _activeSection = section),
+            child: Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected
+                    ? AppColors.orange.withValues(alpha: 0.22)
+                    : AppColors.inputFill,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected
+                      ? AppColors.orange.withValues(alpha: 0.45)
+                      : AppColors.inputBorder,
+                ),
+              ),
+              child: Text(
+                section == ChannelSection.library
+                    ? '${section.label}${_libraryUnreadCount > 0 ? ' (${_libraryUnreadCount > 99 ? '99+' : _libraryUnreadCount})' : ''}'
+                    : section.label,
+                style: TextStyle(
+                  color: selected ? AppColors.lightOrange : AppColors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSectionContent(ChannelModel ch) {
+    switch (_activeSection) {
+      case ChannelSection.about:
+        return _buildAboutSection(ch);
+      case ChannelSection.streams:
+        return _buildStreamsSection(ch);
+      case ChannelSection.library:
+        return _buildLibrarySection(ch);
+      case ChannelSection.waves:
+        return _buildWavesSection(ch);
+      case ChannelSection.schedule:
+        return _buildScheduleSection(ch);
+      case ChannelSection.manage:
+        return _buildManageSection(ch);
+    }
+  }
+
+  Widget _buildAboutSection(ChannelModel ch) {
+    return Column(
+      children: [
+        if (ch.isExclusive) ...[
+          _buildInfoCard(
+            icon: Icons.payments_rounded,
+            label: 'Exclusive Monthly Fee',
+            value: 'NGN ${ch.exclusiveMonthlyFeeNgn.toStringAsFixed(0)}',
+            valueColor: AppColors.orange,
+          ),
+          const SizedBox(height: 12),
+        ],
+        _buildInfoCard(
+          icon: Icons.tag_rounded,
+          label: 'Channel Number',
+          value: '#${ch.channelNumber}',
+          valueColor: AppColors.lightOrange,
+          trailing: GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: ch.channelNumber));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text(
+                    'Channel number copied',
+                    style: TextStyle(color: AppColors.white),
+                  ),
+                  backgroundColor: const Color(
+                    0xFF4CAF50,
+                  ).withValues(alpha: 0.9),
+                  behavior: SnackBarBehavior.floating,
+                  duration: const Duration(seconds: 2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.orange.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.copy_rounded,
+                color: AppColors.orange,
+                size: 16,
+              ),
+            ),
+          ),
+        ),
+        if (ch.description != null)
+          _buildInfoCard(
+            icon: Icons.description_rounded,
+            label: 'Description',
+            value: ch.description!,
+          ),
+        if (ch.category != null)
+          _buildInfoCard(
+            icon: Icons.category_rounded,
+            label: 'Category',
+            value: ch.category!,
+          ),
+        if (!ch.isPrivate)
+          _buildInfoCard(
+            icon: Icons.person_rounded,
+            label: 'Creator',
+            value: ch.ownerName ?? 'Unknown',
+          ),
+        _buildInfoCard(
+          icon: Icons.people_alt_rounded,
+          label: 'Followers',
+          value: '$_followersCount',
+        ),
+        if (ch.requiresPayment)
+          _buildInfoCard(
+            icon: Icons.lock_rounded,
+            label: 'Access',
+            value: ch.entryFeeType == 'ngn'
+                ? '₦${ch.entryFeeNgn.toStringAsFixed(0)} · ${ch.accessDurationMinutes}min'
+                : '${ch.entryFeeVptUnits} vPT · ${ch.accessDurationMinutes}min',
+            valueColor: AppColors.lightOrange,
+          ),
+        _buildInfoCard(
+          icon: Icons.calendar_today_rounded,
+          label: 'Created',
+          value: _formatDate(ch.createdAt),
+        ),
+        const SizedBox(height: 18),
+        GestureDetector(
+          onTap: _followLoading ? null : _toggleFollow,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            decoration: BoxDecoration(
+              color: _isFollowing
+                  ? AppColors.orange.withValues(alpha: 0.12)
+                  : AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: _isFollowing
+                    ? AppColors.orange.withValues(alpha: 0.35)
+                    : AppColors.inputBorder,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _isFollowing
+                      ? Icons.notifications_active_rounded
+                      : Icons.notifications_none_rounded,
+                  color: _isFollowing ? AppColors.orange : AppColors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _followLoading
+                      ? 'Updating...'
+                      : _isFollowing
+                      ? 'Following'
+                      : 'Follow Creator',
+                  style: TextStyle(
+                    color: _isFollowing ? AppColors.orange : AppColors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        GestureDetector(
+          onTap: _subLoading ? null : _toggleSubscription,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            decoration: BoxDecoration(
+              gradient:
+                  ch.isPremiumChannel &&
+                      !(_subscription != null && _subscription!.isActive)
+                  ? const LinearGradient(
+                      colors: [Color(0xFFFFD700), Color(0xFFB8860B)],
+                    )
+                  : (_subscription != null && _subscription!.isActive
+                        ? LinearGradient(
+                            colors: [
+                              const Color(0xFF4CAF50).withValues(alpha: 0.25),
+                              const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                            ],
+                          )
+                        : AppColors.buttonGradient),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color:
+                      ch.isPremiumChannel &&
+                          !(_subscription != null && _subscription!.isActive)
+                      ? const Color(0xFFFFD700).withAlpha(80)
+                      : AppColors.orange.withValues(alpha: 0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _subLoading
+                      ? Icons.hourglass_top
+                      : (_subscription != null && _subscription!.isActive
+                            ? Icons.favorite_rounded
+                            : Icons.favorite_border_rounded),
+                  color:
+                      ch.isPremiumChannel &&
+                          !(_subscription != null && _subscription!.isActive)
+                      ? AppColors.darkBlue
+                      : AppColors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _subLoading
+                      ? 'Updating...'
+                      : (_subscription != null && _subscription!.isActive
+                            ? (ch.isPremiumChannel
+                                  ? 'Subscribed Premium'
+                                  : 'Subscribed')
+                            : (ch.isPremiumChannel
+                                  ? 'Subscribe Premium'
+                                  : 'Subscribe Free')),
+                  style: TextStyle(
+                    color:
+                        ch.isPremiumChannel &&
+                            !(_subscription != null && _subscription!.isActive)
+                        ? AppColors.darkBlue
+                        : AppColors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStreamsSection(ChannelModel ch) {
+    return Column(
+      children: [
+        _buildInfoCard(
+          icon: Icons.history_toggle_off_rounded,
+          label: 'Past Streams',
+          value: 'Open channel player to browse past stream sessions.',
+        ),
+        if (ch.hasExternalSource) _buildStreamStatusIndicator(ch),
+        GestureDetector(
+          onTap: () => _watchLive(ch),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            decoration: BoxDecoration(
+              gradient: _isStreamPlayable(ch) ? AppColors.buttonGradient : null,
+              color: _isStreamPlayable(ch) ? null : AppColors.inputBorder,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.play_circle_filled,
+                  color: _isStreamPlayable(ch)
+                      ? AppColors.white
+                      : AppColors.hintText,
+                  size: 22,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _watchLiveLabel(ch),
+                  style: TextStyle(
+                    color: _isStreamPlayable(ch)
+                        ? AppColors.white
+                        : AppColors.hintText,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLibrarySection(ChannelModel ch) {
+    if (!ch.isExclusive) {
+      return _buildInfoCard(
+        icon: Icons.lock_outline_rounded,
+        label: 'Library',
+        value: 'Library is available for exclusive channels only.',
+      );
+    }
+
+    return Column(
+      children: [
+        _buildInfoCard(
+          icon: Icons.menu_book_rounded,
+          label: 'Exclusive Library',
+          value: 'Read books, comics, and magazines for this channel.',
+        ),
+        if (_libraryUnreadCount > 0 || _libraryUnreadLoading) ...[
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.orange.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.orange.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.notifications_active_outlined,
+                  color: AppColors.orange,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _libraryUnreadLoading
+                        ? 'Checking unread updates...'
+                        : '$_libraryUnreadCount unread library updates',
+                    style: const TextStyle(
+                      color: AppColors.lightOrange,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _libraryUnreadLoading ? null : _markLibraryViewed,
+                  child: const Text('Mark viewed'),
+                ),
+              ],
+            ),
+          ),
+        ],
+        GestureDetector(
+          onTap: () => Navigator.pushNamed(
+            context,
+            '/channel-library',
+            arguments: {'channelId': ch.id},
+          ),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              gradient: AppColors.buttonGradient,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.orange.withValues(alpha: 0.28),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.menu_book_rounded, color: AppColors.white, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Open Library',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_canManage) ...[
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: () =>
+                Navigator.pushNamed(context, '/video-upload', arguments: ch.id),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              decoration: BoxDecoration(
+                color: AppColors.inputFill,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.inputBorder),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.upload_rounded,
+                    color: AppColors.lightOrange,
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'Upload / Manage Videos',
+                    style: TextStyle(
+                      color: AppColors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildWavesSection(ChannelModel ch) {
+    return Column(
+      children: [
+        _buildInfoCard(
+          icon: Icons.waves_rounded,
+          label: 'Waves',
+          value: _canManage
+              ? 'Create, review, edit, hide, or delete your published waves from this channel profile.'
+              : 'Explore published Waves from this channel and jump into the feed context.',
+        ),
+        GestureDetector(
+          onTap: () => Navigator.pushNamed(
+            context,
+            '/wave',
+            arguments: {'channelId': ch.id},
+          ),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              gradient: AppColors.buttonGradient,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Center(
+              child: Text(
+                'Open Wave Feed',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (_canManage) ...[
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: () async {
+              final result = await Navigator.pushNamed(
+                context,
+                '/wave-upload',
+                arguments: ch.id,
+              );
+              if (result == true) {
+                await _loadChannelWaves();
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              decoration: BoxDecoration(
+                color: AppColors.inputFill,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.inputBorder),
+              ),
+              child: const Center(
+                child: Text(
+                  'Create New Wave',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        if (_wavesLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: CircularProgressIndicator(color: AppColors.orange),
+          )
+        else if (_wavesError != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'Unable to load channel waves.',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _wavesError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.hintText),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: _loadChannelWaves,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          )
+        else if (_channelWaves.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: Text(
+              _canManage
+                  ? 'No waves published for this channel yet.'
+                  : 'This channel has no published waves yet.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.hintText),
+            ),
+          )
+        else
+          Column(
+            children: _channelWaves
+                .map((wave) => _buildWaveCard(ch, wave))
+                .toList(growable: false),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildWaveCard(ChannelModel ch, WaveModel wave) {
+    final actionBusy = _waveActionId == wave.id;
+    final isHidden = wave.status == 'hidden';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isHidden
+              ? AppColors.hintText.withValues(alpha: 0.35)
+              : AppColors.inputBorder,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  wave.title,
+                  style: const TextStyle(
+                    color: AppColors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isHidden
+                      ? AppColors.hintText.withValues(alpha: 0.12)
+                      : AppColors.orange.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  isHidden ? 'Hidden' : 'Published',
+                  style: TextStyle(
+                    color: isHidden
+                        ? AppColors.hintText
+                        : AppColors.lightOrange,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (wave.description.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              wave.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppColors.hintText, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _waveStatChip(Icons.timer_rounded, '${wave.duration}s'),
+              _waveStatChip(Icons.visibility_rounded, '${wave.viewCount}'),
+              _waveStatChip(Icons.repeat_rounded, '${wave.repeatPlayCount}'),
+              _waveStatChip(Icons.bolt_rounded, '${wave.pulseCount}'),
+              _waveStatChip(Icons.chat_bubble_rounded, '${wave.commentCount}'),
+              _waveStatChip(
+                Icons.verified_rounded,
+                wave.ageClassification.toUpperCase(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: actionBusy
+                      ? null
+                      : () => Navigator.pushNamed(
+                          context,
+                          '/wave',
+                          arguments: {'channelId': ch.id, 'waveId': wave.id},
+                        ),
+                  child: _waveActionTile(
+                    icon: Icons.play_arrow_rounded,
+                    label: 'Open',
+                    color: AppColors.orange,
+                  ),
+                ),
+              ),
+              if (_canManage) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: actionBusy ? null : () => _editWave(wave),
+                    child: _waveActionTile(
+                      icon: Icons.edit_rounded,
+                      label: 'Edit',
+                      color: AppColors.lightOrange,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (_canManage) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: actionBusy ? null : () => _toggleWaveHidden(wave),
+                    child: _waveActionTile(
+                      icon: isHidden
+                          ? Icons.visibility_rounded
+                          : Icons.visibility_off_rounded,
+                      label: isHidden ? 'Unhide' : 'Hide',
+                      color: AppColors.hintText,
+                      busy: actionBusy,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: actionBusy ? null : () => _deleteWave(wave),
+                    child: _waveActionTile(
+                      icon: Icons.delete_outline_rounded,
+                      label: 'Delete',
+                      color: AppColors.errorRed,
+                      busy: actionBusy,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _waveActionTile({
+    required IconData icon,
+    required String label,
+    required Color color,
+    bool busy = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (busy)
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            )
+          else
+            Icon(icon, color: color, size: 16),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _waveStatChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: AppColors.lightOrange, size: 14),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleSection(ChannelModel ch) {
+    return Column(
+      children: [
+        _buildInfoCard(
+          icon: Icons.schedule_rounded,
+          label: 'Schedule',
+          value: 'Manage and view upcoming programs for this channel.',
+        ),
+        GestureDetector(
+          onTap: () =>
+              Navigator.pushNamed(context, '/schedule', arguments: ch.id),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: const Center(
+              child: Text(
+                'Open Schedule',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildManageSection(ChannelModel ch) {
+    if (!_canManage) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppColors.inputFill,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.inputBorder),
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.lock_rounded, color: AppColors.errorRed),
+            const SizedBox(height: 10),
+            const Text(
+              'Insufficient permissions for Manage section',
+              style: TextStyle(
+                color: AppColors.white,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () =>
+                  setState(() => _activeSection = ChannelSection.about),
+              child: const Text('Back to About'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: () => Navigator.pushNamed(context, '/creator-studio'),
+          child: _manageTile(Icons.dashboard_rounded, 'Open Creator Studio'),
+        ),
+        GestureDetector(
+          onTap: () =>
+              Navigator.pushNamed(context, '/edit-channel', arguments: ch),
+          child: _manageTile(Icons.edit_rounded, 'Edit Channel Details'),
+        ),
+        GestureDetector(
+          onTap: () => Navigator.pushNamed(
+            context,
+            '/channel-analytics',
+            arguments: ch.id,
+          ),
+          child: _manageTile(Icons.bar_chart_rounded, 'Open Channel Analytics'),
+        ),
+        GestureDetector(
+          onTap: _deleteChannel,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            margin: const EdgeInsets.only(top: 8),
+            decoration: BoxDecoration(
+              color: AppColors.errorRed.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: AppColors.errorRed.withValues(alpha: 0.3),
+              ),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.delete_rounded, color: AppColors.errorRed, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Disable Channel',
+                  style: TextStyle(
+                    color: AppColors.errorRed,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _manageTile(IconData icon, String label) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.lightOrange),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          const Icon(Icons.chevron_right_rounded, color: AppColors.hintText),
+        ],
       ),
     );
   }

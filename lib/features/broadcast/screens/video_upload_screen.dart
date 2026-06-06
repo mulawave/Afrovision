@@ -4,6 +4,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../channel/models/channel_model.dart';
+import '../../channel/services/channel_service.dart';
 import '../models/video_model.dart';
 import '../services/broadcast_service.dart';
 
@@ -57,6 +59,10 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
   late Animation<Offset> _slideUp;
 
   String? _channelId;
+  String? _channelName;
+  List<ChannelModel> _myChannels = [];
+  bool _loadingChannels = false;
+  bool _channelPromptShown = false;
   final List<_VideoEntry> _videos = [];
   final Set<int> _selectedQueueIndexes = {};
   bool _queueSelectionMode = false;
@@ -97,6 +103,11 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
     _channelId ??= ModalRoute.of(context)?.settings.arguments as String?;
     if (_channelId != null && _existingVideos.isEmpty && !_loadingExisting) {
       _loadExistingVideos();
+    } else if (_channelId == null && !_channelPromptShown) {
+      _channelPromptShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _promptForChannelSelection();
+      });
     }
   }
 
@@ -739,7 +750,11 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
               child: Column(
                 children: [
                   _buildHeader(),
-                  Expanded(child: _done ? _buildSummary() : _buildContent()),
+                  Expanded(
+                    child: _channelId == null
+                        ? _buildChannelGate()
+                        : (_done ? _buildSummary() : _buildContent()),
+                  ),
                 ],
               ),
             ),
@@ -773,15 +788,33 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
             ),
           ),
           const SizedBox(width: 16),
-          const Expanded(
-            child: Text(
-              'UPLOAD VIDEOS',
-              style: TextStyle(
-                color: AppColors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 2,
-              ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'UPLOAD VIDEOS',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _channelName != null
+                      ? 'Posting to $_channelName'
+                      : 'Select a channel before uploading',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.white.withValues(alpha: 0.65),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
           if (_videos.isNotEmpty && !_uploading && !_done)
@@ -857,6 +890,248 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
         ],
       ),
     );
+  }
+
+  Widget _buildChannelGate() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: AppColors.softBlue.withValues(alpha: 0.25),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.lightBlue.withValues(alpha: 0.55),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.waves_rounded,
+                  color: AppColors.softBlue,
+                  size: 34,
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Choose a channel first',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _loadingChannels
+                    ? 'Loading your channels...'
+                    : 'Select the channel that should receive this wave, then continue to upload and publish.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.white.withValues(alpha: 0.7),
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 18),
+              AppButton(
+                label: _loadingChannels ? 'Loading...' : 'Choose Channel',
+                onPressed: _loadingChannels ? null : _promptForChannelSelection,
+              ),
+              if (!_loadingChannels && _myChannels.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  '${_myChannels.length} channel${_myChannels.length == 1 ? '' : 's'} available',
+                  style: TextStyle(
+                    color: AppColors.lightOrange.withValues(alpha: 0.8),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _promptForChannelSelection() async {
+    if (_loadingChannels) return;
+    setState(() => _loadingChannels = true);
+    try {
+      _myChannels = await ChannelService.getMyChannels();
+      if (!mounted) return;
+      if (_myChannels.isEmpty) {
+        setState(() => _loadingChannels = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Create a channel before uploading a wave.'),
+          ),
+        );
+        return;
+      }
+
+      final selected = await showModalBottomSheet<ChannelModel>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (context) {
+          return Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            decoration: const BoxDecoration(
+              color: AppColors.cardBg,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 48,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.inputBorder,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Select a target channel',
+                    style: TextStyle(
+                      color: AppColors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Waves are posted to one of your channels before publishing.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.white.withValues(alpha: 0.7),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _myChannels.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final channel = _myChannels[index];
+                      return GestureDetector(
+                        onTap: () => Navigator.pop(context, channel),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.inputFill,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: AppColors.inputBorder.withValues(
+                                alpha: 0.45,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: AppColors.lightBlue.withValues(
+                                    alpha: 0.55,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.live_tv_rounded,
+                                  color: AppColors.softBlue,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      channel.name,
+                                      style: const TextStyle(
+                                        color: AppColors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '#${channel.channelNumber}',
+                                      style: TextStyle(
+                                        color: AppColors.lightOrange.withValues(
+                                          alpha: 0.75,
+                                        ),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: AppColors.lightOrange,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+      if (!mounted) return;
+      if (selected == null) {
+        setState(() => _loadingChannels = false);
+        return;
+      }
+
+      setState(() {
+        _channelId = selected.id;
+        _channelName = selected.name;
+        _loadingChannels = false;
+      });
+      if (_existingVideos.isEmpty && !_loadingExisting) {
+        _loadExistingVideos();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingChannels = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to load channels: $e')));
+    }
   }
 
   Widget _buildContent() {

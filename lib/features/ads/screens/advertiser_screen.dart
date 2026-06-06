@@ -9,7 +9,7 @@ class AdvertiserScreen extends StatefulWidget {
 }
 
 class _AdvertiserScreenState extends State<AdvertiserScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _animCtrl;
   late Animation<double> _fadeIn;
   late TabController _tabCtrl;
@@ -743,29 +743,35 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _budgetCtrl = TextEditingController();
-  final _videoUrlCtrl = TextEditingController();
+  final _mediaUrlCtrl = TextEditingController();
+  final _pricePerImpressionCtrl = TextEditingController(text: '1');
   String _category = 'banner_home';
   bool _submitting = false;
 
   final _categories = [
     ('banner_home', 'Banner — Home Page'),
     ('banner_page', 'Banner — Other Pages'),
-    ('schedule_pre', 'In-Stream — Pre-roll'),
-    ('schedule_mid', 'In-Stream — Mid-roll'),
-    ('schedule_brief', 'In-Stream — Brief'),
+    ('in_stream_pre', 'In-Stream — Pre-roll'),
+    ('in_stream_mid', 'In-Stream — Mid-roll'),
+    ('in_stream_brief', 'In-Stream — Brief'),
   ];
 
   Future<void> _submit() async {
     final title = _titleCtrl.text.trim();
     final desc = _descCtrl.text.trim();
     final budget = double.tryParse(_budgetCtrl.text.trim()) ?? 0;
-    final videoUrl = _videoUrlCtrl.text.trim();
+    final mediaUrl = _mediaUrlCtrl.text.trim();
+    final pricePerImpression =
+        double.tryParse(_pricePerImpressionCtrl.text.trim()) ?? 0;
 
-    if (title.isEmpty || budget <= 0) {
+    if (title.isEmpty ||
+        budget <= 0 ||
+        mediaUrl.isEmpty ||
+        pricePerImpression <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
-            'Title and budget are required',
+            'Title, media URL, budget, and price per impression are required',
             style: TextStyle(color: AppColors.white),
           ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
@@ -785,7 +791,8 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
         'description': desc,
         'budget': budget,
         'category': _category,
-        if (videoUrl.isNotEmpty) 'video_url': videoUrl,
+        'media_url': mediaUrl,
+        'price_per_impression': pricePerImpression,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -804,7 +811,8 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
       _titleCtrl.clear();
       _descCtrl.clear();
       _budgetCtrl.clear();
-      _videoUrlCtrl.clear();
+      _mediaUrlCtrl.clear();
+      _pricePerImpressionCtrl.text = '1';
       widget.onSubmitted();
     } catch (e) {
       if (!mounted) return;
@@ -831,7 +839,8 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
     _titleCtrl.dispose();
     _descCtrl.dispose();
     _budgetCtrl.dispose();
-    _videoUrlCtrl.dispose();
+    _mediaUrlCtrl.dispose();
+    _pricePerImpressionCtrl.dispose();
     super.dispose();
   }
 
@@ -897,8 +906,16 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
           _textField(_budgetCtrl, 'e.g. 50000', keyboard: TextInputType.number),
           const SizedBox(height: 14),
 
-          _label('Video URL (optional)'),
-          _textField(_videoUrlCtrl, 'https://...'),
+          _label('Price Per Impression (₦)'),
+          _textField(
+            _pricePerImpressionCtrl,
+            'e.g. 1',
+            keyboard: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Media URL'),
+          _textField(_mediaUrlCtrl, 'https://...'),
           const SizedBox(height: 24),
 
           GestureDetector(

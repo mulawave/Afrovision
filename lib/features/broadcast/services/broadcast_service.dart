@@ -1,13 +1,27 @@
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../../../core/api/api_service.dart';
+import '../../../core/config/app_config.dart';
 import '../models/video_model.dart';
 import '../models/program_model.dart';
 
 class BroadcastService {
   // ─── Server Time Offset ────────────────────────────────
 
+  static const Duration _serverOffsetTtl = Duration(minutes: 2);
+  static const Duration _nowPlayingCacheTtl = Duration(seconds: 8);
+  static const Duration _playableSnapshotTtl = Duration(minutes: 2);
+  static const Duration _playbackWarmTtl = Duration(minutes: 1);
   static int _serverOffset = 0;
+  static DateTime? _serverOffsetSyncedAt;
+  static final Map<String, Map<String, dynamic>> _nowPlayingCache =
+      <String, Map<String, dynamic>>{};
+  static final Map<String, DateTime> _nowPlayingCachedAt = <String, DateTime>{};
+  static final Map<String, Map<String, dynamic>> _playableSnapshotCache =
+      <String, Map<String, dynamic>>{};
+  static final Map<String, DateTime> _playableSnapshotCachedAt =
+      <String, DateTime>{};
+  static final Map<String, DateTime> _playbackWarmedAt = <String, DateTime>{};
 
   /// Device-corrected current time using server offset.
   static int get correctedNow =>
@@ -15,11 +29,96 @@ class BroadcastService {
 
   /// Fetch server time once and compute offset for future use.
   static Future<void> syncServerOffset() async {
+    final syncedAt = _serverOffsetSyncedAt;
+    if (syncedAt != null &&
+        DateTime.now().difference(syncedAt) < _serverOffsetTtl) {
+      return;
+    }
     try {
       final serverTime = await getServerTime();
       _serverOffset = serverTime - DateTime.now().millisecondsSinceEpoch;
+      _serverOffsetSyncedAt = DateTime.now();
     } catch (_) {
       // Silent fail — offset stays at 0 (trust device clock as fallback)
+    }
+  }
+
+  static Map<String, dynamic>? getCachedNowPlaying(String channelId) {
+    final cached = _nowPlayingCache[channelId];
+    final cachedAt = _nowPlayingCachedAt[channelId];
+    if (cached == null || cachedAt == null) {
+      return null;
+    }
+    if (DateTime.now().difference(cachedAt) >= _nowPlayingCacheTtl) {
+      _nowPlayingCache.remove(channelId);
+      _nowPlayingCachedAt.remove(channelId);
+      return null;
+    }
+    return Map<String, dynamic>.from(cached);
+  }
+
+  static void _storeNowPlayingCache(
+    String channelId,
+    Map<String, dynamic> payload,
+  ) {
+    _nowPlayingCache[channelId] = Map<String, dynamic>.from(payload);
+    _nowPlayingCachedAt[channelId] = DateTime.now();
+    if (payload['now_playing'] != null) {
+      _playableSnapshotCache[channelId] = Map<String, dynamic>.from(payload);
+      _playableSnapshotCachedAt[channelId] = DateTime.now();
+    }
+  }
+
+  static Map<String, dynamic>? getCachedPlayableSnapshot(String channelId) {
+    final cached = _playableSnapshotCache[channelId];
+    final cachedAt = _playableSnapshotCachedAt[channelId];
+    if (cached == null || cachedAt == null) {
+      return null;
+    }
+    if (DateTime.now().difference(cachedAt) >= _playableSnapshotTtl) {
+      _playableSnapshotCache.remove(channelId);
+      _playableSnapshotCachedAt.remove(channelId);
+      return null;
+    }
+    return Map<String, dynamic>.from(cached);
+  }
+
+  static Future<void> prewarmPlaybackUrl(String rawUrl) async {
+    if (rawUrl.isEmpty) return;
+
+    final playbackUrl = rawUrl.startsWith('http')
+        ? rawUrl
+        : '${AppConfig.baseUrl}$rawUrl';
+    final warmedAt = _playbackWarmedAt[playbackUrl];
+    if (warmedAt != null &&
+        DateTime.now().difference(warmedAt) < _playbackWarmTtl) {
+      return;
+    }
+
+    try {
+      final uri = Uri.parse(playbackUrl);
+      final lower = playbackUrl.toLowerCase();
+
+      if (lower.contains('youtube.com') ||
+          lower.contains('youtube-nocookie.com') ||
+          lower.contains('youtu.be')) {
+        return;
+      }
+
+      final response = await http
+          .get(
+            uri,
+            headers: lower.contains('.m3u8') || lower.contains('.mpd')
+                ? const <String, String>{}
+                : const <String, String>{'Range': 'bytes=0-4095'},
+          )
+          .timeout(const Duration(seconds: 4));
+
+      if (response.statusCode < 400) {
+        _playbackWarmedAt[playbackUrl] = DateTime.now();
+      }
+    } catch (_) {
+      // silent prewarm failure
     }
   }
 
@@ -185,8 +284,31 @@ class BroadcastService {
 
   // ─── Playback ──────────────────────────────────────────
 
-  static Future<Map<String, dynamic>> getNowPlaying(String channelId) async {
-    return ApiService.get('/broadcast/now-playing/$channelId');
+  static Future<Map<String, dynamic>> getNowPlaying(
+    String channelId, {
+    bool preferCache = true,
+  }) async {
+    final cached = preferCache ? getCachedNowPlaying(channelId) : null;
+    if (cached != null) {
+      return cached;
+    }
+
+    final payload = await ApiService.get('/broadcast/now-playing/$channelId');
+    _storeNowPlayingCache(channelId, payload);
+    return payload;
+  }
+
+  static Future<void> prefetchNowPlaying(String channelId) async {
+    if (getCachedNowPlaying(channelId) != null) {
+      return;
+    }
+
+    try {
+      final payload = await ApiService.get('/broadcast/now-playing/$channelId');
+      _storeNowPlayingCache(channelId, payload);
+    } catch (_) {
+      // silent prefetch failure
+    }
   }
 
   static Future<int> getServerTime() async {

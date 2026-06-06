@@ -446,13 +446,17 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
               Expanded(
                 child: _buildActionButton(
                   icon: Icons.visibility_rounded,
-                  label: 'View',
+                  label: 'Profile',
                   color: AppColors.lightOrange,
                   onTap: () async {
                     final result = await Navigator.pushNamed(
                       context,
-                      '/channel-player',
-                      arguments: channel.id,
+                      '/channel-view',
+                      arguments: {
+                        'channel': channel,
+                        'channelId': channel.id,
+                        'section': 'waves',
+                      },
                     );
                     if (result == true) _loadChannels();
                   },
@@ -467,8 +471,24 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
               Expanded(
                 child: _buildActionButton(
                   icon: Icons.video_library_rounded,
-                  label: 'Videos',
+                  label: 'Library',
                   color: AppColors.orange,
+                  onTap: () async {
+                    final result = await Navigator.pushNamed(
+                      context,
+                      '/creator-studio/library',
+                      arguments: channel.id,
+                    );
+                    if (result == true) _loadChannels();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildActionButton(
+                  icon: Icons.upload_rounded,
+                  label: 'Upload',
+                  color: AppColors.lightOrange,
                   onTap: () async {
                     final result = await Navigator.pushNamed(
                       context,
@@ -494,7 +514,11 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                   },
                 ),
               ),
-              const SizedBox(width: 8),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
               Expanded(
                 child: _buildActionButton(
                   icon: Icons.bar_chart_rounded,
@@ -509,7 +533,32 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                   },
                 ),
               ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildActionButton(
+                  icon: Icons.bolt_rounded,
+                  label: 'Create Wave',
+                  color: AppColors.lightOrange,
+                  onTap: () async {
+                    final result = await Navigator.pushNamed(
+                      context,
+                      '/wave-upload',
+                      arguments: channel.id,
+                    );
+                    if (result == true) _loadChannels();
+                  },
+                ),
+              ),
             ],
+          ),
+          const SizedBox(height: 8),
+          _buildActionButton(
+            icon: Icons.auto_awesome_rounded,
+            label: 'AI Video Generator',
+            color: const Color(0xFF9C6BFF),
+            onTap: () {
+              Navigator.pushNamed(context, '/ai-video');
+            },
           ),
         ],
       ),

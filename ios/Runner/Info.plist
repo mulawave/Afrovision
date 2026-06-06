@@ -47,5 +47,16 @@
 	<true/>
 	<key>FlutterDeepLinkingEnabled</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>afrovision.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>afrovision</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

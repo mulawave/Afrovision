@@ -114,6 +114,43 @@ export async function api<T = unknown>(
   }
 }
 
+function normalizeExclusiveAccessStatus(raw: unknown): ExclusiveAccessStatusResponse {
+  const data = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+
+  const get = (camel: string, snake: string) => data[camel] ?? data[snake];
+  const toBool = (value: unknown) => {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value !== 0;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      return normalized === "true" || normalized === "1" || normalized === "yes";
+    }
+    return false;
+  };
+  const toString = (value: unknown) => {
+    if (value === null || value === undefined) return null;
+    return String(value);
+  };
+  const toNumber = (value: unknown) => {
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  };
+
+  return {
+    eligibleByKyc: toBool(get("eligibleByKyc", "eligible_by_kyc")),
+    hasActiveEntitlement: toBool(get("hasActiveEntitlement", "has_active_entitlement")),
+    renewalRequired: toBool(get("renewalRequired", "renewal_required")),
+    expiresAt: toString(get("expiresAt", "expires_at")),
+    monthlyFeeNgn: toNumber(get("monthlyFeeNgn", "monthly_fee_ngn")),
+  };
+}
+
 export async function apiFormData<T = unknown>(
   path: string,
   options: FormDataOptions
@@ -879,10 +916,24 @@ export interface ExclusivePicVerifyResponse {
 }
 
 export async function getExclusiveAccessStatusApi(channelId: string) {
-  return api<ExclusiveAccessStatusResponse | ErrorResponse>(
+  const res = await api<ExclusiveAccessStatusResponse | ErrorResponse>(
     `/channels/${channelId}/exclusive/access-status`,
     { requireAuth: true },
   );
+
+  if (!res.ok || typeof res.data !== "object" || res.data === null) {
+    return res;
+  }
+
+  const rawData = res.data as unknown as Record<string, unknown>;
+  if (!("eligibleByKyc" in rawData) && !("eligible_by_kyc" in rawData)) {
+    return res;
+  }
+
+  return {
+    ...res,
+    data: normalizeExclusiveAccessStatus(rawData) as ExclusiveAccessStatusResponse,
+  };
 }
 
 export async function purchaseExclusiveAccessApi(channelId: string) {
@@ -2688,6 +2739,8 @@ export async function confirmImmediateDeletionApi(password: string) {
 
 // ── Afrovision Wave API ────────────────────────────────────
 
+export type WaveAgeClassification = "minor_safe" | "teen" | "adult";
+
 export interface Wave {
   id: string;
   channel_id: string;
@@ -2697,6 +2750,10 @@ export interface Wave {
   video_url: string;
   thumbnail_url: string | null;
   duration: number;
+  age_classification?: WaveAgeClassification;
+  has_explicit_language?: boolean;
+  has_nudity?: boolean;
+  has_violence?: boolean;
   pulse_count: number;
   comment_count: number;
   bookmark_count: number;
@@ -2723,6 +2780,25 @@ export interface WaveComment {
 export interface WavePulseMoment {
   second: number;
   intensity_sum: number;
+}
+
+export interface WaveAccessDecision {
+  allowed: boolean;
+  requires_consent: boolean;
+  reason: string | null;
+  code?: string;
+}
+
+export interface CreatorLockStatus {
+  locked: boolean;
+  lock: {
+    id: string;
+    fine_amount_ngn: number;
+    reason: string;
+    created_at: number | null;
+    payment_status?: string;
+    case_id?: string | null;
+  } | null;
 }
 
 export async function getWaveFeedApi(limit = 20, cursor?: string) {
@@ -2757,6 +2833,10 @@ export async function registerWaveApi(input: {
   video_url: string;
   thumbnail_url?: string;
   duration?: number;
+  age_classification: WaveAgeClassification;
+  has_explicit_language: boolean;
+  has_nudity: boolean;
+  has_violence: boolean;
 }) {
   return api<Wave | ErrorResponse>("/wave/register", {
     method: "POST",
@@ -2877,6 +2957,116 @@ export async function reportWaveApi(waveId: string, reason: string) {
   return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}/report`, {
     method: "POST",
     body: { reason },
+    requireAuth: true,
+  });
+}
+
+export async function reportWaveClassificationApi(
+  waveId: string,
+  input: {
+    reason:
+      | "adult_labeled_minor_safe"
+      | "adult_labeled_teen"
+      | "graphic_violence_mislabeled"
+      | "sexual_content_mislabeled"
+      | "dangerous_for_minors"
+      | "other";
+    suggested_classification?: WaveAgeClassification;
+  },
+) {
+  return api<{
+    success: boolean;
+    report: {
+      id: string;
+      case_id: string;
+      wave_id: string;
+      report_reason: string;
+      status: string;
+      created_at: number;
+    };
+    moderation_case: {
+      id: string;
+      wave_id: string;
+      status: string;
+      created_at: number;
+    };
+  } | ErrorResponse>(`/wave/${waveId}/classification-report`, {
+    method: "POST",
+    body: input,
+    requireAuth: true,
+  });
+}
+
+export async function checkWaveAccessApi(waveId: string, sessionId?: string) {
+  return api<WaveAccessDecision | ErrorResponse>(`/wave/${waveId}/access-check`, {
+    method: "POST",
+    body: { session_id: sessionId || "" },
+  });
+}
+
+export async function acknowledgeWaveAdultConsentApi(waveId: string, sessionId: string) {
+  return api<{ success: boolean; consent_id: string } | ErrorResponse>(`/wave/${waveId}/access-consent`, {
+    method: "POST",
+    body: { session_id: sessionId },
+    requireAuth: true,
+  });
+}
+
+export async function getCreatorWaveLockStatusApi() {
+  return api<CreatorLockStatus | ErrorResponse>("/wave/creator/lock-status", {
+    requireAuth: true,
+  });
+}
+
+export async function payCreatorWaveLockApi() {
+  return api<{
+    success: boolean;
+    lock: {
+      id: string;
+      status: string;
+      payment_status: string;
+      fine_amount_ngn: number;
+      amount_paid_ngn?: number;
+      unlocked_at?: number;
+    };
+    fine_amount_ngn: number;
+  } | ErrorResponse>("/wave/creator/lock-pay", {
+    method: "POST",
+    requireAuth: true,
+  });
+}
+
+export async function getAdminCersPolicyApi() {
+  return api<{ settings: Array<{ key: string; value: string | null }> } | ErrorResponse>("/admin/cers/policy", {
+    requireAuth: true,
+  });
+}
+
+export async function updateAdminCersPolicyApi(settings: Array<{ key: string; value: string | number }>) {
+  return api<{ updated: Array<{ key: string; value: string | null }> } | ErrorResponse>("/admin/cers/policy", {
+    method: "PATCH",
+    body: { settings },
+    requireAuth: true,
+  });
+}
+
+export async function getAdminCersCasesApi(status?: string, limit = 50) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  params.set("limit", String(limit));
+  return api<{ cases: Array<Record<string, unknown>> } | ErrorResponse>(`/admin/cers/cases?${params.toString()}`, {
+    requireAuth: true,
+  });
+}
+
+export async function reviewAdminCersCaseApi(caseId: string, input: {
+  status: "under_review" | "resolved_valid" | "resolved_invalid" | "appealed";
+  review_notes?: string;
+  fine_level?: number | null;
+}) {
+  return api<{ case: Record<string, unknown> } | ErrorResponse>(`/admin/cers/cases/${caseId}/review`, {
+    method: "PATCH",
+    body: input,
     requireAuth: true,
   });
 }

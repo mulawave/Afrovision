@@ -38,7 +38,7 @@ function formatDate(iso: string | null | undefined): string {
 
 export function ExclusiveAccessGate({ id }: { id: string }) {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user, refreshUser } = useAuth();
 
   const [channel, setChannel] = useState<Channel | null>(null);
   const [state, setState] = useState<GateState>("loading");
@@ -83,8 +83,21 @@ export function ExclusiveAccessGate({ id }: { id: string }) {
         return;
       }
 
-      const statusRes = await getExclusiveAccessStatusApi(id);
+      let statusRes = await getExclusiveAccessStatusApi(id);
       if (cancelled) return;
+
+      if (
+        statusRes.ok &&
+        "eligibleByKyc" in statusRes.data &&
+        !statusRes.data.eligibleByKyc &&
+        user?.kyc_status === "verified"
+      ) {
+        await refreshUser();
+        const retryRes = await getExclusiveAccessStatusApi(id);
+        if (!cancelled && retryRes.ok && "eligibleByKyc" in retryRes.data) {
+          statusRes = retryRes;
+        }
+      }
 
       if (!statusRes.ok) {
         if (statusRes.status === 401) {
@@ -122,7 +135,7 @@ export function ExclusiveAccessGate({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id, isAuthenticated, router]);
+  }, [id, isAuthenticated, router, user?.kyc_status, refreshUser]);
 
   const feeLabel = useMemo(() => `NGN ${Math.max(0, monthlyFeeNgn).toLocaleString()}`, [monthlyFeeNgn]);
 

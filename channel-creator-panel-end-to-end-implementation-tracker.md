@@ -162,3 +162,4 @@ No backend changes needed.
 - [x] `ChannelProfile.tsx` updated with Manage tab — Tab type extended, TABS array conditional, manage tab renders ChannelCreatorPanel full-width, sidebar hidden, old minimal delete-only bar removed
 - [x] TypeScript: 0 errors confirmed (`npx tsc --noEmit` clean)
 - [x] Deployed — revision `afrovision-website-00066-gf7` live at https://afrovision.online
+- [x] Creator Studio channel action controls hardened — channel card buttons/links and pagination now enforce explicit loading/disabled states with inline spinners during action in-flight

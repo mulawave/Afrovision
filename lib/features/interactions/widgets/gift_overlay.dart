@@ -40,6 +40,14 @@ class GiftOverlayState extends State<GiftOverlay> {
     });
   }
 
+  /// Clear all active reactions and banners (call on channel switch).
+  void clear() {
+    setState(() {
+      _emojis.clear();
+      _banners.clear();
+    });
+  }
+
   /// Show a gift sent banner with optional combo.
   void showGift({
     required String senderName,

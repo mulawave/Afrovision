@@ -1,5 +1,24 @@
 import '../../../core/api/api_service.dart';
 
+// Helpers to safely parse backend values which may be numbers or strings.
+double _toDouble(dynamic v, {double fallback = 0}) {
+  if (v == null) return fallback;
+  if (v is double) return v;
+  if (v is int) return v.toDouble();
+  if (v is String) return double.tryParse(v) ?? fallback;
+  if (v is num) return v.toDouble();
+  return fallback;
+}
+
+int _toInt(dynamic v, {int fallback = 0}) {
+  if (v == null) return fallback;
+  if (v is int) return v;
+  if (v is double) return v.toInt();
+  if (v is String) return int.tryParse(v) ?? fallback;
+  if (v is num) return v.toInt();
+  return fallback;
+}
+
 class HomeStats {
   final double totalVpt;
   final double totalNgn;
@@ -47,28 +66,30 @@ class HomeStats {
   }
 
   factory HomeStats.fromJson(Map<String, dynamic> json) {
-    final pool = json['community_pool'] as Map<String, dynamic>;
-    final stats = json['stats'] as Map<String, dynamic>;
+    final pool =
+        (json['community_pool'] as Map<String, dynamic>?) ??
+        (json['data'] as Map<String, dynamic>?) ??
+        <String, dynamic>{};
+    final stats =
+        (json['stats'] as Map<String, dynamic>?) ?? <String, dynamic>{};
     final recent = (json['recent_channels'] as List<dynamic>?) ?? [];
     final promoted = (json['promoted_channels'] as List<dynamic>?) ?? [];
     return HomeStats(
-      totalVpt: (pool['total_vpt'] as num).toDouble(),
-      totalNgn: (pool['total_ngn'] as num).toDouble(),
-      vptRate: (pool['vpt_rate'] as num).toInt(),
-      nairaEquivalent: (pool['naira_equivalent'] as num).toDouble(),
-      totalDistributedVpt:
-          (pool['total_distributed_vpt'] as num?)?.toDouble() ?? 0,
-      totalDistributedNgn:
-          (pool['total_distributed_ngn'] as num?)?.toDouble() ?? 0,
-      totalBeneficiaries: (pool['total_beneficiaries'] as num?)?.toInt() ?? 0,
+      totalVpt: _toDouble(pool['total_vpt']),
+      totalNgn: _toDouble(pool['total_ngn']),
+      vptRate: _toInt(pool['vpt_rate'], fallback: 750),
+      nairaEquivalent: _toDouble(pool['naira_equivalent']),
+      totalDistributedVpt: _toDouble(pool['total_distributed_vpt']),
+      totalDistributedNgn: _toDouble(pool['total_distributed_ngn']),
+      totalBeneficiaries: _toInt(pool['total_beneficiaries']),
       recentChannels: recent
           .map((e) => RecentChannel.fromJson(e as Map<String, dynamic>))
           .toList(),
       promotedChannels: promoted
           .map((e) => PromotedChannel.fromJson(e as Map<String, dynamic>))
           .toList(),
-      totalChannels: (stats['total_channels'] as num).toInt(),
-      totalMembers: (stats['total_members'] as num).toInt(),
+      totalChannels: _toInt(stats['total_channels']),
+      totalMembers: _toInt(stats['total_members']),
     );
   }
 }
@@ -93,17 +114,21 @@ class HomeCommunityPoolStats {
   });
 
   factory HomeCommunityPoolStats.fromJson(Map<String, dynamic> json) {
-    final pool = json['community_pool'] as Map<String, dynamic>;
+    // Accept both wrapped ({ "community_pool": { ... } }) and unwrapped
+    // responses returned by different endpoints (/home/content vs
+    // /home/community-pool). Be resilient to numbers-as-strings.
+    final pool =
+        (json['community_pool'] as Map<String, dynamic>?) ??
+        (json['data'] as Map<String, dynamic>?) ??
+        json;
     return HomeCommunityPoolStats(
-      totalVpt: (pool['total_vpt'] as num).toDouble(),
-      totalNgn: (pool['total_ngn'] as num).toDouble(),
-      vptRate: (pool['vpt_rate'] as num).toInt(),
-      nairaEquivalent: (pool['naira_equivalent'] as num).toDouble(),
-      totalDistributedVpt:
-          (pool['total_distributed_vpt'] as num?)?.toDouble() ?? 0,
-      totalDistributedNgn:
-          (pool['total_distributed_ngn'] as num?)?.toDouble() ?? 0,
-      totalBeneficiaries: (pool['total_beneficiaries'] as num?)?.toInt() ?? 0,
+      totalVpt: _toDouble(pool['total_vpt']),
+      totalNgn: _toDouble(pool['total_ngn']),
+      vptRate: _toInt(pool['vpt_rate'], fallback: 750),
+      nairaEquivalent: _toDouble(pool['naira_equivalent']),
+      totalDistributedVpt: _toDouble(pool['total_distributed_vpt']),
+      totalDistributedNgn: _toDouble(pool['total_distributed_ngn']),
+      totalBeneficiaries: _toInt(pool['total_beneficiaries']),
     );
   }
 }

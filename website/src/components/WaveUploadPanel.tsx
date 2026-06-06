@@ -7,6 +7,7 @@ import {
   registerWaveApi,
   type Channel,
   type Wave,
+  type WaveAgeClassification,
 } from "@/lib/api";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -35,6 +36,12 @@ function formatDuration(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+const CLASSIFICATION_OPTIONS: Array<{ value: WaveAgeClassification; label: string; hint: string }> = [
+  { value: "minor_safe", label: "MINOR SAFE", hint: "12 and below" },
+  { value: "teen", label: "TEEN", hint: "13 to 17" },
+  { value: "adult", label: "18+", hint: "Adults only" },
+];
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface WaveUploadEntry {
@@ -42,6 +49,10 @@ interface WaveUploadEntry {
   file: File;
   title: string;
   description: string;
+  ageClassification: WaveAgeClassification;
+  hasExplicitLanguage: boolean;
+  hasNudity: boolean;
+  hasViolence: boolean;
   duration: number;
   detecting: boolean;
   progress: number; // -1 = pending, 0-100 uploading, 101 done
@@ -96,6 +107,10 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
         file,
         title: file.name.replace(/\.[^.]+$/, "").replace(/[_-]/g, " "),
         description: "",
+        ageClassification: "teen",
+        hasExplicitLanguage: false,
+        hasNudity: false,
+        hasViolence: false,
         duration: 0,
         detecting: true,
         progress: -1,
@@ -137,6 +152,10 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
         updateEntry(entry.id, { error: "Title is required" });
         continue;
       }
+      if (!entry.ageClassification) {
+        updateEntry(entry.id, { error: "Age classification is required" });
+        continue;
+      }
       updateEntry(entry.id, { progress: 0, error: null });
 
       try {
@@ -176,6 +195,10 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
           description: entry.description.trim(),
           video_url: public_url,
           duration: entry.duration,
+          age_classification: entry.ageClassification,
+          has_explicit_language: entry.hasExplicitLanguage,
+          has_nudity: entry.hasNudity,
+          has_violence: entry.hasViolence,
         });
 
         if (!regRes.ok || !("id" in regRes.data)) {
@@ -283,6 +306,54 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
                     onChange={(e) => updateEntry(entry.id, { description: e.target.value })}
                     disabled={entry.progress > 0}
                   />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1 text-xs text-white/70">
+                      <span>Audience Classification</span>
+                      <select
+                        className="bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-orange-400"
+                        value={entry.ageClassification}
+                        onChange={(e) =>
+                          updateEntry(entry.id, { ageClassification: e.target.value as WaveAgeClassification })
+                        }
+                        disabled={entry.progress > 0}
+                      >
+                        {CLASSIFICATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value} style={{ background: "#050A30" }}>
+                            {option.label} - {option.hint}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="grid grid-cols-1 gap-1 text-xs text-white/70">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasExplicitLanguage}
+                          onChange={(e) => updateEntry(entry.id, { hasExplicitLanguage: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Explicit Language</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasNudity}
+                          onChange={(e) => updateEntry(entry.id, { hasNudity: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Nudity</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasViolence}
+                          onChange={(e) => updateEntry(entry.id, { hasViolence: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Violence</span>
+                      </label>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2 text-xs text-white/40">
                     {entry.detecting ? (
                       <span>Detecting duration…</span>

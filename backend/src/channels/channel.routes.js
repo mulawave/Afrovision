@@ -10,11 +10,13 @@ const router = Router();
 router.post('/', authenticateToken, ctrl.createChannel);
 router.post('/create-with-media', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), uploadFieldsToGCS, ctrl.createChannelWithMedia);
 router.get('/', optionalAuth, ctrl.getPublicChannels);
+router.get('/featured', optionalAuth, ctrl.getFeaturedChannels);
 router.get('/me', authenticateToken, ctrl.getMyChannels);
 // Must come before /:id routes
 router.get('/my-accesses', authenticateToken, premiumCtrl.getMyAccesses);
 router.get('/subscriber-feed', authenticateToken, ctrl.getSubscriberFeed);
 router.post('/resolve-source', authenticateToken, ctrl.resolveStreamSource);
+router.patch('/admin/:id/featured', authenticateToken, ctrl.adminSetFeatured);
 router.get('/:id/exclusive/access-status', authenticateToken, exclusiveCtrl.checkExclusiveAccessStatus);
 router.post('/:id/exclusive/purchase', authenticateToken, exclusiveCtrl.purchaseExclusiveAccess);
 router.post('/:id/exclusive/verify-pic', authenticateToken, exclusiveCtrl.verifyExclusivePic);

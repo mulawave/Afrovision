@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { getHomepageContent } from "@/lib/homepage";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
+import { CookieSettingsButton } from "@/components/CookieSettingsButton";
 
 const FOOTER_LINKS = {
   Platform: [
@@ -20,6 +21,7 @@ const FOOTER_LINKS = {
     { label: "Terms of Service", href: "/terms" },
     { label: "Privacy Policy", href: "/privacy" },
     { label: "Cookie Policy", href: "/cookies" },
+    { label: "Cookie Settings", component: CookieSettingsButton },
     { label: "AML Policy", href: "/aml" },
     { label: "Refund Policy", href: "/refund" },
     { label: "Copyright Policy", href: "/copyright" },
@@ -140,14 +142,18 @@ export async function Footer({ logoUrl }: { logoUrl?: string | null }) {
                 {title}
               </h4>
               <ul className="space-y-2.5">
-                {links.map((link) => (
-                  <li key={link.label}>
-                    <Link
-                      href={link.href}
-                      className="text-sm text-av-light-orange hover:text-av-white transition-colors"
-                    >
-                      {link.label}
-                    </Link>
+                {links.map((link, idx) => (
+                  <li key={link.label || idx}>
+                    {"component" in link && link.component ? (
+                      <link.component />
+                    ) : (
+                      <Link
+                        href={"href" in link ? link.href : "#"}
+                        className="text-sm text-av-light-orange hover:text-av-white transition-colors"
+                      >
+                        {link.label}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>

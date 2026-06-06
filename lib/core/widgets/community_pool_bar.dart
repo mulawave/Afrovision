@@ -30,13 +30,15 @@ class _CommunityPoolBarState extends State<CommunityPoolBar>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _load();
+      _load(forceRefresh: true);
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
     try {
-      final stats = await HomeService.getCommunityPoolStats();
+      final stats = await HomeService.getCommunityPoolStats(
+        forceRefresh: forceRefresh,
+      );
       if (mounted) setState(() => _stats = stats);
     } catch (_) {
       // silent — keep showing last data

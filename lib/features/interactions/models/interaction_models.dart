@@ -76,6 +76,7 @@ class GiftWalletModel {
 
 class ChannelEventModel {
   final String id;
+  final String channelId;
   final String type; // 'reaction' | 'gift'
   final String senderName;
   final int senderRepLevel;
@@ -87,6 +88,7 @@ class ChannelEventModel {
 
   ChannelEventModel({
     required this.id,
+    required this.channelId,
     required this.type,
     required this.senderName,
     this.senderRepLevel = 0,
@@ -100,6 +102,7 @@ class ChannelEventModel {
   factory ChannelEventModel.fromJson(Map<String, dynamic> json) {
     return ChannelEventModel(
       id: json['id'] as String? ?? '',
+      channelId: json['channel_id'] as String? ?? '',
       type: json['type'] as String? ?? '',
       senderName: json['sender_name'] as String? ?? '',
       senderRepLevel: (json['sender_rep_level'] as num?)?.toInt() ?? 0,

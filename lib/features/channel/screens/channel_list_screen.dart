@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/widgets/active_floating_player_banner.dart';
 import '../models/channel_model.dart';
 import '../models/category_model.dart';
 import '../services/channel_service.dart';
@@ -82,9 +83,26 @@ class _ChannelListScreenState extends State<ChannelListScreen>
       setState(() {
         _loading = false;
         _loadingCategories = false;
-        _channelsError = e.toString();
+        _channelsError =
+            'Unable to load channels right now. Please check your connection and retry.';
       });
     }
+  }
+
+  Future<void> _tuneIn(ChannelModel channel) async {
+    await Navigator.pushNamed(
+      context,
+      '/channel-player',
+      arguments: channel.id,
+    );
+    if (!mounted) return;
+    _loadChannels();
+  }
+
+  Future<void> _visitProfile(ChannelModel channel) async {
+    await Navigator.pushNamed(context, '/channel-view', arguments: channel);
+    if (!mounted) return;
+    _loadChannels();
   }
 
   void _applyCategoryFilter() {
@@ -147,6 +165,9 @@ class _ChannelListScreenState extends State<ChannelListScreen>
           child: Column(
             children: [
               _buildAppBar(),
+              const ActiveFloatingPlayerBanner(
+                margin: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              ),
               const BannerAdWidget(placement: 'page'),
               const SizedBox(height: 8),
               Expanded(
@@ -532,235 +553,175 @@ class _ChannelListScreenState extends State<ChannelListScreen>
         ? Icons.verified_user_rounded
         : Icons.public_rounded;
 
-    return GestureDetector(
-      onTap: () async {
-        await Navigator.pushNamed(context, '/channel-view', arguments: channel);
-        _loadChannels();
-      },
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: AppColors.inputFill,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: AppColors.lightOrange.withValues(alpha: 0.5),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.lightOrange.withValues(alpha: 0.08),
-              blurRadius: 16,
-              spreadRadius: 1,
-              offset: const Offset(0, 2),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.lightOrange.withValues(alpha: 0.5),
+          width: 1.5,
         ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Banner area — reduced height
-            SizedBox(
-              height: 72,
-              width: double.infinity,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  hasBanner
-                      ? Image.network(
-                          AppConfig.mediaUrl(channel.bannerUrl!),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _buildDefaultBanner(),
-                        )
-                      : _buildDefaultBanner(),
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: 36,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            AppColors.inputFill.withValues(alpha: 0.95),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkBlue.withValues(alpha: 0.75),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: badgeColor.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(badgeIcon, size: 9, color: badgeColor),
-                          const SizedBox(width: 3),
-                          Text(
-                            badgeLabel,
-                            style: TextStyle(
-                              color: badgeColor,
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.lightOrange.withValues(alpha: 0.08),
+            blurRadius: 16,
+            spreadRadius: 1,
+            offset: const Offset(0, 2),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Banner area — reduced height
+          SizedBox(
+            height: 72,
+            width: double.infinity,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                hasBanner
+                    ? Image.network(
+                        AppConfig.mediaUrl(channel.bannerUrl!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _buildDefaultBanner(),
+                      )
+                    : _buildDefaultBanner(),
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: 36,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          AppColors.inputFill.withValues(alpha: 0.95),
                         ],
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-            // Info section — compact
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-              child: Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.inputFill,
-                      border: Border.all(
-                        color: AppColors.lightOrange.withValues(alpha: 0.5),
-                        width: 1.5,
-                      ),
-                      image: hasLogo
-                          ? DecorationImage(
-                              image: NetworkImage(
-                                AppConfig.mediaUrl(channel.logoUrl!),
-                              ),
-                              fit: BoxFit.cover,
-                            )
-                          : null,
-                      gradient: !hasLogo
-                          ? LinearGradient(
-                              colors: [
-                                AppColors.orange.withValues(alpha: 0.2),
-                                AppColors.lightOrange.withValues(alpha: 0.08),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            )
-                          : null,
+                ),
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
                     ),
-                    child: !hasLogo
-                        ? const Icon(
-                            Icons.live_tv_rounded,
-                            color: AppColors.orange,
-                            size: 18,
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBlue.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: badgeColor.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(badgeIcon, size: 9, color: badgeColor),
+                        const SizedBox(width: 3),
+                        Text(
+                          badgeLabel,
+                          style: TextStyle(
+                            color: badgeColor,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Info section — compact
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.inputFill,
+                    border: Border.all(
+                      color: AppColors.lightOrange.withValues(alpha: 0.5),
+                      width: 1.5,
+                    ),
+                    image: hasLogo
+                        ? DecorationImage(
+                            image: NetworkImage(
+                              AppConfig.mediaUrl(channel.logoUrl!),
+                            ),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                    gradient: !hasLogo
+                        ? LinearGradient(
+                            colors: [
+                              AppColors.orange.withValues(alpha: 0.2),
+                              AppColors.lightOrange.withValues(alpha: 0.08),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           )
                         : null,
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          channel.name,
-                          style: const TextStyle(
-                            color: AppColors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
+                  child: !hasLogo
+                      ? const Icon(
+                          Icons.live_tv_rounded,
+                          color: AppColors.orange,
+                          size: 18,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        channel.name,
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
                         ),
-                        const SizedBox(height: 3),
-                        Row(
-                          children: [
-                            if (channel.ownerName != null &&
-                                channel.ownerName!.trim().isNotEmpty) ...[
-                              Flexible(
-                                child: Text(
-                                  'By ${channel.ownerName!}',
-                                  style: TextStyle(
-                                    color: AppColors.goldText.withValues(
-                                      alpha: 0.8,
-                                    ),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w500,
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          if (channel.ownerName != null &&
+                              channel.ownerName!.trim().isNotEmpty) ...[
+                            Flexible(
+                              child: Text(
+                                'By ${channel.ownerName!}',
+                                style: TextStyle(
+                                  color: AppColors.goldText.withValues(
+                                    alpha: 0.8,
                                   ),
-                                  overflow: TextOverflow.ellipsis,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
                                 ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                ),
-                                child: Container(
-                                  width: 3,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.goldText,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            if (channel.category != null) ...[
-                              Flexible(
-                                child: Text(
-                                  channel.category!,
-                                  style: const TextStyle(
-                                    color: AppColors.lightOrange,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                ),
-                                child: Container(
-                                  width: 3,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.goldText,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            const SizedBox(width: 6),
-                            const Icon(
-                              Icons.people_alt_rounded,
-                              color: AppColors.goldText,
-                              size: 11,
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              '${channel.followersCount}',
-                              style: TextStyle(
-                                color: AppColors.goldText,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             Padding(
@@ -776,31 +737,154 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                                 ),
                               ),
                             ),
-                            Text(
-                              '#${channel.channelNumber}',
-                              style: TextStyle(
-                                color: AppColors.lightOrange.withValues(
-                                  alpha: 0.9,
+                          ],
+                          if (channel.category != null) ...[
+                            Flexible(
+                              child: Text(
+                                channel.category!,
+                                style: const TextStyle(
+                                  color: AppColors.lightOrange,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              child: Container(
+                                width: 3,
+                                height: 3,
+                                decoration: BoxDecoration(
+                                  color: AppColors.goldText,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
                             ),
                           ],
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.people_alt_rounded,
+                            color: AppColors.goldText,
+                            size: 11,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            '${channel.followersCount}',
+                            style: TextStyle(
+                              color: AppColors.goldText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            child: Container(
+                              width: 3,
+                              height: 3,
+                              decoration: BoxDecoration(
+                                color: AppColors.goldText,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '#${channel.channelNumber}',
+                            style: TextStyle(
+                              color: AppColors.lightOrange.withValues(
+                                alpha: 0.9,
+                              ),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.goldText,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _tuneIn(channel),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        gradient: AppColors.buttonGradient,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.play_circle_fill_rounded,
+                            color: AppColors.white,
+                            size: 16,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Tune In',
+                            style: TextStyle(
+                              color: AppColors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: AppColors.goldText,
-                    size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _visitProfile(channel),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.inputBorder),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.person_outline_rounded,
+                            color: AppColors.lightOrange,
+                            size: 16,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Visit Profile',
+                            style: TextStyle(
+                              color: AppColors.lightOrange,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

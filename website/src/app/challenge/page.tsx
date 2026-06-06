@@ -271,6 +271,35 @@ export default async function ChallengePage() {
   const managed = await getChallengePageContent();
   const content = managed || DEFAULT_CHALLENGE;
 
+  // If no active challenge, show "Starting soon" message
+  if (content.no_active_challenge) {
+    return (
+      <main className="min-h-screen pt-20 pb-16">
+        <ChallengeRouteGate />
+        <div className="max-w-6xl mx-auto px-6 lg:px-8">
+          <div className="text-center py-32">
+            <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-av-orange/15 border border-av-orange/30 text-xs font-bold uppercase tracking-[0.15em] text-av-orange mb-6">
+              <span>🏆</span>
+              <span>AfroVision Challenge</span>
+            </div>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight mb-4">
+              <span className="text-av-white">Starting </span>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-av-orange to-av-light-orange">
+                Soon
+              </span>
+            </h1>
+            <p className="text-lg lg:text-xl text-av-light-orange leading-relaxed max-w-3xl mx-auto mb-4">
+              A new challenge season is coming soon. Stay tuned for updates on the next AfroVision Challenge.
+            </p>
+            <p className="text-sm text-av-light-orange max-w-2xl mx-auto mb-10">
+              Check back later for registration details, prize announcements, and contestant information.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const heroStats = content.hero_stats?.length ? content.hero_stats : DEFAULT_CHALLENGE.hero_stats;
   const themes = content.themes?.length ? bySortOrder(content.themes) : DEFAULT_CHALLENGE.themes;
   const lifecyclePhases = content.lifecycle_phases?.length

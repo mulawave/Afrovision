@@ -40,6 +40,9 @@ const adRoutes = require('./ads/ad.routes');
 const subtitleRoutes = require('./subtitles/subtitle.routes');
 const libraryRoutes = require('./library/library.routes');
 const waveRoutes = require('./wave/wave.routes');
+const aiVideoRoutes = require('./ai_video/ai_video.routes');
+const announcementRoutes = require('./announcements/announcement.routes');
+const AnnouncementModel = require('./announcements/announcement.model');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
 const app = express();
@@ -116,6 +119,8 @@ app.use('/subtitles', subtitleRoutes);
 app.use('/reputation', reputationRoutes);
 app.use('/', libraryRoutes);
 app.use('/wave', waveRoutes);
+app.use('/ai-video', aiVideoRoutes);
+app.use('/announcements', announcementRoutes);
 
 function getOpsSecret() {
   return process.env.OPS_SECRET || null;
@@ -324,6 +329,7 @@ async function startServer() {
     SettingsService.ensureDefinitionsExist(),
     // ChannelStatsModel has no init; it initializes lazily on demand
     PoolService.init(),
+    AnnouncementModel.init(),
   ]);
 
   console.log('[RenewalWorker] Waiting for external renewal trigger ownership');

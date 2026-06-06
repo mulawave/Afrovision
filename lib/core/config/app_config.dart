@@ -4,7 +4,7 @@ class AppConfig {
   // Production: use HTTPS + domain (e.g. 'https://api.afrovision.app')
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://afrovision-backend-134538542038.us-central1.run.app',
+    defaultValue: 'https://afrovision-backend-zoeqld5lsa-uc.a.run.app',
   );
 
   /// Google Cloud numeric project number — required by Play Integrity SDK.

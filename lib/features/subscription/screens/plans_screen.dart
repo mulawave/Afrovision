@@ -33,6 +33,7 @@ class _PlansScreenState extends State<PlansScreen>
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late TabController _tabController;
+  bool _tabSelectionApplied = false;
 
   @override
   void initState() {
@@ -44,6 +45,36 @@ class _PlansScreenState extends State<PlansScreen>
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _tabController = TabController(length: 2, vsync: this);
     _loadData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_tabSelectionApplied) return;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    int? targetIndex;
+    if (args is Map) {
+      final tab = args['tab']?.toString().toLowerCase();
+      if (tab == 'creator') {
+        targetIndex = 0;
+      } else if (tab == 'viewer') {
+        targetIndex = 1;
+      }
+    } else if (args is String) {
+      final tab = args.toLowerCase();
+      if (tab == 'creator') {
+        targetIndex = 0;
+      } else if (tab == 'viewer') {
+        targetIndex = 1;
+      }
+    }
+    if (targetIndex != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _tabController.animateTo(targetIndex!);
+      });
+      _tabSelectionApplied = true;
+    }
   }
 
   @override

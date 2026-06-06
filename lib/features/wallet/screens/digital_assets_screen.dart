@@ -13,7 +13,6 @@ import '../services/wallet_service.dart';
 import '../widgets/import_wallet_sheet.dart';
 import '../widgets/connect_wallet_sheet.dart';
 import '../widgets/transfer_sheet.dart';
-import 'ravens_to_vpt_screen.dart';
 
 class DigitalAssetsScreen extends StatefulWidget {
   const DigitalAssetsScreen({super.key});
@@ -1567,11 +1566,9 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
               Expanded(
                 child: GestureDetector(
                   onTap: () async {
-                    final result = await Navigator.push(
+                    final result = await Navigator.pushNamed(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => const RavensToVptScreen(),
-                      ),
+                      '/wallet/convert',
                     );
                     if (result == true && mounted) {
                       await _loadData();
@@ -2391,14 +2388,44 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Activity History',
-          style: TextStyle(
-            color: AppColors.white,
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.3,
-          ),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Activity History',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+            GestureDetector(
+              onTap: () => Navigator.pushNamed(context, '/wallet/transactions'),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppColors.orange.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: const Text(
+                  'Open Full Ledger',
+                  style: TextStyle(
+                    color: AppColors.orange,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 10),
         Wrap(

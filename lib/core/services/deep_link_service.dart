@@ -52,13 +52,43 @@ class DeepLinkService {
       }
     }
 
+    if (uri.scheme == 'afrovision' && uri.host == 'wave') {
+      final waveId = uri.queryParameters['wave_id'];
+      if (waveId != null && waveId.isNotEmpty) {
+        nav.pushNamed('/wave', arguments: {'waveId': waveId});
+      } else {
+        nav.pushNamed('/wave');
+      }
+      return;
+    }
+
     // Payment gateway callback: afrovision://checkout/result?payment_id=xxx
-    if (path == '/result' &&
-        (uri.scheme == 'afrovision') &&
-        uri.host == 'checkout') {
-      final paymentId = uri.queryParameters['payment_id'];
+    // Accept common provider variations for parameter names and paths.
+    final isCheckoutCallback =
+        uri.scheme == 'afrovision' &&
+        uri.host == 'checkout' &&
+        (path == '/result' || path.isEmpty || path == '/');
+    if (isCheckoutCallback) {
+      final paymentId =
+          uri.queryParameters['payment_id'] ??
+          uri.queryParameters['paymentId'] ??
+          uri.queryParameters['reference'] ??
+          uri.queryParameters['tx_ref'] ??
+          uri.queryParameters['trxref'];
       if (paymentId != null && paymentId.isNotEmpty) {
-        onCheckoutResult?.call(paymentId);
+        if (onCheckoutResult != null) {
+          onCheckoutResult?.call(paymentId);
+        } else {
+          nav.pushNamed(
+            '/checkout',
+            arguments: {
+              'purpose': 'wallet_topup',
+              'title': 'Checkout Recovery',
+              'resumePaymentId': paymentId,
+              'recoverySource': 'deep_link_callback',
+            },
+          );
+        }
       }
       return;
     }

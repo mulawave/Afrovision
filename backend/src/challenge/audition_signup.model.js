@@ -26,6 +26,9 @@ const PAYMENT_STATUSES = ['pending', 'paid', 'failed'];
 // ── Allowed signup statuses ───────────────────────────────────────────────
 const SIGNUP_STATUSES = ['pending_payment', 'enrolled', 'cancelled'];
 
+// ── Allowed journey steps ──────────────────────────────────────────────────
+const JOURNEY_STEPS = ['signup_received', 'shortlisted', 'audition_submitted', 'final_selected'];
+
 // ── In-memory read-through cache ──────────────────────────────────────────
 const cache = new Map();
 
@@ -98,6 +101,9 @@ async function createSignup(data) {
     enrolled_at: null,
     cancelled_at: null,
     cancel_reason: null,
+
+    // ── Journey tracking ─────────────────────────────────────────────────
+    journey_step: 'signup_received',    // signup_received | shortlisted | audition_submitted | final_selected
 
     // ── Communication ────────────────────────────────────────────────────
     email_sent: false,
@@ -246,6 +252,7 @@ async function updateSignup(id, fields) {
     'enrolled_at',
     'cancelled_at',
     'cancel_reason',
+    'journey_step',
     'email_sent',
     'email_sent_at',
     'email_error',
@@ -338,6 +345,7 @@ async function deleteSignup(id) {
 module.exports = {
   PAYMENT_STATUSES,
   SIGNUP_STATUSES,
+  JOURNEY_STEPS,
   COLLECTION,
   createSignup,
   getSignupById,

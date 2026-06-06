@@ -114,7 +114,7 @@ async function getChannelHighlights({ forceRefresh = false } = {}) {
   highlightsRequestInFlight = (async () => {
     const [recentSource, promotedSource] = await Promise.all([
       Channel.getRecentPublic(10),
-      Channel.getRecentPublicWithBanner(5, 24),
+      Channel.getFeaturedChannels(5),
     ]);
 
     const recentChannels = await Promise.all(recentSource.map(async (channel) => {

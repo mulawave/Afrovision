@@ -24,10 +24,10 @@ class AdService {
   }
 
   static Future<Map<String, dynamic>> pauseAd(String adId) async {
-    return ApiService.patch('/ads/$adId', {'status': 'paused'});
+    return ApiService.patch('/ads/$adId/pause', {});
   }
 
   static Future<Map<String, dynamic>> resumeAd(String adId) async {
-    return ApiService.patch('/ads/$adId', {'status': 'active'});
+    return ApiService.patch('/ads/$adId/activate', {});
   }
 }

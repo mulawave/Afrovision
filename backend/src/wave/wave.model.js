@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'waves';
+const ALLOWED_AGE_CLASSIFICATIONS = new Set(['minor_safe', 'teen', 'adult']);
 
 function isIndexError(error) {
   const message = error?.message || '';
@@ -12,9 +13,32 @@ function syncWave(wave) {
   return wave;
 }
 
-async function create({ creatorUid, channelId, title, description, videoUrl, thumbnailUrl, duration }) {
+function normalizeAgeClassification(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return ALLOWED_AGE_CLASSIFICATIONS.has(normalized) ? normalized : null;
+}
+
+async function create({
+  creatorUid,
+  channelId,
+  title,
+  description,
+  videoUrl,
+  thumbnailUrl,
+  duration,
+  ageClassification,
+  hasExplicitLanguage,
+  hasNudity,
+  hasViolence,
+}) {
   const db = getFirestore();
   const id = crypto.randomUUID();
+  const normalizedClassification = normalizeAgeClassification(ageClassification);
+  if (!normalizedClassification) {
+    throw new Error('Invalid age classification');
+  }
+
   const wave = {
     id,
     creator_uid: creatorUid,
@@ -24,6 +48,10 @@ async function create({ creatorUid, channelId, title, description, videoUrl, thu
     video_url: videoUrl,
     thumbnail_url: thumbnailUrl || null,
     duration: duration || 0,
+    age_classification: normalizedClassification,
+    has_explicit_language: Boolean(hasExplicitLanguage),
+    has_nudity: Boolean(hasNudity),
+    has_violence: Boolean(hasViolence),
     pulse_count: 0,
     comment_count: 0,
     bookmark_count: 0,
@@ -124,10 +152,27 @@ async function updateStatus(id, status) {
 
 async function update(id, fields) {
   const db = getFirestore();
-  const allowed = ['title', 'description', 'thumbnail_url'];
+  const allowed = [
+    'title',
+    'description',
+    'thumbnail_url',
+    'age_classification',
+    'has_explicit_language',
+    'has_nudity',
+    'has_violence',
+  ];
   const updates = {};
   for (const key of allowed) {
     if (fields[key] !== undefined) updates[key] = fields[key];
+  }
+  if (updates.age_classification !== undefined) {
+    const normalizedClassification = normalizeAgeClassification(
+      updates.age_classification,
+    );
+    if (!normalizedClassification) {
+      throw new Error('Invalid age classification');
+    }
+    updates.age_classification = normalizedClassification;
   }
   if (Object.keys(updates).length === 0) return findById(id);
   await db.collection(COLLECTION).doc(id).update(updates);
@@ -159,4 +204,16 @@ async function trackView(waveId, userKey) {
   }
 }
 
-module.exports = { create, findById, getFeed, getByChannel, incrementField, updatePulseScore, updateStatus, update, remove, trackView };
+module.exports = {
+  create,
+  findById,
+  getFeed,
+  getByChannel,
+  incrementField,
+  updatePulseScore,
+  updateStatus,
+  update,
+  remove,
+  trackView,
+  ALLOWED_AGE_CLASSIFICATIONS,
+};

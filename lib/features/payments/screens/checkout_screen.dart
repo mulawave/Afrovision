@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/services/deep_link_service.dart';
 import '../../../core/theme/app_colors.dart';
+import '../services/checkout_recovery_service.dart';
 import '../services/payment_service.dart';
 
 class CheckoutScreen extends StatefulWidget {
@@ -24,6 +25,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   bool _verifying = false;
   bool _launchedCheckout = false;
   bool _completed = false;
+  bool _autoVerifyOnLoad = false;
 
   String _purpose = 'wallet_topup';
   String _title = 'Secure Checkout';
@@ -40,6 +42,12 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   String? _checkoutUrl;
   String? _error;
   String _statusText = 'Choose a provider and start checkout.';
+
+  static const String _resultSuccess = 'success';
+  static const String _resultFailed = 'failed';
+  static const String _resultCanceled = 'canceled';
+  static const String _resultPending = 'pending';
+  static const String _resultUnknown = 'unknown';
 
   @override
   void initState() {
@@ -66,6 +74,17 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         _paymentId = paymentId;
         _launchedCheckout = true;
       });
+      CheckoutRecoveryService.savePendingSession(
+        paymentId: paymentId,
+        purpose: _purpose,
+        checkoutUrl: _checkoutUrl,
+        title: _title,
+        planId: _planId,
+        planName: _planName,
+        billingCycle: _billingCycle,
+        balanceType: _balanceType,
+        amountNgn: _displayAmount > 0 ? _displayAmount : null,
+      );
       _verifyPayment();
     };
   }
@@ -91,9 +110,54 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         _fixedAmount = amount.toDouble();
         _amountCtrl.text = _fixedAmount!.toStringAsFixed(0);
       }
+
+      final resumePaymentId = args['resumePaymentId'] as String?;
+      final resumeCheckoutUrl = args['resumeCheckoutUrl'] as String?;
+      if (resumePaymentId != null && resumePaymentId.isNotEmpty) {
+        _paymentId = resumePaymentId;
+        _checkoutUrl = resumeCheckoutUrl;
+        _launchedCheckout = true;
+        _autoVerifyOnLoad = true;
+        _statusText = 'Recovered pending checkout. Verifying now...';
+      }
     }
 
-    _loadProviders();
+    _hydrateRecoveryAndLoadProviders();
+  }
+
+  Future<void> _hydrateRecoveryAndLoadProviders() async {
+    await _restorePendingSessionIfNeeded();
+    await _loadProviders();
+  }
+
+  Future<void> _restorePendingSessionIfNeeded() async {
+    if (_paymentId != null && _paymentId!.isNotEmpty) return;
+    final pending = await CheckoutRecoveryService.getPendingSession();
+    if (!mounted || pending == null) return;
+
+    final pendingPaymentId = pending['paymentId'] as String?;
+    if (pendingPaymentId == null || pendingPaymentId.isEmpty) return;
+
+    setState(() {
+      _paymentId = pendingPaymentId;
+      _checkoutUrl = pending['checkoutUrl'] as String?;
+      _purpose = (pending['purpose'] as String?) ?? _purpose;
+      _title = (pending['title'] as String?) ?? _title;
+      _planId = pending['planId'] as String?;
+      _planName = pending['planName'] as String?;
+      _billingCycle = (pending['billingCycle'] as String?) ?? _billingCycle;
+      _balanceType = (pending['balanceType'] as String?) ?? _balanceType;
+
+      final amount = pending['amountNgn'];
+      if (amount is num) {
+        _fixedAmount = amount.toDouble();
+        _amountCtrl.text = _fixedAmount!.toStringAsFixed(0);
+      }
+
+      _launchedCheckout = true;
+      _autoVerifyOnLoad = true;
+      _statusText = 'Recovered pending checkout. Verifying now...';
+    });
   }
 
   @override
@@ -132,6 +196,11 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         _loadingProviders = false;
       });
       _animCtrl.forward();
+
+      if (_autoVerifyOnLoad && _paymentId != null && !_completed) {
+        _autoVerifyOnLoad = false;
+        _verifyPayment();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -180,21 +249,19 @@ class _CheckoutScreenState extends State<CheckoutScreen>
             'Checkout opened. Complete payment and return to AfroVision.';
       });
 
-      // Use Chrome Custom Tabs (inAppBrowserView) instead of an external browser.
-      // Custom Tabs automatically close and return to the app when the payment
-      // gateway redirects to our custom scheme (afrovision://checkout/result),
-      // so the user never needs to manually switch back.
-      final launched = await launchUrl(
-        Uri.parse(checkoutUrl),
-        mode: LaunchMode.inAppBrowserView,
+      await CheckoutRecoveryService.savePendingSession(
+        paymentId: paymentId,
+        purpose: _purpose,
+        checkoutUrl: checkoutUrl,
+        title: _title,
+        planId: _planId,
+        planName: _planName,
+        billingCycle: _billingCycle,
+        balanceType: _balanceType,
+        amountNgn: _purpose == 'wallet_topup' ? amount : _fixedAmount,
       );
-      if (!launched && mounted) {
-        // Fallback to external browser if Custom Tabs are unavailable.
-        await launchUrl(
-          Uri.parse(checkoutUrl),
-          mode: LaunchMode.externalApplication,
-        );
-      }
+
+      await _launchCheckoutUrl();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -202,6 +269,88 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         _error = e.toString().replaceFirst('Exception: ', '');
         _statusText = 'Checkout could not be started.';
       });
+
+      await _openResultScreen(status: _resultUnknown, message: _error);
+    }
+  }
+
+  Future<void> _launchCheckoutUrl() async {
+    final checkoutUrl = _checkoutUrl;
+    if (checkoutUrl == null || checkoutUrl.isEmpty) return;
+    final launched = await launchUrl(
+      Uri.parse(checkoutUrl),
+      mode: LaunchMode.inAppBrowserView,
+    );
+    if (!launched && mounted) {
+      await launchUrl(
+        Uri.parse(checkoutUrl),
+        mode: LaunchMode.externalApplication,
+      );
+    }
+  }
+
+  String _statusFromError(String message) {
+    final m = message.toLowerCase();
+    if (m.contains('failed at the gateway') || m.contains('payment failed')) {
+      return _resultFailed;
+    }
+    if (m.contains('not completed yet')) {
+      return _resultPending;
+    }
+    if (m.contains('canceled') || m.contains('cancelled')) {
+      return _resultCanceled;
+    }
+    return _resultUnknown;
+  }
+
+  Future<void> _openResultScreen({
+    required String status,
+    String? message,
+    Map<String, dynamic>? payload,
+  }) async {
+    final actionResult = await Navigator.pushNamed(
+      context,
+      '/checkout/result',
+      arguments: {
+        'status': status,
+        'message': message,
+        'paymentId': _paymentId,
+        'purpose': _purpose,
+      },
+    );
+
+    if (!mounted) return;
+    final action = actionResult is Map<String, dynamic>
+        ? actionResult['action'] as String?
+        : null;
+
+    switch (action) {
+      case 'done':
+        if (payload != null) {
+          await CheckoutRecoveryService.clearPendingSession();
+          _completed = true;
+          if (!mounted) return;
+          Navigator.pop(context, payload);
+        }
+        return;
+      case 'retry_verify':
+        _verifyPayment();
+        return;
+      case 'retry_checkout':
+        _startCheckout();
+        return;
+      case 'reopen_checkout':
+        await _launchCheckoutUrl();
+        return;
+      case 'close':
+        if (status != _resultPending) {
+          await CheckoutRecoveryService.clearPendingSession();
+        }
+        if (!mounted) return;
+        Navigator.pop(context);
+        return;
+      default:
+        return;
     }
   }
 
@@ -227,16 +376,29 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         _verifying = false;
         _statusText = 'Payment verified successfully.';
       });
-      Navigator.pop(context, data);
+
+      await CheckoutRecoveryService.clearPendingSession();
+
+      await _openResultScreen(
+        status: _resultSuccess,
+        message: 'Your payment has been verified and applied successfully.',
+        payload: data,
+      );
     } catch (e) {
+      final parsed = e.toString().replaceFirst('Exception: ', '');
+      final status = _statusFromError(parsed);
       if (!mounted) return;
       setState(() {
         _verifying = false;
         if (!silent) {
-          _error = e.toString().replaceFirst('Exception: ', '');
+          _error = parsed;
         }
         _statusText = 'Payment not verified yet.';
       });
+
+      if (!silent) {
+        await _openResultScreen(status: status, message: parsed);
+      }
     }
   }
 
@@ -302,7 +464,17 @@ class _CheckoutScreenState extends State<CheckoutScreen>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => Navigator.pop(context),
+            onTap: () async {
+              if (_launchedCheckout && !_completed) {
+                await _openResultScreen(
+                  status: _resultCanceled,
+                  message: 'You left checkout before verification completed.',
+                );
+                return;
+              }
+              if (!mounted) return;
+              Navigator.pop(context);
+            },
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(

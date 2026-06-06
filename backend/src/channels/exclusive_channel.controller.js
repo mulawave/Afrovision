@@ -6,13 +6,13 @@ const Ledger = require('../vpt/ledger.model');
 const PoolService = require('../vpt/pool.service');
 const ReferralModel = require('../referrals/referral.model');
 const ExclusiveAccess = require('./exclusive_access.model');
+const ExclusivePicUnlock = require('./exclusive_pic_unlock.model');
 const NotificationService = require('../notifications/notification.service');
 const AuditService = require('../admin/audit.service');
 const { getFirestore } = require('../utils/firestore');
 const { sendExclusiveLifecycleEmail } = require('../utils/email');
 const { buildExclusiveLifecycleMessage } = require('./exclusive_lifecycle.messages');
 const { isAdultKycVerified } = require('./exclusive_policy.service');
-const { isExclusiveRolloutEnabledForUser } = require('./exclusive_rollout.service');
 const { queueExclusiveSplitException } = require('./exclusive_reconciliation.service');
 
 const PIC_ATTEMPTS_COLLECTION = 'exclusive_pic_attempts';
@@ -169,18 +169,6 @@ async function clearPicFailureState({ userId, channelId }) {
   }, { merge: true });
 }
 
-async function enforceRolloutAccess(req, res) {
-  const allowed = await isExclusiveRolloutEnabledForUser(req.userId);
-  if (!allowed) {
-    res.status(403).json({
-      error: 'Exclusive channels are not available for your account yet',
-      rollout_blocked: true,
-    });
-    return false;
-  }
-  return true;
-}
-
 function hashPic(pic) {
   return crypto.createHash('sha256').update(String(pic)).digest('hex');
 }
@@ -250,8 +238,6 @@ async function distributeReferralVpt({ subscriberUid, referralPoolNgn, reference
 
 async function checkExclusiveAccessStatus(req, res) {
   try {
-    if (!(await enforceRolloutAccess(req, res))) return;
-
     const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.type !== 'exclusive') {
@@ -298,8 +284,6 @@ async function purchaseExclusiveAccess(req, res) {
   let paymentReference = null;
   let splitSnapshot = null;
   try {
-    if (!(await enforceRolloutAccess(req, res))) return;
-
     channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.type !== 'exclusive') {
@@ -588,8 +572,6 @@ async function purchaseExclusiveAccess(req, res) {
 
 async function verifyExclusivePic(req, res) {
   try {
-    if (!(await enforceRolloutAccess(req, res))) return;
-
     const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
     if (channel.type !== 'exclusive') {
@@ -650,6 +632,13 @@ async function verifyExclusivePic(req, res) {
     await safeAuditLog(req.userId, 'exclusive_pic_verified', active.id, {
       channel_id: channel.id,
       expires_at: active.expires_at,
+    });
+
+    await ExclusivePicUnlock.upsertActiveUnlock({
+      userUid: req.userId,
+      channelId: channel.id,
+      accessId: active.id,
+      expiresAt: active.expires_at,
     });
 
     return res.json({ valid: true, expires_at: active.expires_at, access_id: active.id });

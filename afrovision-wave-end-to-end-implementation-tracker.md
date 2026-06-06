@@ -217,3 +217,17 @@ created_at: number
 - [x] **W-16** Website: Add Wave nav link
 - [x] **W-17** TypeScript + ESLint clean pass
 - [x] **W-18** Deploy — backend revision afrovision-backend-00195-dvg, website revision afrovision-website-00068-rw9, live at https://afrovision.online
+
+## 13. Mobile Completion Marks (May 29, 2026)
+
+- [x] **W-MOB-UP-01** Flutter: Added Creator Studio -> Create Wave action for each channel card (`/wave-upload`).
+- [x] **W-MOB-UP-02** Flutter: Implemented end-to-end in-app Wave upload UX with local file picker, upload progress, duration check, safety classification, and publish confirmation.
+- [x] **W-MOB-UP-03** Flutter: Added Wave upload service wiring for signed URL generation, signed PUT upload with progress callback, and final `/wave/register` creation.
+
+## 14. Mobile Wave Management Completion Marks (May 29, 2026)
+
+- [x] **W-MOB-MGMT-01** Creator Studio: Added direct channel profile navigation (`/channel-view`) with Waves section preselected.
+- [x] **W-MOB-MGMT-02** Channel Profile Waves section: Replaced placeholder with real published waves list, loading/empty/error states, and open-wave action.
+- [x] **W-MOB-MGMT-03** Wave management actions: Added edit, hide/unhide, and delete controls for channel owners/admins inside channel profile.
+- [x] **W-MOB-MGMT-04** Backend Wave API: Added `PATCH /wave/:waveId` for metadata updates (title/description/classification flags) with ownership and lock checks.
+- [x] **W-MOB-MGMT-05** Flutter routing/service: Added `/wave-edit` screen and WaveService methods (`updateWave`, `deleteWave`, `setTimelineVisibility`) for end-to-end management wiring.

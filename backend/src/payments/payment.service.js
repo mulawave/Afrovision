@@ -80,12 +80,10 @@ function buildReturnUrl(baseUrl, paymentId) {
   }
 
   try {
-    // Handle relative URLs by converting to absolute
-    let absoluteUrl = baseUrl;
-    if (!baseUrl.startsWith('http')) {
-      // If it's a relative path, make it absolute
-      absoluteUrl = `${DEFAULT_WEBSITE_URL}${baseUrl}`;
-    }
+    // Allow any absolute URI scheme (https://, http://, afrovision://, etc).
+    // Only relative paths should be prefixed with website base URL.
+    const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(baseUrl);
+    const absoluteUrl = hasScheme ? baseUrl : `${DEFAULT_WEBSITE_URL}${baseUrl}`;
 
     const url = new URL(absoluteUrl);
     url.searchParams.set('payment_id', paymentId);

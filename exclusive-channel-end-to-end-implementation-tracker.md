@@ -518,6 +518,13 @@ Exit Criteria:
 4. Implement idempotency at payment intake and split execution boundaries.
 5. Treat this tracker as the delivery baseline for 100% completion before marking feature done.
 
+## Recent Fix Completion Marks (KYC -> PIC Access Path)
+
+- [x] Updated `GET /channels` visibility so authenticated adult-KYC users can discover exclusive channels without rollout gating.
+- [x] Updated `GET /channels/:id` and `GET /channels/number/:channelNumber` to stop blocking KYC-approved viewers on entitlement/PIC at metadata fetch time.
+- [x] Removed rollout gate enforcement from `GET /channels/:id/exclusive/access-status`, `POST /channels/:id/exclusive/purchase`, and `POST /channels/:id/exclusive/verify-pic`.
+- [x] Preserved KYC validation and PIC purchase/verification requirements for actual exclusive access entitlement.
+
 ## Suggested Delivery Order
 
 1. `AV-EXC-001` to `AV-EXC-013`

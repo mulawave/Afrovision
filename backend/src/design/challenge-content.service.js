@@ -1,4 +1,5 @@
 const { getFirestore } = require('../utils/firestore');
+const Challenge = require('../challenge/challenge.model');
 
 const COLLECTION = 'site_content';
 const DOC_ID = 'challenge_page';
@@ -295,7 +296,31 @@ async function saveChallengeContent(content, actor = 'system') {
 }
 
 async function getPublicChallengeContent() {
-  return getAdminChallengeContent();
+  const activeChallenge = await Challenge.getActiveChallenge();
+  const content = await getAdminChallengeContent();
+  
+  // If no active challenge, disable registration-related sections
+  if (!activeChallenge) {
+    return {
+      ...content,
+      hero_enabled: false,
+      join_enabled: false,
+      bottom_cta_enabled: false,
+      lifecycle_enabled: false,
+      season_enabled: false,
+      unstoppable_enabled: false,
+      structure_enabled: false,
+      prizes_enabled: false,
+      platform_enabled: false,
+      faq_enabled: false,
+      no_active_challenge: true,
+    };
+  }
+  
+  return {
+    ...content,
+    no_active_challenge: false,
+  };
 }
 
 module.exports = {

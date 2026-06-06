@@ -507,6 +507,41 @@ class _ProfileScreenState extends State<ProfileScreen>
                   const SizedBox(height: 12),
                 ],
 
+                GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, '/legal'),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    decoration: BoxDecoration(
+                      color: AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AppColors.goldText.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.menu_book_rounded,
+                          color: AppColors.lightOrange,
+                          size: 20,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Legal & Static Pages',
+                          style: TextStyle(
+                            color: AppColors.lightOrange,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
                 // Delete Account button
                 GestureDetector(
                   onTap: () => Navigator.pushNamed(context, '/delete-account'),

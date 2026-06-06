@@ -18,6 +18,10 @@ class ChallengeScreen extends StatefulWidget {
 
 class _ChallengeScreenState extends State<ChallengeScreen>
     with SingleTickerProviderStateMixin {
+  static const String _fallbackCopyVersion = 'challenge-coming-soon-v2';
+  static final DateTime _fallbackCopyReviewedAt = DateTime.utc(2026, 5, 28);
+  static const int _fallbackCopyMaxAgeDays = 45;
+
   late AnimationController _animCtrl;
   late Animation<double> _fadeIn;
   late Animation<Offset> _slideUp;
@@ -93,6 +97,25 @@ class _ChallengeScreenState extends State<ChallengeScreen>
       if (!mounted) return;
       Navigator.pushNamed(context, '/login');
     }
+  }
+
+  bool get _isFallbackCopyStale {
+    final ageInDays = DateTime.now().toUtc().difference(
+      _fallbackCopyReviewedAt,
+    );
+    return ageInDays.inDays > _fallbackCopyMaxAgeDays;
+  }
+
+  String get _fallbackReviewDateLabel {
+    final dt = _fallbackCopyReviewedAt;
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
+  String get _fallbackReviewDueLabel {
+    final due = _fallbackCopyReviewedAt.add(
+      const Duration(days: _fallbackCopyMaxAgeDays),
+    );
+    return '${due.day.toString().padLeft(2, '0')}/${due.month.toString().padLeft(2, '0')}/${due.year}';
   }
 
   @override
@@ -264,6 +287,106 @@ class _ChallengeScreenState extends State<ChallengeScreen>
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 20),
+          _buildFallbackGovernanceCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFallbackGovernanceCard() {
+    final stale = _isFallbackCopyStale;
+    final checks = [
+      ('Fallback copy version is fresh', !stale),
+      ('Challenge rules destination is available', true),
+      ('Challenge release checklist passed', false),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: stale
+              ? AppColors.errorRed.withValues(alpha: 0.45)
+              : AppColors.inputBorder,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                stale ? Icons.warning_amber_rounded : Icons.verified_rounded,
+                color: stale ? AppColors.errorRed : AppColors.successGreen,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Fallback Governance Guard',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Copy version: $_fallbackCopyVersion\nReviewed: $_fallbackReviewDateLabel\nNext review due: $_fallbackReviewDueLabel',
+            style: TextStyle(
+              color: AppColors.white.withValues(alpha: 0.7),
+              fontSize: 11,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...checks.map((item) {
+            final passed = item.$2;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Icon(
+                    passed ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                    color: passed ? AppColors.successGreen : AppColors.errorRed,
+                    size: 14,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      item.$1,
+                      style: TextStyle(
+                        color: AppColors.goldText,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 4),
+          Text(
+            stale
+                ? 'Fallback copy is stale. Review copy and complete the release checklist before using this state as final messaging.'
+                : 'Fallback copy is current, but challenge release checklist remains a hard gate before launch.',
+            style: TextStyle(
+              color: stale
+                  ? AppColors.errorRed.withValues(alpha: 0.95)
+                  : AppColors.lightOrange,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              height: 1.45,
+            ),
+          ),
         ],
       ),
     );
@@ -417,6 +540,47 @@ class _ChallengeScreenState extends State<ChallengeScreen>
                     ),
                   );
                 }).toList(),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                onTap: () => Navigator.pushNamed(context, '/challenge/rules'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.orange.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(
+                      color: AppColors.orange.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.menu_book_rounded,
+                        color: AppColors.orange,
+                        size: 14,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Open Full Rules',
+                        style: TextStyle(
+                          color: AppColors.orange,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

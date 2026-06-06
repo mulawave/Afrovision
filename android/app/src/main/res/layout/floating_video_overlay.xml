@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- System overlay floating video window (shown above all apps). -->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/overlay_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#CC000000">
+
+    <!-- Video surface / WebView fills the entire window -->
+    <WebView
+        android:id="@+id/overlay_webview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Channel name bar -->
+    <TextView
+        android:id="@+id/overlay_channel_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#AA000000"
+        android:textColor="#FFFFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:padding="5dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="AfroVision" />
+
+    <!-- Close button -->
+    <ImageButton
+        android:id="@+id/overlay_close"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="4dp"
+        android:background="@drawable/widget_badge_notif"
+        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:scaleType="fitCenter"
+        android:padding="4dp" />
+
+    <!-- Expand / return-to-app button -->
+    <ImageButton
+        android:id="@+id/overlay_expand"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="top|start"
+        android:layout_margin="4dp"
+        android:background="@drawable/widget_plan_pill"
+        android:src="@android:drawable/ic_menu_zoom"
+        android:scaleType="fitCenter"
+        android:padding="4dp" />
+
+</FrameLayout>

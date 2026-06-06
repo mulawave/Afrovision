@@ -31,7 +31,7 @@ function getDisplayVpt(pool: CommunityPoolStats): number {
 }
 
 export function CommunityPoolBar() {
-  const { isLoading } = useAuth();
+  const { user, isLoading } = useAuth();
   const pathname = usePathname();
   const [pool, setPool] = useState<CommunityPoolStats | null>(() => getCachedCommunityPoolStats());
   const hidden = AUTH_ROUTES.includes(pathname);
@@ -47,7 +47,7 @@ export function CommunityPoolBar() {
       }
     }
 
-    load();
+    load(user?.kyc_status === "verified");
 
     function refreshWhenVisible() {
       if (document.visibilityState === "visible") {
@@ -63,7 +63,7 @@ export function CommunityPoolBar() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [isLoading, hidden]);
+  }, [isLoading, hidden, user?.kyc_status]);
 
   if (hidden || isLoading || !pool) return null;
 

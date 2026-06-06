@@ -8,6 +8,9 @@ import '../../notifications/services/notification_inbox_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/widgets/role_badge.dart';
+import '../../../core/widgets/active_floating_player_banner.dart';
+import '../../../core/services/widget_service.dart';
+import '../../../core/api/api_service.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
 import '../../../core/utils/app_rating.dart';
 import '../../../core/utils/kyc_gender_checker.dart';
@@ -16,10 +19,14 @@ import '../../promo/widgets/promo_modal_dialog.dart';
 import '../../reputation/models/reputation_model.dart';
 import '../../reputation/services/reputation_service.dart';
 import '../../../core/services/watch_history_service.dart';
+import '../../broadcast/services/broadcast_service.dart';
 import '../../subscription/models/channel_subscription_model.dart';
 import '../../subscription/services/channel_subscription_service.dart';
 import '../../channel/models/channel_model.dart';
 import '../../channel/services/channel_service.dart';
+import '../../challenge/services/challenge_service.dart';
+import '../../challenge/models/challenge_model.dart';
+import '../../announcements/services/announcement_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,8 +42,13 @@ class _HomeScreenState extends State<HomeScreen>
   ReputationModel? _reputation;
   bool _loading = true;
   int _subscriptionCount = 0;
+  int _remindersCount = 0;
   List<WatchHistoryEntry> _watchHistory = [];
   List<ChannelModel> _allChannels = [];
+  List<ChannelModel> _featuredChannels = [];
+  ChallengeModel? _activeChallenge;
+  List<Announcement> _announcements = [];
+  List<Map<String, dynamic>> _updates = [];
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -104,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
       setState(() => _unreadNotifications = count);
       NotificationService.updateAppBadge(count);
+      _syncHomeWidget();
     } catch (_) {}
   }
 
@@ -130,6 +143,16 @@ class _HomeScreenState extends State<HomeScreen>
         ReputationService.getMyReputation()
             .then<ReputationModel?>((v) => v)
             .catchError((_) => null),
+        ChallengeService.getActiveChallenge()
+            .then<ChallengeModel?>((v) => v)
+            .catchError((_) => null),
+        AnnouncementService.getActiveAnnouncements(
+          limit: 3,
+        ).catchError((_) => <Announcement>[]),
+        ApiService.get('/home/content').catchError((_) => <String, dynamic>{}),
+        ApiService.get(
+          '/channels/featured',
+        ).catchError((_) => <String, dynamic>{}),
       ]);
       if (!mounted) return;
       setState(() {
@@ -137,10 +160,44 @@ class _HomeScreenState extends State<HomeScreen>
         _stats = results[1] as HomeStats;
         _unreadNotifications = results[2] as int;
         _reputation = results[3] as ReputationModel?;
+        _activeChallenge = results[4] as ChallengeModel?;
+        _announcements = results[5] as List<Announcement>;
+
+        // Parse updates from homepage content
+        final homepageContent = results[6] as Map<String, dynamic>?;
+        final sections = homepageContent?['homepage']?['sections'] as List?;
+        final updatesSection = sections == null
+            ? null
+            : (sections.firstWhere(
+                    (section) => section['key'] == 'updates',
+                    orElse: () => null,
+                  )
+                  as Map<String, dynamic>?);
+        final items = updatesSection?['items'] as List?;
+        _updates = (items ?? []).cast<Map<String, dynamic>>();
+
+        // Parse featured channels — accept several response shapes.
+        final featuredChannelsData = results[7];
+        List<dynamic> featuredChannelsList = [];
+        if (featuredChannelsData is List) {
+          featuredChannelsList = featuredChannelsData;
+        } else if (featuredChannelsData is Map<String, dynamic>) {
+          final candidate =
+              featuredChannelsData['channels'] ??
+              featuredChannelsData['featured'] ??
+              featuredChannelsData['data'];
+          if (candidate is List) featuredChannelsList = candidate;
+        }
+        _featuredChannels = featuredChannelsList
+            .map((item) => ChannelModel.fromJson(item as Map<String, dynamic>))
+            .toList()
+            .cast<ChannelModel>();
+
         _loading = false;
       });
       // Sync app icon badge with current unread count
       NotificationService.updateAppBadge(_unreadNotifications);
+      _syncHomeWidget();
       _animController.forward();
       _startPromoAutoScroll();
       _startRecentAutoScroll();
@@ -148,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen>
       // Load watch history & subscription count (non-blocking)
       _loadWatchHistory();
       _loadSubscriptionCount();
+      _loadReminderCount();
       _loadMarquee();
       _loadAllChannels();
       // Check if we should show the rating dialog
@@ -164,10 +222,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _startPromoAutoScroll() {
     _promoTimer?.cancel();
-    final promoted = _stats?.promotedChannels ?? [];
+    final featured = _featuredChannels.isNotEmpty
+        ? _featuredChannels
+        : _stats?.promotedChannels ?? [];
     final int count;
-    if (promoted.isNotEmpty) {
-      count = promoted.length;
+    if (featured.isNotEmpty) {
+      count = featured.length;
     } else {
       final withBanner = _allChannels
           .where((c) => (c.bannerUrl ?? '').isNotEmpty)
@@ -190,11 +250,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _startRecentAutoScroll() {
-    final recentCount = _stats?.recentChannels.length ?? 0;
-    final allCount = _allChannels.length > 15 ? 15 : _allChannels.length;
-    final count = recentCount > 0 ? recentCount : allCount;
-    if (count <= 2) return;
     _recentScrollTimer?.cancel();
+    final count = _watchHistory.length > 10 ? 10 : _watchHistory.length;
+    if (count <= 2) return;
     _recentScrollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted || !_recentScrollController.hasClients) return;
       final max = _recentScrollController.position.maxScrollExtent;
@@ -208,12 +266,27 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
+  Future<void> _loadReminderCount() async {
+    try {
+      final reminders = await BroadcastService.getMyReminders();
+      if (!mounted) return;
+      setState(() => _remindersCount = reminders.length);
+      _syncHomeWidget();
+    } catch (_) {
+      // silent
+    }
+  }
+
   Future<void> _loadWatchHistory() async {
     try {
       final history = await WatchHistoryService.getHistory();
-      if (mounted) {
-        setState(() => _watchHistory = history);
-      }
+      if (!mounted) return;
+      setState(() => _watchHistory = history);
+      _syncHomeWidget();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _startRecentAutoScroll();
+      });
     } catch (_) {
       // silent
     }
@@ -229,6 +302,7 @@ class _HomeScreenState extends State<HomeScreen>
             .where((s) => s.isActive)
             .length;
         setState(() => _subscriptionCount = activeCount);
+        _syncHomeWidget();
       }
     } catch (_) {
       // silent
@@ -253,6 +327,7 @@ class _HomeScreenState extends State<HomeScreen>
       final channels = await ChannelService.getPublicChannels();
       if (!mounted) return;
       setState(() => _allChannels = channels);
+      _syncHomeWidget();
       // Restart auto-scrollers now that fallback channels are available
       _startPromoAutoScroll();
       _startRecentAutoScroll();
@@ -310,6 +385,70 @@ class _HomeScreenState extends State<HomeScreen>
     return '₦${buffer.toString().split('').reversed.join()}';
   }
 
+  String _formatPoolNumber(double n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(2)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(2)}K';
+    return n.toStringAsFixed(2).replaceFirst(RegExp(r'\.00$'), '');
+  }
+
+  double _normalizedCommunityPoolVpt(HomeStats? pool) {
+    return pool?.totalVpt ?? 0;
+  }
+
+  int _daysUntilRenewal(String? expiry) {
+    if (expiry == null || expiry.isEmpty) return 0;
+    final parsed = DateTime.tryParse(expiry);
+    if (parsed == null) return 0;
+    final remaining = parsed.difference(DateTime.now());
+    if (remaining.isNegative) return 0;
+    final days = remaining.inDays;
+    return remaining.inSeconds.remainder(86400) > 0 ? days + 1 : days;
+  }
+
+  void _syncHomeWidget() {
+    final user = _user;
+    if (user == null) return;
+
+    try {
+      final liveCount = _allChannels
+          .where((channel) => channel.isActive && channel.isStreamLive)
+          .length;
+      final featuredChannel = _stats?.promotedChannels.isNotEmpty == true
+          ? _stats!.promotedChannels.first.name
+          : (_stats?.recentChannels.isNotEmpty == true
+                ? _stats!.recentChannels.first.name
+                : '');
+
+      WidgetService.update(
+        liveCount: liveCount,
+        nextShowChannel: _ws(featuredChannel),
+        nextShowTitle: _ws(
+          _stats?.promotedChannels.isNotEmpty == true
+              ? (_stats!.promotedChannels.first.category ?? 'Featured channel')
+              : 'Dashboard update',
+        ),
+        nextShowTime: _ws(
+          _stats?.promotedChannels.isNotEmpty == true ? 'Live now' : '',
+        ),
+        planName: _ws(user.subscriptionPlanDisplay, max: 20),
+        daysToRenewal: _daysUntilRenewal(user.subscriptionExpiry),
+        notificationCount: _unreadNotifications,
+        wavesCount: _watchHistory.length,
+        libraryUpdates: _remindersCount,
+      );
+    } catch (_) {
+      // Widget update is non-critical; swallow errors so dashboard is unaffected.
+    }
+  }
+
+  /// Sanitise a string before sending it to the Android home-screen widget.
+  /// Null, empty, and excessively long strings are all handled gracefully.
+  String _ws(String? value, {int max = 40}) {
+    if (value == null || value.isEmpty) return '';
+    final trimmed = value.trim();
+    return trimmed.length > max ? trimmed.substring(0, max) : trimmed;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -344,8 +483,10 @@ class _HomeScreenState extends State<HomeScreen>
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  const ActiveFloatingPlayerBanner(),
                                   _buildCommunityPoolBanner(),
-                                  _buildChallengeBanner(),
+                                  if (_activeChallenge != null)
+                                    _buildChallengeBanner(),
                                   if (_marqueeTopics.isNotEmpty)
                                     _buildMarqueeTicker(),
                                   if (_user != null &&
@@ -365,15 +506,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   const SizedBox(height: 16),
                                   _buildThemeDivider(),
                                   const SizedBox(height: 16),
-                                  if ((_watchHistory.isNotEmpty)) ...[
-                                    _buildRecentlyViewed(),
-                                    const SizedBox(height: 16),
-                                    _buildThemeDivider(),
-                                    const SizedBox(height: 16),
-                                  ],
-                                  if ((_stats?.recentChannels.isNotEmpty ??
-                                          false) ||
-                                      _allChannels.isNotEmpty) ...[
+                                  if (_watchHistory.isNotEmpty) ...[
                                     _buildPublicChannelsSlider(),
                                     const SizedBox(height: 16),
                                     _buildThemeDivider(),
@@ -572,8 +705,8 @@ class _HomeScreenState extends State<HomeScreen>
   // ───────── COMMUNITY POOL BANNER ─────────
   Widget _buildCommunityPoolBanner() {
     final pool = _stats;
-    final vpt = pool?.totalVpt ?? 0;
-    final naira = pool?.nairaEquivalent ?? 0;
+    final displayVpt = _normalizedCommunityPoolVpt(pool);
+    final naira = pool?.totalNgn ?? 0;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -675,7 +808,7 @@ class _HomeScreenState extends State<HomeScreen>
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${_formatNumber(vpt)} vPT',
+                  '${_formatPoolNumber(displayVpt)} vPT',
                   style: const TextStyle(
                     color: AppColors.lightOrange,
                     fontSize: 28,
@@ -1000,12 +1133,26 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ───────── PROMOTED CHANNELS SLIDER ─────────
   Widget _buildFeaturedChannelsSlider() {
-    // Build unified list: prefer promoted channels, fall back to channels with
-    // banners, then any public channels
-    final promoted = _stats?.promotedChannels ?? [];
+    // Build unified list: prefer featured channels from admin, fall back to promoted channels,
+    // then channels with banners, then any public channels
+    final featured = _featuredChannels.isNotEmpty
+        ? _featuredChannels
+        : _stats?.promotedChannels ?? [];
     List<PromotedChannel> items;
-    if (promoted.isNotEmpty) {
-      items = promoted;
+    if (featured.isNotEmpty) {
+      items = featured.map((ch) {
+        if (ch is ChannelModel) {
+          return PromotedChannel(
+            id: ch.id,
+            name: ch.name,
+            category: ch.category,
+            channelNumber: ch.channelNumber,
+            logoUrl: ch.logoUrl,
+            bannerUrl: ch.bannerUrl,
+          );
+        }
+        return ch as PromotedChannel;
+      }).toList();
     } else {
       final withBanner = _allChannels
           .where((c) => (c.bannerUrl ?? '').isNotEmpty)
@@ -1208,40 +1355,23 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ───────── PUBLIC CHANNELS SLIDER ─────────
   Widget _buildPublicChannelsSlider() {
-    // Use recent channels from stats; fall back to all loaded channels
-    final recentList = _stats?.recentChannels ?? [];
-
-    final int itemCount;
-    if (recentList.isNotEmpty) {
-      itemCount = recentList.length;
-    } else {
-      itemCount = _allChannels.length > 15 ? 15 : _allChannels.length;
-    }
-    if (itemCount == 0) return const SizedBox.shrink();
-
-    String getId(int i) =>
-        recentList.isNotEmpty ? recentList[i].id : _allChannels[i].id;
-    String getName(int i) =>
-        recentList.isNotEmpty ? recentList[i].name : _allChannels[i].name;
-    String? getLogoUrl(int i) =>
-        recentList.isNotEmpty ? recentList[i].logoUrl : _allChannels[i].logoUrl;
-    String? getCategory(int i) => recentList.isNotEmpty
-        ? recentList[i].category
-        : _allChannels[i].category;
-    String getChannelNumber(int i) => recentList.isNotEmpty
-        ? recentList[i].channelNumber
-        : _allChannels[i].channelNumber;
+    if (_watchHistory.isEmpty) return const SizedBox.shrink();
+    final itemCount = _watchHistory.length > 10 ? 10 : _watchHistory.length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _sectionLabel('PUBLIC CHANNELS', Icons.public_rounded),
+          child: _sectionLabel(
+            'RECENTLY VISITED CHANNELS',
+            Icons.history_rounded,
+            color: AppColors.softBlue,
+          ),
         ),
         const SizedBox(height: 10),
         SizedBox(
-          height: 110,
+          height: 94,
           child: ListView.builder(
             controller: _recentScrollController,
             scrollDirection: Axis.horizontal,
@@ -1249,93 +1379,85 @@ class _HomeScreenState extends State<HomeScreen>
             padding: const EdgeInsets.symmetric(horizontal: 18),
             itemCount: itemCount,
             itemBuilder: (context, index) {
-              final channelId = getId(index);
-              final channelName = getName(index);
-              final logoUrl = getLogoUrl(index);
-              final category = getCategory(index);
-              final channelNumber = getChannelNumber(index);
+              final entry = _watchHistory[index];
+              final logoUrl = entry.logo;
+              final resolvedLogoUrl = (logoUrl != null && logoUrl.isNotEmpty)
+                  ? (logoUrl.startsWith('http')
+                        ? logoUrl
+                        : AppConfig.mediaUrl(logoUrl))
+                  : null;
 
               return GestureDetector(
                 onTap: () async {
                   await Navigator.pushNamed(
                     context,
-                    '/channel-view',
-                    arguments: channelId,
+                    '/channel-player',
+                    arguments: entry.id,
                   );
                   _loadData();
                 },
                 child: Container(
-                  width: 130,
+                  width: 86,
                   margin: const EdgeInsets.only(right: 10),
                   decoration: BoxDecoration(
                     color: AppColors.inputFill,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                      color: AppColors.lightOrange.withValues(alpha: 0.2),
+                      color: AppColors.softBlue.withValues(alpha: 0.25),
                     ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 6,
+                        blurRadius: 10,
                         offset: const Offset(0, 3),
                       ),
                     ],
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  child: Stack(
                     children: [
-                      Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.orange.withValues(alpha: 0.12),
-                          border: Border.all(
-                            color: AppColors.lightOrange.withValues(alpha: 0.3),
-                            width: 1.5,
+                      Center(
+                        child: Container(
+                          width: 58,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.lightBlue.withValues(alpha: 0.55),
+                            border: Border.all(
+                              color: AppColors.softBlue.withValues(alpha: 0.35),
+                              width: 1.4,
+                            ),
+                            image: resolvedLogoUrl != null
+                                ? DecorationImage(
+                                    image: NetworkImage(resolvedLogoUrl),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
                           ),
-                          image: (logoUrl != null && logoUrl.isNotEmpty)
-                              ? DecorationImage(
-                                  image: NetworkImage(
-                                    AppConfig.mediaUrl(logoUrl),
+                          child: resolvedLogoUrl == null
+                              ? Icon(
+                                  Icons.live_tv_rounded,
+                                  color: AppColors.softBlue.withValues(
+                                    alpha: 0.95,
                                   ),
-                                  fit: BoxFit.cover,
+                                  size: 22,
                                 )
                               : null,
                         ),
-                        child: (logoUrl == null || logoUrl.isEmpty)
-                            ? const Icon(
-                                Icons.live_tv_rounded,
-                                color: AppColors.orange,
-                                size: 20,
-                              )
-                            : null,
                       ),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      Positioned(
+                        bottom: 8,
+                        left: 0,
+                        right: 0,
                         child: Text(
-                          channelName,
+                          entry.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: AppColors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        (category != null && category.isNotEmpty)
-                            ? category
-                            : '#$channelNumber',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.lightOrange.withValues(alpha: 0.7),
-                          fontSize: 9,
                         ),
                       ),
                     ],
@@ -1354,14 +1476,23 @@ class _HomeScreenState extends State<HomeScreen>
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _sectionLabel(
+              'INSTANT ACTIONS',
+              Icons.bolt_rounded,
+              color: AppColors.softBlue,
+            ),
+          ),
           // Row 1
           Row(
             children: [
               Expanded(
                 child: _actionCard(
-                  icon: Icons.live_tv_rounded,
-                  label: 'Browse\nChannels',
+                  icon: Icons.explore_rounded,
+                  label: 'Browse Channel',
                   onTap: () => Navigator.pushNamed(context, '/channels'),
                 ),
               ),
@@ -1369,20 +1500,16 @@ class _HomeScreenState extends State<HomeScreen>
               Expanded(
                 child: _actionCard(
                   icon: Icons.dialpad_rounded,
-                  label: 'Channel\nNumber',
+                  label: 'Channel Number',
                   onTap: () => Navigator.pushNamed(context, '/channel-access'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _actionCard(
-                  icon: Icons.video_settings_rounded,
-                  label: 'Creator\nStudio',
-                  onTap: () => Navigator.pushNamed(context, '/creator-studio'),
-                  locked:
-                      _user != null &&
-                      _user!.role != 'creator' &&
-                      _user!.role != 'admin',
+                  icon: Icons.live_tv_rounded,
+                  label: 'Live Now',
+                  onTap: () => Navigator.pushNamed(context, '/live'),
                 ),
               ),
             ],
@@ -1393,31 +1520,78 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               Expanded(
                 child: _actionCard(
-                  icon: Icons.campaign_rounded,
-                  label: 'Advertise',
-                  onTap: () => Navigator.pushNamed(context, '/advertiser'),
-                  subtle: true,
-                  accentColor: AppColors.orange,
+                  icon: Icons.video_settings_rounded,
+                  label: 'Creator Studio',
+                  onTap: () => Navigator.pushNamed(context, '/creator-studio'),
+                  locked:
+                      _user != null &&
+                      _user!.role != 'creator' &&
+                      _user!.role != 'admin',
+                  accentColor: AppColors.successGreen,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _actionCard(
-                  icon: Icons.notifications_active_rounded,
-                  label: 'My\nReminders',
-                  onTap: () => Navigator.pushNamed(context, '/reminders'),
+                  icon: Icons.campaign_rounded,
+                  label: 'Advertise',
+                  onTap: () => Navigator.pushNamed(context, '/advertiser'),
                   subtle: true,
-                  accentColor: AppColors.lightOrange,
+                  accentColor: AppColors.successGreen,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _actionCard(
                   icon: Icons.account_balance_wallet_rounded,
-                  label: 'Digital\nAssets',
+                  label: 'Digital Assets',
                   onTap: () => Navigator.pushNamed(context, '/digital-assets'),
                   subtle: true,
-                  accentColor: AppColors.lightOrange,
+                  accentColor: AppColors.successGreen,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Row 3
+          Row(
+            children: [
+              Expanded(
+                child: _actionCard(
+                  icon: Icons.workspace_premium_rounded,
+                  label: 'My Plan',
+                  onTap: () => Navigator.pushNamed(context, '/my-plan'),
+                  accentColor: AppColors.softBlue,
+                  badgeLabel: _user?.hasActiveSubscription == true
+                      ? '${_planDaysLeft()}d'
+                      : 'Start Here',
+                  badgeIcon: _user?.hasActiveSubscription == true
+                      ? Icons.timer_rounded
+                      : Icons.launch_rounded,
+                  badgeColor: _user?.hasActiveSubscription == true
+                      ? AppColors.softBlue
+                      : AppColors.infoBlue,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _actionCard(
+                  icon: Icons.notifications_active_rounded,
+                  label: 'My Reminders',
+                  onTap: () => Navigator.pushNamed(context, '/reminders'),
+                  accentColor: AppColors.softBlue,
+                  badgeLabel: '$_remindersCount',
+                  badgeIcon: Icons.notifications_rounded,
+                  badgeColor: AppColors.softBlue,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _actionCard(
+                  icon: Icons.waves_rounded,
+                  label: 'Surf Waves',
+                  onTap: () => Navigator.pushNamed(context, '/wave'),
+                  accentColor: AppColors.softBlue,
                 ),
               ),
             ],
@@ -1430,7 +1604,7 @@ class _HomeScreenState extends State<HomeScreen>
                 Expanded(
                   child: _actionCard(
                     icon: Icons.admin_panel_settings_rounded,
-                    label: 'Admin\nPanel',
+                    label: 'Admin Panel',
                     onTap: () => Navigator.pushNamed(context, '/admin-panel'),
                     accentColor: AppColors.orange,
                   ),
@@ -1524,12 +1698,16 @@ class _HomeScreenState extends State<HomeScreen>
     bool locked = false,
     bool subtle = false,
     Color? accentColor,
+    String? badgeLabel,
+    IconData? badgeIcon,
+    Color? badgeColor,
   }) {
     final color = accentColor ?? AppColors.orange;
+    final effectiveBadgeColor = badgeColor ?? color;
     return GestureDetector(
       onTap: locked ? null : onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
           color: AppColors.inputFill,
           borderRadius: BorderRadius.circular(16),
@@ -1546,35 +1724,85 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ],
         ),
-        child: Column(
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                icon,
-                color: locked ? AppColors.goldText : color,
-                size: 22,
-              ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: locked ? AppColors.goldText : color,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
+                  style: TextStyle(
+                    color: locked ? AppColors.goldText : AppColors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                  ),
+                ),
+                if (locked) ...[
+                  const SizedBox(height: 4),
+                  const Icon(
+                    Icons.lock_rounded,
+                    color: AppColors.goldText,
+                    size: 12,
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: locked ? AppColors.goldText : AppColors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
+            if (badgeLabel != null)
+              Positioned(
+                top: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: effectiveBadgeColor.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: effectiveBadgeColor.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (badgeIcon != null) ...[
+                        Icon(badgeIcon, color: effectiveBadgeColor, size: 11),
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        badgeLabel,
+                        style: TextStyle(
+                          color: effectiveBadgeColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            if (locked) ...[
-              const SizedBox(height: 4),
-              Icon(Icons.lock_rounded, color: AppColors.goldText, size: 12),
-            ],
           ],
         ),
       ),
@@ -1749,121 +1977,208 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildTwoColumnSection() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left: Updates & Announcements
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.inputBorder),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.campaign_rounded,
-                        color: AppColors.orange.withValues(alpha: 0.8),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      const Text(
-                        'Updates',
+          // Announcements Card (new, from backend)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.campaign_rounded,
+                          color: AppColors.orange.withValues(alpha: 0.8),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Announcements',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    GestureDetector(
+                      onTap: () =>
+                          Navigator.pushNamed(context, '/announcements'),
+                      child: const Text(
+                        'See all',
                         style: TextStyle(
-                          color: AppColors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          color: AppColors.lightOrange,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _announcementItem(
-                    'Platform Launch',
-                    'AfroVision is live! Start creating & exploring channels.',
-                    Icons.celebration_rounded,
-                    AppColors.lightOrange,
-                  ),
-                  const SizedBox(height: 10),
-                  _announcementItem(
-                    'Creator Program',
-                    'Apply to become a verified creator today.',
-                    Icons.verified_rounded,
-                    const Color(0xFF4CAF50),
-                  ),
-                  const SizedBox(height: 10),
-                  _announcementItem(
-                    'Community Rules',
-                    'Review guidelines to keep our space safe.',
-                    Icons.shield_rounded,
-                    AppColors.orange,
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_announcements.isEmpty)
+                  const Text(
+                    'Announcements from Admin will appear here',
+                    style: TextStyle(color: AppColors.hintText, fontSize: 12),
+                  )
+                else
+                  ..._announcements.take(3).map((announcement) {
+                    return Column(
+                      children: [
+                        _announcementItem(
+                          announcement.title,
+                          announcement.body,
+                          _getIconForString(announcement.icon),
+                          _getColorFromString(announcement.color),
+                        ),
+                        if (announcement != _announcements.last)
+                          const SizedBox(height: 10),
+                      ],
+                    );
+                  }),
+              ],
             ),
           ),
-          const SizedBox(width: 12),
-          // Right: Quick Stats & Highlights
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.inputBorder),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.insights_rounded,
-                        color: AppColors.lightOrange.withValues(alpha: 0.8),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      const Text(
-                        'Highlights',
+          const SizedBox(height: 12),
+          // Updates Card (existing, from backend)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.campaign_rounded,
+                          color: AppColors.orange.withValues(alpha: 0.8),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Updates',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    GestureDetector(
+                      onTap: () =>
+                          Navigator.pushNamed(context, '/updates-list'),
+                      child: const Text(
+                        'See all',
                         style: TextStyle(
-                          color: AppColors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          color: AppColors.lightOrange,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _highlightStat(
-                    Icons.people_rounded,
-                    'Members',
-                    '${_stats?.totalMembers ?? 0}',
-                  ),
-                  const SizedBox(height: 10),
-                  _highlightStat(
-                    Icons.tv_rounded,
-                    'Channels',
-                    '${_stats?.totalChannels ?? 0}',
-                  ),
-                  const SizedBox(height: 10),
-                  _highlightStat(
-                    Icons.toll_rounded,
-                    'Your vPT',
-                    _formatNumber(_user?.vpt ?? 0),
-                  ),
-                  const SizedBox(height: 10),
-                  _highlightStat(
-                    Icons.star_rounded,
-                    'Plan',
-                    _user?.subscriptionPlanDisplay ?? 'NONE',
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_updates.isEmpty)
+                  const Text(
+                    'No updates yet.',
+                    style: TextStyle(color: AppColors.hintText, fontSize: 12),
+                  )
+                else
+                  ..._updates.take(3).map((update) {
+                    final body = update['body'] as String?;
+                    final summary = update['summary'] as String? ?? '';
+                    final displayBody = body ?? summary;
+                    return Column(
+                      children: [
+                        _announcementItem(
+                          update['title'] as String? ?? '',
+                          displayBody,
+                          update['icon'] as String? ?? '✨',
+                          _getColorForTag(update['tag'] as String? ?? ''),
+                          isTruncated: true,
+                        ),
+                        if (update != _updates.last) const SizedBox(height: 10),
+                      ],
+                    );
+                  }),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Bottom: Quick Stats & Highlights
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.insights_rounded,
+                      color: AppColors.lightOrange.withValues(alpha: 0.8),
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Highlights',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _highlightStat(
+                  Icons.people_rounded,
+                  'Members',
+                  '${_stats?.totalMembers ?? 0}',
+                ),
+                const SizedBox(height: 10),
+                _highlightStat(
+                  Icons.tv_rounded,
+                  'Channels',
+                  '${_stats?.totalChannels ?? 0}',
+                ),
+                const SizedBox(height: 10),
+                _highlightStat(
+                  Icons.toll_rounded,
+                  'Your vPT',
+                  _formatNumber(_user?.vpt ?? 0),
+                ),
+                const SizedBox(height: 10),
+                _highlightStat(
+                  Icons.star_rounded,
+                  'Plan',
+                  _user?.subscriptionPlanDisplay ?? 'NONE',
+                ),
+              ],
             ),
           ),
         ],
@@ -1874,9 +2189,14 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _announcementItem(
     String title,
     String body,
-    IconData icon,
-    Color color,
-  ) {
+    dynamic icon,
+    Color color, {
+    bool isTruncated = false,
+  }) {
+    final displayBody = isTruncated && body.length > 80
+        ? '${body.substring(0, 80)}...'
+        : body;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1886,7 +2206,12 @@ class _HomeScreenState extends State<HomeScreen>
             color: color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(7),
           ),
-          child: Icon(icon, color: color, size: 12),
+          child: icon is IconData
+              ? Icon(icon, color: color, size: 12)
+              : Text(
+                  icon is String ? icon : '✨',
+                  style: TextStyle(fontSize: 12),
+                ),
         ),
         const SizedBox(width: 8),
         Expanded(
@@ -1902,13 +2227,34 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                body,
-                style: TextStyle(
-                  color: AppColors.white,
-                  fontSize: 9,
-                  height: 1.3,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      displayBody,
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 9,
+                        height: 1.3,
+                      ),
+                      maxLines: isTruncated ? 2 : null,
+                      overflow: isTruncated ? TextOverflow.ellipsis : null,
+                    ),
+                  ),
+                  if (isTruncated && body.length > 80)
+                    GestureDetector(
+                      onTap: () =>
+                          Navigator.pushNamed(context, '/updates-list'),
+                      child: const Text(
+                        ' Read more',
+                        style: TextStyle(
+                          color: AppColors.lightOrange,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ],
           ),
@@ -2003,84 +2349,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ───────── RECENTLY VIEWED ─────────
-  Widget _buildRecentlyViewed() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _sectionLabel('Recently Viewed', Icons.history),
-              GestureDetector(
-                onTap: () => WatchHistoryService.clear().then(
-                  (_) => _loadWatchHistory(),
-                ),
-                child: Text(
-                  'Clear',
-                  style: TextStyle(
-                    color: AppColors.orange.withValues(alpha: 0.7),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 72,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemCount: _watchHistory.length > 10 ? 10 : _watchHistory.length,
-            itemBuilder: (_, i) {
-              final entry = _watchHistory[i];
-              return GestureDetector(
-                onTap: () => Navigator.pushNamed(
-                  context,
-                  '/channel-view',
-                  arguments: entry.id,
-                ),
-                child: Container(
-                  width: 72,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: AppColors.white.withValues(alpha: 0.08),
-                    image: entry.logo != null && entry.logo!.isNotEmpty
-                        ? DecorationImage(
-                            image: NetworkImage(entry.logo!),
-                            fit: BoxFit.cover,
-                          )
-                        : null,
-                  ),
-                  alignment: Alignment.center,
-                  child: (entry.logo == null || entry.logo!.isEmpty)
-                      ? Text(
-                          entry.name.isNotEmpty
-                              ? entry.name[0].toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                            color: AppColors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        )
-                      : null,
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
   // ───────── HELPERS ─────────
   Widget _buildThemeDivider() {
     return Container(
@@ -2100,15 +2368,16 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _sectionLabel(String text, IconData icon) {
+  Widget _sectionLabel(String text, IconData icon, {Color? color}) {
+    final accent = color ?? AppColors.lightOrange;
     return Row(
       children: [
-        Icon(icon, color: AppColors.lightOrange, size: 14),
+        Icon(icon, color: accent, size: 14),
         const SizedBox(width: 6),
         Text(
           text,
-          style: const TextStyle(
-            color: AppColors.lightOrange,
+          style: TextStyle(
+            color: accent,
             fontSize: 10,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.2,
@@ -2116,5 +2385,61 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ],
     );
+  }
+
+  int _planDaysLeft() {
+    final expiry = _user?.subscriptionExpiry;
+    if (expiry == null || expiry.isEmpty) return 0;
+    final parsed = DateTime.tryParse(expiry);
+    if (parsed == null) return 0;
+    final remaining = parsed.difference(DateTime.now());
+    if (remaining.isNegative) return 0;
+    final days = remaining.inDays;
+    return remaining.inSeconds.remainder(86400) > 0 ? days + 1 : days;
+  }
+
+  IconData _getIconForString(String iconName) {
+    switch (iconName) {
+      case 'campaign':
+        return Icons.campaign_rounded;
+      case 'celebration':
+        return Icons.celebration_rounded;
+      case 'verified':
+        return Icons.verified_rounded;
+      case 'shield':
+        return Icons.shield_rounded;
+      case 'info':
+        return Icons.info_rounded;
+      case 'warning':
+        return Icons.warning_rounded;
+      case 'error':
+        return Icons.error_rounded;
+      case 'star':
+        return Icons.star_rounded;
+      case 'check_circle':
+        return Icons.check_circle_rounded;
+      default:
+        return Icons.campaign_rounded;
+    }
+  }
+
+  Color _getColorFromString(String colorString) {
+    try {
+      return Color(int.parse(colorString.replaceAll('#', '0xFF')));
+    } catch (_) {
+      return AppColors.orange;
+    }
+  }
+
+  Color _getColorForTag(String tag) {
+    final tagMap = {
+      'New Feature': AppColors.lightOrange,
+      'Monetization': const Color(0xFF4CAF50),
+      'Enhancement': AppColors.orange,
+      'Economy': const Color(0xFFFFD700),
+      'Platform': const Color(0xFF2196F3),
+      'Performance': const Color(0xFF9C27B0),
+    };
+    return tagMap[tag] ?? AppColors.lightOrange;
   }
 }

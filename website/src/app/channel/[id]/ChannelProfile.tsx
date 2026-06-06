@@ -96,7 +96,7 @@ type Tab = "streams" | "waves" | "about" | "schedule" | "library" | "manage";
 
 export function ChannelProfile({ id }: { id: string }) {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, refreshUser } = useAuth();
   const requireAuth = useRequireAuth();
 
   const [channel, setChannel] = useState<Channel | null>(null);
@@ -204,8 +204,21 @@ export function ChannelProfile({ id }: { id: string }) {
             return;
           }
 
-          const statusRes = await getExclusiveAccessStatusApi(id);
+          let statusRes = await getExclusiveAccessStatusApi(id);
           if (cancelled) return;
+
+          if (
+            statusRes.ok &&
+            "eligibleByKyc" in statusRes.data &&
+            !statusRes.data.eligibleByKyc &&
+            user?.kyc_status === "verified"
+          ) {
+            await refreshUser();
+            const retryRes = await getExclusiveAccessStatusApi(id);
+            if (!cancelled && retryRes.ok && "eligibleByKyc" in retryRes.data) {
+              statusRes = retryRes;
+            }
+          }
 
           if (statusRes.ok && "eligibleByKyc" in statusRes.data) {
             const allowed = statusRes.data.eligibleByKyc && statusRes.data.hasActiveEntitlement;
@@ -245,7 +258,7 @@ export function ChannelProfile({ id }: { id: string }) {
 
     load();
     return () => { cancelled = true; };
-  }, [id, isAuthenticated, router, user]);
+  }, [id, isAuthenticated, router, user, refreshUser]);
 
   // Check subscription status
   useEffect(() => {
@@ -323,6 +336,7 @@ export function ChannelProfile({ id }: { id: string }) {
   // Lazy-load waves when waves tab is activated
   useEffect(() => {
     if (activeTab !== "waves" || channelWavesLoaded) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadChannelWaves();
   }, [activeTab, channelWavesLoaded, loadChannelWaves]);
 
@@ -637,6 +651,7 @@ export function ChannelProfile({ id }: { id: string }) {
 
   useEffect(() => {
     const availableIds = new Set(channelWaves.map((wave) => wave.id));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedWaveIds((prev) => prev.filter((waveId) => availableIds.has(waveId)));
   }, [channelWaves]);
 
@@ -660,6 +675,7 @@ export function ChannelProfile({ id }: { id: string }) {
     if (lastTrackedModalWaveId.current === waveId) return;
     lastTrackedModalWaveId.current = waveId;
     void trackWaveViewApi(waveId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setChannelWaves((prev) => prev.map((wave) => (
       wave.id === waveId
         ? { ...wave, repeat_play_count: (wave.repeat_play_count || 0) + 1 }
@@ -674,11 +690,11 @@ export function ChannelProfile({ id }: { id: string }) {
   }, [waveViewerOpen]);
 
   const TABS: { key: Tab; label: string }[] = [
-    { key: "streams", label: "Past Streams" },
-    { key: "waves", label: "Waves" },
     { key: "about", label: "About" },
-    { key: "schedule", label: "Schedule" },
+    { key: "streams", label: "Past Streams" },
     ...(isExclusive ? [{ key: "library" as Tab, label: "Library" }] : []),
+    { key: "waves", label: "Waves" },
+    { key: "schedule", label: "Schedule" },
     ...(canManageChannel ? [{ key: "manage" as Tab, label: "⚙ Manage" }] : []),
   ];
 

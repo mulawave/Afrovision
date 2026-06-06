@@ -18,7 +18,14 @@ import {
   getChannelFollowStatusApi,
   getChannelLibraryItemDetailApi,
   trackWaveViewApi,
+  checkWaveAccessApi,
+  acknowledgeWaveAdultConsentApi,
+  getCreatorWaveLockStatusApi,
+  payCreatorWaveLockApi,
   type Wave,
+  type WaveAgeClassification,
+  type WaveAccessDecision,
+  type CreatorLockStatus,
   type WaveComment,
   type WavePulseMoment,
   type Channel,
@@ -39,6 +46,36 @@ function formatTime(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function getWaveClassificationMeta(ageClassification?: WaveAgeClassification): {
+  label: string;
+  bg: string;
+  border: string;
+  color: string;
+} {
+  if (ageClassification === "minor_safe") {
+    return {
+      label: "MINOR SAFE",
+      bg: "rgba(34,197,94,0.2)",
+      border: "1px solid rgba(34,197,94,0.6)",
+      color: "#bbf7d0",
+    };
+  }
+  if (ageClassification === "adult") {
+    return {
+      label: "18+",
+      bg: "rgba(239,68,68,0.2)",
+      border: "1px solid rgba(239,68,68,0.6)",
+      color: "#fecaca",
+    };
+  }
+  return {
+    label: "TEEN",
+    bg: "rgba(245,150,23,0.24)",
+    border: "1px solid rgba(245,150,23,0.65)",
+    color: "#fde68a",
+  };
 }
 
 // -- SVG Icons (encoding-safe, no emoji) ------------------------------------
@@ -252,6 +289,8 @@ function WaveGridTile({
   isNext: boolean;
   onClick: () => void;
 }) {
+  const classification = getWaveClassificationMeta(wave.age_classification);
+
   return (
     <button
       onClick={onClick}
@@ -296,6 +335,18 @@ function WaveGridTile({
           PLAYING
         </div>
       )}
+
+      <div
+        className="absolute top-1.5 right-1.5 z-20 px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider"
+        style={{
+          background: classification.bg,
+          border: classification.border,
+          color: classification.color,
+          backdropFilter: "blur(4px)",
+        }}
+      >
+        {classification.label}
+      </div>
 
       <div
         className="absolute bottom-0 left-0 right-0 px-1.5 pb-1.5 pt-4 z-10"
@@ -927,6 +978,10 @@ function WaveCard({
   isActive,
   autoscroll,
   forceAdvanceOnEnd = false,
+  blockedReason = null,
+  requiresAdultConsent = false,
+  onConfirmAdultConsent,
+  onLeaveRestrictedContent,
   onAutoscrollChange,
   onAdvanceWave,
   onPrevWave,
@@ -936,6 +991,10 @@ function WaveCard({
   isActive: boolean;
   autoscroll: boolean;
   forceAdvanceOnEnd?: boolean;
+  blockedReason?: string | null;
+  requiresAdultConsent?: boolean;
+  onConfirmAdultConsent?: () => void;
+  onLeaveRestrictedContent?: () => void;
   onAutoscrollChange: (v: boolean) => void;
   onAdvanceWave?: () => void;
   onPrevWave?: () => void;
@@ -958,6 +1017,7 @@ function WaveCard({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [uniqueViewCount] = useState(wave.views_count ?? wave.views ?? wave.total_views ?? 0);
   const [repeatPlayCount, setRepeatPlayCount] = useState(wave.repeat_play_count ?? 0);
+  const classification = getWaveClassificationMeta(wave.age_classification);
 
   useEffect(() => {
     getWavePulseMomentsApi(wave.id).then((res) => {
@@ -971,13 +1031,19 @@ function WaveCard({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+
+    if (blockedReason || requiresAdultConsent) {
+      video.pause();
+      return;
+    }
+
     if (isActive) {
       video.play().catch(() => {});
     } else {
       video.pause();
       video.currentTime = 0;
     }
-  }, [isActive]);
+  }, [isActive, blockedReason, requiresAdultConsent]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -1001,6 +1067,7 @@ function WaveCard({
   }, [isActive, wave.id]);
 
   const handleVideoEnded = () => {
+    if (blockedReason || requiresAdultConsent) return;
     if (forceAdvanceOnEnd || autoscroll) {
       onAdvanceWave?.();
       return;
@@ -1024,6 +1091,7 @@ function WaveCard({
   }, []);
 
   const handlePulse = async (intensity: 1 | 2 | 3) => {
+    if (blockedReason || requiresAdultConsent) return;
     if (!isAuthenticated) return;
     const momentSeconds = videoRef.current?.currentTime ?? 0;
     setPulseCount((c) => c + 1);
@@ -1034,6 +1102,7 @@ function WaveCard({
   };
 
   const handleBookmark = async () => {
+    if (blockedReason || requiresAdultConsent) return;
     if (!isAuthenticated) return;
     const next = !bookmarked;
     setBookmarked(next);
@@ -1072,11 +1141,11 @@ function WaveCard({
         muted={false}
         autoPlay
         preload="auto"
-        className="absolute inset-0 w-full h-full object-cover"
+        className={`absolute inset-0 w-full h-full object-cover ${blockedReason || requiresAdultConsent ? "blur-lg scale-105 brightness-50" : ""}`}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onCanPlay={() => {
-          if (isActive) videoRef.current?.play().catch(() => {});
+          if (isActive && !blockedReason && !requiresAdultConsent) videoRef.current?.play().catch(() => {});
         }}
         onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
         onLoadedMetadata={() => { if (videoRef.current) setDuration(videoRef.current.duration); }}
@@ -1090,7 +1159,7 @@ function WaveCard({
       />
 
       {/* Play indicator */}
-      {!playing && isActive && (
+      {!playing && isActive && !blockedReason && !requiresAdultConsent && (
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
           <div className="w-20 h-20 rounded-full flex items-center justify-center"
             style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}>
@@ -1132,6 +1201,18 @@ function WaveCard({
         </>
       )}
 
+      <div
+        className="absolute top-3 right-3 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider pointer-events-none"
+        style={{
+          background: classification.bg,
+          border: classification.border,
+          color: classification.color,
+          backdropFilter: "blur(5px)",
+        }}
+      >
+        {classification.label}
+      </div>
+
       {/* Gradient overlays */}
       <div className="absolute inset-0 z-10 pointer-events-none"
         style={{ background: "linear-gradient(to top, rgba(5,10,48,0.92) 0%, rgba(5,10,48,0.25) 40%, transparent 70%)" }} />
@@ -1144,17 +1225,20 @@ function WaveCard({
       </div>
 
       {/* Right icon strip */}
-      <div className="absolute right-0 top-0 bottom-0 z-30 flex flex-col items-center justify-end pb-24 gap-5 w-16">
+      <div className={`absolute right-0 top-0 bottom-0 z-30 flex flex-col items-center justify-end pb-24 gap-5 w-16 ${blockedReason || requiresAdultConsent ? "pointer-events-none opacity-50" : ""}`}>
         <div className="flex flex-col items-center gap-0.5">
           <span className="text-xl" style={{ color: "rgba(255,255,255,0.9)" }}><IcoEye /></span>
           <span className="text-white/80 text-[10px] font-medium">
             {formatCount(uniqueViewCount)}
           </span>
-          <span className="text-white/50 text-[10px] font-medium">
+        </div>
+        <PulseButton count={pulseCount} onPulse={handlePulse} compact />
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xl" style={{ color: "rgba(255,255,255,0.9)" }}><IcoRepeat /></span>
+          <span className="text-white/80 text-[10px] font-medium">
             {formatCount(repeatPlayCount)}
           </span>
         </div>
-        <PulseButton count={pulseCount} onPulse={handlePulse} compact />
         <button className="flex flex-col items-center gap-0.5" onClick={() => setShowComments(true)}>
           <span className="text-xl" style={{ color: "rgba(255,255,255,0.9)" }}><IcoComment /></span>
           <span className="text-white/80 text-[10px] font-medium">{formatCount(commentCount)}</span>
@@ -1184,6 +1268,47 @@ function WaveCard({
           onClose={() => setShowOptions(false)}
         />
       )}
+      {(blockedReason || requiresAdultConsent) && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-6">
+          <div
+            className="absolute inset-0"
+            style={{
+              backdropFilter: "blur(18px)",
+              background: "rgba(0, 0, 0, 0.62)",
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-2xl border border-white/15 bg-black/80 p-5 text-white shadow-2xl backdrop-blur-md">
+            <p className="text-sm font-semibold tracking-wide text-orange-300 uppercase mb-2">
+              Content Access Check
+            </p>
+            <h3 className="text-white text-lg font-bold mb-2">
+              {requiresAdultConsent ? "Adults Only Warning" : "Restricted Content"}
+            </h3>
+            <p className="text-white/80 text-sm leading-relaxed mb-4">
+              {requiresAdultConsent
+                ? "This content is intended for adults only. By continuing, you confirm you are 18+ and understand viewer discretion is advised."
+                : (blockedReason || "You do not currently meet the access requirements for this content.")}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onLeaveRestrictedContent}
+                className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-sm text-white/90 hover:bg-white/10 transition-colors"
+              >
+                Leave
+              </button>
+              {requiresAdultConsent && (
+                <button
+                  onClick={onConfirmAdultConsent}
+                  className="flex-1 rounded-lg px-3 py-2 text-sm font-semibold"
+                  style={{ background: "#F49617", color: "#050A30" }}
+                >
+                  Continue
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {actionNotice && <WaveMiniToast message={actionNotice} />}
     </div>
   );
@@ -1192,7 +1317,7 @@ function WaveCard({
 // -- Wave Feed Page ---------------------------------------------------------
 
 export default function WavePage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   // Feed state
   const [waves, setWaves] = useState<Wave[]>([]);
@@ -1202,6 +1327,24 @@ export default function WavePage() {
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [autoscroll, setAutoscroll] = useState(false);
+  const [accessDecision, setAccessDecision] = useState<WaveAccessDecision | null>(null);
+  const [checkingAccess, setCheckingAccess] = useState(false);
+  const [adultConsentSessionAccepted, setAdultConsentSessionAccepted] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.sessionStorage.getItem("av_adult_consent_ack") === "1";
+  });
+  const [viewerSessionId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    const existingSessionId = window.sessionStorage.getItem("av_session_id");
+    if (existingSessionId) return existingSessionId;
+    const generated = crypto.randomUUID();
+    window.sessionStorage.setItem("av_session_id", generated);
+    return generated;
+  });
+  const [creatorLockStatus, setCreatorLockStatus] = useState<CreatorLockStatus | null>(null);
+  const [loadingCreatorLock, setLoadingCreatorLock] = useState(false);
+  const [payingCreatorLock, setPayingCreatorLock] = useState(false);
+  const [creatorLockError, setCreatorLockError] = useState<string | null>(null);
 
   // Channel panel state
   const [channelWaves, setChannelWaves] = useState<Wave[]>([]);
@@ -1229,6 +1372,56 @@ export default function WavePage() {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+
+  const refreshCreatorLockStatus = useCallback(async () => {
+    if (!isAuthenticated || !user || (user.role !== "creator" && user.role !== "admin")) {
+      setCreatorLockStatus(null);
+      return;
+    }
+
+    setLoadingCreatorLock(true);
+    const res = await getCreatorWaveLockStatusApi();
+    if (res.ok && "locked" in res.data) {
+      setCreatorLockStatus(res.data as CreatorLockStatus);
+      setCreatorLockError(null);
+    } else {
+      setCreatorLockStatus({ locked: false, lock: null });
+      if (res.status !== 401) {
+        setCreatorLockError("Unable to check creator lock status right now.");
+      }
+    }
+    setLoadingCreatorLock(false);
+  }, [isAuthenticated, user]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshCreatorLockStatus();
+  }, [refreshCreatorLockStatus]);
+
+  const handlePayCreatorLock = useCallback(async () => {
+    setCreatorLockError(null);
+    setPayingCreatorLock(true);
+    const res = await payCreatorWaveLockApi();
+    if (!res.ok) {
+      const err = res.data && "error" in res.data ? String(res.data.error) : "Payment failed";
+      const required = (res.data && "required_amount_ngn" in res.data)
+        ? Number((res.data as { required_amount_ngn?: number }).required_amount_ngn || 0)
+        : null;
+      const available = (res.data && "available_cash_ngn" in res.data)
+        ? Number((res.data as { available_cash_ngn?: number }).available_cash_ngn || 0)
+        : null;
+      if (required != null && available != null) {
+        setCreatorLockError(`${err}. Required: NGN ${required.toLocaleString()} | Available: NGN ${available.toLocaleString()}`);
+      } else {
+        setCreatorLockError(err);
+      }
+      setPayingCreatorLock(false);
+      return;
+    }
+
+    await refreshCreatorLockStatus();
+    setPayingCreatorLock(false);
+  }, [refreshCreatorLockStatus]);
 
   // Load initial feed
   useEffect(() => {
@@ -1386,6 +1579,71 @@ export default function WavePage() {
     void loadChannelPanelData(channelId);
   }, [activeWave?.channel_id, loadedChannelId, loadChannelPanelData]);
 
+  useEffect(() => {
+    if (!activeWave || !viewerSessionId) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setCheckingAccess(true);
+      const res = await checkWaveAccessApi(activeWave.id, viewerSessionId);
+      if (cancelled) return;
+
+      if (res.ok && "allowed" in res.data) {
+        const decision = res.data as WaveAccessDecision;
+        if (decision.requires_consent && adultConsentSessionAccepted) {
+          setAccessDecision({ ...decision, allowed: true, requires_consent: false, reason: null });
+        } else {
+          setAccessDecision(decision);
+        }
+      } else {
+        setAccessDecision({
+          allowed: false,
+          requires_consent: false,
+          reason: "Unable to verify content access right now",
+          code: "ACCESS_CHECK_FAILED",
+        });
+      }
+
+      setCheckingAccess(false);
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWave, viewerSessionId, adultConsentSessionAccepted]);
+
+  const confirmAdultConsent = useCallback(async () => {
+    if (!activeWave || !viewerSessionId) return;
+
+    window.sessionStorage.setItem("av_adult_consent_ack", "1");
+    setAdultConsentSessionAccepted(true);
+
+    if (isAuthenticated) {
+      await acknowledgeWaveAdultConsentApi(activeWave.id, viewerSessionId);
+    }
+
+    setAccessDecision({ allowed: true, requires_consent: false, reason: null });
+  }, [activeWave, viewerSessionId, isAuthenticated]);
+
+  const leaveAdultContent = useCallback(() => {
+    if (activeIndex < waves.length - 1) {
+      setActiveIndex((index) => Math.min(index + 1, waves.length - 1));
+      if (!isDesktop) {
+        const nextCard = cardRefs.current[activeIndex + 1];
+        nextCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      return;
+    }
+    if (activeIndex > 0) {
+      setActiveIndex((index) => Math.max(index - 1, 0));
+      if (!isDesktop) {
+        const prevCard = cardRefs.current[activeIndex - 1];
+        prevCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, [activeIndex, waves.length, isDesktop]);
+
   // Desktop queue contract:
   // index 0 = currently playing, index 1 = up next, then the remaining waves.
   useEffect(() => {
@@ -1398,6 +1656,7 @@ export default function WavePage() {
     const activeId = activeWave.id;
 
     if (baseIds.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDesktopChannelOrder([]);
       setDesktopOrderChannelId(activeChannelId);
       return;
@@ -1505,6 +1764,67 @@ export default function WavePage() {
     );
   }
 
+  if (creatorLockStatus?.locked) {
+    const fineAmount = Number(creatorLockStatus.lock?.fine_amount_ngn || 0);
+    return (
+      <div
+        className="flex items-center justify-center min-h-screen px-4"
+        style={{ background: "linear-gradient(180deg, #173A6D 0%, #050A30 100%)" }}
+      >
+        <div
+          className="w-full max-w-xl rounded-2xl p-6 md:p-8"
+          style={{
+            background: "rgba(5,10,48,0.88)",
+            border: "1px solid rgba(244,150,23,0.35)",
+            boxShadow: "0 18px 70px rgba(0,0,0,0.45)",
+          }}
+        >
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "rgba(244,150,23,0.2)", color: "#F5C16C" }}>
+              <IcoLock />
+            </div>
+            <div>
+              <h2 className="text-white text-lg font-semibold">Creator Access Locked</h2>
+              <p className="text-white/60 text-sm">Community Standards fine settlement is required before creator actions resume.</p>
+            </div>
+          </div>
+
+          <div
+            className="rounded-xl p-4 mb-4"
+            style={{ background: "rgba(244,150,23,0.12)", border: "1px solid rgba(244,150,23,0.3)" }}
+          >
+            <p className="text-white/70 text-xs uppercase tracking-widest mb-1">Payable Fine</p>
+            <p className="text-[#F5C16C] text-2xl font-bold">NGN {fineAmount.toLocaleString()}</p>
+            <p className="text-white/50 text-xs mt-1">Reason: Community Standards Fine</p>
+          </div>
+
+          {creatorLockError && (
+            <p className="text-red-300 text-sm mb-4">{creatorLockError}</p>
+          )}
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handlePayCreatorLock}
+              disabled={payingCreatorLock || loadingCreatorLock}
+              className="px-5 py-2.5 rounded-xl text-sm font-bold transition-opacity disabled:opacity-60"
+              style={{ background: "linear-gradient(90deg, #F49617, #F5C16C)", color: "#050A30" }}
+            >
+              {payingCreatorLock ? "Processing..." : "Pay Fine & Unlock"}
+            </button>
+            <button
+              onClick={() => void refreshCreatorLockStatus()}
+              disabled={payingCreatorLock || loadingCreatorLock}
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-opacity disabled:opacity-60"
+              style={{ background: "rgba(255,255,255,0.08)", color: "#FFFFFF", border: "1px solid rgba(255,255,255,0.16)" }}
+            >
+              Refresh Status
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // -- Desktop layout -------------------------------------------------------
 
   if (isDesktop) {
@@ -1557,6 +1877,10 @@ export default function WavePage() {
                 isActive={true}
                 autoscroll={autoscroll}
                 forceAdvanceOnEnd={true}
+                blockedReason={!checkingAccess && accessDecision && !accessDecision.allowed && !accessDecision.requires_consent ? accessDecision.reason || "This content is not available for your account." : null}
+                requiresAdultConsent={Boolean(!checkingAccess && accessDecision?.requires_consent && !adultConsentSessionAccepted)}
+                onConfirmAdultConsent={confirmAdultConsent}
+                onLeaveRestrictedContent={leaveAdultContent}
                 onAutoscrollChange={setAutoscroll}
                 onPrevWave={activeIndex > 0 ? () => setActiveIndex((i) => i - 1) : undefined}
                 onAdvanceWave={advanceWave}
@@ -1612,6 +1936,14 @@ export default function WavePage() {
             wave={wave}
             isActive={i === activeIndex}
             autoscroll={autoscroll}
+            blockedReason={
+              i === activeIndex && !checkingAccess && accessDecision && !accessDecision.allowed && !accessDecision.requires_consent
+                ? accessDecision.reason || "This content is not available for your account."
+                : null
+            }
+            requiresAdultConsent={Boolean(i === activeIndex && !checkingAccess && accessDecision?.requires_consent && !adultConsentSessionAccepted)}
+            onConfirmAdultConsent={confirmAdultConsent}
+            onLeaveRestrictedContent={leaveAdultContent}
             onAutoscrollChange={setAutoscroll}
             onAdvanceWave={advanceWave}
           />
