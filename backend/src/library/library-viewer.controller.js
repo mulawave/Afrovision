@@ -65,8 +65,22 @@ exports.listItems = async (req, res) => {
       id: doc.id,
     });
 
+    // Display order follows the creator-defined sequence (seriesOrderIndex, set by
+    // Seq Up/Down), with createdAt as a tiebreaker so it matches the reader's
+    // next/previous navigation order.
+    const sortBySequence = (list) =>
+      list.sort((left, right) => {
+        const leftIndex = Number(left.seriesOrderIndex ?? 0);
+        const rightIndex = Number(right.seriesOrderIndex ?? 0);
+        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+        const leftAt = new Date(left.createdAt || 0).getTime();
+        const rightAt = new Date(right.createdAt || 0).getTime();
+        return rightAt - leftAt;
+      });
+
     try {
-      // Preferred path: use Firestore ordering when the composite index is available.
+      // Preferred path: rely on the equality filters and order in memory by the
+      // creator-defined sequence (avoids needing a composite ordering index).
       let query = db.collection('channel_library_items').where('channelId', '==', channelId);
       query = query.where('status', '==', 'published');
 
@@ -78,10 +92,10 @@ exports.listItems = async (req, res) => {
         query = query.where('contentType', '==', contentType);
       }
 
-      const snapshot = await query.orderBy('createdAt', 'desc').offset(offset).limit(limitNumber).get();
-      items = snapshot.docs.map(mapDoc);
-      const countSnapshot = await query.get();
-      total = countSnapshot.size;
+      const snapshot = await query.get();
+      const ordered = sortBySequence(snapshot.docs.map(mapDoc));
+      total = ordered.length;
+      items = ordered.slice(offset, offset + limitNumber);
     } catch (queryError) {
       console.warn('Library list index fallback:', queryError.message);
 
@@ -91,16 +105,13 @@ exports.listItems = async (req, res) => {
         .where('channelId', '==', channelId)
         .get();
 
-      const filtered = fallbackSnap.docs
-        .map(mapDoc)
-        .filter((item) => item.status === 'published')
-        .filter((item) => (seriesId ? item.seriesId === seriesId : true))
-        .filter((item) => (contentType ? item.contentType === contentType : true))
-        .sort((left, right) => {
-          const leftAt = new Date(left.createdAt || 0).getTime();
-          const rightAt = new Date(right.createdAt || 0).getTime();
-          return rightAt - leftAt;
-        });
+      const filtered = sortBySequence(
+        fallbackSnap.docs
+          .map(mapDoc)
+          .filter((item) => item.status === 'published')
+          .filter((item) => (seriesId ? item.seriesId === seriesId : true))
+          .filter((item) => (contentType ? item.contentType === contentType : true))
+      );
 
       total = filtered.length;
       items = filtered.slice(offset, offset + limitNumber);
