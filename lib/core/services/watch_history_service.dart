@@ -5,12 +5,14 @@ class WatchHistoryEntry {
   final String id;
   final String name;
   final String? logo;
+  final String? banner;
   final DateTime viewedAt;
 
   WatchHistoryEntry({
     required this.id,
     required this.name,
     this.logo,
+    this.banner,
     required this.viewedAt,
   });
 
@@ -18,6 +20,7 @@ class WatchHistoryEntry {
         'id': id,
         'name': name,
         'logo': logo,
+        'banner': banner,
         'viewedAt': viewedAt.toIso8601String(),
       };
 
@@ -26,6 +29,7 @@ class WatchHistoryEntry {
       id: json['id'] as String,
       name: json['name'] as String,
       logo: json['logo'] as String?,
+      banner: json['banner'] as String?,
       viewedAt: DateTime.parse(json['viewedAt'] as String),
     );
   }
@@ -56,6 +60,7 @@ class WatchHistoryService {
     required String channelId,
     required String channelName,
     String? channelLogo,
+    String? channelBanner,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final history = await getHistory();
@@ -66,6 +71,7 @@ class WatchHistoryService {
         id: channelId,
         name: channelName,
         logo: channelLogo,
+        banner: channelBanner,
         viewedAt: DateTime.now(),
       ),
     );

@@ -6,6 +6,7 @@ import '../models/channel_model.dart';
 import '../models/category_model.dart';
 import '../services/channel_service.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class ChannelListScreen extends StatefulWidget {
   const ChannelListScreen({super.key});
@@ -170,6 +171,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
               ),
               const BannerAdWidget(placement: 'page'),
               const SizedBox(height: 8),
+              const MarqueeTickerWidget(),
               Expanded(
                 child: _loading
                     ? const Center(

@@ -15,6 +15,7 @@ const { buildExclusiveLifecycleMessage } = require('./exclusive_lifecycle.messag
 const { isAdultKycVerified } = require('./exclusive_policy.service');
 const { queueExclusiveSplitException } = require('./exclusive_reconciliation.service');
 
+const COLLECTION = 'exclusive_channel_access';
 const PIC_ATTEMPTS_COLLECTION = 'exclusive_pic_attempts';
 const PURCHASE_IDEMPOTENCY_COLLECTION = 'exclusive_purchase_idempotency';
 const PIC_MAX_FAILED_ATTEMPTS = Math.max(3, Number(process.env.EXCLUSIVE_PIC_MAX_FAILED_ATTEMPTS || 5));
@@ -457,9 +458,10 @@ async function purchaseExclusiveAccess(req, res) {
         access_id: access.id,
       },
       description: `Exclusive channel access payment - ${channel.name}`,
-    });
+    }).catch((err) => console.error('[Exclusive] ledger creation failed:', err.message));
 
-    await NotificationService.notifyUser(req.userId, {
+    // Non-critical: send notification (don't fail payment if this fails)
+    NotificationService.notifyUser(req.userId, {
       title: viewerMessage.title,
       body: viewerMessage.body,
       type: viewerMessage.type,
@@ -469,9 +471,10 @@ async function purchaseExclusiveAccess(req, res) {
         access_id: access.id,
         expires_at: String(access.expires_at),
       },
-    });
+    }).catch((err) => console.error('[Exclusive] user notification failed:', err.message));
 
-    await NotificationService.notifyUser(channel.owner_id, {
+    // Non-critical: notify creator (don't fail payment if this fails)
+    NotificationService.notifyUser(channel.owner_id, {
       title: creatorMessage.title,
       body: creatorMessage.body,
       type: creatorMessage.type,
@@ -481,8 +484,9 @@ async function purchaseExclusiveAccess(req, res) {
         payer_uid: req.userId,
         amount_ngn: String(amount),
       },
-    });
+    }).catch((err) => console.error('[Exclusive] creator notification failed:', err.message));
 
+    // Non-critical: send emails (don't fail payment if this fails)
     if (viewer && viewer.email && !viewer.email.endsWith('@afrovision.invalid')) {
       sendExclusiveLifecycleEmail({
         to: viewer.email,
@@ -520,17 +524,18 @@ async function purchaseExclusiveAccess(req, res) {
       },
     };
 
-    await safeAuditLog(req.userId, isRenewal ? 'exclusive_entitlement_renewed' : 'exclusive_entitlement_issued', access.id, {
+    // Non-critical: audit log (don't fail payment if this fails)
+    safeAuditLog(req.userId, isRenewal ? 'exclusive_entitlement_renewed' : 'exclusive_entitlement_issued', access.id, {
       channel_id: channel.id,
       amount_ngn: amount,
       payment_reference: paymentReference,
       expires_at: access.expires_at,
-    });
+    }).catch((err) => console.error('[Exclusive] audit log failed:', err.message));
 
     await finalizePurchaseIdempotency(idempotencyDoc, {
       status: 'completed',
       result: responsePayload,
-    });
+    }).catch((err) => console.error('[Exclusive] idempotency finalization failed:', err.message));
 
     return res.json(responsePayload);
   } catch (err) {
@@ -692,11 +697,280 @@ async function updateExclusiveSettings(req, res) {
   }
 }
 
+async function listSubscribers(req, res) {
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const caller = await User.findById(req.userId);
+    const isOwner = channel.owner_id === req.userId;
+    const isAdmin = caller && caller.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Not channel owner' });
+    }
+
+    if (channel.type !== 'exclusive') {
+      return res.status(400).json({ error: 'Channel is not exclusive' });
+    }
+
+    const db = getFirestore();
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const cursor = req.query.cursor || null;
+    
+    let query = db.collection(COLLECTION)
+      .where('channel_id', '==', channel.id)
+      .orderBy('issued_at', 'desc')
+      .limit(limit);
+
+    if (cursor) {
+      query = query.startAfter(cursor);
+    }
+
+    const snapshot = await query.get();
+    const accesses = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+
+    // Fetch user details for each subscriber
+    const userUids = [...new Set(accesses.map((a) => a.user_uid))];
+    const userDocs = await Promise.all(
+      userUids.map((uid) => db.collection('users').doc(uid).get())
+    );
+    const users = {};
+    userDocs.forEach((doc) => {
+      if (doc.exists) {
+        users[doc.id] = { ...doc.data(), id: doc.id };
+      }
+    });
+
+    // Enrich access records with user details
+    const subscribers = accesses.map((access) => ({
+      access_id: access.id,
+      user_uid: access.user_uid,
+      user_name: users[access.user_uid]?.display_name || users[access.user_uid]?.username || 'Unknown',
+      user_avatar: users[access.user_uid]?.avatar_url || null,
+      status: access.status,
+      issued_at: access.issued_at,
+      expires_at: access.expires_at,
+      monthly_fee_ngn: access.monthly_fee_ngn,
+      source_payment_id: access.source_payment_id,
+      last_renewed_at: access.last_renewed_at,
+      is_banned: access.is_banned || false,
+    }));
+
+    const nextCursor = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1].data().issued_at : null;
+
+    return res.json({
+      subscribers,
+      nextCursor,
+      total: subscribers.length,
+    });
+  } catch (err) {
+    console.error('[Exclusive] list-subscribers:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function banSubscriber(req, res) {
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const caller = await User.findById(req.userId);
+    const isOwner = channel.owner_id === req.userId;
+    const isAdmin = caller && caller.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Not channel owner' });
+    }
+
+    if (channel.type !== 'exclusive') {
+      return res.status(400).json({ error: 'Channel is not exclusive' });
+    }
+
+    const { userUid } = req.body;
+    if (!userUid) {
+      return res.status(400).json({ error: 'userUid is required' });
+    }
+
+    const access = await ExclusiveAccess.findLatestByUserAndChannel(userUid, channel.id);
+    if (!access) {
+      return res.status(404).json({ error: 'Subscriber not found' });
+    }
+
+    await ExclusiveAccess.updateAccess(access.id, {
+      is_banned: true,
+      status: 'banned',
+      banned_at: Date.now(),
+      banned_by: req.userId,
+    });
+
+    await safeAuditLog(req.userId, 'exclusive_subscriber_banned', access.id, {
+      channel_id: channel.id,
+      user_uid: userUid,
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[Exclusive] ban-subscriber:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function cancelSubscription(req, res) {
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const caller = await User.findById(req.userId);
+    const isOwner = channel.owner_id === req.userId;
+    const isAdmin = caller && caller.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Not channel owner' });
+    }
+
+    if (channel.type !== 'exclusive') {
+      return res.status(400).json({ error: 'Channel is not exclusive' });
+    }
+
+    const { userUid } = req.body;
+    if (!userUid) {
+      return res.status(400).json({ error: 'userUid is required' });
+    }
+
+    const access = await ExclusiveAccess.findLatestByUserAndChannel(userUid, channel.id);
+    if (!access) {
+      return res.status(404).json({ error: 'Subscriber not found' });
+    }
+
+    await ExclusiveAccess.updateAccess(access.id, {
+      status: 'cancelled',
+      cancelled_at: Date.now(),
+      cancelled_by: req.userId,
+    });
+
+    await safeAuditLog(req.userId, 'exclusive_subscription_cancelled', access.id, {
+      channel_id: channel.id,
+      user_uid: userUid,
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[Exclusive] cancel-subscription:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function giftSubscription(req, res) {
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const caller = await User.findById(req.userId);
+    const isOwner = channel.owner_id === req.userId;
+    const isAdmin = caller && caller.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Not channel owner' });
+    }
+
+    if (channel.type !== 'exclusive') {
+      return res.status(400).json({ error: 'Channel is not exclusive' });
+    }
+
+    const { userUid, days } = req.body;
+    if (!userUid) {
+      return res.status(400).json({ error: 'userUid is required' });
+    }
+    if (!days || days <= 0) {
+      return res.status(400).json({ error: 'days must be greater than 0' });
+    }
+
+    const access = await ExclusiveAccess.findLatestByUserAndChannel(userUid, channel.id);
+    if (!access) {
+      return res.status(404).json({ error: 'Subscriber not found' });
+    }
+
+    const extensionMs = days * 24 * 60 * 60 * 1000;
+    const currentExpiresAt = Number(access.expires_at || 0);
+    const newExpiresAt = Math.max(currentExpiresAt, Date.now()) + extensionMs;
+
+    await ExclusiveAccess.updateAccess(access.id, {
+      expires_at: newExpiresAt,
+      gifted_by: req.userId,
+      gifted_at: Date.now,
+      gifted_days: days,
+    });
+
+    await safeAuditLog(req.userId, 'exclusive_subscription_gifted', access.id, {
+      channel_id: channel.id,
+      user_uid: userUid,
+      days,
+    });
+
+    return res.json({ 
+      success: true,
+      new_expires_at: newExpiresAt,
+    });
+  } catch (err) {
+    console.error('[Exclusive] gift-subscription:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function getMyExclusiveAccesses(req, res) {
+  try {
+    const userId = req.userId;
+    if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+    const db = getFirestore();
+    const snapshot = await db.collection(COLLECTION)
+      .where('user_uid', '==', userId)
+      .where('status', '==', 'active')
+      .get();
+
+    const accesses = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+
+    // Fetch channel details for each access
+    const channelIds = [...new Set(accesses.map((a) => a.channel_id))];
+    const channelDocs = await Promise.all(
+      channelIds.map((id) => Channel.findById(id))
+    );
+    const channels = {};
+    channelDocs.forEach((channel) => {
+      if (channel) {
+        channels[channel.id] = channel;
+      }
+    });
+
+    // Enrich access records with channel details
+    const enriched = accesses.map((access) => ({
+      access_id: access.id,
+      channel_id: access.channel_id,
+      channel_name: channels[access.channel_id]?.name || 'Unknown Channel',
+      channel_logo: channels[access.channel_id]?.logo_url || null,
+      status: access.status,
+      issued_at: access.issued_at,
+      expires_at: access.expires_at,
+      monthly_fee_ngn: access.monthly_fee_ngn,
+      is_banned: access.is_banned || false,
+    }));
+
+    return res.json({
+      accesses: enriched,
+      total: enriched.length,
+    });
+  } catch (err) {
+    console.error('[Exclusive] get-my-accesses:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 module.exports = {
-  isAdultKycVerified,
   checkExclusiveAccessStatus,
   purchaseExclusiveAccess,
   verifyExclusivePic,
   renewExclusiveAccess,
   updateExclusiveSettings,
+  listSubscribers,
+  banSubscriber,
+  cancelSubscription,
+  giftSubscription,
+  getMyExclusiveAccesses,
 };

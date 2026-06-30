@@ -8,6 +8,31 @@ const Plan = require('../subscriptions/plan.model');
 const Vpt = require('./vpt.model');
 const SettingsService = require('../admin/settings.service');
 
+function _toNumber(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Produce canonical pool stats object consumers should read directly.
+ * Accepts a pool Firestore object and an authoritative vptPrice (NGN per vPT).
+ */
+function canonicalPoolStats(pool = {}, vptPriceNGN = 750) {
+  const balanceVpt = _toNumber(pool.balance_vpt ?? pool.balanceVpt ?? pool.vpt ?? 0, 0);
+  const balanceNgn = Math.round(balanceVpt * vptPriceNGN);
+  const nextDistributionVpt = _toNumber(pool.next_distribution_vpt ?? pool.nextDistributionVpt ?? 0, 0);
+  const nextDistributionNgn = Math.round(nextDistributionVpt * vptPriceNGN);
+
+  return {
+    balance_vpt: Number(balanceVpt.toFixed(2)),
+    balance_ngn: balanceNgn,
+    vpt_price_ngn: Number(vptPriceNGN),
+    next_distribution_vpt: Number(nextDistributionVpt.toFixed(4)),
+    next_distribution_ngn: nextDistributionNgn,
+    _raw: pool,
+  };
+}
+
 const POOL_DOC = 'pools/community';
 const RBD_POOL_DOC = 'pools/rbd'; // Referral Base Dump pool
 const OPS_POOL_DOC = 'pools/operations'; // Operations pool (50% of subscriptions)
@@ -254,15 +279,17 @@ async function distributeViewerRewards() {
       const snapshot = await db.collection('users')
         .where('subscription_status', '==', 'active')
         .where('subscription_plan', '==', plan.name)
-        .select('email')
         .get();
 
-      return snapshot.docs.map((doc) => ({
-        userId: doc.id,
-        email: doc.get('email') || null,
-        multiplier: plan.reward_multiplier || 0,
-        planName: plan.name,
-      }));
+      return snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((user) => User.hasActiveSubscription(user))
+        .map((user) => ({
+          userId: user.id,
+          email: user.email || null,
+          multiplier: plan.reward_multiplier || 0,
+          planName: plan.name,
+        }));
     })
   )).flat();
 
@@ -432,18 +459,19 @@ async function getDistributionById(id) {
 }
 
 async function getPoolStats() {
+  // Read authoritative vPT price and reward percent (settings may be async)
   const vptPriceNGN = (await SettingsService.getNumber('VPT_PRICE_NGN')) || 750;
   const rewardPercent = ((await SettingsService.getNumber('VIEWER_REWARD_PERCENT')) || 10);
 
+  // Base pool and viewer plan metrics
   const pool = await getPoolBalance();
   const viewerPlans = (await Plan.getByType('viewer'))
     .filter((plan) => (plan.reward_multiplier || 0) > 0);
   const db = getFirestore();
-  const countSnapshots = await Promise.all(
+  const eligibleSnapshots = await Promise.all(
     viewerPlans.map((plan) => db.collection('users')
       .where('subscription_status', '==', 'active')
       .where('subscription_plan', '==', plan.name)
-      .count()
       .get())
   );
 
@@ -453,7 +481,10 @@ async function getPoolStats() {
 
   for (let index = 0; index < viewerPlans.length; index += 1) {
     const plan = viewerPlans[index];
-    const count = countSnapshots[index].data().count || 0;
+    const count = eligibleSnapshots[index].docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((user) => User.hasActiveSubscription(user))
+      .length;
     if (count <= 0) continue;
     eligibleCount += count;
     totalMultipliers += count * (plan.reward_multiplier || 0);
@@ -462,7 +493,11 @@ async function getPoolStats() {
 
   const nextDistributionVPT = Number(pool.balance_vpt || 0) * (rewardPercent / 100);
 
-  return {
+  // Canonical fields for direct consumption
+  const canonical = canonicalPoolStats(pool, vptPriceNGN);
+
+  return Object.assign({}, canonical, {
+    // preserve legacy `pool` object for existing callers
     pool: {
       balance_ngn: Number(pool.balance_ngn || 0),
       balance_vpt: Number(pool.balance_vpt || 0),
@@ -472,7 +507,6 @@ async function getPoolStats() {
       total_distributed_vpt: Number(pool.total_distributed_vpt || 0),
       total_beneficiaries: Number(pool.total_beneficiaries || 0),
     },
-    vpt_price_ngn: vptPriceNGN,
     eligible_viewers: eligibleCount,
     total_multipliers: totalMultipliers,
     tier_counts: tierCounts,
@@ -480,7 +514,7 @@ async function getPoolStats() {
     next_distribution_vpt: parseFloat(nextDistributionVPT.toFixed(4)),
     next_distribution_ngn: Math.round(nextDistributionVPT * vptPriceNGN),
     recent_distributions: await getDistributionHistory(5),
-  };
+  });
 }
 
 /**
@@ -658,6 +692,7 @@ module.exports = {
   getDistributionHistory,
   getDistributionById,
   getPoolStats,
+  canonicalPoolStats,
   invalidatePoolStatsCache,
   runScheduledDistribution,
   startCron,

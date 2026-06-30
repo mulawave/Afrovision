@@ -62,6 +62,7 @@ import 'features/static_pages/screens/static_page_viewer_screen.dart';
 import 'features/static_pages/screens/static_pages_catalog_screen.dart';
 import 'features/static_pages/screens/external_static_handoff_screen.dart';
 import 'features/wave/screens/wave_screen.dart';
+import 'features/wave/screens/saved_waves_screen.dart';
 import 'features/wave/screens/wave_edit_screen.dart';
 import 'features/wave/screens/wave_upload_screen.dart';
 import 'features/broadcast/screens/channel_library_screen.dart';
@@ -70,6 +71,7 @@ import 'features/broadcast/screens/channel_library_reader_screen.dart';
 import 'features/broadcast/screens/creator_library_management_screen.dart';
 import 'features/announcements/screens/announcements_screen.dart';
 import 'features/updates/screens/updates_screen.dart';
+import 'features/channel/screens/my_pics_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -147,6 +149,7 @@ class AfroVisionApp extends StatelessWidget {
         '/channels': (_) => const ChannelListScreen(),
         '/channel-grid': (_) => const ChannelGridScreen(),
         '/wave': (_) => const WaveScreen(),
+        '/saved-waves': (_) => const SavedWavesScreen(),
         '/wave-edit': (_) => const WaveEditScreen(),
         '/channel-library': (_) => const ChannelLibraryScreen(),
         '/channel-library/item': (_) => const ChannelLibraryItemScreen(),
@@ -209,6 +212,7 @@ class AfroVisionApp extends StatelessWidget {
         '/challenge/rules': (_) => const ChallengeRulesScreen(),
         '/announcements': (_) => const AnnouncementsScreen(),
         '/updates-list': (_) => const UpdatesScreen(),
+        '/my-pics': (_) => const MyPicsScreen(),
       },
     );
   }

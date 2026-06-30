@@ -89,4 +89,23 @@ class ChannelSubscriptionService {
       return {'success': false, 'error': e.toString()};
     }
   }
+
+  /// Check if user has an active subscription to a channel
+  static Future<bool> hasActiveSubscription(String channelId) async {
+    try {
+      final response = await ApiService.get(
+        '$_basePath/check/$channelId',
+      );
+      final subscribed = response['subscribed'] as bool? ?? false;
+      if (!subscribed) return false;
+      
+      final subscription = response['subscription'] as Map<String, dynamic>?;
+      if (subscription == null) return false;
+      
+      final status = subscription['status'] as String? ?? 'inactive';
+      return status == 'active';
+    } catch (e) {
+      return false;
+    }
+  }
 }

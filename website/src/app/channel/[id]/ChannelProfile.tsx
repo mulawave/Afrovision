@@ -123,7 +123,7 @@ export function ChannelProfile({ id }: { id: string }) {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("streams");
+  const [activeTab, setActiveTab] = useState<Tab>("about");
   const [videosLoaded, setVideosLoaded] = useState(false);
   const [channelWaves, setChannelWaves] = useState<Wave[]>([]);
   const [channelWavesLoaded, setChannelWavesLoaded] = useState(false);

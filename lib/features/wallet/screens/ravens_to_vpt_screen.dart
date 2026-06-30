@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
 import '../services/wallet_service.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class RavensToVptScreen extends StatefulWidget {
   const RavensToVptScreen({super.key});
@@ -189,6 +190,7 @@ class _RavensToVptScreenState extends State<RavensToVptScreen>
           child: Column(
             children: [
               _buildAppBar(),
+              const MarqueeTickerWidget(),
               Expanded(
                 child: _ratesLoading || _balancesLoading
                     ? const Center(

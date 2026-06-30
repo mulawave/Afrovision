@@ -33,6 +33,7 @@ async function getVptRate() {
 function toCommunityPoolPayload(pool, vptRate) {
   return {
     community_pool: {
+      // Legacy shape (kept for backwards compatibility)
       total_vpt: pool.balance_vpt,
       total_ngn: pool.balance_ngn,
       vpt_rate: vptRate,
@@ -40,6 +41,10 @@ function toCommunityPoolPayload(pool, vptRate) {
       total_distributed_vpt: pool.total_distributed_vpt,
       total_distributed_ngn: pool.total_distributed,
       total_beneficiaries: pool.total_beneficiaries,
+      // Canonical fields (clients should prefer these)
+      balance_vpt: pool.balance_vpt,
+      balance_ngn: pool.balance_ngn,
+      vpt_price_ngn: vptRate,
     },
   };
 }
@@ -85,12 +90,27 @@ async function getCommunityPoolStats({ forceRefresh = false } = {}) {
   }
 
   poolRequestInFlight = (async () => {
-    const [poolStats, vptRate] = await Promise.all([
-      PoolService.getPoolStats(),
-      getVptRate(),
-    ]);
+    const poolStats = await PoolService.getPoolStats();
 
-    poolCache = toCommunityPoolPayload(poolStats.pool, vptRate);
+    // getPoolStats() returns canonical balance fields at the top level
+    // (balance_vpt / balance_ngn / vpt_price_ngn) but keeps the distribution
+    // and beneficiary counters inside the nested `pool` object. Read each
+    // value from the correct level, falling back to the other for safety.
+    const legacy = poolStats.pool || {};
+    const pool = {
+      balance_vpt: poolStats.balance_vpt || legacy.balance_vpt || 0,
+      balance_ngn: poolStats.balance_ngn || legacy.balance_ngn || 0,
+      total_distributed_vpt:
+        poolStats.total_distributed_vpt || legacy.total_distributed_vpt || 0,
+      total_distributed:
+        poolStats.total_distributed || legacy.total_distributed || 0,
+      total_beneficiaries:
+        poolStats.total_beneficiaries || legacy.total_beneficiaries || 0,
+    };
+
+    const vptRate = poolStats.vpt_price_ngn || await getVptRate();
+
+    poolCache = toCommunityPoolPayload(pool, vptRate);
     poolCacheUpdatedAt = Date.now();
     return poolCache;
   })();

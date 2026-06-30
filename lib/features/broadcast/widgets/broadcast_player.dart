@@ -409,6 +409,15 @@ class BroadcastPlayer extends ChangeNotifier {
     _isContinuousStream = false;
   }
 
+  /// Async variant used by the channel player so that the old controller is
+  /// fully released before the next channel starts, preventing audio conflict.
+  Future<void> disposeAsync() async {
+    _disposed = true;
+    _syncTimer?.cancel();
+    await _disposeController();
+    super.dispose();
+  }
+
   @override
   void dispose() {
     _disposed = true;

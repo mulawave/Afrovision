@@ -717,6 +717,15 @@ async function deleteResetToken(token) {
   await deletePersistedResetToken(token);
 }
 
+function hasActiveSubscription(user) {
+  if (!user) return false;
+  if (user.subscription_status !== 'active') return false;
+  if (!user.subscription_expiry) return false;
+  const expiry = new Date(user.subscription_expiry);
+  if (Number.isNaN(expiry.getTime())) return false;
+  return expiry.getTime() > Date.now();
+}
+
 function toSafeUser(user) {
   let bscAddress = null;
   let subscriptionPlanType = null;
@@ -856,6 +865,7 @@ module.exports = {
   storeResetToken,
   validateResetToken,
   deleteResetToken,
+  hasActiveSubscription,
   toSafeUser,
   toDetailedUser,
   reloadFromFirestore,

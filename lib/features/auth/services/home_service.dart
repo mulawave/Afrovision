@@ -122,12 +122,19 @@ class HomeCommunityPoolStats {
         (json['data'] as Map<String, dynamic>?) ??
         json;
     return HomeCommunityPoolStats(
-      totalVpt: _toDouble(pool['total_vpt']),
-      totalNgn: _toDouble(pool['total_ngn']),
-      vptRate: _toInt(pool['vpt_rate'], fallback: 750),
-      nairaEquivalent: _toDouble(pool['naira_equivalent']),
-      totalDistributedVpt: _toDouble(pool['total_distributed_vpt']),
-      totalDistributedNgn: _toDouble(pool['total_distributed_ngn']),
+      // Prefer canonical backend fields `balance_vpt` / `balance_ngn` when present
+      totalVpt: _toDouble(pool['balance_vpt'] ?? pool['total_vpt']),
+      totalNgn: _toDouble(pool['balance_ngn'] ?? pool['total_ngn']),
+      vptRate: _toInt(pool['vpt_price_ngn'] ?? pool['vpt_rate'], fallback: 750),
+      nairaEquivalent: _toDouble(
+        pool['balance_ngn'] ?? pool['naira_equivalent'],
+      ),
+      totalDistributedVpt: _toDouble(
+        pool['total_distributed_vpt'] ?? pool['total_distributed_vpt'],
+      ),
+      totalDistributedNgn: _toDouble(
+        pool['total_distributed_ngn'] ?? pool['total_distributed_ngn'],
+      ),
       totalBeneficiaries: _toInt(pool['total_beneficiaries']),
     );
   }
@@ -146,8 +153,15 @@ class _HomeChannelHighlights {
     required this.totalMembers,
   });
 
+  factory _HomeChannelHighlights.empty() => _HomeChannelHighlights(
+        recentChannels: const [],
+        promotedChannels: const [],
+        totalChannels: 0,
+        totalMembers: 0,
+      );
+
   factory _HomeChannelHighlights.fromJson(Map<String, dynamic> json) {
-    final stats = json['stats'] as Map<String, dynamic>;
+    final stats = (json['stats'] as Map<String, dynamic>?) ?? const {};
     final recent = (json['recent_channels'] as List<dynamic>?) ?? [];
     final promoted = (json['promoted_channels'] as List<dynamic>?) ?? [];
     return _HomeChannelHighlights(
@@ -157,8 +171,8 @@ class _HomeChannelHighlights {
       promotedChannels: promoted
           .map((e) => PromotedChannel.fromJson(e as Map<String, dynamic>))
           .toList(),
-      totalChannels: (stats['total_channels'] as num).toInt(),
-      totalMembers: (stats['total_members'] as num).toInt(),
+      totalChannels: (stats['total_channels'] as num?)?.toInt() ?? 0,
+      totalMembers: (stats['total_members'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -337,14 +351,16 @@ class HomeService {
     }
 
     _statsRequestInFlight = () async {
-      final results = await Future.wait([
-        getCommunityPoolStats(forceRefresh: forceRefresh),
-        _getChannelHighlights(forceRefresh: forceRefresh),
-      ]);
-      final stats = HomeStats._fromParts(
-        pool: results[0] as HomeCommunityPoolStats,
-        highlights: results[1] as _HomeChannelHighlights,
-      );
+      // Fetch both in parallel, but isolate failures so a channel-highlights
+      // error never zeroes out the community-pool data (and vice-versa).
+      final poolFuture = getCommunityPoolStats(forceRefresh: forceRefresh);
+      final highlightsFuture = _getChannelHighlights(forceRefresh: forceRefresh)
+          .catchError((_) => _HomeChannelHighlights.empty());
+
+      final pool = await poolFuture;
+      final highlights = await highlightsFuture;
+
+      final stats = HomeStats._fromParts(pool: pool, highlights: highlights);
       _statsCache = stats;
       _statsCacheUpdatedAt = DateTime.now();
       return stats;

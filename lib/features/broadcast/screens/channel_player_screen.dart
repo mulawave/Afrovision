@@ -172,7 +172,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     PipService.setAutoEnterEnabled(false);
     // If we handed off the controllers to the floating overlay, don't stop
     // or dispose them — the overlay is still using them.
-    if (!_isHandedOffToFloat) _stopPlaybackForRetune();
+    if (!_isHandedOffToFloat) unawaited(_stopPlaybackForRetune());
     _eventTimer?.cancel();
     _hideControlsTimer?.cancel();
 
@@ -194,11 +194,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _isInBackground = false;
-      // If floating mode was active, stop the native overlay service and
-      // resume playback in the in-app overlay.
-      if (FloatingPlayerService.instance.isActive) {
-        FloatingPlayerService.instance.onAppForeground();
-      } else {
+      // Floating-mode lifecycle is handled by FloatingPlayerService itself.
+      if (!FloatingPlayerService.instance.isActive) {
         // Normal resume — resync native player and restart polling.
         _player?.setAppActive(true);
         _player?.onAppResumed();
@@ -217,11 +214,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       _isInBackground = true;
-      // If floating mode is active, hand off to the native system overlay
-      // so the video keeps playing above all other apps / home screen.
-      if (FloatingPlayerService.instance.isActive) {
-        FloatingPlayerService.instance.onAppBackground();
-      }
+      // Floating-mode background hand-off is handled by FloatingPlayerService.
       // Pause the in-app controllers (PiP keeps playing in its own window).
       _player?.setAppActive(false);
       if (!_isInPiPMode) {
@@ -235,30 +228,42 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     }
   }
 
-  Future<void> _pauseYouTubePlayback() async {
+  Future<void> _pauseYouTubePlayback({WebViewController? controller}) async {
+    final ctrl = controller ?? _ytWebViewController;
+    if (ctrl == null) return;
     try {
-      await _ytWebViewController?.runJavaScript(
+      await ctrl.runJavaScript(
         'try{document.getElementById("yt").contentWindow'
         '.postMessage(\'{"event":"command","func":"pauseVideo","args":[]}\', "*");}catch(e){}',
       );
     } catch (_) {}
   }
 
-  void _stopPlaybackForRetune() {
+  /// Fully tears down the YouTube WebView so it cannot keep playing audio
+  /// after the widget is removed. Capture the controller before nulling it.
+  Future<void> _disposeYouTubeController() async {
+    final ctrl = _ytWebViewController;
+    _ytWebViewController = null;
+    if (ctrl == null) return;
+    await _pauseYouTubePlayback(controller: ctrl);
+    try {
+      // Loading a blank page stops the platform WebView from keeping the
+      // YouTube audio session alive.
+      await ctrl.loadRequest(Uri.parse('about:blank'));
+    } catch (_) {}
+  }
+
+  Future<void> _stopPlaybackForRetune() async {
     _eventTimer?.cancel();
     _eventPollSession++;
     final player = _player;
     _player = null;
     if (player != null) {
-      player.controller?.pause();
-      player.dispose();
+      await player.disposeAsync();
     }
-    _pauseYouTubePlayback();
-    _ytWebViewController = null;
+    await _disposeYouTubeController();
     _youtubeReady = false;
-
     _ytEmbedBlocked = false;
-
     _externalRuntimeMode = 'native';
     _silentRetryTimer?.cancel();
     _freezeWatchdogTimer?.cancel();
@@ -359,6 +364,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         channelId: _channel!.id,
         channelName: _channel!.name,
         channelLogo: _channel!.logoUrl,
+        channelBanner: _channel!.bannerUrl,
       ).catchError((_) {});
 
       // Keep analytics parity with website by recording channel view on open.
@@ -712,7 +718,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   Future<void> _switchToChannel(ChannelModel next) async {
     if (_channelId == next.id) return;
 
-    _stopPlaybackForRetune();
+    await _stopPlaybackForRetune();
 
     setState(() {
       _loading = true;
@@ -976,6 +982,9 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     _externalRuntimeMode = 'native';
     // Build an HTML5 video page so the native overlay service can play this
     // stream while the app is in the background.
+    final isHls = url.toLowerCase().contains('.m3u8') ||
+        url.toLowerCase().contains('playlist') ||
+        url.toLowerCase().contains('manifest');
     _activeStreamHtml =
         '''<!DOCTYPE html>
 <html>
@@ -983,14 +992,24 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#000;overflow:hidden}
 video{width:100%;height:100%;object-fit:contain}</style>
+${isHls ? '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>' : ''}
 </head>
 <body>
-<video src="$url" autoplay playsinline></video>
+<video id="v" ${isHls ? '' : 'src="$url"'} autoplay playsinline muted></video>
+<script>
+  var v=document.getElementById('v');
+  v.muted=false;
+  ${isHls ? 'var h=new Hls({enableWorker:true});h.loadSource("$url");h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,function(){v.play();});' : 'v.play();'}
+</script>
 </body>
 </html>''';
-    _ytWebViewController = null;
+    final oldPlayer = _player;
+    _player = null;
+    if (oldPlayer != null) {
+      await oldPlayer.disposeAsync();
+    }
+    await _disposeYouTubeController();
     _youtubeReady = false;
-    _player?.dispose();
 
     final player = BroadcastPlayer();
     _player = player;
@@ -1236,9 +1255,12 @@ video{width:100%;height:100%;object-fit:contain}</style>
       return;
     }
 
-    _player?.dispose();
+    final oldPlayer = _player;
     _player = null;
-    _ytWebViewController = null;
+    if (oldPlayer != null) {
+      await oldPlayer.disposeAsync();
+    }
+    await _disposeYouTubeController();
 
     _ytEmbedBlocked = false;
 
@@ -1981,9 +2003,13 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     );
   }
 
-  void _goDashboard() {
+  Future<void> _goDashboard() async {
     if (!mounted) return;
-    Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+    // Fully stop playback before leaving (unlike back button which enters floating mode)
+    await _stopPlaybackForRetune();
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+    }
   }
 
   /// Handles the back button / back gesture on the player screen.
@@ -2192,7 +2218,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
               ),
             ),
           ),
-          Column(
+          Flexible(
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Row(
@@ -2201,8 +2228,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                   GestureDetector(
                     onTap: _onManualPiPTap,
                     child: Container(
-                      margin: const EdgeInsets.only(right: 10),
-                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.all(7),
                       decoration: BoxDecoration(
                         color: AppColors.cardBg,
                         borderRadius: BorderRadius.circular(10),
@@ -2213,15 +2240,15 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                       child: const Icon(
                         Icons.picture_in_picture_alt_rounded,
                         color: AppColors.lightOrange,
-                        size: 16,
+                        size: 15,
                       ),
                     ),
                   ),
                   GestureDetector(
                     onTap: _shareChannel,
                     child: Container(
-                      margin: const EdgeInsets.only(right: 10),
-                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.all(7),
                       decoration: BoxDecoration(
                         color: AppColors.cardBg,
                         borderRadius: BorderRadius.circular(10),
@@ -2232,14 +2259,14 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                       child: const Icon(
                         Icons.share_rounded,
                         color: AppColors.lightOrange,
-                        size: 16,
+                        size: 15,
                       ),
                     ),
                   ),
                   GestureDetector(
                     onTap: _goDashboard,
                     child: Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(7),
                       decoration: BoxDecoration(
                         color: AppColors.cardBg,
                         borderRadius: BorderRadius.circular(10),
@@ -2250,7 +2277,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                       child: const Icon(
                         Icons.home_rounded,
                         color: AppColors.lightOrange,
-                        size: 16,
+                        size: 15,
                       ),
                     ),
                   ),
@@ -2315,6 +2342,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                 ),
               ],
             ],
+          ),
           ),
           if (_nowPlaying != null)
             Container(
@@ -2728,6 +2756,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
   Widget _buildNoProgram() {
     final hasLogo = _channel?.logoUrl != null;
+    return LayoutBuilder(
+      builder: (context, constraints) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
@@ -2879,7 +2909,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
               ],
             ),
             const SizedBox(height: 20),
-            SizedBox(width: double.infinity, child: _buildSurferBar()),
+            SizedBox(width: constraints.maxWidth - 56, child: _buildSurferBar()),
             if (_nextProgram != null) ...[
               const SizedBox(height: 32),
               _buildUpNextCard(),
@@ -2966,6 +2996,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
           ],
         ),
       ),
+    );
+      },
     );
   }
 
@@ -4346,8 +4378,66 @@ class _FullscreenGiftPanelState extends State<_FullscreenGiftPanel> {
                 },
               ),
             ),
+          // Settlement split info
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.cardBg.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppColors.inputBorder.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  _fsSplitChip('Creator', '50%', AppColors.lightOrange),
+                  const SizedBox(width: 6),
+                  _fsSplitChip('Operations', '30%', AppColors.softBlue),
+                  const SizedBox(width: 6),
+                  _fsSplitChip('Community', '20%', AppColors.successGreen),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
         ],
+      ),
+    );
+  }
+
+  Widget _fsSplitChip(String label, String pct, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              pct,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              label,
+              style: TextStyle(
+                color: AppColors.hintText,
+                fontSize: 8,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -10,6 +10,7 @@ import '../../currency/currency_service.dart';
 import '../../reputation/models/reputation_model.dart';
 import '../../reputation/services/reputation_service.dart';
 import '../../reputation/widgets/reputation_card.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -89,6 +90,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           child: Column(
             children: [
               _buildAppBar(),
+              const MarqueeTickerWidget(),
               Expanded(
                 child: _loading
                     ? const Center(
@@ -309,7 +311,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 const SizedBox(height: 12),
                 RoleBadge(
                   role: user.role,
-                  isPremiumCreator: user.isPremiumCreator,
+                  isPremiumCreator: user.hasActiveSubscription && user.isPremiumCreator,
                   subscriptionPlan: user.subscriptionPlan,
                 ),
                 const SizedBox(height: 28),
@@ -328,8 +330,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                 _buildInfoCard(
                   icon: Icons.workspace_premium_rounded,
                   label: 'Premium Creator',
-                  value: user.isPremiumCreator ? 'Yes' : 'No',
-                  valueColor: user.isPremiumCreator ? AppColors.orange : null,
+                  value: user.hasActiveSubscription && user.isPremiumCreator ? 'Yes' : 'No',
+                  valueColor: user.hasActiveSubscription && user.isPremiumCreator ? AppColors.orange : null,
                 ),
                 GestureDetector(
                   onTap: () => Navigator.pushNamed(context, '/kyc'),
@@ -350,15 +352,15 @@ class _ProfileScreenState extends State<ProfileScreen>
                 _buildInfoCard(
                   icon: Icons.card_membership_rounded,
                   label: 'Subscription Plan',
-                  value: user.subscriptionPlanDisplay,
+                  value: user.hasActiveSubscription ? user.subscriptionPlanDisplay : 'EXPIRED',
                   valueColor: user.hasActiveSubscription
                       ? AppColors.orange
-                      : null,
+                      : AppColors.hintText,
                 ),
                 _buildInfoCard(
                   icon: Icons.power_settings_new_rounded,
                   label: 'Subscription Status',
-                  value: user.subscriptionStatus.toUpperCase(),
+                  value: user.hasActiveSubscription ? user.subscriptionStatus.toUpperCase() : 'EXPIRED',
                   valueColor: user.hasActiveSubscription
                       ? const Color(0xFF4CAF50)
                       : AppColors.hintText,
@@ -369,6 +371,70 @@ class _ProfileScreenState extends State<ProfileScreen>
                     label: 'Expiry Date',
                     value: _formatDate(user.subscriptionExpiry!),
                   ),
+
+                // Saved Waves button
+                GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, '/saved-waves'),
+                  child: Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                    decoration: BoxDecoration(
+                      color: AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFFFD700).withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.bookmark_rounded,
+                            color: Color(0xFFFFD700), size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Saved Waves',
+                          style: TextStyle(
+                            color: Color(0xFFFFD700),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // My PICs button
+                GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, '/my-pics'),
+                  child: Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFF6B35), Color(0xFFFF8C42)],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.pin_rounded, color: AppColors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'My Personal Identifier Codes',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
 
                 const SizedBox(height: 24),
 

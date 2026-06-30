@@ -6,6 +6,7 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
+import '../services/pic_storage_service.dart';
 import '../../auth/services/auth_service.dart';
 import '../../kyc/services/kyc_service.dart';
 
@@ -176,6 +177,8 @@ class _ExclusiveAccessPaywallScreenState
 
       if ((result.personalIdentifierCode ?? '').isNotEmpty) {
         _picController.text = result.personalIdentifierCode!;
+        // Save PIC locally for later viewing
+        await PicStorageService.savePic(_channelId!, result.personalIdentifierCode!);
       }
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -268,7 +271,8 @@ class _ExclusiveAccessPaywallScreenState
     if (exp == null || exp.isEmpty) return '30-day access period';
     final parsed = DateTime.tryParse(exp)?.toLocal();
     if (parsed == null) return exp;
-    return '${parsed.day}/${parsed.month}/${parsed.year}';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
   }
 
   @override
@@ -624,10 +628,11 @@ class _ExclusiveAccessPaywallScreenState
             ],
           ),
           const SizedBox(height: 14),
-          AppButton(
-            label: 'Continue to Channel',
-            onPressed: _continueToChannel,
-          ),
+          if (_picVerified)
+            AppButton(
+              label: 'Continue to Channel',
+              onPressed: _continueToChannel,
+            ),
         ],
       ),
     );
@@ -669,7 +674,7 @@ class _ExclusiveAccessPaywallScreenState
           const SizedBox(height: 14),
           AppTextField(
             controller: _picController,
-            label: 'VERIFY PIC (OPTIONAL)',
+            label: 'VERIFY PIC',
             hint: 'Enter your current PIC',
             prefixIcon: Icons.pin_rounded,
             onChanged: (_) {
@@ -685,10 +690,11 @@ class _ExclusiveAccessPaywallScreenState
             enabled: !_verifyingPic && !_picVerified,
           ),
           const SizedBox(height: 14),
-          AppButton(
-            label: 'Continue to Channel',
-            onPressed: _continueToChannel,
-          ),
+          if (_picVerified)
+            AppButton(
+              label: 'Continue to Channel',
+              onPressed: _continueToChannel,
+            ),
         ],
       ),
     );

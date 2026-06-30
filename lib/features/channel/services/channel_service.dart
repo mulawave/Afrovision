@@ -409,6 +409,11 @@ class ChannelService {
     return ExclusivePurchaseResultModel.fromJson(data);
   }
 
+  static Future<Map<String, dynamic>> getMyExclusiveAccesses() async {
+    final data = await ApiService.get('/channels/exclusive/my-accesses');
+    return data;
+  }
+
   static Future<ExclusivePurchaseResultModel> renewExclusiveAccess(
     String channelId,
   ) async {

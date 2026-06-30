@@ -49,11 +49,18 @@ class UserModel {
   bool get isCreator => role == 'creator';
   bool get isAdmin => role == 'admin';
   bool get isCreatorAccount => isCreator || isAdmin;
-  bool get hasActiveSubscription => subscriptionStatus == 'active';
+  bool get hasActiveSubscription {
+    if (subscriptionStatus != 'active') return false;
+    if (subscriptionExpiry == null || subscriptionExpiry!.isEmpty) return false;
+    final expiry = DateTime.tryParse(subscriptionExpiry!);
+    if (expiry == null) return false;
+    return expiry.isAfter(DateTime.now());
+  }
   bool get hasCreatorPlan =>
       hasActiveSubscription && subscriptionPlanType == 'creator';
   bool get hasViewerPlan =>
       hasActiveSubscription && subscriptionPlanType == 'viewer';
+  bool get kycVerified => kycStatus == 'verified';
 
   String get subscriptionPlanDisplay =>
       subscriptionPlan?.toUpperCase() ?? 'NONE';

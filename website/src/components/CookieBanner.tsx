@@ -4,8 +4,16 @@ import { useState } from 'react';
 import { useCookieConsent } from '@/lib/cookie-consent/CookieConsentProvider';
 import { CookieCategory } from '@/lib/cookie-consent/types';
 
+const CATEGORIES: { key: CookieCategory; label: string; desc: string; locked: boolean }[] = [
+  { key: 'necessary',  label: 'Necessary',  desc: 'Required for the site to function',  locked: true  },
+  { key: 'functional', label: 'Functional', desc: 'Remember your preferences',           locked: false },
+  { key: 'analytics',  label: 'Analytics',  desc: 'Help us improve the platform',        locked: false },
+  { key: 'marketing',  label: 'Marketing',  desc: 'Show relevant advertisements',        locked: false },
+];
+
 export function CookieBanner() {
   const { hasMadeChoice, acceptAll, rejectAll, setConsent } = useCookieConsent();
+  const [showCustomize, setShowCustomize] = useState(false);
   const [preferences, setPreferences] = useState<Record<CookieCategory, boolean>>({
     necessary: true,
     functional: false,
@@ -13,172 +21,112 @@ export function CookieBanner() {
     marketing: false,
   });
 
-  if (hasMadeChoice) {
-    return null;
-  }
-
-  const handleAcceptAll = () => {
-    acceptAll();
-  };
-
-  const handleRejectAll = () => {
-    rejectAll();
-  };
-
-  const handleSavePreferences = () => {
-    setConsent(preferences);
-  };
+  if (hasMadeChoice) return null;
 
   const togglePreference = (category: CookieCategory) => {
-    if (category === 'necessary') return; // Necessary cookies cannot be disabled
-    setPreferences((prev) => ({
-      ...prev,
-      [category]: !prev[category],
-    }));
+    if (category === 'necessary') return;
+    setPreferences(prev => ({ ...prev, [category]: !prev[category] }));
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-av-dark-blue border-t border-av-input-border/30 shadow-2xl">
-      <div className="max-w-7xl mx-auto px-6 lg:px-8 py-6">
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* Main content */}
-          <div className="flex-1">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-av-white mb-2">
-                  Cookie Preferences
-                </h3>
-                <p className="text-sm text-av-light-orange leading-relaxed mb-4">
-                  We use cookies to enhance your experience, analyze usage, and assist in our marketing efforts. 
-                  You can customize your preferences below or accept all cookies.
-                </p>
-              </div>
-              <button
-                onClick={handleRejectAll}
-                className="hidden lg:flex items-center justify-center w-8 h-8 rounded-full bg-av-card border border-av-input-border/30 text-av-light-orange hover:text-av-white hover:border-av-orange transition-colors"
-                aria-label="Close"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
+    /*
+     * pointer-events-none on the full-screen fixed wrapper ensures no part of
+     * the page is blocked. pointer-events-auto is applied only to the card itself.
+     */
+    <div className="fixed inset-0 z-50 pointer-events-none flex items-end justify-end p-4 sm:p-6">
+      <div className="pointer-events-auto w-full max-w-sm bg-av-dark-blue border border-av-input-border/40 rounded-2xl shadow-2xl overflow-hidden">
 
-            {/* Cookie categories */}
-            <div className="space-y-3">
-              <CookieCategoryToggle
-                category="necessary"
-                label="Strictly Necessary"
-                description="Essential for the platform to function properly"
-                checked={preferences.necessary}
-                disabled={true}
-                onToggle={() => {}}
-              />
-              <CookieCategoryToggle
-                category="functional"
-                label="Functional"
-                description="Remember your preferences and settings"
-                checked={preferences.functional}
-                disabled={false}
-                onToggle={() => togglePreference('functional')}
-              />
-              <CookieCategoryToggle
-                category="analytics"
-                label="Analytics"
-                description="Help us improve the platform by analyzing usage"
-                checked={preferences.analytics}
-                disabled={false}
-                onToggle={() => togglePreference('analytics')}
-              />
-              <CookieCategoryToggle
-                category="marketing"
-                label="Marketing"
-                description="Used to deliver relevant advertisements"
-                checked={preferences.marketing}
-                disabled={false}
-                onToggle={() => togglePreference('marketing')}
-              />
-            </div>
-
-            {/* Links */}
-            <div className="mt-4 flex flex-wrap gap-4 text-xs">
-              <a href="/cookies" className="text-av-orange hover:underline">
-                Cookie Policy
-              </a>
-              <a href="/privacy" className="text-av-orange hover:underline">
-                Privacy Policy
-              </a>
-            </div>
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base" aria-hidden="true">🍪</span>
+            <h3 className="text-sm font-semibold text-av-white">Cookie Preferences</h3>
           </div>
+          <button
+            onClick={rejectAll}
+            aria-label="Dismiss cookie banner"
+            className="flex items-center justify-center w-6 h-6 rounded-full bg-av-card/70 border border-av-input-border/30 text-av-light-orange hover:text-av-white hover:border-av-orange/60 transition-colors"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
 
-          {/* Action buttons */}
-          <div className="flex lg:flex-col gap-3 lg:w-48">
+        {/* ── Description ── */}
+        <p className="px-4 pb-3 text-xs text-av-light-orange leading-relaxed">
+          We use cookies to improve your experience.{' '}
+          <a href="/cookies" className="text-av-orange underline underline-offset-2 hover:text-av-orange/80">
+            Learn more
+          </a>
+        </p>
+
+        {/* ── Customize panel (toggled) ── */}
+        {showCustomize && (
+          <div className="px-4 pb-3 pt-3 border-t border-av-input-border/20 space-y-2">
+            {CATEGORIES.map(({ key, label, desc, locked }) => (
+              <div key={key} className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-av-white truncate">{label}</p>
+                  <p className="text-xs text-av-light-orange/70 truncate">{desc}</p>
+                </div>
+                <button
+                  onClick={() => togglePreference(key)}
+                  disabled={locked}
+                  aria-label={`Toggle ${label} cookies`}
+                  className={`relative flex-shrink-0 w-9 h-5 rounded-full transition-colors focus:outline-none ${
+                    locked
+                      ? 'bg-av-orange/40 cursor-not-allowed'
+                      : preferences[key]
+                      ? 'bg-av-orange'
+                      : 'bg-av-input-border/50 hover:bg-av-input-border/80'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      preferences[key] ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Action buttons ── */}
+        <div className="px-4 pt-1 pb-4 flex flex-col gap-2">
+          <div className="flex gap-2">
             <button
-              onClick={handleAcceptAll}
-              className="flex-1 px-6 py-3 bg-av-orange text-white font-semibold rounded-lg hover:bg-av-orange/90 transition-colors text-sm"
+              onClick={acceptAll}
+              className="flex-1 py-2.5 px-3 bg-av-orange text-white text-xs font-semibold rounded-xl hover:bg-av-orange/90 active:scale-95 transition-all"
             >
               Accept All
             </button>
             <button
-              onClick={handleRejectAll}
-              className="flex-1 px-6 py-3 bg-av-card border border-av-input-border/30 text-av-white font-semibold rounded-lg hover:border-av-orange transition-colors text-sm"
+              onClick={rejectAll}
+              className="flex-1 py-2.5 px-3 bg-av-card border border-av-input-border/40 text-av-white text-xs font-semibold rounded-xl hover:border-av-orange/60 active:scale-95 transition-all"
             >
               Reject All
             </button>
-            <button
-              onClick={handleSavePreferences}
-              className="flex-1 px-6 py-3 bg-av-card border border-av-input-border/30 text-av-light-orange font-semibold rounded-lg hover:border-av-orange hover:text-av-white transition-colors text-sm"
-            >
-              Save Preferences
-            </button>
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-interface CookieCategoryToggleProps {
-  category: CookieCategory;
-  label: string;
-  description: string;
-  checked: boolean;
-  disabled: boolean;
-  onToggle: () => void;
-}
-
-function CookieCategoryToggle({
-  label,
-  description,
-  checked,
-  disabled,
-  onToggle,
-}: CookieCategoryToggleProps) {
-  return (
-    <div className="flex items-start gap-3 p-3 rounded-lg bg-av-card/50 border border-av-input-border/20">
-      <button
-        onClick={onToggle}
-        disabled={disabled}
-        className={`mt-0.5 relative w-11 h-6 rounded-full transition-colors ${
-          disabled ? 'bg-av-input-border/30 cursor-not-allowed' : checked ? 'bg-av-orange' : 'bg-av-input-border/50'
-        }`}
-        aria-label={`Toggle ${label}`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-            checked ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-      </button>
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-av-white">{label}</span>
-          {disabled && (
-            <span className="text-xs text-av-light-orange">(Always on)</span>
+          {showCustomize ? (
+            <button
+              onClick={() => setConsent(preferences)}
+              className="w-full py-2.5 px-3 bg-av-orange/10 border border-av-orange/30 text-av-orange text-xs font-semibold rounded-xl hover:bg-av-orange/20 active:scale-95 transition-all"
+            >
+              Save My Preferences
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowCustomize(true)}
+              className="w-full py-1 text-center text-xs text-av-light-orange hover:text-av-white transition-colors"
+            >
+              Customize preferences
+            </button>
           )}
         </div>
-        <p className="text-xs text-av-light-orange mt-0.5">{description}</p>
+
       </div>
     </div>
   );

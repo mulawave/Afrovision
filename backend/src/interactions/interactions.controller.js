@@ -441,6 +441,7 @@ async function sendGift(req, res) {
       gift_icon: gift.icon,
       animation: gift.animation,
       sender_name: displayName,
+      sender_rep_level: senderRepLevel,
     });
   } catch (err) {
     if (err.message === 'INSUFFICIENT_VPT') {

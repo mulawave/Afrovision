@@ -18,6 +18,8 @@ class FloatingPlayerWidget extends StatefulWidget {
     required this.externalMode,
     required this.onClose,
     required this.onExpand,
+    this.onReturnToApp,
+    this.onOpenChannelSurfer,
   });
 
   final VideoPlayerController? videoController;
@@ -26,6 +28,8 @@ class FloatingPlayerWidget extends StatefulWidget {
   final String                  externalMode;
   final VoidCallback            onClose;
   final VoidCallback            onExpand;
+  final VoidCallback?           onReturnToApp;
+  final VoidCallback?           onOpenChannelSurfer;
 
   @override
   State<FloatingPlayerWidget> createState() => _FloatingPlayerWidgetState();
@@ -41,14 +45,21 @@ class _FloatingPlayerWidgetState extends State<FloatingPlayerWidget> {
   Offset _position          = const Offset(double.infinity, double.infinity);
   bool   _positioned        = false;
 
-  double get _w => (_baseW * _scale).clamp(_baseW * 0.5, _baseW * 2.5);
-  double get _h => (_baseH * _scale).clamp(_baseH * 0.5, _baseH * 2.5);
+  double get _w => (_baseW * _scale).clamp(_baseW * 0.5, _baseW * _maxScale);
+  double get _h => (_baseH * _scale).clamp(_baseH * 0.5, _baseH * _maxScale);
+
+  double _maxScale = 2.5;
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.of(context).size;
+
+    // Calculate max scale based on screen dimensions for full-screen expansion
+    final maxScaleW = screen.width / _baseW;
+    final maxScaleH = screen.height / _baseH;
+    _maxScale = (maxScaleW * maxScaleH).clamp(2.5, 5.0);
 
     // First frame: place bottom-right, clear of the system navigation bar.
     if (!_positioned) {
@@ -79,7 +90,7 @@ class _FloatingPlayerWidgetState extends State<FloatingPlayerWidget> {
                 if (d.pointerCount >= 2) {
                   // Pinch: update scale around the focal point.
                   final newScale = (_scaleAtGestureStart * d.scale)
-                      .clamp(0.5, 2.5);
+                      .clamp(0.5, _maxScale);
                   // Adjust position so the focal point stays fixed.
                   final oldW = _w;
                   final oldH = _h;
@@ -130,6 +141,18 @@ class _FloatingPlayerWidgetState extends State<FloatingPlayerWidget> {
                       ),
                     ),
 
+                    // ── channel surfer button ─────────────────────────────
+                    if (widget.onOpenChannelSurfer != null)
+                      Positioned(
+                        bottom: 24,
+                        right: 4,
+                        child: _PiPButton(
+                          icon: Icons.swap_horiz_rounded,
+                          iconSize: 13,
+                          onTap: widget.onOpenChannelSurfer!,
+                        ),
+                      ),
+
                     // ── ✕ close ────────────────────────────────────────────
                     Positioned(
                       top: 4, right: 4,
@@ -148,6 +171,21 @@ class _FloatingPlayerWidgetState extends State<FloatingPlayerWidget> {
                         onTap: widget.onExpand,
                       ),
                     ),
+
+                    // ── return to app (center) ─────────────────────────────
+                    if (widget.onReturnToApp != null)
+                      Positioned(
+                        top: 4,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: _PiPButton(
+                            icon: Icons.arrow_back_rounded,
+                            iconSize: 13,
+                            onTap: widget.onReturnToApp!,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

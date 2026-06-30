@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/active_floating_player_banner.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
 
@@ -154,6 +155,7 @@ class _ChannelGridScreenState extends State<ChannelGridScreen>
               const ActiveFloatingPlayerBanner(
                 margin: EdgeInsets.fromLTRB(20, 0, 20, 10),
               ),
+              const MarqueeTickerWidget(),
               Expanded(
                 child: _isLoading
                     ? const Center(

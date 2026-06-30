@@ -3,7 +3,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../api/api_service.dart';
 import '../storage/auth_storage.dart';
 import '../theme/app_colors.dart';
@@ -16,12 +15,33 @@ import '../../firebase_options.dart';
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Background handler runs in a separate isolate — must initialize Firebase.
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Badge updates are handled in the foreground handler where
+  // flutter_local_notifications is initialized. The background isolate
+  // cannot access the plugin instance.
   try {
     final dataCount = message.data['unread_count'];
     if (dataCount != null) {
       final count = int.tryParse(dataCount.toString()) ?? 0;
       if (count > 0) {
-        FlutterAppBadger.updateBadgeCount(count);
+        final plugin = FlutterLocalNotificationsPlugin();
+        await plugin.show(
+          0,
+          '',
+          '',
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'afrovision_main',
+              'AfroVision',
+              channelDescription:
+                  'Channel updates, gifts, admin alerts, and account notifications',
+              importance: Importance.min,
+              priority: Priority.min,
+              playSound: false,
+              enableVibration: false,
+              icon: 'ic_stat_notification',
+            ),
+          ),
+        );
       }
     }
   } catch (_) {}
@@ -109,10 +129,34 @@ class NotificationService {
   /// Update the app launcher icon badge count. Pass 0 to clear.
   static Future<void> updateAppBadge(int count) async {
     try {
-      if (count <= 0) {
-        FlutterAppBadger.removeBadge();
-      } else {
-        FlutterAppBadger.updateBadgeCount(count);
+      final androidPlugin = _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlugin != null) {
+        if (count <= 0) {
+          await androidPlugin.cancel(0);
+        } else {
+          // Show a silent notification to update the launcher badge count.
+          // Android OEMs (Samsung, Sony, etc.) derive the badge from
+          // active notifications in the app's channels.
+          await _localNotifications.show(
+            0,
+            '',
+            '',
+            const NotificationDetails(
+              android: AndroidNotificationDetails(
+                _kChannelId,
+                _kChannelName,
+                channelDescription: _kChannelDesc,
+                importance: Importance.min,
+                priority: Priority.min,
+                playSound: false,
+                enableVibration: false,
+                icon: 'ic_stat_notification',
+              ),
+            ),
+          );
+        }
       }
     } catch (_) {}
   }

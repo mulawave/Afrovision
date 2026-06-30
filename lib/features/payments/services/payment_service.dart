@@ -20,7 +20,7 @@ class PaymentService {
       'provider': provider,
       // Tell the backend to redirect back into the app after gateway payment,
       // instead of the default website checkout/result page.
-      'return_url': 'afrovision://checkout/result',
+      'return_url': 'com.afrovision.app://checkout/result',
     };
     if (planId != null) payload['planId'] = planId;
     if (billingCycle != null) payload['billingCycle'] = billingCycle;

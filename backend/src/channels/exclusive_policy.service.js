@@ -22,8 +22,7 @@ async function isAdultKycVerified(userId) {
   const kyc = await KycModel.findByUserId(userId);
   if (!kyc || kyc.status !== 'verified') return false;
 
-  const age = calculateAge(kyc.date_of_birth);
-  return age !== null && age >= 18;
+  return true;
 }
 
 module.exports = {

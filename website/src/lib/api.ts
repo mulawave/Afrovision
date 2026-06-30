@@ -2754,6 +2754,8 @@ export interface Wave {
   has_explicit_language?: boolean;
   has_nudity?: boolean;
   has_violence?: boolean;
+  has_revealing_clothes?: boolean;
+  has_partial_nudity?: boolean;
   pulse_count: number;
   comment_count: number;
   bookmark_count: number;
@@ -2837,6 +2839,13 @@ export async function registerWaveApi(input: {
   has_explicit_language: boolean;
   has_nudity: boolean;
   has_violence: boolean;
+  has_revealing_clothes: boolean;
+  has_partial_nudity: boolean;
+  has_explicit_content?: boolean;
+  has_parental_guidance?: boolean;
+  has_erotic_dancing?: boolean;
+  has_sexual_nature?: boolean;
+  has_sex?: boolean;
 }) {
   return api<Wave | ErrorResponse>("/wave/register", {
     method: "POST",

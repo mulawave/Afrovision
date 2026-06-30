@@ -5,6 +5,7 @@ import '../../../core/widgets/app_text_field.dart';
 import '../models/bank_details_model.dart';
 import '../services/wallet_service.dart';
 import '../widgets/withdrawal_success_modal.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class WithdrawalScreen extends StatefulWidget {
   const WithdrawalScreen({super.key});
@@ -179,6 +180,7 @@ class _WithdrawalScreenState extends State<WithdrawalScreen>
               child: Column(
                 children: [
                   _buildAppBar(),
+                  const MarqueeTickerWidget(),
                   Expanded(
                     child: _loading
                         ? const Center(

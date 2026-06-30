@@ -141,7 +141,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
       return;
     }
     final canPremiumTypes =
-        (_user?.isPremiumCreator ?? false) || _user?.isAdmin == true;
+        (_user?.hasActiveSubscription == true && _user?.isPremiumCreator == true) ||
+        _user?.isAdmin == true;
     if ((_type == 'private' || _type == 'exclusive') && !canPremiumTypes) {
       setState(
         () => _error =
@@ -460,7 +461,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
 
   Widget _buildForm() {
     final canPrivate =
-        (_user?.isPremiumCreator ?? false) || _user?.isAdmin == true;
+        (_user?.hasActiveSubscription == true && _user?.isPremiumCreator == true) ||
+        _user?.isAdmin == true;
     final canExclusive = canPrivate;
 
     return FadeTransition(

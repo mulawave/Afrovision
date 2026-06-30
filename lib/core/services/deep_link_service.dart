@@ -52,7 +52,7 @@ class DeepLinkService {
       }
     }
 
-    if (uri.scheme == 'afrovision' && uri.host == 'wave') {
+    if (uri.scheme == 'com.afrovision.app' && uri.host == 'wave') {
       final waveId = uri.queryParameters['wave_id'];
       if (waveId != null && waveId.isNotEmpty) {
         nav.pushNamed('/wave', arguments: {'waveId': waveId});
@@ -62,10 +62,10 @@ class DeepLinkService {
       return;
     }
 
-    // Payment gateway callback: afrovision://checkout/result?payment_id=xxx
+    // Payment gateway callback: com.afrovision.app://checkout/result?payment_id=xxx
     // Accept common provider variations for parameter names and paths.
     final isCheckoutCallback =
-        uri.scheme == 'afrovision' &&
+        uri.scheme == 'com.afrovision.app' &&
         uri.host == 'checkout' &&
         (path == '/result' || path.isEmpty || path == '/');
     if (isCheckoutCallback) {

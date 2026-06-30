@@ -249,6 +249,34 @@
       ]
     },
     {
+      "collectionGroup": "wave_comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "wave_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "wave_comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "parent_comment_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "waves",
       "queryScope": "COLLECTION",
       "fields": [

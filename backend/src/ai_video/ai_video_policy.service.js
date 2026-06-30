@@ -1,4 +1,5 @@
 const PlanModel = require('../subscriptions/plan.model');
+const { hasActiveSubscription } = require('../users/user.model');
 
 function compareCreatorPlanRank(currentPlan, requiredPlan) {
   if (!requiredPlan) return true;
@@ -32,7 +33,7 @@ async function evaluateAccess({ user, config }) {
   }
 
   if (normalizedMode === 'eligible_creators_only' || normalizedMode === 'open_beta') {
-    if (user.subscription_status !== 'active') {
+    if (!hasActiveSubscription(user)) {
       return { eligible: false, code: 'MINIMUM_CREATOR_PLAN_REQUIRED', reason: 'An active creator subscription is required.' };
     }
 

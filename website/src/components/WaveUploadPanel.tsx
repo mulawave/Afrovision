@@ -53,6 +53,13 @@ interface WaveUploadEntry {
   hasExplicitLanguage: boolean;
   hasNudity: boolean;
   hasViolence: boolean;
+  hasRevealingClothes: boolean;
+  hasPartialNudity: boolean;
+  hasExplicitContent: boolean;
+  hasParentalGuidance: boolean;
+  hasEroticDancing: boolean;
+  hasSexualNature: boolean;
+  hasSex: boolean;
   duration: number;
   detecting: boolean;
   progress: number; // -1 = pending, 0-100 uploading, 101 done
@@ -111,6 +118,13 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
         hasExplicitLanguage: false,
         hasNudity: false,
         hasViolence: false,
+        hasRevealingClothes: false,
+        hasPartialNudity: false,
+        hasExplicitContent: false,
+        hasParentalGuidance: false,
+        hasEroticDancing: false,
+        hasSexualNature: false,
+        hasSex: false,
         duration: 0,
         detecting: true,
         progress: -1,
@@ -199,6 +213,13 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
           has_explicit_language: entry.hasExplicitLanguage,
           has_nudity: entry.hasNudity,
           has_violence: entry.hasViolence,
+          has_revealing_clothes: entry.hasRevealingClothes,
+          has_partial_nudity: entry.hasPartialNudity,
+          has_explicit_content: entry.hasExplicitContent,
+          has_parental_guidance: entry.hasParentalGuidance,
+          has_erotic_dancing: entry.hasEroticDancing,
+          has_sexual_nature: entry.hasSexualNature,
+          has_sex: entry.hasSex,
         });
 
         if (!regRes.ok || !("id" in regRes.data)) {
@@ -351,6 +372,69 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
                           disabled={entry.progress > 0}
                         />
                         <span>Has Violence</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasRevealingClothes}
+                          onChange={(e) => updateEntry(entry.id, { hasRevealingClothes: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Revealing Clothes</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasPartialNudity}
+                          onChange={(e) => updateEntry(entry.id, { hasPartialNudity: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Partial Nudity</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasExplicitContent}
+                          onChange={(e) => updateEntry(entry.id, { hasExplicitContent: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Explicit Content</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasParentalGuidance}
+                          onChange={(e) => updateEntry(entry.id, { hasParentalGuidance: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Parental Guidance</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasEroticDancing}
+                          onChange={(e) => updateEntry(entry.id, { hasEroticDancing: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Erotic Dancing</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasSexualNature}
+                          onChange={(e) => updateEntry(entry.id, { hasSexualNature: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Sexual Nature</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={entry.hasSex}
+                          onChange={(e) => updateEntry(entry.id, { hasSex: e.target.checked })}
+                          disabled={entry.progress > 0}
+                        />
+                        <span>Has Sex</span>
                       </label>
                     </div>
                   </div>

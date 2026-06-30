@@ -10,6 +10,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -40,12 +41,18 @@ class FloatingVideoOverlayService : Service() {
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "afrovision_floating_overlay"
         private const val NOTIFICATION_ID = 9021
+
+        // Broadcast sent when the user taps Close on the cross-app overlay, so
+        // the Flutter side can fully terminate playback and release audio focus.
+        const val ACTION_OVERLAY_USER_CLOSED =
+            "com.afrovision.afrovision.OVERLAY_USER_CLOSED"
     }
 
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var overlayWebView: WebView? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     // Touch tracking for drag
     private var dragStartX = 0f
@@ -53,15 +60,36 @@ class FloatingVideoOverlayService : Service() {
     private var winStartX  = 0
     private var winStartY  = 0
 
+    // Touch tracking for pinch-to-zoom
+    private var initialDistance = 0f
+    private var baseWidth = 0
+    private var baseHeight = 0
+    private var currentScale = 1f
+    private val minScale = 0.5f
+    private val maxScale = 3f
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     @SuppressLint("InflateParams", "SetJavaScriptEnabled", "ClickableViewAccessibility")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.util.Log.d("FloatingOverlay", "onStartCommand called")
         // If already running, remove old view before recreating
         tearDown()
 
         val streamHtml   = intent?.getStringExtra("streamHtml")   ?: return START_NOT_STICKY
         val channelName  = intent.getStringExtra("channelName")    ?: ""
+
+        android.util.Log.d("FloatingOverlay", "Received: streamHtml length=${streamHtml.length}, channelName=$channelName")
+
+        // Acquire partial wake lock to keep CPU running for WebView playback
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "AfroVision:FloatingOverlayWakeLock"
+        ).apply {
+            setReferenceCounted(false)
+            acquire(10*60*1000L) // 10 minutes max
+        }
 
         startForeground(NOTIFICATION_ID, buildNotification(channelName))
 
@@ -71,33 +99,11 @@ class FloatingVideoOverlayService : Service() {
         val view     = inflater.inflate(R.layout.floating_video_overlay, null)
         overlayView  = view
 
-        // ── WebView setup ────────────────────────────────────────────────
-        val webView: WebView = view.findViewById(R.id.overlay_webview)
-        overlayWebView = webView
-        webView.settings.apply {
-            javaScriptEnabled             = true
-            domStorageEnabled             = true
-            allowFileAccess               = false
-            mediaPlaybackRequiresUserGesture = false
-            loadWithOverviewMode          = true
-            useWideViewPort               = true
-            mixedContentMode              = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-        }
-        webView.webViewClient = WebViewClient()
-        webView.loadDataWithBaseURL(
-            "https://www.youtube-nocookie.com",
-            streamHtml,
-            "text/html",
-            "utf-8",
-            null,
-        )
-
-        // ── Channel name ─────────────────────────────────────────────────
-        view.findViewById<TextView>(R.id.overlay_channel_name).text = channelName
-
-        // ── Window layout params ─────────────────────────────────────────
+        // ── Window layout params (declared early so touch lambdas capture it) ──
         val w = dpToPx(200)
         val h = dpToPx(130)
+        baseWidth = w
+        baseHeight = h
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else
@@ -116,7 +122,95 @@ class FloatingVideoOverlayService : Service() {
         }
         layoutParams = params
 
-        // ── Drag the window ──────────────────────────────────────────────
+        // ── WebView setup ────────────────────────────────────────────────
+        val webView: WebView = view.findViewById(R.id.overlay_webview)
+        overlayWebView = webView
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        // pauseTimers()/resumeTimers() are PROCESS-GLOBAL across all WebViews.
+        // A previous overlay teardown (or an in-app WebView) may have paused
+        // them, which would freeze hls.js/JS playback here. Resume on start.
+        webView.onResume()
+        webView.resumeTimers()
+        webView.settings.apply {
+            javaScriptEnabled             = true
+            domStorageEnabled             = true
+            databaseEnabled               = true
+            allowFileAccess               = false
+            mediaPlaybackRequiresUserGesture = false
+            loadWithOverviewMode          = true
+            useWideViewPort               = true
+            mixedContentMode              = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            cacheMode                     = WebSettings.LOAD_DEFAULT
+        }
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                // Resume playback after page loads in the overlay
+                view?.evaluateJavascript(
+                    """(function(){try{var v=document.querySelector('video');if(v)v.play();}catch(e){}})();""",
+                    null
+                )
+            }
+        }
+        webView.loadDataWithBaseURL(
+            "https://www.youtube-nocookie.com",
+            streamHtml,
+            "text/html",
+            "utf-8",
+            null,
+        )
+
+        // ── Drag: WebView consumes all touch events, so we intercept ───
+        // on the WebView itself for drag; the root view handles drag on
+        // areas outside the WebView (buttons, label bar).
+        webView.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragStartX = event.rawX
+                    dragStartY = event.rawY
+                    winStartX  = params.x
+                    winStartY  = params.y
+                    false
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    // Start pinch gesture
+                    initialDistance = getDistance(event)
+                    if (initialDistance > 10f) {
+                        baseWidth = params.width
+                        baseHeight = params.height
+                        currentScale = 1f
+                    }
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount == 2) {
+                        // Pinch zoom
+                        val distance = getDistance(event)
+                        if (initialDistance > 10f) {
+                            val scale = (distance / initialDistance).coerceIn(minScale, maxScale)
+                            if (scale != currentScale) {
+                                currentScale = scale
+                                params.width = (baseWidth * scale).toInt()
+                                params.height = (baseHeight * scale).toInt()
+                                windowManager?.updateViewLayout(view, params)
+                            }
+                        }
+                        true
+                    } else {
+                        // Single finger drag
+                        params.x = (winStartX + (event.rawX - dragStartX)).toInt()
+                        params.y = (winStartY + (event.rawY - dragStartY)).toInt()
+                        windowManager?.updateViewLayout(view, params)
+                        true
+                    }
+                }
+                else -> false
+            }
+        }
+
+        // ── Channel name ─────────────────────────────────────────────────
+        view.findViewById<TextView>(R.id.overlay_channel_name).text = channelName
+
+        // ── Drag the window (root view, outside WebView area) ────────────
         view.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -137,12 +231,31 @@ class FloatingVideoOverlayService : Service() {
         }
 
         // ── Close button ─────────────────────────────────────────────────
-        view.findViewById<ImageButton>(R.id.overlay_close).setOnClickListener {
+        val closeBtn = view.findViewById<ImageButton>(R.id.overlay_close)
+        closeBtn.setOnClickListener {
+            android.util.Log.d("FloatingOverlay", "Close button clicked")
+            // Tell the app to fully terminate playback (release audio focus),
+            // otherwise the paused in-app controller resumes on next foreground.
+            sendBroadcast(
+                Intent(ACTION_OVERLAY_USER_CLOSED).setPackage(packageName),
+            )
             stopSelf()
         }
+        closeBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> true
+                MotionEvent.ACTION_UP -> {
+                    closeBtn.performClick()
+                    true
+                }
+                else -> false
+            }
+        }
 
-        // ── Expand: bring AfroVision to foreground ───────────────────────
-        view.findViewById<ImageButton>(R.id.overlay_expand).setOnClickListener {
+        // ── Return to app (without stopping overlay) ─────────────────────
+        val returnBtn = view.findViewById<ImageButton>(R.id.overlay_return_to_app)
+        returnBtn.setOnClickListener {
+            android.util.Log.d("FloatingOverlay", "Return to app button clicked")
             val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -150,7 +263,40 @@ class FloatingVideoOverlayService : Service() {
                 )
             }
             if (launch != null) startActivity(launch)
-            stopSelf()
+        }
+        returnBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> true
+                MotionEvent.ACTION_UP -> {
+                    returnBtn.performClick()
+                    true
+                }
+                else -> false
+            }
+        }
+
+        // ── Channel surfer: bring app to foreground and open surfer ───────
+        val surferBtn = view.findViewById<ImageButton>(R.id.overlay_channel_surfer)
+        surferBtn.setOnClickListener {
+            android.util.Log.d("FloatingOverlay", "Channel surfer button clicked")
+            val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                )
+                putExtra("openChannelSurfer", true)
+            }
+            if (launch != null) startActivity(launch)
+        }
+        surferBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> true
+                MotionEvent.ACTION_UP -> {
+                    surferBtn.performClick()
+                    true
+                }
+                else -> false
+            }
         }
 
         windowManager?.addView(view, params)
@@ -163,12 +309,21 @@ class FloatingVideoOverlayService : Service() {
     }
 
     private fun tearDown() {
+        // Release wake lock
+        wakeLock?.let {
+            try {
+                if (it.isHeld) it.release()
+            } catch (_: Exception) {}
+        }
+        wakeLock = null
+
         overlayWebView?.let {
             try {
                 it.stopLoading()
                 it.loadUrl("about:blank")
                 it.onPause()
-                it.pauseTimers()
+                // NOTE: do NOT call pauseTimers() here — it is process-global
+                // and would freeze the in-app WebView and the next overlay.
                 it.removeAllViews()
                 it.destroy()
             } catch (_: Exception) {}
@@ -245,4 +400,10 @@ class FloatingVideoOverlayService : Service() {
 
     private fun dpToPx(dp: Int): Int =
         (dp * resources.displayMetrics.density).toInt()
+
+    private fun getDistance(event: MotionEvent): Float {
+        val dx = event.getX(0) - event.getX(1)
+        val dy = event.getY(0) - event.getY(1)
+        return kotlin.math.sqrt(dx * dx + dy * dy)
+    }
 }

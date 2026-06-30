@@ -48,6 +48,19 @@ function CheckoutResultContent() {
     };
   }, [paymentId, refreshUser]);
 
+  // Auto-redirect mobile browsers back into the AfroVision app.
+  useEffect(() => {
+    if (loading || error || !paymentId) return;
+    const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+    if (!isMobile) return;
+
+    const timer = setTimeout(() => {
+      window.location.href = `com.afrovision.app://checkout/result?payment_id=${encodeURIComponent(paymentId)}`;
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [loading, error, paymentId]);
+
   const destinationHref = payment?.purpose === "wallet_topup" ? "/wallet" : "/pricing";
   const destinationLabel = payment?.purpose === "wallet_topup" ? "Go to Wallet" : "Back to Pricing";
 

@@ -10,7 +10,7 @@ router.post('/register', authenticateToken, ctrl.registerWave);
 
 // ─── Feed & Discovery ────────────────────────────────────────────────────────
 router.get('/feed', optionalAuth, ctrl.getFeed);
-router.get('/channel/:channelId', optionalAuth, ctrl.getChannelWaves);
+router.get('/channel/:channelId', authenticateToken, ctrl.getChannelWaves);
 router.get('/me/bookmarks', authenticateToken, ctrl.getMyBookmarks);
 router.get('/creator/lock-status', authenticateToken, ctrl.getCreatorLockStatus);
 router.post('/creator/lock-pay', authenticateToken, ctrl.payCreatorLock);
@@ -33,7 +33,13 @@ router.get('/:waveId/pulses/moments', optionalAuth, ctrl.getPulseMoments);
 // ─── Comments ────────────────────────────────────────────────────────────────
 router.get('/:waveId/comments', optionalAuth, ctrl.getComments);
 router.post('/:waveId/comments', authenticateToken, ctrl.postComment);
+router.patch('/:waveId/comments/:commentId', authenticateToken, ctrl.editComment);
 router.delete('/:waveId/comments/:commentId', authenticateToken, ctrl.deleteComment);
+router.get('/:waveId/comments/:commentId/replies', optionalAuth, ctrl.getReplies);
+router.post('/:waveId/comments/:commentId/reaction', authenticateToken, ctrl.toggleCommentReaction);
+// Channel-owner commenter moderation (ban/unban a user from commenting)
+router.post('/:waveId/comment-bans/:userId', authenticateToken, ctrl.banCommenter);
+router.delete('/:waveId/comment-bans/:userId', authenticateToken, ctrl.unbanCommenter);
 
 // ─── Bookmarks ───────────────────────────────────────────────────────────────
 router.get('/:waveId/bookmark', authenticateToken, ctrl.getBookmarkStatus);
@@ -43,5 +49,8 @@ router.post('/:waveId/bookmark', authenticateToken, ctrl.toggleBookmark);
 router.post('/:waveId/interest', authenticateToken, ctrl.setInterest);
 router.post('/:waveId/report', authenticateToken, ctrl.reportWave);
 router.post('/:waveId/classification-report', authenticateToken, ctrl.reportWave);
+
+// ─── Admin ─────────────────────────────────────────────────────────────────────
+router.post('/admin/regenerate-thumbnails', authenticateToken, ctrl.regenerateMissingThumbnails);
 
 module.exports = router;

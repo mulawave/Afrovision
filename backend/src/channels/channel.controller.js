@@ -127,7 +127,7 @@ async function getChannelById(req, res) {
       const eligibleByKyc = await isAdultKycVerified(req.userId);
       if (!eligibleByKyc) {
         return res.status(403).json({
-          error: 'Adult KYC verification is required for exclusive channels',
+          error: 'KYC verification is required for exclusive channels',
           requires_kyc: true,
         });
       }
@@ -141,19 +141,6 @@ async function getChannelById(req, res) {
 async function getChannelByNumber(req, res) {
   const channel = await Channel.findByNumber(req.params.channelNumber);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
-
-  if (channel.type === 'exclusive') {
-    const isOwner = channel.owner_id === req.userId;
-    if (!isOwner) {
-      const eligibleByKyc = await isAdultKycVerified(req.userId);
-      if (!eligibleByKyc) {
-        return res.status(403).json({
-          error: 'Adult KYC verification is required for exclusive channels',
-          requires_kyc: true,
-        });
-      }
-    }
-  }
 
   const owner = await getOwnerSafely(channel.owner_id);
   res.json({ channel: await safeEnrichChannel(channel, owner, req.userId) });

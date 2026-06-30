@@ -5,6 +5,7 @@ import '../services/profile_service.dart';
 import '../services/home_service.dart';
 import '../models/user_model.dart';
 import '../../notifications/services/notification_inbox_service.dart';
+import '../../notifications/models/notification_item.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/widgets/role_badge.dart';
@@ -27,6 +28,7 @@ import '../../channel/services/channel_service.dart';
 import '../../challenge/services/challenge_service.dart';
 import '../../challenge/models/challenge_model.dart';
 import '../../announcements/services/announcement_service.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -45,7 +47,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _remindersCount = 0;
   List<WatchHistoryEntry> _watchHistory = [];
   List<ChannelModel> _allChannels = [];
-  List<ChannelModel> _featuredChannels = [];
+  List<PromotedChannel> _featuredChannels = [];
   ChallengeModel? _activeChallenge;
   List<Announcement> _announcements = [];
   List<Map<String, dynamic>> _updates = [];
@@ -58,15 +60,13 @@ class _HomeScreenState extends State<HomeScreen>
   int _unreadNotifications = 0;
   late ScrollController _recentScrollController;
   Timer? _recentScrollTimer;
-  List<String> _marqueeTopics = [];
-  late ScrollController _marqueeController;
-  Timer? _marqueeTimer;
+  int _adBannerIndex = 0;
+  Timer? _adBannerTimer;
 
   @override
   void initState() {
     super.initState();
     _recentScrollController = ScrollController();
-    _marqueeController = ScrollController();
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -92,8 +92,7 @@ class _HomeScreenState extends State<HomeScreen>
     _promoTimer?.cancel();
     _recentScrollTimer?.cancel();
     _recentScrollController.dispose();
-    _marqueeTimer?.cancel();
-    _marqueeController.dispose();
+    _adBannerTimer?.cancel();
     super.dispose();
   }
 
@@ -116,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
       setState(() => _unreadNotifications = count);
       NotificationService.updateAppBadge(count);
-      _syncHomeWidget();
+      await _syncHomeWidget();
     } catch (_) {}
   }
 
@@ -124,7 +123,7 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       final results = await Future.wait([
         ProfileService.getProfile(),
-        HomeService.getStats().catchError(
+        HomeService.getStats(forceRefresh: true).catchError(
           (_) => HomeStats(
             totalVpt: 0,
             totalNgn: 0,
@@ -150,9 +149,6 @@ class _HomeScreenState extends State<HomeScreen>
           limit: 3,
         ).catchError((_) => <Announcement>[]),
         ApiService.get('/home/content').catchError((_) => <String, dynamic>{}),
-        ApiService.get(
-          '/channels/featured',
-        ).catchError((_) => <String, dynamic>{}),
       ]);
       if (!mounted) return;
       setState(() {
@@ -176,37 +172,43 @@ class _HomeScreenState extends State<HomeScreen>
         final items = updatesSection?['items'] as List?;
         _updates = (items ?? []).cast<Map<String, dynamic>>();
 
-        // Parse featured channels — accept several response shapes.
-        final featuredChannelsData = results[7];
-        List<dynamic> featuredChannelsList = [];
-        if (featuredChannelsData is List) {
-          featuredChannelsList = featuredChannelsData;
-        } else if (featuredChannelsData is Map<String, dynamic>) {
-          final candidate =
-              featuredChannelsData['channels'] ??
-              featuredChannelsData['featured'] ??
-              featuredChannelsData['data'];
-          if (candidate is List) featuredChannelsList = candidate;
-        }
-        _featuredChannels = featuredChannelsList
-            .map((item) => ChannelModel.fromJson(item as Map<String, dynamic>))
-            .toList()
-            .cast<ChannelModel>();
+        // Parse featured channels from homepage design
+        final featuredChannelsSection = sections == null
+            ? null
+            : (sections.firstWhere(
+                    (section) => section['key'] == 'featured_channels',
+                    orElse: () => null,
+                  )
+                  as Map<String, dynamic>?);
+        final featuredChannelsItems = featuredChannelsSection?['items'] as List?;
+        _featuredChannels = (featuredChannelsItems ?? [])
+            .map((item) => PromotedChannel(
+                  // Use the real channel_id for navigation; the `id` field is the
+                  // homepage section-item id (e.g. "featured-xxx") and must NOT
+                  // be used to resolve a channel.
+                  id: item['channel_id'] as String? ?? item['id'] as String? ?? '',
+                  name: item['name'] as String? ?? '',
+                  category: item['category'] as String?,
+                  channelNumber: item['channel_id'] as String? ?? '',
+                  logoUrl: item['logo_url'] as String?,
+                  bannerUrl: item['banner_url'] as String?,
+                ))
+            .toList();
 
         _loading = false;
       });
       // Sync app icon badge with current unread count
       NotificationService.updateAppBadge(_unreadNotifications);
-      _syncHomeWidget();
+      await _syncHomeWidget();
       _animController.forward();
       _startPromoAutoScroll();
       _startRecentAutoScroll();
+      _startAdBannerShuffle();
 
       // Load watch history & subscription count (non-blocking)
       _loadWatchHistory();
       _loadSubscriptionCount();
       _loadReminderCount();
-      _loadMarquee();
       _loadAllChannels();
       // Check if we should show the rating dialog
       if (context.mounted) AppRating.checkAndPrompt(context);
@@ -271,7 +273,7 @@ class _HomeScreenState extends State<HomeScreen>
       final reminders = await BroadcastService.getMyReminders();
       if (!mounted) return;
       setState(() => _remindersCount = reminders.length);
-      _syncHomeWidget();
+      await _syncHomeWidget();
     } catch (_) {
       // silent
     }
@@ -282,7 +284,7 @@ class _HomeScreenState extends State<HomeScreen>
       final history = await WatchHistoryService.getHistory();
       if (!mounted) return;
       setState(() => _watchHistory = history);
-      _syncHomeWidget();
+      await _syncHomeWidget();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _startRecentAutoScroll();
@@ -302,23 +304,10 @@ class _HomeScreenState extends State<HomeScreen>
             .where((s) => s.isActive)
             .length;
         setState(() => _subscriptionCount = activeCount);
-        _syncHomeWidget();
+        await _syncHomeWidget();
       }
     } catch (_) {
       // silent
-    }
-  }
-
-  Future<void> _loadMarquee() async {
-    try {
-      final topics = await HomeService.getMarqueeTopics();
-      if (!mounted) return;
-      if (topics.isNotEmpty) {
-        setState(() => _marqueeTopics = topics);
-        _startMarqueeScroll();
-      }
-    } catch (_) {
-      // silent — marquee is non-critical
     }
   }
 
@@ -327,7 +316,7 @@ class _HomeScreenState extends State<HomeScreen>
       final channels = await ChannelService.getPublicChannels();
       if (!mounted) return;
       setState(() => _allChannels = channels);
-      _syncHomeWidget();
+      await _syncHomeWidget();
       // Restart auto-scrollers now that fallback channels are available
       _startPromoAutoScroll();
       _startRecentAutoScroll();
@@ -336,17 +325,11 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _startMarqueeScroll() {
-    _marqueeTimer?.cancel();
-    _marqueeTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
-      if (!mounted || !_marqueeController.hasClients) return;
-      final max = _marqueeController.position.maxScrollExtent;
-      final current = _marqueeController.offset;
-      if (current >= max) {
-        _marqueeController.jumpTo(0);
-      } else {
-        _marqueeController.jumpTo(current + 0.8);
-      }
+  void _startAdBannerShuffle() {
+    _adBannerTimer?.cancel();
+    _adBannerTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!mounted) return;
+      setState(() => _adBannerIndex = (_adBannerIndex + 1) % 3);
     });
   }
 
@@ -405,7 +388,7 @@ class _HomeScreenState extends State<HomeScreen>
     return remaining.inSeconds.remainder(86400) > 0 ? days + 1 : days;
   }
 
-  void _syncHomeWidget() {
+  Future<void> _syncHomeWidget() async {
     final user = _user;
     if (user == null) return;
 
@@ -418,6 +401,21 @@ class _HomeScreenState extends State<HomeScreen>
           : (_stats?.recentChannels.isNotEmpty == true
                 ? _stats!.recentChannels.first.name
                 : '');
+
+      // Fetch top 3 notifications for widget preview
+      List<NotificationItem> notifs = [];
+      try {
+        final inbox = await NotificationInboxService.getNotifications(limit: 3);
+        notifs = inbox.notifications;
+      } catch (_) {}
+
+      // Recently viewed channels from watch history (top 3)
+      final recent = _watchHistory.take(3).toList();
+
+      String resolveMedia(String? url) {
+        if (url == null || url.isEmpty) return '';
+        return url.startsWith('http') ? url : AppConfig.mediaUrl(url);
+      }
 
       WidgetService.update(
         liveCount: liveCount,
@@ -435,6 +433,31 @@ class _HomeScreenState extends State<HomeScreen>
         notificationCount: _unreadNotifications,
         wavesCount: _watchHistory.length,
         libraryUpdates: _remindersCount,
+        avatarInitial: _ws(
+          (user.name ?? user.email).isNotEmpty
+              ? (user.name ?? user.email)[0].toUpperCase()
+              : '?',
+          max: 1,
+        ),
+        avatarUrl: resolveMedia(user.avatarUrl),
+        recentChannel1: recent.isNotEmpty ? _ws(recent[0].name) : '',
+        recentChannel2: recent.length > 1 ? _ws(recent[1].name) : '',
+        recentChannel3: recent.length > 2 ? _ws(recent[2].name) : '',
+        recentChannelId1: recent.isNotEmpty ? _ws(recent[0].id) : '',
+        recentChannelId2: recent.length > 1 ? _ws(recent[1].id) : '',
+        recentChannelId3: recent.length > 2 ? _ws(recent[2].id) : '',
+        recentChannelLogo1: recent.isNotEmpty ? resolveMedia(recent[0].logo) : '',
+        recentChannelLogo2: recent.length > 1 ? resolveMedia(recent[1].logo) : '',
+        recentChannelLogo3: recent.length > 2 ? resolveMedia(recent[2].logo) : '',
+        recentChannelCover1: recent.isNotEmpty ? resolveMedia(recent[0].banner) : '',
+        recentChannelCover2: recent.length > 1 ? resolveMedia(recent[1].banner) : '',
+        recentChannelCover3: recent.length > 2 ? resolveMedia(recent[2].banner) : '',
+        notification1: notifs.isNotEmpty ? _ws(notifs[0].title) : '',
+        notification2: notifs.length > 1 ? _ws(notifs[1].title) : '',
+        notification3: notifs.length > 2 ? _ws(notifs[2].title) : '',
+        assetCash: '₦${user.cash.toStringAsFixed(2)}',
+        assetVpt: user.vptBalance.toStringAsFixed(2),
+        assetRavens: user.coins.toInt().toString(),
       );
     } catch (_) {
       // Widget update is non-critical; swallow errors so dashboard is unaffected.
@@ -460,6 +483,7 @@ class _HomeScreenState extends State<HomeScreen>
           child: Column(
             children: [
               _buildTopBar(),
+              const MarqueeTickerWidget(),
               Expanded(
                 child: _loading
                     ? const Center(
@@ -484,16 +508,16 @@ class _HomeScreenState extends State<HomeScreen>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const ActiveFloatingPlayerBanner(),
-                                  _buildCommunityPoolBanner(),
-                                  if (_activeChallenge != null)
-                                    _buildChallengeBanner(),
-                                  if (_marqueeTopics.isNotEmpty)
-                                    _buildMarqueeTicker(),
-                                  if (_user != null &&
-                                      _user!.kycStatus != 'verified' &&
-                                      _user!.kycStatus != 'pending')
-                                    _buildKycAlert(),
-                                  const SizedBox(height: 22),
+                                  _buildAdvertsSection(),
+                                  const SizedBox(height: 16),
+                                  _buildUserAssetsSection(),
+                                  const SizedBox(height: 16),
+                                  _buildThemeDivider(),
+                                  const SizedBox(height: 16),
+                                  _buildAnnouncementsCard(),
+                                  const SizedBox(height: 16),
+                                  _buildThemeDivider(),
+                                  const SizedBox(height: 16),
                                   if ((_stats?.promotedChannels.isNotEmpty ??
                                           false) ||
                                       _allChannels.isNotEmpty) ...[
@@ -502,6 +526,18 @@ class _HomeScreenState extends State<HomeScreen>
                                     _buildThemeDivider(),
                                     const SizedBox(height: 16),
                                   ],
+                                  _buildActionCards(),
+                                  const SizedBox(height: 16),
+                                  _buildThemeDivider(),
+                                  const SizedBox(height: 16),
+                                  _buildCommunityPoolBanner(),
+                                  if (_activeChallenge != null)
+                                    _buildChallengeBanner(),
+                                  if (_user != null &&
+                                      _user!.kycStatus != 'verified' &&
+                                      _user!.kycStatus != 'pending')
+                                    _buildKycAlert(),
+                                  const SizedBox(height: 22),
                                   _buildMySubscriptionsCard(),
                                   const SizedBox(height: 16),
                                   _buildThemeDivider(),
@@ -512,14 +548,6 @@ class _HomeScreenState extends State<HomeScreen>
                                     _buildThemeDivider(),
                                     const SizedBox(height: 16),
                                   ],
-                                  _buildActionCards(),
-                                  const SizedBox(height: 16),
-                                  _buildThemeDivider(),
-                                  const SizedBox(height: 24),
-                                  _buildAdvertsSection(),
-                                  const SizedBox(height: 16),
-                                  _buildThemeDivider(),
-                                  const SizedBox(height: 24),
                                   _buildTwoColumnSection(),
                                 ],
                               ),
@@ -563,7 +591,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 5),
                   RoleBadge(
                     role: _user!.role,
-                    isPremiumCreator: _user!.isPremiumCreator,
+                    isPremiumCreator: _user!.hasActiveSubscription && _user!.isPremiumCreator,
                     subscriptionPlan: _user!.subscriptionPlan,
                   ),
                 ],
@@ -1023,45 +1051,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ───────── MARQUEE TICKER ─────────
-  Widget _buildMarqueeTicker() {
-    final text = _marqueeTopics.join('   •   ');
-    // Duplicate for seamless scrolling
-    final fullText = '$text   •   $text';
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-      child: Container(
-        height: 32,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          color: AppColors.darkBlue.withValues(alpha: 0.7),
-          border: Border.all(color: AppColors.orange.withValues(alpha: 0.15)),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: SingleChildScrollView(
-            controller: _marqueeController,
-            scrollDirection: Axis.horizontal,
-            physics: const NeverScrollableScrollPhysics(),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Text(
-                fullText,
-                style: TextStyle(
-                  color: AppColors.lightOrange.withValues(alpha: 0.85),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.3,
-                ),
-                maxLines: 1,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   // ───────── KYC ALERT ─────────
   Widget _buildKycAlert() {
     final isRejected = _user?.kycStatus == 'rejected';
@@ -1140,19 +1129,7 @@ class _HomeScreenState extends State<HomeScreen>
         : _stats?.promotedChannels ?? [];
     List<PromotedChannel> items;
     if (featured.isNotEmpty) {
-      items = featured.map((ch) {
-        if (ch is ChannelModel) {
-          return PromotedChannel(
-            id: ch.id,
-            name: ch.name,
-            category: ch.category,
-            channelNumber: ch.channelNumber,
-            logoUrl: ch.logoUrl,
-            bannerUrl: ch.bannerUrl,
-          );
-        }
-        return ch as PromotedChannel;
-      }).toList();
+      items = featured.where((c) => c.id.isNotEmpty).toList();
     } else {
       final withBanner = _allChannels
           .where((c) => (c.bannerUrl ?? '').isNotEmpty)
@@ -1809,118 +1786,46 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ───────── ADVERTS SECTION ─────────
-  Widget _buildAdvertsSection() {
+  // ───────── USER ASSETS SECTION ─────────
+  Widget _buildUserAssetsSection() {
+    final user = _user;
+    if (user == null) return const SizedBox.shrink();
+    final cash = (user.cash ?? 0).toDouble();
+    final vpt = (user.vptBalance ?? user.vpt ?? 0).toDouble();
+    final ravens = (user.coins ?? 0).toDouble();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _sectionLabel('SPOTLIGHT', Icons.campaign_rounded),
+          _sectionLabel('MY ASSETS', Icons.account_balance_wallet_rounded),
           const SizedBox(height: 10),
-          // Live banner ad from ad system
-          const Padding(
-            padding: EdgeInsets.zero,
-            child: BannerAdWidget(placement: 'home'),
-          ),
-          const SizedBox(height: 10),
-          // Premium ad banners
-          GestureDetector(
-            onTap: () => Navigator.pushNamed(context, '/advertiser'),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  colors: [
-                    AppColors.orange.withValues(alpha: 0.15),
-                    AppColors.darkBlue.withValues(alpha: 0.9),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                border: Border.all(
-                  color: AppColors.orange.withValues(alpha: 0.2),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.orange.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.rocket_launch_rounded,
-                      color: AppColors.orange,
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Boost Your Channel',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Promote your content to thousands of viewers across Africa.',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 11,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: AppColors.orange.withValues(alpha: 0.6),
-                    size: 22,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Two smaller ad boxes
           Row(
             children: [
               Expanded(
-                child: GestureDetector(
-                  onTap: () => Navigator.pushNamed(context, '/plans'),
-                  child: _adBox(
-                    icon: Icons.workspace_premium_rounded,
-                    title: (_user?.hasActiveSubscription ?? false)
-                        ? 'Premium Unlocked'
-                        : 'Go Premium',
-                    subtitle: (_user?.hasActiveSubscription ?? false)
-                        ? '${_user!.subscriptionPlanDisplay} plan active'
-                        : 'Unlock exclusive features',
-                    color: AppColors.lightOrange,
-                  ),
+                child: _assetCard(
+                  label: 'Cash',
+                  value: '₦${cash.toStringAsFixed(2)}',
+                  icon: Icons.payments_rounded,
+                  color: AppColors.orange,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: GestureDetector(
-                  onTap: () => Navigator.pushNamed(context, '/referral'),
-                  child: _adBox(
-                    icon: Icons.groups_rounded,
-                    title: 'Refer & Earn',
-                    subtitle: 'Earn vPT for invites',
-                    color: const Color(0xFF4CAF50),
-                  ),
+                child: _assetCard(
+                  label: 'vPT Offchain',
+                  value: vpt.toStringAsFixed(2),
+                  icon: Icons.token_rounded,
+                  color: const Color(0xFF4CAF50),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _assetCard(
+                  label: 'Ravens',
+                  value: ravens.toStringAsFixed(0),
+                  icon: Icons.favorite_rounded,
+                  color: const Color(0xFFE91E63),
                 ),
               ),
             ],
@@ -1930,10 +1835,10 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _adBox({
+  Widget _assetCard({
+    required String label,
+    required String value,
     required IconData icon,
-    required String title,
-    required String subtitle,
     required Color color,
   }) {
     return Container(
@@ -1941,7 +1846,7 @@ class _HomeScreenState extends State<HomeScreen>
       decoration: BoxDecoration(
         color: AppColors.inputFill,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.15)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1956,19 +1861,221 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           const SizedBox(height: 10),
           Text(
-            title,
+            value,
             style: const TextStyle(
               color: AppColors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 2),
           Text(
-            subtitle,
-            style: TextStyle(color: AppColors.white, fontSize: 10),
+            label,
+            style: TextStyle(
+              color: AppColors.hintText,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ───────── ADVERTS SECTION (shuffling banner) ─────────
+  Widget _buildAdvertsSection() {
+    final ads = <_AdBannerData>[
+      _AdBannerData(
+        icon: Icons.rocket_launch_rounded,
+        title: 'Boost Your Channel',
+        subtitle: 'Promote your content to thousands of viewers across Africa.',
+        color: AppColors.orange,
+        route: '/advertiser',
+      ),
+      _AdBannerData(
+        icon: Icons.workspace_premium_rounded,
+        title: (_user?.hasActiveSubscription ?? false)
+            ? 'Premium Unlocked'
+            : 'Go Premium',
+        subtitle: (_user?.hasActiveSubscription ?? false)
+            ? '${_user!.subscriptionPlanDisplay} plan active'
+            : 'Unlock exclusive features',
+        color: AppColors.lightOrange,
+        route: '/plans',
+      ),
+      _AdBannerData(
+        icon: Icons.groups_rounded,
+        title: 'Refer & Earn',
+        subtitle: 'Earn vPT for every friend you invite.',
+        color: const Color(0xFF4CAF50),
+        route: '/referral',
+      ),
+    ];
+    final current = ads[_adBannerIndex];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionLabel('SPOTLIGHT', Icons.campaign_rounded),
+          const SizedBox(height: 4),
+          const Padding(
+            padding: EdgeInsets.zero,
+            child: BannerAdWidget(placement: 'home'),
+          ),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: () => Navigator.pushNamed(context, current.route),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 600),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: child,
+              ),
+              child: Container(
+                key: ValueKey<int>(_adBannerIndex),
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    colors: [
+                      current.color.withValues(alpha: 0.15),
+                      AppColors.darkBlue.withValues(alpha: 0.9),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  border: Border.all(
+                    color: current.color.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: current.color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        current.icon,
+                        color: current.color,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            current.title,
+                            style: const TextStyle(
+                              color: AppColors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            current.subtitle,
+                            style: TextStyle(
+                              color: AppColors.white,
+                              fontSize: 11,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: current.color.withValues(alpha: 0.6),
+                      size: 22,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ───────── ANNOUNCEMENTS CARD ─────────
+  Widget _buildAnnouncementsCard() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.inputFill,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.inputBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.campaign_rounded,
+                      color: AppColors.orange.withValues(alpha: 0.8),
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Announcements',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                GestureDetector(
+                  onTap: () =>
+                      Navigator.pushNamed(context, '/announcements'),
+                  child: const Text(
+                    'See all',
+                    style: TextStyle(
+                      color: AppColors.lightOrange,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_announcements.isEmpty)
+              const Text(
+                'Announcements from Admin will appear here',
+                style: TextStyle(color: AppColors.hintText, fontSize: 12),
+              )
+            else
+              ..._announcements.take(3).map((announcement) {
+                return Column(
+                  children: [
+                    _announcementItem(
+                      announcement.title,
+                      announcement.body,
+                      _getIconForString(announcement.icon),
+                      _getColorFromString(announcement.color),
+                    ),
+                    if (announcement != _announcements.last)
+                      const SizedBox(height: 10),
+                  ],
+                );
+              }),
+          ],
+        ),
       ),
     );
   }
@@ -1980,77 +2087,6 @@ class _HomeScreenState extends State<HomeScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Announcements Card (new, from backend)
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.inputBorder),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.campaign_rounded,
-                          color: AppColors.orange.withValues(alpha: 0.8),
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'Announcements',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                    GestureDetector(
-                      onTap: () =>
-                          Navigator.pushNamed(context, '/announcements'),
-                      child: const Text(
-                        'See all',
-                        style: TextStyle(
-                          color: AppColors.lightOrange,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (_announcements.isEmpty)
-                  const Text(
-                    'Announcements from Admin will appear here',
-                    style: TextStyle(color: AppColors.hintText, fontSize: 12),
-                  )
-                else
-                  ..._announcements.take(3).map((announcement) {
-                    return Column(
-                      children: [
-                        _announcementItem(
-                          announcement.title,
-                          announcement.body,
-                          _getIconForString(announcement.icon),
-                          _getColorFromString(announcement.color),
-                        ),
-                        if (announcement != _announcements.last)
-                          const SizedBox(height: 10),
-                      ],
-                    );
-                  }),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
           // Updates Card (existing, from backend)
           Container(
             padding: const EdgeInsets.all(14),
@@ -2442,4 +2478,20 @@ class _HomeScreenState extends State<HomeScreen>
     };
     return tagMap[tag] ?? AppColors.lightOrange;
   }
+}
+
+class _AdBannerData {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final String route;
+
+  const _AdBannerData({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.route,
+  });
 }

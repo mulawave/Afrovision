@@ -12,7 +12,11 @@ const { isAdultKycVerified } = require('../channels/exclusive_policy.service');
 const { isExclusiveRolloutEnabledForUser } = require('../channels/exclusive_rollout.service');
 const { generateSignedUploadUrl, generateSignedReadUrl, extractGCSPath } = require('../utils/gcs');
 const { getFirestore } = require('../utils/firestore');
+const { generateThumbnail, generateThumbnailAsync } = require('../utils/thumbnail-generator');
 const CersService = require('./wave.cers.service');
+const NotificationService = require('../notifications/notification.service');
+
+const COLLECTION = 'waves';
 
 const ALLOWED_VIDEO_TYPES = {
   'video/mp4': '.mp4',
@@ -136,6 +140,19 @@ async function buildNovelFeed({ limit, cursor, excludedIds }) {
 
 async function enrichWave(wave, userId = null) {
   const signed = { ...wave, video_url: await resolvePlayableUrl(wave.video_url) };
+  
+  // Include channel exclusive fee so frontend can properly identify exclusive channels
+  const channel = await Channel.findById(wave.channel_id);
+  if (channel) {
+    signed.exclusive_monthly_fee_ngn = Number(channel.exclusive_monthly_fee_ngn || 0);
+    signed.channel_type = channel.type || 'public';
+    signed.channel_name = channel.name || signed.channel_name || '';
+    signed.channel_logo_url = channel.logo_url || null;
+    // Expose the channel owner so the app can grant the owner moderation
+    // controls (delete any comment, ban commenters) and render the badge.
+    signed.owner_id = channel.owner_id || null;
+  }
+  
   if (userId) {
     const [bookmark, { total: pulseCount }] = await Promise.all([
       WaveBookmark.getStatus(wave.id, userId),
@@ -200,27 +217,31 @@ function toExclusiveAccessPayload(decision) {
   return payload;
 }
 
+/// Helper: Check if a channel is exclusive based on membership fee (not type)
+function isExclusiveChannel(channel) {
+  if (!channel) return false;
+  // Exclusive channels are identified by having a membership fee > 0
+  // Type field is only 'public' or 'private', exclusive channels can be either
+  const fee = Number(channel.exclusive_monthly_fee_ngn || 0);
+  return fee > 0;
+}
+
 async function evaluateExclusiveChannelAccess({ channel, userId, user }) {
-  if (!channel || channel.type !== 'exclusive') {
+  console.log('[ExclusiveAccess] Evaluating access for channel:', channel.id, 'user:', userId);
+  
+  if (!isExclusiveChannel(channel)) {
+    console.log('[ExclusiveAccess] Not an exclusive channel (fee <= 0), allowing access');
     return {
       allowed: true,
       requires_consent: false,
       reason: null,
       code: null,
-    };
-  }
-
-  if (!userId || !user) {
-    return {
-      allowed: false,
-      requires_consent: false,
-      reason: 'Login required for exclusive channels',
-      code: 'EXCLUSIVE_LOGIN_REQUIRED',
     };
   }
 
   const isOwnerOrAdmin = channel.owner_id === userId || user.role === 'admin';
   if (isOwnerOrAdmin) {
+    console.log('[ExclusiveAccess] User is owner or admin, allowing access');
     return {
       allowed: true,
       requires_consent: false,
@@ -229,51 +250,34 @@ async function evaluateExclusiveChannelAccess({ channel, userId, user }) {
     };
   }
 
-  const rolloutEnabled = await isExclusiveRolloutEnabledForUser(userId);
-  if (!rolloutEnabled) {
-    return {
-      allowed: false,
-      requires_consent: false,
-      reason: 'Exclusive channels are not available for your account yet',
-      code: 'EXCLUSIVE_ROLLOUT_BLOCKED',
-    };
-  }
-
+  // Check if user has admin-approved KYC verification
   const eligibleByKyc = await isAdultKycVerified(userId);
+  console.log('[ExclusiveAccess] KYC verified:', eligibleByKyc);
   if (!eligibleByKyc) {
+    console.log('[ExclusiveAccess] KYC verification failed, denying access');
     return {
       allowed: false,
       requires_consent: false,
-      reason: 'Adult KYC verification is required for exclusive channels',
+      reason: 'KYC verification is required for exclusive channels',
       code: 'EXCLUSIVE_KYC_REQUIRED',
     };
   }
 
+  // Check if user has active paid subscription (not expired)
   const activeAccess = await ExclusiveAccess.findActiveByUserAndChannel(userId, channel.id);
+  console.log('[ExclusiveAccess] Active access found:', !!activeAccess);
   if (!activeAccess) {
+    console.log('[ExclusiveAccess] No active subscription found, denying access');
     return {
       allowed: false,
       requires_consent: false,
-      reason: 'Personal identifier code access required',
-      code: 'EXCLUSIVE_ENTITLEMENT_REQUIRED',
+      reason: 'Paid subscription required for exclusive channels',
+      code: 'EXCLUSIVE_SUBSCRIPTION_REQUIRED',
     };
   }
 
-  const activeUnlock = await ExclusivePicUnlock.findActiveByUserAndChannel(userId, channel.id);
-  const isUnlockValid = Boolean(
-    activeUnlock
-    && (!activeUnlock.access_id || activeUnlock.access_id === activeAccess.id),
-  );
-
-  if (!isUnlockValid) {
-    return {
-      allowed: false,
-      requires_consent: false,
-      reason: 'Personal identifier code access required',
-      code: 'EXCLUSIVE_PIC_REQUIRED',
-    };
-  }
-
+  console.log('[ExclusiveAccess] User has valid paid subscription, allowing access');
+  // User has valid paid subscription - allow unrestricted access to all channel content
   return {
     allowed: true,
     requires_consent: false,
@@ -345,6 +349,8 @@ async function registerWave(req, res) {
       has_explicit_language,
       has_nudity,
       has_violence,
+      has_revealing_clothes,
+      has_partial_nudity,
     } = req.body;
     if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
     if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
@@ -360,6 +366,12 @@ async function registerWave(req, res) {
     }
     if (typeof has_violence !== 'boolean') {
       return res.status(400).json({ error: 'has_violence is required and must be boolean' });
+    }
+    if (typeof has_revealing_clothes !== 'boolean') {
+      return res.status(400).json({ error: 'has_revealing_clothes is required and must be boolean' });
+    }
+    if (typeof has_partial_nudity !== 'boolean') {
+      return res.status(400).json({ error: 'has_partial_nudity is required and must be boolean' });
     }
 
     const channel = await Channel.findById(channel_id);
@@ -380,7 +392,16 @@ async function registerWave(req, res) {
       hasExplicitLanguage: has_explicit_language,
       hasNudity: has_nudity,
       hasViolence: has_violence,
+      hasRevealingClothes: has_revealing_clothes,
+      hasPartialNudity: has_partial_nudity,
     });
+
+    // Generate thumbnail asynchronously if not provided
+    if (!thumbnail_url && video_url) {
+      generateThumbnailAsync(video_url, wave.id).catch((err) => {
+        console.error('[Wave] Async thumbnail generation failed:', err);
+      });
+    }
 
     res.status(201).json(wave);
   } catch (err) {
@@ -412,6 +433,8 @@ async function updateWave(req, res) {
       has_explicit_language,
       has_nudity,
       has_violence,
+      has_revealing_clothes,
+      has_partial_nudity,
     } = req.body || {};
 
     if (title !== undefined && (!String(title).trim())) {
@@ -430,6 +453,12 @@ async function updateWave(req, res) {
     if (has_violence !== undefined && typeof has_violence !== 'boolean') {
       return res.status(400).json({ error: 'has_violence must be boolean' });
     }
+    if (has_revealing_clothes !== undefined && typeof has_revealing_clothes !== 'boolean') {
+      return res.status(400).json({ error: 'has_revealing_clothes must be boolean' });
+    }
+    if (has_partial_nudity !== undefined && typeof has_partial_nudity !== 'boolean') {
+      return res.status(400).json({ error: 'has_partial_nudity must be boolean' });
+    }
 
     const updated = await Wave.update(wave.id, {
       title: title !== undefined ? String(title).trim() : undefined,
@@ -440,7 +469,16 @@ async function updateWave(req, res) {
       has_explicit_language,
       has_nudity,
       has_violence,
+      has_revealing_clothes,
+      has_partial_nudity,
     });
+
+    // Generate thumbnail asynchronously if thumbnail was removed and video exists
+    if (thumbnail_url === '' && wave.video_url) {
+      generateThumbnailAsync(wave.video_url, wave.id).catch((err) => {
+        console.error('[Wave] Async thumbnail generation failed:', err);
+      });
+    }
 
     return res.json({ success: true, wave: updated });
   } catch (err) {
@@ -553,7 +591,8 @@ async function getChannelWaves(req, res) {
     }
 
     const waves = await Wave.getByChannel(req.params.channelId, { includeHidden });
-    res.json(waves);
+    const enriched = await Promise.all(waves.map((w) => enrichWave(w, userId)));
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -749,8 +788,22 @@ async function getComments(req, res) {
   try {
     const wave = await Wave.findById(req.params.waveId);
     if (!wave || wave.status === 'deleted') return res.status(404).json({ error: 'Wave not found' });
-    const comments = await WaveComment.getComments(wave.id);
-    res.json(comments);
+    const channel = await Channel.findById(wave.channel_id);
+    const ownerId = channel ? channel.owner_id : null;
+    const [comments, bannedIds] = await Promise.all([
+      WaveComment.getComments(wave.id),
+      WaveComment.getBannedUserIds(wave.channel_id),
+    ]);
+    const viewerIsOwner = !!(req.userId && ownerId && req.userId === ownerId);
+    const enriched = comments.map((c) => ({
+      ...c,
+      is_channel_owner: !!(ownerId && c.user_id === ownerId),
+      author_banned: bannedIds.has(c.user_id),
+      // Only expose the ban flag context to the owner so other viewers can't
+      // see who is banned.
+      viewer_is_owner: viewerIsOwner,
+    }));
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -761,22 +814,72 @@ async function postComment(req, res) {
     const wave = await Wave.findById(req.params.waveId);
     if (!wave || wave.status === 'deleted') return res.status(404).json({ error: 'Wave not found' });
 
-    const user = await User.findById(req.userId);
+    const [user, channel] = await Promise.all([
+      User.findById(req.userId),
+      Channel.findById(wave.channel_id),
+    ]);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { text } = req.body;
+    // Block users the channel owner has banned from commenting (unless they
+    // are the owner themselves or a platform admin).
+    const isOwner = channel && channel.owner_id === req.userId;
+    if (!isOwner && user.role !== 'admin') {
+      const banned = await WaveComment.isCommenterBanned(wave.channel_id, req.userId);
+      if (banned) {
+        return res.status(403).json({ error: 'You are banned from commenting on this channel' });
+      }
+    }
+
+    const { text, parent_comment_id: parentCommentId } = req.body;
     if (!text || !text.trim()) return res.status(400).json({ error: 'text is required' });
+
+    // Validate parent comment exists if this is a reply
+    if (parentCommentId) {
+      const parent = await WaveComment.findComment(parentCommentId);
+      if (!parent || parent.wave_id !== wave.id) {
+        return res.status(400).json({ error: 'Invalid parent comment' });
+      }
+    }
 
     const comment = await WaveComment.addComment(
       wave.id,
       req.userId,
-      user.display_name || user.username || 'Viewer',
+      user.name || 'Viewer',
       user.avatar_url || null,
-      text
+      text,
+      parentCommentId || null
     );
 
     await Wave.incrementField(wave.id, 'comment_count', 1);
+
+    // Notify channel owner if they are not the commenter
+    if (channel && channel.owner_id && channel.owner_id !== req.userId) {
+      NotificationService.notifyUser(channel.owner_id, {
+        title: 'New comment on your wave',
+        body: `${user.name || 'Someone'} commented: "${comment.text.slice(0, 80)}${comment.text.length > 80 ? '…' : ''}"`,
+        type: 'wave_comment',
+        link: `afrovision://wave?wave_id=${wave.id}`,
+        data: { wave_id: wave.id, comment_id: comment.id },
+      }).catch(() => {});
+    }
+
     res.status(201).json(comment);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function editComment(req, res) {
+  try {
+    const comment = await WaveComment.findComment(req.params.commentId);
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+    if (comment.user_id !== req.userId) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+    const { text } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: 'text is required' });
+    const updated = await WaveComment.updateComment(comment.id, text);
+    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -789,13 +892,99 @@ async function deleteComment(req, res) {
 
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (comment.user_id !== req.userId && user.role !== 'admin') {
+
+    // Allow deletion by: the comment author, a platform admin, or the channel
+    // owner (so owners can moderate any comment on their waves).
+    let isChannelOwner = false;
+    const wave = await Wave.findById(req.params.waveId);
+    if (wave) {
+      const channel = await Channel.findById(wave.channel_id);
+      isChannelOwner = !!(channel && channel.owner_id === req.userId);
+    }
+    if (comment.user_id !== req.userId && user.role !== 'admin' && !isChannelOwner) {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
     await WaveComment.deleteComment(comment.id);
     await Wave.incrementField(req.params.waveId, 'comment_count', -1);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Commenter moderation (channel owner) ──────────────────────────────────
+
+async function banCommenter(req, res) {
+  try {
+    const wave = await Wave.findById(req.params.waveId);
+    if (!wave || wave.status === 'deleted') return res.status(404).json({ error: 'Wave not found' });
+    const permission = await ensureChannelOwner(req.userId, wave.channel_id);
+    if (permission.error) {
+      return res.status(permission.error.status).json({ error: permission.error.message });
+    }
+    const targetUserId = req.params.userId;
+    if (!targetUserId) return res.status(400).json({ error: 'userId is required' });
+    if (targetUserId === req.userId) {
+      return res.status(400).json({ error: 'You cannot ban yourself' });
+    }
+    const result = await WaveComment.banCommenter(wave.channel_id, targetUserId, req.userId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function unbanCommenter(req, res) {
+  try {
+    const wave = await Wave.findById(req.params.waveId);
+    if (!wave || wave.status === 'deleted') return res.status(404).json({ error: 'Wave not found' });
+    const permission = await ensureChannelOwner(req.userId, wave.channel_id);
+    if (permission.error) {
+      return res.status(permission.error.status).json({ error: permission.error.message });
+    }
+    const targetUserId = req.params.userId;
+    if (!targetUserId) return res.status(400).json({ error: 'userId is required' });
+    const result = await WaveComment.unbanCommenter(wave.channel_id, targetUserId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function getReplies(req, res) {
+  try {
+    const comment = await WaveComment.findComment(req.params.commentId);
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+    const replies = await WaveComment.getReplies(req.params.commentId);
+
+    let ownerId = null;
+    let bannedIds = new Set();
+    const wave = await Wave.findById(req.params.waveId);
+    if (wave) {
+      const channel = await Channel.findById(wave.channel_id);
+      ownerId = channel ? channel.owner_id : null;
+      bannedIds = await WaveComment.getBannedUserIds(wave.channel_id);
+    }
+    const viewerIsOwner = !!(req.userId && ownerId && req.userId === ownerId);
+    const enriched = replies.map((c) => ({
+      ...c,
+      is_channel_owner: !!(ownerId && c.user_id === ownerId),
+      author_banned: bannedIds.has(c.user_id),
+      viewer_is_owner: viewerIsOwner,
+    }));
+    res.json(enriched);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function toggleCommentReaction(req, res) {
+  try {
+    const comment = await WaveComment.findComment(req.params.commentId);
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+    const result = await WaveComment.toggleReaction(comment.id, req.userId);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -900,15 +1089,54 @@ async function checkWaveAccess(req, res) {
     const channel = await Channel.findById(wave.channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
-    const exclusiveDecision = await evaluateExclusiveChannelAccess({
-      channel,
-      userId: req.userId || null,
-      user,
-    });
-    if (!exclusiveDecision.allowed) {
-      return res.json(exclusiveDecision);
+    // Check exclusive channel access first
+    if (isExclusiveChannel(channel)) {
+      // This is an exclusive channel - apply exclusive access rules
+      const isOwnerOrAdmin = channel.owner_id === req.userId || (user && user.role === 'admin');
+      
+      if (isOwnerOrAdmin) {
+        // Owner/admin gets full access without any gating
+        return res.json({
+          allowed: true,
+          requires_consent: false,
+          reason: null,
+          code: 'EXCLUSIVE_OWNER_ACCESS',
+        });
+      }
+
+      // Check if user has admin-approved KYC verification
+      const eligibleByKyc = await isAdultKycVerified(req.userId);
+      if (!eligibleByKyc) {
+        return res.json({
+          allowed: false,
+          requires_consent: false,
+          reason: 'KYC verification is required for exclusive channels',
+          code: 'EXCLUSIVE_KYC_REQUIRED',
+        });
+      }
+
+      // Check if user has active paid subscription
+      const activeAccess = await ExclusiveAccess.findActiveByUserAndChannel(req.userId, channel.id);
+      if (!activeAccess) {
+        return res.json({
+          allowed: false,
+          requires_consent: false,
+          reason: 'Your subscription has expired. Renew to continue viewing this content.',
+          code: 'EXCLUSIVE_SUBSCRIPTION_EXPIRED',
+        });
+      }
+
+      // ACTIVE SUBSCRIBER: Bypass ALL gating including age restrictions
+      // User is KYC verified (adult) and has active subscription
+      return res.json({
+        allowed: true,
+        requires_consent: false,
+        reason: null,
+        code: 'EXCLUSIVE_ACTIVE_SUBSCRIBER',
+      });
     }
 
+    // Non-exclusive channel: Apply standard age/content gating
     const sessionId = sanitizeSessionId(req.body?.session_id);
     const access = await CersService.checkWaveAudienceAccess({ wave, user, sessionId });
     return res.json(access);
@@ -981,6 +1209,76 @@ function sanitizeSessionId(value) {
   return value.trim().slice(0, 128);
 }
 
+// ─── Thumbnail regeneration (admin only) ───────────────────────────────────────
+
+async function regenerateMissingThumbnails(req, res) {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const db = getFirestore();
+    const wavesSnapshot = await db.collection(COLLECTION)
+      .where('status', '==', 'active')
+      .get();
+
+    const wavesWithoutThumbnails = [];
+    for (const doc of wavesSnapshot.docs) {
+      const wave = doc.data();
+      // Regenerate if no thumbnail OR if thumbnail is .webp or .png (convert to .jpg for Android compatibility)
+      if (!wave.thumbnail_url || wave.thumbnail_url === '' || wave.thumbnail_url.includes('.webp') || wave.thumbnail_url.includes('.png')) {
+        wavesWithoutThumbnails.push({ ...wave, id: doc.id });
+      }
+    }
+
+    if (wavesWithoutThumbnails.length === 0) {
+      return res.json({ success: true, message: 'All waves have JPEG thumbnails', processed: 0 });
+    }
+
+    // Trigger thumbnail generation for waves without thumbnails (synchronous for admin endpoint)
+    let processed = 0;
+    let failed = 0;
+    const results = [];
+
+    for (const wave of wavesWithoutThumbnails) {
+      if (wave.video_url) {
+        try {
+          const thumbnailUrl = await generateThumbnail(wave.video_url, wave.id);
+          if (thumbnailUrl) {
+            // Update wave with thumbnail URL
+            await Wave.update(wave.id, { thumbnail_url: thumbnailUrl });
+            processed++;
+            results.push({ waveId: wave.id, status: 'completed', thumbnailUrl });
+          } else {
+            failed++;
+            results.push({ waveId: wave.id, status: 'failed', reason: 'thumbnail generation returned null' });
+          }
+        } catch (err) {
+          console.error(`[ThumbnailRegeneration] Failed for wave ${wave.id}:`, err);
+          failed++;
+          results.push({ waveId: wave.id, status: 'failed', reason: err.message });
+        }
+      } else {
+        results.push({ waveId: wave.id, status: 'skipped', reason: 'no video_url' });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Thumbnail generation completed: ${processed} succeeded, ${failed} failed`,
+      total: wavesWithoutThumbnails.length,
+      processed,
+      failed,
+      results,
+    });
+  } catch (err) {
+    console.error('[ThumbnailRegeneration] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // ─── View tracking ───────────────────────────────────────────────────────────
 
 async function trackView(req, res) {
@@ -1010,7 +1308,12 @@ module.exports = {
   getPulseMoments,
   getComments,
   postComment,
+  editComment,
   deleteComment,
+  banCommenter,
+  unbanCommenter,
+  getReplies,
+  toggleCommentReaction,
   toggleBookmark,
   getBookmarkStatus,
   getMyBookmarks,
@@ -1021,4 +1324,5 @@ module.exports = {
   acknowledgeAdultConsent,
   getCreatorLockStatus,
   payCreatorLock,
+  regenerateMissingThumbnails,
 };

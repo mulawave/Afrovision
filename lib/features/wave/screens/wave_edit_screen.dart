@@ -21,6 +21,8 @@ class _WaveEditScreenState extends State<WaveEditScreen> {
   bool _hasExplicitLanguage = false;
   bool _hasNudity = false;
   bool _hasViolence = false;
+  bool _hasRevealingClothes = false;
+  bool _hasPartialNudity = false;
   bool _saving = false;
   bool _argsHandled = false;
 
@@ -56,6 +58,8 @@ class _WaveEditScreenState extends State<WaveEditScreen> {
     _hasExplicitLanguage = wave.hasExplicitLanguage;
     _hasNudity = wave.hasNudity;
     _hasViolence = wave.hasViolence;
+    _hasRevealingClothes = wave.hasRevealingClothes;
+    _hasPartialNudity = wave.hasPartialNudity;
   }
 
   @override
@@ -89,6 +93,8 @@ class _WaveEditScreenState extends State<WaveEditScreen> {
         hasExplicitLanguage: _hasExplicitLanguage,
         hasNudity: _hasNudity,
         hasViolence: _hasViolence,
+        hasRevealingClothes: _hasRevealingClothes,
+        hasPartialNudity: _hasPartialNudity,
         thumbnailUrl: wave.thumbnailUrl,
       );
 
@@ -267,6 +273,18 @@ class _WaveEditScreenState extends State<WaveEditScreen> {
                               value: _hasViolence,
                               onChanged: (value) =>
                                   setState(() => _hasViolence = value),
+                            ),
+                            _flagTile(
+                              label: 'Contains revealing clothes',
+                              value: _hasRevealingClothes,
+                              onChanged: (value) =>
+                                  setState(() => _hasRevealingClothes = value),
+                            ),
+                            _flagTile(
+                              label: 'Contains partial nudity',
+                              value: _hasPartialNudity,
+                              onChanged: (value) =>
+                                  setState(() => _hasPartialNudity = value),
                             ),
                           ],
                         ),

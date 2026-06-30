@@ -3,6 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
 import '../models/notification_item.dart';
 import '../services/notification_inbox_service.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -194,6 +195,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           child: Column(
             children: [
               _buildAppBar(),
+              const MarqueeTickerWidget(),
               Expanded(
                 child: _loading
                     ? const Center(

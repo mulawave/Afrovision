@@ -14,6 +14,7 @@ router.get('/featured', optionalAuth, ctrl.getFeaturedChannels);
 router.get('/me', authenticateToken, ctrl.getMyChannels);
 // Must come before /:id routes
 router.get('/my-accesses', authenticateToken, premiumCtrl.getMyAccesses);
+router.get('/exclusive/my-accesses', authenticateToken, exclusiveCtrl.getMyExclusiveAccesses);
 router.get('/subscriber-feed', authenticateToken, ctrl.getSubscriberFeed);
 router.post('/resolve-source', authenticateToken, ctrl.resolveStreamSource);
 router.patch('/admin/:id/featured', authenticateToken, ctrl.adminSetFeatured);
@@ -22,6 +23,10 @@ router.post('/:id/exclusive/purchase', authenticateToken, exclusiveCtrl.purchase
 router.post('/:id/exclusive/verify-pic', authenticateToken, exclusiveCtrl.verifyExclusivePic);
 router.post('/:id/exclusive/renew', authenticateToken, exclusiveCtrl.renewExclusiveAccess);
 router.patch('/:id/exclusive-settings', authenticateToken, exclusiveCtrl.updateExclusiveSettings);
+router.get('/:id/exclusive/subscribers', authenticateToken, exclusiveCtrl.listSubscribers);
+router.post('/:id/exclusive/ban-subscriber', authenticateToken, exclusiveCtrl.banSubscriber);
+router.post('/:id/exclusive/cancel-subscription', authenticateToken, exclusiveCtrl.cancelSubscription);
+router.post('/:id/exclusive/gift-subscription', authenticateToken, exclusiveCtrl.giftSubscription);
 router.get('/number/:channelNumber', authenticateToken, ctrl.getChannelByNumber);
 router.get('/:id', optionalAuth, ctrl.getChannelById);
 router.get('/:id/access', authenticateToken, premiumCtrl.checkAccess);

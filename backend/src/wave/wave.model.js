@@ -31,6 +31,8 @@ async function create({
   hasExplicitLanguage,
   hasNudity,
   hasViolence,
+  hasRevealingClothes,
+  hasPartialNudity,
 }) {
   const db = getFirestore();
   const id = crypto.randomUUID();
@@ -52,6 +54,8 @@ async function create({
     has_explicit_language: Boolean(hasExplicitLanguage),
     has_nudity: Boolean(hasNudity),
     has_violence: Boolean(hasViolence),
+    has_revealing_clothes: Boolean(hasRevealingClothes),
+    has_partial_nudity: Boolean(hasPartialNudity),
     pulse_count: 0,
     comment_count: 0,
     bookmark_count: 0,
@@ -160,6 +164,8 @@ async function update(id, fields) {
     'has_explicit_language',
     'has_nudity',
     'has_violence',
+    'has_revealing_clothes',
+    'has_partial_nudity',
   ];
   const updates = {};
   for (const key of allowed) {

@@ -30,8 +30,8 @@ class ApiService {
         'Network is unavailable. Please check your connection and retry.',
         0,
       );
-    } catch (_) {
-      throw ApiException('Something went wrong. Please try again.', 0);
+    } catch (e) {
+      throw ApiException('Something went wrong. Please try again. Error: $e', 0);
     }
   }
 
@@ -228,6 +228,30 @@ class ApiService {
             Uri.parse('$_baseUrl$path'),
             headers: {'Content-Type': 'application/json'},
           )
+          .timeout(_timeout);
+      final body = response.body.trimLeft();
+      if (body.startsWith('<')) {
+        throw ApiException(
+          'Server returned an unexpected response. Please try again later.',
+          response.statusCode,
+        );
+      }
+      final data = jsonDecode(body);
+      if (response.statusCode >= 400) {
+        throw ApiException(
+          (data is Map ? data['error'] : null) as String? ?? 'Request failed',
+          response.statusCode,
+        );
+      }
+      return data;
+    });
+  }
+
+  /// Authenticated GET — sends auth header, returns dynamic (can be List or Map)
+  static Future<dynamic> getDynamic(String path) async {
+    return _safeRequest(() async {
+      final response = await http
+          .get(Uri.parse('$_baseUrl$path'), headers: await _headers())
           .timeout(_timeout);
       final body = response.body.trimLeft();
       if (body.startsWith('<')) {

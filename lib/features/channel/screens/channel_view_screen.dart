@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/services/watch_history_service.dart';
@@ -284,6 +288,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         channelId: channel.id,
         channelName: channel.name,
         channelLogo: channel.logoUrl,
+        channelBanner: channel.bannerUrl,
       ).catchError((_) {});
     } catch (_) {
       if (!mounted) return;
@@ -306,8 +311,14 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         includeHidden: _canManage,
       );
       if (!mounted) return;
+
+      // Only show waves that have thumbnails. Waves without thumbnails
+      // will appear once the backend regeneration completes.
+      // This prevents broken tiles in the grid.
+      final wavesWithThumbnails = waves.where((w) => w.thumbnailUrl.isNotEmpty).toList();
+
       setState(() {
-        _channelWaves = waves;
+        _channelWaves = wavesWithThumbnails;
         _wavesLoading = false;
       });
     } catch (e) {
@@ -316,104 +327,6 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         _wavesLoading = false;
         _wavesError = e.toString();
       });
-    }
-  }
-
-  Future<void> _editWave(WaveModel wave) async {
-    final result = await Navigator.pushNamed(
-      context,
-      '/wave-edit',
-      arguments: wave,
-    );
-    if (!mounted) return;
-    if (result is WaveModel) {
-      setState(() {
-        _channelWaves = _channelWaves
-            .map((item) => item.id == result.id ? result : item)
-            .toList(growable: false);
-      });
-    } else if (result == true) {
-      await _loadChannelWaves();
-    }
-  }
-
-  Future<void> _toggleWaveHidden(WaveModel wave) async {
-    if (_waveActionId != null) return;
-    setState(() => _waveActionId = wave.id);
-    try {
-      final updated = await WaveService.setTimelineVisibility(
-        wave.id,
-        hidden: wave.status == 'active',
-      );
-      if (!mounted) return;
-      setState(() {
-        _channelWaves = _channelWaves
-            .map((item) => item.id == updated.id ? updated : item)
-            .toList(growable: false);
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
-    } finally {
-      if (mounted) setState(() => _waveActionId = null);
-    }
-  }
-
-  Future<void> _deleteWave(WaveModel wave) async {
-    if (_waveActionId != null) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: AppColors.cardBg,
-          title: const Text(
-            'Delete Wave',
-            style: TextStyle(color: AppColors.white),
-          ),
-          content: Text(
-            'Delete "${wave.title}"? This cannot be undone.',
-            style: const TextStyle(color: AppColors.hintText),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text(
-                'Delete',
-                style: TextStyle(color: AppColors.errorRed),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true) return;
-
-    setState(() => _waveActionId = wave.id);
-    try {
-      await WaveService.deleteWave(wave.id);
-      if (!mounted) return;
-      setState(() {
-        _channelWaves = _channelWaves
-            .where((item) => item.id != wave.id)
-            .toList(growable: false);
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Wave deleted')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
-    } finally {
-      if (mounted) setState(() => _waveActionId = null);
     }
   }
 
@@ -1217,7 +1130,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                       ? 'Updating...'
                       : _isFollowing
                       ? 'Following'
-                      : 'Follow Creator',
+                      : 'Follow Channel',
                   style: TextStyle(
                     color: _isFollowing ? AppColors.orange : AppColors.white,
                     fontSize: 16,
@@ -1609,10 +1522,19 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
             ),
           )
         else
-          Column(
-            children: _channelWaves
-                .map((wave) => _buildWaveCard(ch, wave))
-                .toList(growable: false),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 9 / 16,
+            ),
+            itemCount: _channelWaves.length,
+            itemBuilder: (context, index) {
+              return _buildWaveCard(ch, _channelWaves[index]);
+            },
           ),
       ],
     );
@@ -1622,214 +1544,245 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     final actionBusy = _waveActionId == wave.id;
     final isHidden = wave.status == 'hidden';
 
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.inputFill,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isHidden
-              ? AppColors.hintText.withValues(alpha: 0.35)
-              : AppColors.inputBorder,
+    return GestureDetector(
+      onTap: actionBusy
+          ? null
+          : () => Navigator.pushNamed(
+              context,
+              '/wave',
+              arguments: {'channelId': ch.id, 'waveId': wave.id},
+            ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.darkBlue,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isHidden
+                ? AppColors.hintText.withValues(alpha: 0.35)
+                : AppColors.inputBorder,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CachedNetworkImage(
+                imageUrl: wave.thumbnailUrl,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => const Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.orange,
+                    strokeWidth: 2,
+                  ),
+                ),
+                errorWidget: (_, __, ___) => _buildPlaceholder(),
+                memCacheWidth: 400,
+                memCacheHeight: 711,
+              ),
+              // Bottom gradient for text readability
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.7),
+                      ],
+                      stops: const [0.55, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              const Center(
+                child: Icon(
+                  Icons.play_arrow_rounded,
+                  color: AppColors.white,
+                  size: 48,
+                ),
+              ),
+              // Age badge top-left
+              if (wave.ageClassification == 'adult')
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFB71C1C).withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: const Color(0xFFFF5252).withValues(alpha: 0.50),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: const Text(
+                      '18+',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              if (isHidden)
+                Positioned(
+                  top: 8,
+                  left: wave.ageClassification == 'adult' ? 42 : 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.hintText.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'Hidden',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              // Duration top-right
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '${wave.duration}s',
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              // Bookmark badge
+              if (wave.bookmarked)
+                Positioned(
+                  top: 8,
+                  right: 52,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.85),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.bookmark_rounded,
+                      color: Color(0xFF0A1E3A),
+                      size: 12,
+                    ),
+                  ),
+                ),
+              // Bottom info bar
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        wave.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          _statChip(
+                            Icons.favorite_rounded,
+                            _formatCount(wave.pulseCount),
+                          ),
+                          const SizedBox(width: 6),
+                          _statChip(
+                            Icons.comment_rounded,
+                            _formatCount(wave.commentCount),
+                          ),
+                          const SizedBox(width: 6),
+                          _statChip(
+                            Icons.repeat_rounded,
+                            _formatCount(wave.repeatPlayCount),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  wave.title,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isHidden
-                      ? AppColors.hintText.withValues(alpha: 0.12)
-                      : AppColors.orange.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  isHidden ? 'Hidden' : 'Published',
-                  style: TextStyle(
-                    color: isHidden
-                        ? AppColors.hintText
-                        : AppColors.lightOrange,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (wave.description.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              wave.description,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.hintText, fontSize: 12),
-            ),
-          ],
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _waveStatChip(Icons.timer_rounded, '${wave.duration}s'),
-              _waveStatChip(Icons.visibility_rounded, '${wave.viewCount}'),
-              _waveStatChip(Icons.repeat_rounded, '${wave.repeatPlayCount}'),
-              _waveStatChip(Icons.bolt_rounded, '${wave.pulseCount}'),
-              _waveStatChip(Icons.chat_bubble_rounded, '${wave.commentCount}'),
-              _waveStatChip(
-                Icons.verified_rounded,
-                wave.ageClassification.toUpperCase(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: actionBusy
-                      ? null
-                      : () => Navigator.pushNamed(
-                          context,
-                          '/wave',
-                          arguments: {'channelId': ch.id, 'waveId': wave.id},
-                        ),
-                  child: _waveActionTile(
-                    icon: Icons.play_arrow_rounded,
-                    label: 'Open',
-                    color: AppColors.orange,
-                  ),
-                ),
-              ),
-              if (_canManage) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: actionBusy ? null : () => _editWave(wave),
-                    child: _waveActionTile(
-                      icon: Icons.edit_rounded,
-                      label: 'Edit',
-                      color: AppColors.lightOrange,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          if (_canManage) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: actionBusy ? null : () => _toggleWaveHidden(wave),
-                    child: _waveActionTile(
-                      icon: isHidden
-                          ? Icons.visibility_rounded
-                          : Icons.visibility_off_rounded,
-                      label: isHidden ? 'Unhide' : 'Hide',
-                      color: AppColors.hintText,
-                      busy: actionBusy,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: actionBusy ? null : () => _deleteWave(wave),
-                    child: _waveActionTile(
-                      icon: Icons.delete_outline_rounded,
-                      label: 'Delete',
-                      color: AppColors.errorRed,
-                      busy: actionBusy,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
     );
   }
 
-  Widget _waveActionTile({
-    required IconData icon,
-    required String label,
-    required Color color,
-    bool busy = false,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (busy)
-            SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(color),
-              ),
-            )
-          else
-            Icon(icon, color: color, size: 16),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+  Widget _statChip(IconData icon, String value) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          size: 10,
+          color: AppColors.white.withValues(alpha: 0.70),
+        ),
+        const SizedBox(width: 3),
+        Text(
+          value,
+          style: TextStyle(
+            color: AppColors.white.withValues(alpha: 0.85),
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _waveStatChip(IconData icon, String label) {
+  String _formatCount(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}k';
+    return n.toString();
+  }
+
+  Widget _buildPlaceholder() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.inputBorder),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: AppColors.lightOrange, size: 14),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+      color: AppColors.darkBlue,
+      child: Center(
+        child: Icon(
+          Icons.video_library_rounded,
+          color: AppColors.orange.withValues(alpha: 0.5),
+          size: 48,
+        ),
       ),
     );
   }

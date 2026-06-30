@@ -269,10 +269,12 @@ async function getMySubscription(req, res) {
     ? await Plan.findByName(user.subscription_plan)
     : null;
 
+  const isActive = User.hasActiveSubscription(user);
+
   res.json({
     subscription: {
       plan: user.subscription_plan,
-      status: user.subscription_status,
+      status: isActive ? user.subscription_status : 'expired',
       expiry: user.subscription_expiry,
     },
     plan: planDetails || null,

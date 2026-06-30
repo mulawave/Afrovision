@@ -140,6 +140,13 @@ class WaveService {
     required bool hasExplicitLanguage,
     required bool hasNudity,
     required bool hasViolence,
+    required bool hasRevealingClothes,
+    required bool hasPartialNudity,
+    bool hasExplicitContent = false,
+    bool hasParentalGuidance = false,
+    bool hasEroticDancing = false,
+    bool hasSexualNature = false,
+    bool hasSex = false,
     int duration = 0,
     String thumbnailUrl = '',
   }) async {
@@ -154,6 +161,13 @@ class WaveService {
       'has_explicit_language': hasExplicitLanguage,
       'has_nudity': hasNudity,
       'has_violence': hasViolence,
+      'has_revealing_clothes': hasRevealingClothes,
+      'has_partial_nudity': hasPartialNudity,
+      'has_explicit_content': hasExplicitContent,
+      'has_parental_guidance': hasParentalGuidance,
+      'has_erotic_dancing': hasEroticDancing,
+      'has_sexual_nature': hasSexualNature,
+      'has_sex': hasSex,
     });
 
     return WaveModel.fromJson(data);
@@ -167,6 +181,8 @@ class WaveService {
     required bool hasExplicitLanguage,
     required bool hasNudity,
     required bool hasViolence,
+    required bool hasRevealingClothes,
+    required bool hasPartialNudity,
     String thumbnailUrl = '',
   }) async {
     final data = await ApiService.patch('/wave/$waveId', {
@@ -177,6 +193,8 @@ class WaveService {
       'has_explicit_language': hasExplicitLanguage,
       'has_nudity': hasNudity,
       'has_violence': hasViolence,
+      'has_revealing_clothes': hasRevealingClothes,
+      'has_partial_nudity': hasPartialNudity,
     });
 
     final root = data['wave'] as Map<String, dynamic>? ?? data;
@@ -248,12 +266,15 @@ class WaveService {
     bool includeHidden = false,
   }) async {
     final query = includeHidden ? '?include_hidden=true' : '';
-    final data = await ApiService.getPublic('/wave/channel/$channelId$query');
-    if (data is! List) return const <WaveModel>[];
-    return data
+    final data = await ApiService.getDynamic('/wave/channel/$channelId$query');
+    if (data is! List) {
+      return const <WaveModel>[];
+    }
+    final waves = data
         .whereType<Map<String, dynamic>>()
         .map(WaveModel.fromJson)
         .toList();
+    return waves;
   }
 
   static Future<void> addPulse(
@@ -270,6 +291,15 @@ class WaveService {
   static Future<bool> toggleBookmark(String waveId) async {
     final data = await ApiService.post('/wave/$waveId/bookmark', {});
     return data['bookmarked'] == true;
+  }
+
+  static Future<List<WaveModel>> getMyBookmarks() async {
+    final data = await ApiService.getDynamic('/wave/me/bookmarks');
+    if (data is! List) return const <WaveModel>[];
+    return data
+        .whereType<Map<String, dynamic>>()
+        .map(WaveModel.fromJson)
+        .toList();
   }
 
   static Future<List<WaveCommentModel>> getComments(String waveId) async {
@@ -291,12 +321,86 @@ class WaveService {
     return WaveCommentModel.fromJson(data);
   }
 
-  static Future<void> reportWave(String waveId, String reason) async {
-    await ApiService.post('/wave/$waveId/report', {'reason': reason});
+  static Future<void> deleteComment(String waveId, String commentId) async {
+    await ApiService.delete('/wave/$waveId/comments/$commentId');
+  }
+
+  static Future<WaveCommentModel> editComment(
+    String waveId,
+    String commentId,
+    String text,
+  ) async {
+    final data = await ApiService.patch(
+      '/wave/$waveId/comments/$commentId',
+      {'text': text},
+    );
+    return WaveCommentModel.fromJson(data);
+  }
+
+  static Future<WaveCommentModel> postReply(
+    String waveId,
+    String parentCommentId,
+    String text,
+  ) async {
+    final data = await ApiService.post('/wave/$waveId/comments', {
+      'text': text,
+      'parent_comment_id': parentCommentId,
+    });
+    return WaveCommentModel.fromJson(data);
+  }
+
+  static Future<List<WaveCommentModel>> getReplies(
+    String waveId,
+    String commentId,
+  ) async {
+    final data = await ApiService.getPublic('/wave/$waveId/comments/$commentId/replies');
+    if (data is! List) return <WaveCommentModel>[];
+    return data
+        .whereType<Map<String, dynamic>>()
+        .map(WaveCommentModel.fromJson)
+        .toList();
+  }
+
+  static Future<bool> toggleCommentReaction(
+    String waveId,
+    String commentId,
+  ) async {
+    final data = await ApiService.post('/wave/$waveId/comments/$commentId/reaction', {});
+    return data['reacted'] == true;
+  }
+
+  /// Channel owner bans a user from commenting on this channel's waves.
+  static Future<void> banCommenter(String waveId, String userId) async {
+    await ApiService.post('/wave/$waveId/comment-bans/$userId', {});
+  }
+
+  /// Channel owner revokes a commenting ban.
+  static Future<void> unbanCommenter(String waveId, String userId) async {
+    await ApiService.delete('/wave/$waveId/comment-bans/$userId');
+  }
+
+  static Future<void> reportWave(
+    String waveId,
+    String reason, {
+    String? details,
+  }) async {
+    await ApiService.post('/wave/$waveId/report', {
+      'reason': reason,
+      if (details != null && details.trim().isNotEmpty) 'details': details.trim(),
+    });
   }
 
   static Future<void> setInterest(String waveId, String signal) async {
     await ApiService.post('/wave/$waveId/interest', {'signal': signal});
+  }
+
+  /// Track a view/replay of a wave - persists to backend for accurate counts
+  static Future<void> trackView(String waveId) async {
+    try {
+      await ApiService.post('/wave/$waveId/view', {});
+    } catch (_) {
+      // Silently fail - view tracking is non-critical
+    }
   }
 
   static Future<WavePulseMomentsResponse> getPulseMoments(String waveId) async {

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../auth/services/auth_service.dart';
 import '../models/channel_model.dart';
 import '../services/channel_service.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class CreatorStudioScreen extends StatefulWidget {
   const CreatorStudioScreen({super.key});
@@ -17,6 +19,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
   bool _loading = true;
   String? _error;
   String? _togglingId;
+  bool _creatorPlanActive = true;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
 
@@ -28,13 +31,35 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
       duration: const Duration(milliseconds: 600),
     );
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
-    _loadChannels();
+    _checkPlanAndLoad();
   }
 
   @override
   void dispose() {
     _animController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkPlanAndLoad() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final user = await AuthService.getCurrentUser();
+      if (!mounted) return;
+      if (!user.hasCreatorPlan) {
+        setState(() {
+          _creatorPlanActive = false;
+          _loading = false;
+        });
+        return;
+      }
+      setState(() => _creatorPlanActive = true);
+    } catch (_) {
+      // If plan check fails, proceed anyway so creators aren't locked out by a network hiccup
+    }
+    await _loadChannels();
   }
 
   Future<void> _loadChannels() async {
@@ -100,6 +125,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
           child: Column(
             children: [
               _buildAppBar(),
+              const MarqueeTickerWidget(),
               Expanded(
                 child: _loading
                     ? const Center(
@@ -109,6 +135,8 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                           ),
                         ),
                       )
+                    : !_creatorPlanActive
+                    ? _buildPlanExpired()
                     : _error != null
                     ? _buildError()
                     : _channels.isEmpty
@@ -176,6 +204,108 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPlanExpired() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.orange.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.orange.withValues(alpha: 0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: const Icon(
+                Icons.workspace_premium_rounded,
+                color: AppColors.orange,
+                size: 38,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Creator Plan Required',
+              style: TextStyle(
+                color: AppColors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Your creator subscription is inactive or has expired.\nRenew to access Creator Studio and manage your channels.',
+              style: TextStyle(
+                color: AppColors.hintText,
+                fontSize: 14,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: AppColors.buttonGradient,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.orange.withAlpha(70),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await Navigator.pushNamed(context, '/plans');
+                    _checkPlanAndLoad();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(
+                    Icons.refresh_rounded,
+                    color: AppColors.darkBlue,
+                    size: 20,
+                  ),
+                  label: const Text(
+                    'Renew Creator Plan',
+                    style: TextStyle(
+                      color: AppColors.darkBlue,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Go back',
+                style: TextStyle(color: AppColors.hintText),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

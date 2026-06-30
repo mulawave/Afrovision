@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/services/deep_link_service.dart';
+import 'payment_webview_screen.dart';
 import '../../../core/theme/app_colors.dart';
 import '../services/checkout_recovery_service.dart';
 import '../services/payment_service.dart';
@@ -277,15 +277,36 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   Future<void> _launchCheckoutUrl() async {
     final checkoutUrl = _checkoutUrl;
     if (checkoutUrl == null || checkoutUrl.isEmpty) return;
-    final launched = await launchUrl(
-      Uri.parse(checkoutUrl),
-      mode: LaunchMode.inAppBrowserView,
+
+    final result = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentWebViewScreen(checkoutUrl: checkoutUrl),
+      ),
     );
-    if (!launched && mounted) {
-      await launchUrl(
-        Uri.parse(checkoutUrl),
-        mode: LaunchMode.externalApplication,
+
+    if (!mounted) return;
+
+    // WebView intercepted com.afrovision.app://checkout/result?payment_id=xxx
+    if (result != null && result.isNotEmpty) {
+      setState(() {
+        _paymentId = result;
+        _launchedCheckout = true;
+      });
+      CheckoutRecoveryService.savePendingSession(
+        paymentId: result,
+        purpose: _purpose,
+        checkoutUrl: _checkoutUrl,
+        title: _title,
+        planId: _planId,
+        planName: _planName,
+        billingCycle: _billingCycle,
+        balanceType: _balanceType,
+        amountNgn: _purpose == 'wallet_topup'
+            ? double.tryParse(_amountCtrl.text.trim())
+            : _fixedAmount,
       );
+      _verifyPayment();
     }
   }
 

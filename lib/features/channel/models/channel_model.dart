@@ -87,7 +87,7 @@ class ChannelModel {
 
   bool get isPrivate => type == 'private';
   bool get isPublic => type == 'public';
-  bool get isExclusive => type == 'exclusive';
+  bool get isExclusive => exclusiveMonthlyFeeNgn > 0;
   bool get isPremium => requiresPayment;
   bool get hasExternalSource => streamSourceMode != 'native';
   bool get isExternalYouTube => streamSourceMode == 'external_youtube';

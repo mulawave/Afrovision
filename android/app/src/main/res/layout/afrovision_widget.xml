@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  AfroVision Dashboard Widget — 4x2 home-screen widget.
-  Rules:
-    • NO @drawable/ references — inline colours only (launcher process can't
-      reliably inflate custom GradientDrawable / LayerDrawable).
-    • NO decimal layout_weight — integer weights only.
-    • Only RemoteViews-safe view types: LinearLayout, TextView, ImageView, View.
-    • No letterSpacing, no paddingStart/End, no custom fonts.
+  AfroVision Premium Home Widget — 5×4 cells.
+  Uses @drawable/widget_bg gradient root, circular avatar, glassmorphism cards.
+  RemoteViews-safe: LinearLayout, FrameLayout, ViewFlipper, TextView only.
 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -14,143 +10,413 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FF050A30"
+    android:background="@drawable/widget_bg"
     android:padding="12dp">
 
-    <!-- ── Row 1: Logo · App name · Notification badge · Live count ──── -->
+    <!-- ═════ HEADER: Brand | Avatar | Live pill ═════ -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="3"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-
-        <ImageView
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@mipmap/ic_launcher"
-            android:scaleType="fitCenter" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginLeft="6dp"
             android:text="AFROVISION"
             android:textColor="#FFFFD700"
-            android:textSize="10sp"
+            android:textSize="14sp"
             android:textStyle="bold"
+            android:letterSpacing="1.2"
             android:maxLines="1" />
 
-        <!-- Notification count — hidden when 0 -->
-        <TextView
-            android:id="@+id/widget_notif_count"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginRight="6dp"
-            android:background="#FFE53935"
-            android:textColor="#FFFFFFFF"
-            android:textSize="8sp"
-            android:textStyle="bold"
-            android:padding="4dp"
-            android:text="0"
-            android:visibility="gone" />
+        <!-- Circular avatar — initial letter fallback + optional photo overlay -->
+        <FrameLayout
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginLeft="8dp">
+            <TextView
+                android:id="@+id/widget_avatar_initial"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/widget_avatar_default"
+                android:gravity="center"
+                android:text="A"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+            <ImageView
+                android:id="@+id/widget_avatar_image"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                android:contentDescription="Profile photo" />
+        </FrameLayout>
 
-        <!-- Live channel count -->
         <TextView
             android:id="@+id/widget_live_count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="#CCF49617"
+            android:layout_marginLeft="8dp"
+            android:background="@drawable/widget_live_pill"
             android:textColor="#FFFFFFFF"
-            android:textSize="8sp"
+            android:textSize="9sp"
             android:textStyle="bold"
-            android:padding="5dp"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
             android:text="0 LIVE" />
-
     </LinearLayout>
 
-    <!-- Thin divider -->
-    <View
+    <!-- Divider -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginTop="3dp"
-        android:layout_marginBottom="3dp"
-        android:background="#22FFD700" />
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/widget_divider" />
 
-    <!-- ── Row 2: Upcoming show ─────────────────────────────────────── -->
-    <LinearLayout
+    <!-- ═════ RECENT CHANNELS ═════ -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="RECENT CHANNELS"
+        android:textColor="#B3FFD700"
+        android:textSize="8sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.8"
+        android:layout_marginBottom="4dp" />
+
+    <ViewFlipper
+        android:id="@+id/widget_recent_flipper"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="5"
-        android:orientation="vertical"
-        android:gravity="center_vertical">
+        android:layout_weight="1"
+        android:autoStart="true"
+        android:flipInterval="3500"
+        android:inAnimation="@android:anim/fade_in"
+        android:outAnimation="@android:anim/fade_out">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="UP NEXT"
-            android:textColor="#88FFD700"
-            android:textSize="7sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/widget_next_channel"
+        <!-- Slide 1 -->
+        <FrameLayout
+            android:id="@+id/widget_recent_slide_1"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textColor="#FFFFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:text="No upcoming shows" />
+            android:layout_height="match_parent"
+            android:background="@drawable/widget_card_bg">
+
+            <ImageView
+                android:id="@+id/widget_recent_cover_1"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                android:contentDescription="Channel cover" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/widget_slide_overlay" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingLeft="10dp"
+                android:paddingRight="10dp">
+                <ImageView
+                    android:id="@+id/widget_recent_logo_1"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginRight="8dp"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone"
+                    android:contentDescription="Channel logo" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&#9654;"
+                    android:textColor="#FFFF6B35"
+                    android:textSize="10sp"
+                    android:layout_marginRight="8dp" />
+                <TextView
+                    android:id="@+id/widget_recent_ch_1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="#F0FFFFFF"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:text="No recent channels" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Slide 2 -->
+        <FrameLayout
+            android:id="@+id/widget_recent_slide_2"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/widget_card_bg">
+
+            <ImageView
+                android:id="@+id/widget_recent_cover_2"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                android:contentDescription="Channel cover" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/widget_slide_overlay" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingLeft="10dp"
+                android:paddingRight="10dp">
+                <ImageView
+                    android:id="@+id/widget_recent_logo_2"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginRight="8dp"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone"
+                    android:contentDescription="Channel logo" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&#9654;"
+                    android:textColor="#FFFF6B35"
+                    android:textSize="10sp"
+                    android:layout_marginRight="8dp" />
+                <TextView
+                    android:id="@+id/widget_recent_ch_2"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="#F0FFFFFF"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:text="No recent channels" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Slide 3 -->
+        <FrameLayout
+            android:id="@+id/widget_recent_slide_3"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/widget_card_bg">
+
+            <ImageView
+                android:id="@+id/widget_recent_cover_3"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                android:contentDescription="Channel cover" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/widget_slide_overlay" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingLeft="10dp"
+                android:paddingRight="10dp">
+                <ImageView
+                    android:id="@+id/widget_recent_logo_3"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginRight="8dp"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone"
+                    android:contentDescription="Channel logo" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&#9654;"
+                    android:textColor="#FFFF6B35"
+                    android:textSize="10sp"
+                    android:layout_marginRight="8dp" />
+                <TextView
+                    android:id="@+id/widget_recent_ch_3"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="#F0FFFFFF"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:text="No recent channels" />
+            </LinearLayout>
+        </FrameLayout>
+    </ViewFlipper>
+
+    <!-- Divider -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/widget_divider" />
+
+    <!-- ═════ NOTIFICATIONS ═════ -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="NOTIFICATIONS"
+        android:textColor="#B3FFD700"
+        android:textSize="8sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.8"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/widget_notif_1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#D8FFFFFF"
+        android:textSize="10sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="No new notifications" />
+
+    <TextView
+        android:id="@+id/widget_notif_2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="#A6FFFFFF"
+        android:textSize="9sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="" />
+
+    <TextView
+        android:id="@+id/widget_notif_3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="#A6FFFFFF"
+        android:textSize="9sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="" />
+
+    <!-- ═════ MY ASSETS ═════ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="6dp">
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="2dp">
-
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/widget_card_bg"
+            android:padding="6dp">
             <TextView
-                android:id="@+id/widget_next_show"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="#BBFFFFFF"
-                android:textSize="9sp"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:text="" />
-
-            <TextView
-                android:id="@+id/widget_next_time"
+                android:id="@+id/widget_asset_cash"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginLeft="6dp"
-                android:textColor="#FFF49617"
-                android:textSize="9sp"
+                android:text="₦0.00"
+                android:textColor="#FFFFFFFF"
+                android:textSize="10sp"
                 android:textStyle="bold"
-                android:text="" />
-
+                android:maxLines="1" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cash"
+                android:textColor="#99FFFFFF"
+                android:textSize="7sp" />
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="5dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/widget_card_bg"
+            android:padding="6dp">
+            <TextView
+                android:id="@+id/widget_asset_vpt"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0.00"
+                android:textColor="#FFFFFFFF"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:maxLines="1" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="vPT"
+                android:textColor="#99FFFFFF"
+                android:textSize="7sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="5dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/widget_card_bg"
+            android:padding="6dp">
+            <TextView
+                android:id="@+id/widget_asset_ravens"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="#FFFFFFFF"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:maxLines="1" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ravens"
+                android:textColor="#99FFFFFF"
+                android:textSize="7sp" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- Thin divider -->
-    <View
+    <!-- Divider -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginTop="3dp"
-        android:layout_marginBottom="3dp"
-        android:background="#22FFD700" />
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/widget_divider" />
 
-    <!-- ── Row 3: Plan · Renewal days · Waves · Library ────────────── -->
+    <!-- ═════ FOOTER: Plan pill | Days | Waves ═════ -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="3"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
@@ -158,11 +424,14 @@
             android:id="@+id/widget_plan"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="#22FFD700"
+            android:background="@drawable/widget_plan_pill"
             android:textColor="#FFFFD700"
-            android:textSize="8sp"
+            android:textSize="9sp"
             android:textStyle="bold"
-            android:padding="5dp"
+            android:paddingLeft="6dp"
+            android:paddingRight="6dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
             android:maxLines="1"
             android:text="Free Plan" />
 
@@ -172,54 +441,19 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginLeft="8dp"
-            android:textColor="#88FFFFFF"
-            android:textSize="8sp"
+            android:textColor="#70FFFFFF"
+            android:textSize="9sp"
             android:maxLines="1"
             android:text="" />
 
-        <!-- Waves count — hidden when 0 -->
-        <LinearLayout
-            android:id="@+id/widget_waves_row"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginLeft="6dp"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="~"
-                android:textColor="#88FFFFFF"
-                android:textSize="9sp" />
-
-            <TextView
-                android:id="@+id/widget_waves"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginLeft="2dp"
-                android:textColor="#BBFFFFFF"
-                android:textSize="9sp"
-                android:textStyle="bold"
-                android:text="0" />
-
-        </LinearLayout>
-
-        <!-- Library updates badge — hidden when 0 -->
         <TextView
-            android:id="@+id/widget_library"
+            android:id="@+id/widget_waves"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="6dp"
-            android:background="#FFE53935"
-            android:textColor="#FFFFFFFF"
-            android:textSize="7sp"
+            android:textColor="#B0FFFFFF"
+            android:textSize="9sp"
             android:textStyle="bold"
-            android:padding="4dp"
-            android:text="+0 New"
-            android:visibility="gone" />
-
+            android:text="0 waves" />
     </LinearLayout>
 
 </LinearLayout>

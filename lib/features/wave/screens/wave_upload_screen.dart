@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -28,10 +29,17 @@ class _WaveUploadScreenState extends State<WaveUploadScreen> {
 
   List<ChannelModel> _channels = const <ChannelModel>[];
   String? _selectedChannelId;
-  String _ageClassification = 'teen';
+  String _ageClassification = 'adult';
   bool _hasExplicitLanguage = false;
   bool _hasNudity = false;
   bool _hasViolence = false;
+  bool _hasRevealingClothes = false;
+  bool _hasPartialNudity = false;
+  bool _hasExplicitContent = false;
+  bool _hasParentalGuidance = false;
+  bool _hasEroticDancing = false;
+  bool _hasSexualNature = false;
+  bool _hasSex = false;
 
   File? _videoFile;
   String? _videoName;
@@ -128,7 +136,10 @@ class _WaveUploadScreenState extends State<WaveUploadScreen> {
     VideoPlayerController? controller;
     try {
       controller = VideoPlayerController.file(file);
-      await controller.initialize();
+      await controller.initialize().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {},
+      );
       final duration = controller.value.duration.inSeconds;
       if (!mounted) return;
 
@@ -143,7 +154,7 @@ class _WaveUploadScreenState extends State<WaveUploadScreen> {
         _detectingDuration = false;
       });
     } finally {
-      await controller?.dispose();
+      controller?.dispose();
     }
   }
 
@@ -216,6 +227,13 @@ class _WaveUploadScreenState extends State<WaveUploadScreen> {
         hasExplicitLanguage: _hasExplicitLanguage,
         hasNudity: _hasNudity,
         hasViolence: _hasViolence,
+        hasRevealingClothes: _hasRevealingClothes,
+        hasPartialNudity: _hasPartialNudity,
+        hasExplicitContent: _hasExplicitContent,
+        hasParentalGuidance: _hasParentalGuidance,
+        hasEroticDancing: _hasEroticDancing,
+        hasSexualNature: _hasSexualNature,
+        hasSex: _hasSex,
       );
 
       if (!mounted) return;
@@ -500,6 +518,41 @@ class _WaveUploadScreenState extends State<WaveUploadScreen> {
                   label: 'Contains violence',
                   value: _hasViolence,
                   onChanged: (v) => setState(() => _hasViolence = v),
+                ),
+                _flagTile(
+                  label: 'Contains revealing clothes',
+                  value: _hasRevealingClothes,
+                  onChanged: (v) => setState(() => _hasRevealingClothes = v),
+                ),
+                _flagTile(
+                  label: 'Contains partial nudity',
+                  value: _hasPartialNudity,
+                  onChanged: (v) => setState(() => _hasPartialNudity = v),
+                ),
+                _flagTile(
+                  label: 'Contains explicit content',
+                  value: _hasExplicitContent,
+                  onChanged: (v) => setState(() => _hasExplicitContent = v),
+                ),
+                _flagTile(
+                  label: 'Contains parental guidance',
+                  value: _hasParentalGuidance,
+                  onChanged: (v) => setState(() => _hasParentalGuidance = v),
+                ),
+                _flagTile(
+                  label: 'Contains erotic dancing',
+                  value: _hasEroticDancing,
+                  onChanged: (v) => setState(() => _hasEroticDancing = v),
+                ),
+                _flagTile(
+                  label: 'Contains sexual nature',
+                  value: _hasSexualNature,
+                  onChanged: (v) => setState(() => _hasSexualNature = v),
+                ),
+                _flagTile(
+                  label: 'Contains sex',
+                  value: _hasSex,
+                  onChanged: (v) => setState(() => _hasSex = v),
                 ),
               ],
             ),

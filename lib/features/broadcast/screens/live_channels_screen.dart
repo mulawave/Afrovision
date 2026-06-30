@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../channel/models/channel_model.dart';
 import '../../channel/services/channel_service.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class LiveChannelsScreen extends StatefulWidget {
   const LiveChannelsScreen({super.key});
@@ -116,6 +117,7 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
           child: Column(
             children: [
               _buildHeader(),
+              const MarqueeTickerWidget(),
               Expanded(child: _buildContent()),
             ],
           ),

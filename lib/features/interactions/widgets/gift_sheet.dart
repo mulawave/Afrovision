@@ -199,8 +199,91 @@ class _GiftSheetState extends State<GiftSheet> {
               ),
             ),
 
+          // Settlement split info
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.cardBg.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.inputBorder.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: AppColors.hintText,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Gift Distribution',
+                        style: TextStyle(
+                          color: AppColors.hintText,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _splitChip('Creator', '50%', AppColors.lightOrange),
+                      const SizedBox(width: 6),
+                      _splitChip('Operations', '30%', AppColors.softBlue),
+                      const SizedBox(width: 6),
+                      _splitChip('Community', '20%', AppColors.successGreen),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
           SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
         ],
+      ),
+    );
+  }
+
+  Widget _splitChip(String label, String pct, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              pct,
+              style: TextStyle(
+                color: color,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                color: AppColors.hintText,
+                fontSize: 9,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

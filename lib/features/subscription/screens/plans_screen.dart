@@ -7,6 +7,7 @@ import '../../currency/currency_service.dart';
 import '../../auth/services/profile_service.dart';
 import '../../reputation/models/reputation_model.dart';
 import '../../reputation/services/reputation_service.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class PlansScreen extends StatefulWidget {
   const PlansScreen({super.key});
@@ -254,6 +255,7 @@ class _PlansScreenState extends State<PlansScreen>
           child: Column(
             children: [
               _buildAppBar(),
+              const MarqueeTickerWidget(),
               _buildTabBar(),
               Expanded(
                 child: _loading

@@ -60,7 +60,10 @@ async function findActive(subscriberUid, channelId) {
     .get();
   if (snapshot.empty) return null;
   const doc = snapshot.docs[0];
-  return { ...doc.data(), id: doc.id };
+  const data = { ...doc.data(), id: doc.id };
+  const nextBilling = data.next_billing ? Number(data.next_billing) : 0;
+  if (nextBilling > 0 && Date.now() > nextBilling) return null;
+  return data;
 }
 
 async function getBySubscriber(subscriberUid) {

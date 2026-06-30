@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../models/ledger_entry_model.dart';
 import '../services/wallet_service.dart';
+import '../../../core/widgets/marquee_ticker_widget.dart';
 
 class GiftWalletScreen extends StatefulWidget {
   const GiftWalletScreen({super.key});
@@ -110,6 +111,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
           child: Column(
             children: [
               _buildAppBar(),
+              const MarqueeTickerWidget(),
               Expanded(
                 child: _loading
                     ? const Center(
@@ -134,6 +136,8 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                               children: [
                                 const SizedBox(height: 8),
                                 _buildBalanceCard(),
+                                const SizedBox(height: 16),
+                                _buildSplitInfoCard(),
                                 const SizedBox(height: 16),
                                 _buildActionRow(),
                                 const SizedBox(height: 20),
@@ -370,6 +374,96 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ─── Settlement Split Info ────────────────────────────
+
+  Widget _buildSplitInfoCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.inputBorder.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.info_outline_rounded,
+                color: AppColors.hintText,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Gift Settlement Distribution',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Every gift you send is split as follows:',
+            style: TextStyle(
+              color: AppColors.hintText,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _walletSplitChip('Creator', '50%', AppColors.lightOrange),
+              const SizedBox(width: 8),
+              _walletSplitChip('Operations', '30%', const Color(0xFF64B5F6)),
+              const SizedBox(width: 8),
+              _walletSplitChip('Community Pool', '20%', const Color(0xFF4CAF50)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _walletSplitChip(String label, String pct, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              pct,
+              style: TextStyle(
+                color: color,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.hintText,
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

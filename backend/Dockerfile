@@ -13,6 +13,9 @@ RUN npm ci --omit=dev --fetch-timeout=600000 --fetch-retry-mintimeout=20000 --fe
 # ── Runtime stage ───────────────────────────────────────────
 FROM node:20-alpine AS runtime
 
+# Install ffmpeg for thumbnail generation
+RUN apk add --no-cache ffmpeg
+
 # Non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 

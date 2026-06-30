@@ -8,9 +8,7 @@ const { activatePlatformPlan } = require('../subscriptions/subscription.controll
 
 const PAYSTACK_BASE_URL = 'https://api.paystack.co';
 const FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3';
-const DEFAULT_WEBSITE_URL =
-  process.env.WEBSITE_URL ||
-  'https://afrovision.online';
+const DEFAULT_WEBSITE_URL = 'https://afrovision.online';
 
 async function getSettingOrEnv(key, envKeys = []) {
   try {

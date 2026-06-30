@@ -30,9 +30,9 @@ function parsePagingValue(value, fallback) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function getMyReputation(req, res) {
+async function getMyReputation(req, res) {
   try {
-    const reputation = ReputationService.getReputation(req.userId);
+    const reputation = await ReputationService.getReputation(req.userId);
     if (!reputation) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -43,20 +43,20 @@ function getMyReputation(req, res) {
   }
 }
 
-function getLeaderboard(req, res) {
+async function getLeaderboard(req, res) {
   try {
     const limit = parsePagingValue(req.query.limit, 50);
     const offset = parsePagingValue(req.query.offset, 0);
-    const leaderboard = ReputationService.getLeaderboard(limit, offset);
+    const leaderboard = await ReputationService.getLeaderboard(limit, offset);
     return res.json({ leaderboard, limit, offset });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to load leaderboard' });
   }
 }
 
-function getUserReputation(req, res) {
+async function getUserReputation(req, res) {
   try {
-    const reputation = ReputationService.getReputation(req.params.userId);
+    const reputation = await ReputationService.getReputation(req.params.userId);
     if (!reputation) {
       return res.status(404).json({ error: 'User not found' });
     }
