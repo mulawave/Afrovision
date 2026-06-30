@@ -69,6 +69,7 @@ import 'features/broadcast/screens/channel_library_screen.dart';
 import 'features/broadcast/screens/channel_library_item_screen.dart';
 import 'features/broadcast/screens/channel_library_reader_screen.dart';
 import 'features/broadcast/screens/creator_library_management_screen.dart';
+import 'features/broadcast/screens/readable_upload_screen.dart';
 import 'features/announcements/screens/announcements_screen.dart';
 import 'features/updates/screens/updates_screen.dart';
 import 'features/channel/screens/my_pics_screen.dart';
@@ -156,6 +157,8 @@ class AfroVisionApp extends StatelessWidget {
         '/channel-library/reader': (_) => const ChannelLibraryReaderScreen(),
         '/creator-studio/library': (_) =>
             const CreatorLibraryManagementScreen(),
+        '/creator-studio/library/readable-upload': (_) =>
+            const ReadableUploadScreen(),
         '/create-channel': (_) => const CreateChannelScreen(),
         '/channel-view': (_) => const ChannelViewScreen(),
         '/channel-access': (_) => const ChannelNumberAccessScreen(),
