@@ -27,6 +27,7 @@ class BroadcastPlayer extends ChangeNotifier {
   bool isInitialized = false;
   bool isBuffering = false;
   bool hasError = false;
+  bool isRecovering = false;
   String? errorMessage;
 
   // Sync
@@ -36,6 +37,9 @@ class BroadcastPlayer extends ChangeNotifier {
   bool _isAppActive = true;
   bool _isContinuousStream = false;
   String? _currentVideoUrl;
+  bool _recoveringInFlight = false;
+  int _retryCount = 0;
+  static const int _maxRetries = 4;
 
   bool get _hasProgramWindow =>
       !_isContinuousStream &&
@@ -95,7 +99,9 @@ class BroadcastPlayer extends ChangeNotifier {
 
       isInitialized = true;
       hasError = false;
+      isRecovering = false;
       errorMessage = null;
+      _retryCount = 0;
       notifyListeners();
 
       _startSyncTimer();
@@ -228,13 +234,16 @@ class BroadcastPlayer extends ChangeNotifier {
       final description = value.errorDescription ?? '';
       if (description.contains('403')) {
         errorMessage = 'Stream access denied. Please sign in again.';
+        isRecovering = false;
         notifyListeners();
         onAccessDenied?.call();
         return;
       }
       errorMessage = sanitizeError(description);
+      isRecovering = true;
+      _retryCount = 0;
       notifyListeners();
-      _retryPlayback();
+      unawaited(_retryPlayback());
     }
 
     notifyListeners();
@@ -268,42 +277,62 @@ class BroadcastPlayer extends ChangeNotifier {
   }
 
   Future<void> _retryPlayback() async {
-    if (_disposed || _controller == null) return;
+    if (_disposed || _controller == null || _recoveringInFlight) return;
 
-    await Future.delayed(const Duration(seconds: 3));
-    if (_disposed) return;
-
+    _recoveringInFlight = true;
     try {
-      final url = _currentVideoUrl;
-      if (url != null && url.isNotEmpty) {
-        final headers = await _buildNetworkHeaders(url);
-        final replacement = VideoPlayerController.networkUrl(
-          Uri.parse(url),
-          httpHeaders: headers,
-        );
-        replacement.addListener(_onPlayerStateChange);
-        final previous = _controller;
-        _controller = replacement;
-        previous?.removeListener(_onPlayerStateChange);
-        await previous?.dispose();
-      }
+      for (_retryCount = 1; _retryCount <= _maxRetries && !_disposed; _retryCount++) {
+        await Future.delayed(Duration(seconds: 3 * _retryCount));
+        if (_disposed) return;
 
-      await _controller!.initialize();
-      if (isLoop) {
-        await _controller!.setLooping(true);
+        try {
+          final url = _currentVideoUrl;
+          if (url != null && url.isNotEmpty) {
+            final headers = await _buildNetworkHeaders(url);
+            if (_disposed) return;
+
+            final replacement = VideoPlayerController.networkUrl(
+              Uri.parse(url),
+              httpHeaders: headers,
+            );
+            replacement.addListener(_onPlayerStateChange);
+            final previous = _controller;
+            _controller = replacement;
+            previous?.removeListener(_onPlayerStateChange);
+            await previous?.dispose();
+          }
+
+          await _controller!.initialize();
+          if (_disposed) return;
+
+          if (isLoop) {
+            await _controller!.setLooping(true);
+          }
+          if (!isLoop && _hasProgramWindow) {
+            final correctedTime = BroadcastService.correctedNow;
+            final expectedMs = correctedTime - programStartTime;
+            await _controller!.seekTo(Duration(milliseconds: expectedMs));
+          }
+          await _controller!.play();
+
+          isInitialized = true;
+          hasError = false;
+          isRecovering = false;
+          errorMessage = null;
+          _retryCount = 0;
+          _startSyncTimer();
+          notifyListeners();
+          return;
+        } catch (_) {
+          if (_disposed) return;
+        }
       }
-      // Seek to approximate current position for live mode
-      if (!isLoop && _hasProgramWindow) {
-        final correctedTime = BroadcastService.correctedNow;
-        final expectedMs = correctedTime - programStartTime;
-        await _controller!.seekTo(Duration(milliseconds: expectedMs));
+    } finally {
+      _recoveringInFlight = false;
+      if (!_disposed && hasError) {
+        isRecovering = false;
+        notifyListeners();
       }
-      await _controller!.play();
-      hasError = false;
-      errorMessage = null;
-      notifyListeners();
-    } catch (_) {
-      // Will retry via listener on next error cycle
     }
   }
 
@@ -404,9 +433,12 @@ class BroadcastPlayer extends ChangeNotifier {
     isInitialized = false;
     isBuffering = false;
     hasError = false;
+    isRecovering = false;
     errorMessage = null;
     _isSeeking = false;
     _isContinuousStream = false;
+    _recoveringInFlight = false;
+    _retryCount = 0;
   }
 
   /// Async variant used by the channel player so that the old controller is

@@ -1023,11 +1023,18 @@ ${isHls ? '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.j
     player.addListener(() {
       if (!mounted) return;
       setState(() {
-        if (player.hasError && player.errorMessage != null) {
-          _error = player.errorMessage;
-          _loading = false;
-        } else if (_error == player.errorMessage) {
+        if (player.isRecovering) {
+          _isReconnecting = true;
           _error = null;
+          _loading = false;
+        } else if (player.hasError && player.errorMessage != null) {
+          _error = player.errorMessage;
+          _isReconnecting = false;
+          _loading = false;
+        } else {
+          _error = null;
+          _isReconnecting = false;
+          _loading = false;
         }
       });
     });
