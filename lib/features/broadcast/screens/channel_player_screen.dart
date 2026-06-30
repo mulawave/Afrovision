@@ -115,9 +115,6 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
   // ── Background / PiP state ────────────────────────────────────────────────
   bool _isInBackground = false;
-  // HTML page used to recreate playback in the native system-overlay service
-  // when the app goes to the background while floating mode is active.
-  String? _activeStreamHtml;
   bool _isInPiPMode = false;
   // Set to true before popping to floating mode so dispose() doesn't kill
   // the controllers that the floating overlay is still using.
@@ -980,29 +977,6 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     bool loop,
   ) async {
     _externalRuntimeMode = 'native';
-    // Build an HTML5 video page so the native overlay service can play this
-    // stream while the app is in the background.
-    final isHls = url.toLowerCase().contains('.m3u8') ||
-        url.toLowerCase().contains('playlist') ||
-        url.toLowerCase().contains('manifest');
-    _activeStreamHtml =
-        '''<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#000;overflow:hidden}
-video{width:100%;height:100%;object-fit:contain}</style>
-${isHls ? '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>' : ''}
-</head>
-<body>
-<video id="v" ${isHls ? '' : 'src="$url"'} autoplay playsinline muted></video>
-<script>
-  var v=document.getElementById('v');
-  v.muted=false;
-  ${isHls ? 'var h=new Hls({enableWorker:true});h.loadSource("$url");h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,function(){v.play();});' : 'v.play();'}
-</script>
-</body>
-</html>''';
     final oldPlayer = _player;
     _player = null;
     if (oldPlayer != null) {
@@ -1280,8 +1254,6 @@ ${isHls ? '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.j
     }).toString();
 
     // Wrap the embed in a minimal full-bleed HTML page.
-    // Also saved to _activeStreamHtml so the native overlay service can
-    // reload the same content when the app goes to the background.
     final html =
         '''<!DOCTYPE html>
 <html>
@@ -1348,8 +1320,6 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     );
 
     if (!mounted) return;
-
-    _activeStreamHtml = html; // saved for cross-app overlay service
 
     setState(() {
       _ytWebViewController = ctrl;
@@ -2034,7 +2004,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     }
   }
 
-  void _onManualPiPTap() {
+  Future<void> _onManualPiPTap() async {
     final isNativePlaying =
         _player?.controller?.value.isInitialized == true &&
         _player!.controller!.value.isPlaying;
@@ -2044,14 +2014,29 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
         _youtubeReady;
 
     if (isNativePlaying || isYouTubePlaying) {
-      _enterFloatingMode();
+      // Enter native Android Picture-in-Picture so the video keeps playing in
+      // a system window on top of other apps and the home screen.
+      if (await PipService.isSupported) {
+        await PipService.enter();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Picture-in-picture is not supported on this device',
+              style: TextStyle(color: AppColors.white),
+            ),
+            backgroundColor: AppColors.cardBg,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text(
-          'Start playback before entering mini-player mode',
+          'Start playback before entering picture-in-picture',
           style: TextStyle(color: AppColors.white),
         ),
         backgroundColor: AppColors.cardBg,
@@ -2081,7 +2066,6 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
       channelName: _channel?.name,
       channelLogoUrl: _channel?.logoUrl,
       externalMode: _externalRuntimeMode,
-      streamHtml: _activeStreamHtml,
     );
 
     Navigator.pop(context);
