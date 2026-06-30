@@ -7,10 +7,6 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Full-screen intent for urgent notifications that bypass DND -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
-    <!-- Required for the cross-app floating video overlay (SYSTEM_ALERT_WINDOW). -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <application
         android:label="AfroVision"
         android:name="${applicationName}"
@@ -81,13 +77,6 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-
-        <!-- ── Cross-app floating video overlay service ───────────────── -->
-        <service
-            android:name=".FloatingVideoOverlayService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback"
-            android:stopWithTask="false" />
 
         <!-- ── AfroVision Home-Screen Widget ──────────────────────────── -->
         <receiver

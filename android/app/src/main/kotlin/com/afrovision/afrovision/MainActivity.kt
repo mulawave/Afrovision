@@ -1,8 +1,6 @@
 package com.afrovision.afrovision
 
 import android.app.AppOpsManager
-import android.app.ActivityManager
-import android.content.ActivityNotFoundException
 import android.app.PictureInPictureParams
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
@@ -26,22 +24,9 @@ class MainActivity : FlutterActivity() {
     private val INTEGRITY_CHANNEL = "com.afrovision.afrovision/integrity"
     private val PIP_CHANNEL       = "com.afrovision.afrovision/pip"
     private val WIDGET_CHANNEL    = "com.afrovision.afrovision/widget"
-    private val OVERLAY_CHANNEL   = "com.afrovision.afrovision/overlay"
 
     private var pipMethodChannel: MethodChannel? = null
-    private var overlayMethodChannel: MethodChannel? = null
     private var _autoPipEnabled = false
-
-    // Receives the user-initiated close event from the cross-app overlay
-    // service so Flutter can fully tear down playback (release audio focus).
-    private val overlayClosedReceiver = object : android.content.BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: android.content.Intent?) {
-            if (intent?.action == FloatingVideoOverlayService.ACTION_OVERLAY_USER_CLOSED) {
-                android.util.Log.d("MainActivity", "Overlay closed by user — notifying Flutter")
-                overlayMethodChannel?.invokeMethod("onOverlayClosedByUser", null)
-            }
-        }
-    }
 
     // ── onCreate ──────────────────────────────────────────────────────────────
 
@@ -71,50 +56,16 @@ class MainActivity : FlutterActivity() {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             audioManager.setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_ALL)
         }
-
-        // Listen for the cross-app overlay's user-close broadcast.
-        val filter = android.content.IntentFilter(
-            FloatingVideoOverlayService.ACTION_OVERLAY_USER_CLOSED,
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(overlayClosedReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(overlayClosedReceiver, filter)
-        }
-    }
-
-    override fun onDestroy() {
-        try {
-            unregisterReceiver(overlayClosedReceiver)
-        } catch (_: Exception) { /* not registered */ }
-        super.onDestroy()
     }
 
     // ── Single-task: forward new intents to Flutter ───────────────────────
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
-        // Forward to Flutter so deep links / notification taps are handled
-        flutterEngine?.dartExecutor?.binaryMessenger?.let {
-            // FlutterActivity already handles this via MethodChannel, but we
-            // must set the new intent so Flutter's navigation plugins see it.
-            setIntent(intent)
-
-            // Handle channel surfer intent from native overlay
-            if (intent.getBooleanExtra("openChannelSurfer", false)) {
-                android.util.Log.d("MainActivity", "openChannelSurfer intent received")
-                try {
-                    val methodChannel = io.flutter.plugin.common.MethodChannel(
-                        it,
-                        "com.afrovision.afrovision/overlay"
-                    )
-                    methodChannel.invokeMethod("openChannelSurfer", null)
-                } catch (e: Exception) {
-                    android.util.Log.e("MainActivity", "Error invoking openChannelSurfer", e)
-                }
-            }
-        }
+        // Forward to Flutter so deep links / notification taps are handled.
+        // FlutterActivity already handles this via MethodChannel, but we must
+        // set the new intent so Flutter's navigation plugins see it.
+        setIntent(intent)
     }
 
     // ── PiP lifecycle ─────────────────────────────────────────────────────
@@ -171,14 +122,6 @@ class MainActivity : FlutterActivity() {
         } else {
             true
         }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun isOverlayRunning(): Boolean {
-        val manager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            ?: return false
-        return manager.getRunningServices(Int.MAX_VALUE)
-            .any { it.service.className == FloatingVideoOverlayService::class.java.name }
     }
 
     // ── Widget helpers ────────────────────────────────────────────────────────
@@ -302,54 +245,6 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-
-        // ── Cross-app overlay channel ──
-        val overlay = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_CHANNEL)
-        overlayMethodChannel = overlay
-        overlay.setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "canDrawOverlays" -> {
-                        val canDraw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                            android.provider.Settings.canDrawOverlays(this)
-                        else true
-                        result.success(canDraw)
-                    }
-                    "requestDrawOverlaysPermission" -> {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            try {
-                                val intent = android.content.Intent(
-                                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    android.net.Uri.parse("package:$packageName"),
-                                )
-                                startActivity(intent)
-                            } catch (_: ActivityNotFoundException) {}
-                        }
-                        result.success(null)
-                    }
-                    "startOverlay" -> {
-                        val html        = call.argument<String>("streamHtml")  ?: ""
-                        val channelName = call.argument<String>("channelName") ?: ""
-                        val intent = android.content.Intent(this, FloatingVideoOverlayService::class.java).apply {
-                            putExtra("streamHtml",  html)
-                            putExtra("channelName", channelName)
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(intent)
-                        } else {
-                            startService(intent)
-                        }
-                        result.success(null)
-                    }
-                    "stopOverlay" -> {
-                        stopService(android.content.Intent(this, FloatingVideoOverlayService::class.java))
-                        result.success(null)
-                    }
-                    "isOverlayRunning" -> {
-                        result.success(isOverlayRunning())
-                    }
-                    else -> result.notImplemented()
-                }
-            }
 
         // ── Home-screen widget channel ──
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIDGET_CHANNEL)
