@@ -1296,7 +1296,7 @@ export function ChannelProfile({ id }: { id: string }) {
                             <img
                               src={item.coverAssetUrl}
                               alt={item.title}
-                              className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              className="absolute inset-0 w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                             />
                           ) : (
                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
@@ -1505,7 +1505,7 @@ export function ChannelProfile({ id }: { id: string }) {
                     <img
                       src={libraryDetail.item.coverAssetUrl}
                       alt={libraryDetail.item.title}
-                      className="w-full h-56 sm:h-full object-cover"
+                      className="w-full h-56 sm:h-full object-contain"
                     />
                   ) : (
                     <div className="w-full h-56 sm:h-full flex items-center justify-center text-5xl">📘</div>
