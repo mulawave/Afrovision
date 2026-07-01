@@ -171,7 +171,7 @@ export default function LibraryReaderPage() {
   const penRight = getPage(pendingSpread.rightPageNumber);
 
   const pdfUrl        = manifest?.pdfUrl ?? null;
-  const hasImagePages = pages.length > 0;
+  const hasImagePages = pages.some((p) => Boolean(p.imageUrl));
   const hasPrev       = currentSpreadIndex > 0;
   const hasNext       = currentSpreadIndex < spreads.length - 1;
   const isFlipping    = flipPhase !== "idle";
