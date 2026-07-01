@@ -326,21 +326,45 @@ export default function LibraryReaderPage() {
     }, 520);
   }, [isFlipping]);
 
+  // A "single-page" spread has exactly one side populated (e.g. the cover = page 1
+  // on the right with a blank left). These are shown as one centered page.
+  const isSinglePageSpread = useCallback(
+    (s?: ReaderSpread | null) =>
+      !!s && (s.leftPageNumber == null) !== (s.rightPageNumber == null),
+    []
+  );
+
+  // Switch spreads: use the 3D flip between full two-page spreads, but cut directly
+  // (no flip) when either side of the transition is a single-page spread, since the
+  // single page and the two-page book have different layouts.
+  const advanceTo = useCallback(
+    (direction: "next" | "prev", targetIdx: number) => {
+      if (isFlipping) return;
+      if (isSinglePageSpread(spreads[currentSpreadIndex]) || isSinglePageSpread(spreads[targetIdx])) {
+        setCurrentSpreadIndex(targetIdx);
+        setPendingSpreadIndex(targetIdx);
+        return;
+      }
+      triggerFlip(direction, targetIdx);
+    },
+    [isFlipping, isSinglePageSpread, spreads, currentSpreadIndex, triggerFlip]
+  );
+
   // ── Navigation ───────────────────────────────────────────────────────────────
   const goNext = useCallback(async () => {
     if (isFlipping) return;
-    if (hasNext) { triggerFlip("next", currentSpreadIndex + 1); return; }
+    if (hasNext) { advanceTo("next", currentSpreadIndex + 1); return; }
     const nextId = itemDetail?.navigation?.nextItemId;
     if (nextId) { showToast("Up next in this series…"); setCurrentItemId(nextId); return; }
     const recRes = await getChannelLibraryRecommendationsApi(channelId, 6);
     if (recRes.ok && "data" in recRes.data) setRecommendations(recRes.data.data ?? []);
     setShowCompletionSheet(true);
-  }, [isFlipping, hasNext, triggerFlip, currentSpreadIndex, itemDetail?.navigation?.nextItemId, channelId, showToast]);
+  }, [isFlipping, hasNext, advanceTo, currentSpreadIndex, itemDetail?.navigation?.nextItemId, channelId, showToast]);
 
   const goPrev = useCallback(() => {
     if (isFlipping || !hasPrev) return;
-    triggerFlip("prev", currentSpreadIndex - 1);
-  }, [isFlipping, hasPrev, triggerFlip, currentSpreadIndex]);
+    advanceTo("prev", currentSpreadIndex - 1);
+  }, [isFlipping, hasPrev, advanceTo, currentSpreadIndex]);
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────────
   const addBookmark = useCallback(async () => {
@@ -462,6 +486,12 @@ export default function LibraryReaderPage() {
     flipPhase === "animating"
       ? flipDir === "next" ? "rotateY(-180deg)" : "rotateY(180deg)"
       : "rotateY(0deg)";
+
+  // At rest, the cover (and any trailing odd page) is shown as one centered page
+  // rather than a two-page book with a blank half.
+  const showSingleCover = !isFlipping && isSinglePageSpread(currentSpread);
+  const singleCoverPage = curRight ?? curLeft;
+  const singleCoverNum  = currentSpread.rightPageNumber ?? currentSpread.leftPageNumber;
 
   // ── RENDER ────────────────────────────────────────────────────────────────────
   return (
@@ -608,7 +638,30 @@ export default function LibraryReaderPage() {
                   <div className="absolute bottom-0 left-1/2 h-14 w-4/5 -translate-x-1/2 rounded-full bg-black/70 blur-3xl" />
                 </div>
 
-                {/* Book spread — overflow:visible so the flip card can swing past the spine */}
+                {showSingleCover ? (
+                  /* ── SINGLE COVER PAGE (e.g. page 1 before the spread begins) ── */
+                  <div
+                    key={`cover-${currentSpreadIndex}`}
+                    className="relative overflow-hidden rounded-xl shadow-[0_32px_120px_rgba(0,0,0,0.9)]"
+                    style={{
+                      height: "min(76vh,800px)", aspectRatio: "1/1.41",
+                      border: "1px solid rgba(196,168,130,0.12)", background: "#fffbf3",
+                      animation: "mobileFadeIn 0.25s ease-out",
+                    }}
+                  >
+                    {singleCoverPage?.imageUrl ? (
+                      <img src={singleCoverPage.imageUrl} alt={`Page ${singleCoverNum ?? 1}`}
+                        className="h-full w-full object-contain" loading="eager" decoding="async" draggable={false} />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center">
+                        <div className="flex flex-col items-center gap-1.5 opacity-35">
+                          <div className="text-[11px] font-mono text-[#9a8a7a]">Page {singleCoverNum ?? 1}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                /* Book spread — overflow:visible so the flip card can swing past the spine */
                 <div
                   className="relative overflow-visible rounded-xl shadow-[0_32px_120px_rgba(0,0,0,0.9)]"
                   style={{ height: "min(76vh,800px)", aspectRatio: "2/1.41", border: "1px solid rgba(196,168,130,0.12)" }}
@@ -704,6 +757,7 @@ export default function LibraryReaderPage() {
                     />
                   )}
                 </div>
+                )}
               </div>
 
               {/* Next arrow */}
