@@ -72,6 +72,30 @@ class ChannelLibraryService {
     return ChannelLibraryManifestResponse.fromJson(root);
   }
 
+  static Future<List<ChannelLibraryItemModel>> getRecommendations(
+    String channelId, {
+    int limit = 6,
+  }) async {
+    final data = await ApiService.get(
+      '/channels/$channelId/library/recommendations?limit=$limit',
+    );
+    final root = data['data'];
+    final rawItems = root is List
+        ? root
+        : root is Map<String, dynamic>
+        ? root['items'] ?? root['data']
+        : const <dynamic>[];
+
+    if (rawItems is! List) {
+      return const <ChannelLibraryItemModel>[];
+    }
+
+    return rawItems
+        .whereType<Map<String, dynamic>>()
+        .map(ChannelLibraryItemModel.fromJson)
+        .toList();
+  }
+
   static Future<ChannelLibraryManifestPayload> fetchManifestPayload(
     String manifestUrl,
   ) async {
