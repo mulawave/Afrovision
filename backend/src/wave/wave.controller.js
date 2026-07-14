@@ -28,8 +28,9 @@ const INTEREST_COLLECTION = 'wave_interest_signals';
 const REPORTS_COLLECTION = 'wave_reports';
 const AGE_CLASSIFICATION_VALUES = ['minor_safe', 'teen', 'adult'];
 const VIEW_LOG_COLLECTION = 'wave_view_logs';
-const FEED_MAX_FETCH_ROUNDS = 5;
-const FEED_FETCH_FACTOR = 3;
+const FEED_MAX_FETCH_ROUNDS = 8;
+const FEED_FETCH_FACTOR = 5;
+const FEED_MIN_CHANNEL_DIVERSITY = 3;
 const FEED_RECENT_SEEN_LIMIT = 400;
 const FEED_NOT_INTERESTED_LIMIT = 300;
 const FEED_CLIENT_EXCLUDE_LIMIT = 160;
@@ -90,6 +91,47 @@ async function getUserExcludedWaveIds(userId) {
   return excluded;
 }
 
+function interleaveByChannel(waves) {
+  if (!waves.length) return waves;
+
+  // Group waves by channel_id, preserving original order within each channel
+  const channelQueues = new Map();
+  const channelOrder = [];
+  for (const wave of waves) {
+    const cid = wave.channel_id || '_unknown';
+    if (!channelQueues.has(cid)) {
+      channelQueues.set(cid, []);
+      channelOrder.push(cid);
+    }
+    channelQueues.get(cid).push(wave);
+  }
+
+  // If only one channel, shuffle slightly but keep as-is
+  if (channelOrder.length === 1) return waves;
+
+  // Round-robin: take one wave from each channel in turn
+  const result = [];
+  let remaining = waves.length;
+  let round = 0;
+  while (remaining > 0) {
+    let addedThisRound = false;
+    for (const cid of channelOrder) {
+      const queue = channelQueues.get(cid);
+      if (queue.length === 0) continue;
+      // Slight randomization: occasionally skip a channel to avoid mechanical pattern
+      // But on first pass, always include to ensure diversity
+      if (round > 0 && Math.random() < 0.15 && queue.length > 1) continue;
+      result.push(queue.shift());
+      remaining--;
+      addedThisRound = true;
+    }
+    round++;
+    if (!addedThisRound) break; // safety: all queues exhausted
+  }
+
+  return result;
+}
+
 function reorderFeedForNovelty(waves, excludedIds) {
   if (!waves.length) return waves;
   const fresh = [];
@@ -101,8 +143,10 @@ function reorderFeedForNovelty(waves, excludedIds) {
       fresh.push(wave);
     }
   }
+  // Interleave fresh waves across channels so no single channel dominates
+  const interleavedFresh = interleaveByChannel(fresh);
   old.sort(() => Math.random() - 0.5);
-  return [...fresh, ...old];
+  return [...interleavedFresh, ...old];
 }
 
 async function buildNovelFeed({ limit, cursor, excludedIds }) {
@@ -125,8 +169,13 @@ async function buildNovelFeed({ limit, cursor, excludedIds }) {
 
     if (!nextCursor) break;
 
-    const freshCount = all.reduce((acc, wave) => acc + (excludedIds.has(wave.id) ? 0 : 1), 0);
-    if (freshCount >= limit) break;
+    // Check channel diversity — keep fetching until we have enough channels
+    const freshWaves = all.filter((w) => !excludedIds.has(w.id));
+    const uniqueChannels = new Set(freshWaves.map((w) => w.channel_id));
+    const freshCount = freshWaves.length;
+
+    // Stop if we have enough fresh waves AND enough channel diversity
+    if (freshCount >= limit && uniqueChannels.size >= FEED_MIN_CHANNEL_DIVERSITY) break;
 
     currentCursor = nextCursor;
   }
@@ -140,6 +189,11 @@ async function buildNovelFeed({ limit, cursor, excludedIds }) {
 
 async function enrichWave(wave, userId = null) {
   const signed = { ...wave, video_url: await resolvePlayableUrl(wave.video_url) };
+  
+  // Sign thumbnail URL so it's always accessible (GCS bucket may not be public)
+  if (wave.thumbnail_url) {
+    signed.thumbnail_url = await resolvePlayableUrl(wave.thumbnail_url);
+  }
   
   // Include channel exclusive fee so frontend can properly identify exclusive channels
   const channel = await Channel.findById(wave.channel_id);
@@ -351,6 +405,11 @@ async function registerWave(req, res) {
       has_violence,
       has_revealing_clothes,
       has_partial_nudity,
+      has_explicit_content,
+      has_parental_guidance,
+      has_erotic_dancing,
+      has_sexual_nature,
+      has_sex,
     } = req.body;
     if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
     if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
@@ -394,6 +453,11 @@ async function registerWave(req, res) {
       hasViolence: has_violence,
       hasRevealingClothes: has_revealing_clothes,
       hasPartialNudity: has_partial_nudity,
+      hasExplicitContent: has_explicit_content || false,
+      hasParentalGuidance: has_parental_guidance || false,
+      hasEroticDancing: has_erotic_dancing || false,
+      hasSexualNature: has_sexual_nature || false,
+      hasSex: has_sex || false,
     });
 
     // Generate thumbnail asynchronously if not provided
@@ -435,6 +499,11 @@ async function updateWave(req, res) {
       has_violence,
       has_revealing_clothes,
       has_partial_nudity,
+      has_explicit_content,
+      has_parental_guidance,
+      has_erotic_dancing,
+      has_sexual_nature,
+      has_sex,
     } = req.body || {};
 
     if (title !== undefined && (!String(title).trim())) {
@@ -471,6 +540,11 @@ async function updateWave(req, res) {
       has_violence,
       has_revealing_clothes,
       has_partial_nudity,
+      has_explicit_content,
+      has_parental_guidance,
+      has_erotic_dancing,
+      has_sexual_nature,
+      has_sex,
     });
 
     // Generate thumbnail asynchronously if thumbnail was removed and video exists
@@ -1286,8 +1360,8 @@ async function trackView(req, res) {
     const wave = await Wave.findById(req.params.waveId);
     if (!wave || wave.status === 'deleted') return res.status(404).json({ error: 'Wave not found' });
     const userKey = req.userId || (req.ip || '').replace(/:/g, '_').slice(-20);
-    await Wave.trackView(wave.id, userKey);
-    res.json({ success: true });
+    const result = await Wave.trackView(wave.id, userKey);
+    res.json({ success: true, unique: result.unique });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

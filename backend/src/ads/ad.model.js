@@ -160,7 +160,7 @@ async function getPending() {
 const ALLOWED_UPDATE_FIELDS = [
   'title', 'description', 'media_url', 'thumbnail_url', 'click_url',
   'duration', 'budget', 'price_per_impression', 'target_channels',
-  'start_date', 'end_date', 'status', 'is_super_ad',
+  'start_date', 'end_date', 'status', 'is_super_ad', 'rejection_reason',
 ];
 
 async function update(id, fields) {
@@ -182,23 +182,44 @@ async function update(id, fields) {
 }
 
 async function recordImpression(id, cost) {
-  const ad = await findById(id);
-  if (!ad) return null;
   const db = getFirestore();
-  ad.impression_count += 1;
-  ad.spent += cost;
-  ad.updated_at = Date.now();
-  // Auto-deplete if budget exhausted
-  if (ad.budget > 0 && ad.spent >= ad.budget) {
-    ad.status = 'depleted';
-  }
-  await db.collection(COLLECTION).doc(id).update({
-    impression_count: ad.impression_count,
-    spent: ad.spent,
-    status: ad.status,
-    updated_at: ad.updated_at,
+  const ref = db.collection(COLLECTION).doc(id);
+  return db.runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    if (!doc.exists) return null;
+
+    const ad = { ...doc.data(), id: doc.id };
+    if (ad.status !== 'active') return null;
+
+    const currentSpent = Number(ad.spent || 0);
+    const budget = Number(ad.budget || 0);
+    const impressionCost = Number(cost || 0);
+
+    if (budget > 0 && currentSpent >= budget) {
+      tx.update(ref, { status: 'depleted', updated_at: Date.now() });
+      return { ...ad, status: 'depleted' };
+    }
+
+    const nextSpent = +(currentSpent + impressionCost).toFixed(4);
+    const nextStatus = budget > 0 && nextSpent >= budget ? 'depleted' : ad.status;
+    const nextCount = Number(ad.impression_count || 0) + 1;
+    const updatedAt = Date.now();
+
+    tx.update(ref, {
+      impression_count: nextCount,
+      spent: nextSpent,
+      status: nextStatus,
+      updated_at: updatedAt,
+    });
+
+    return {
+      ...ad,
+      impression_count: nextCount,
+      spent: nextSpent,
+      status: nextStatus,
+      updated_at: updatedAt,
+    };
   });
-  return ad;
 }
 
 async function remove(id) {

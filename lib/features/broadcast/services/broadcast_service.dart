@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import '../../../core/api/api_service.dart';
 import '../../../core/config/app_config.dart';
@@ -22,6 +23,7 @@ class BroadcastService {
   static final Map<String, DateTime> _playableSnapshotCachedAt =
       <String, DateTime>{};
   static final Map<String, DateTime> _playbackWarmedAt = <String, DateTime>{};
+  static final String _adSessionId = '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
 
   /// Device-corrected current time using server offset.
   static int get correctedNow =>
@@ -345,8 +347,14 @@ class BroadcastService {
   }
 
   /// Fetch a banner ad for a given placement (home or page).
-  static Future<Map<String, dynamic>?> getBannerAd(String placement) async {
-    final data = await ApiService.get('/ads/serve/banner?placement=$placement');
+  static Future<Map<String, dynamic>?> getBannerAd(
+    String placement, {
+    String? channelId,
+  }) async {
+    final query = channelId != null && channelId.isNotEmpty
+        ? '/ads/serve/banner?placement=$placement&channel_id=$channelId'
+        : '/ads/serve/banner?placement=$placement';
+    final data = await ApiService.get(query);
     final ad = data['ad'];
     return ad is Map<String, dynamic> ? ad : null;
   }
@@ -356,11 +364,27 @@ class BroadcastService {
     required String adId,
     String? channelId,
     int viewerCount = 1,
+    String? placement,
   }) async {
     return ApiService.post('/ads/impression', {
       'ad_id': adId,
       if (channelId != null) 'channel_id': channelId,
       'viewer_count': viewerCount,
+      'session_id': _adSessionId,
+      if (placement != null) 'placement': placement,
+    });
+  }
+
+  static Future<Map<String, dynamic>> recordAdClick({
+    required String adId,
+    String? channelId,
+    String? placement,
+  }) async {
+    return ApiService.post('/ads/click', {
+      'ad_id': adId,
+      if (channelId != null) 'channel_id': channelId,
+      'session_id': _adSessionId,
+      if (placement != null) 'placement': placement,
     });
   }
 }

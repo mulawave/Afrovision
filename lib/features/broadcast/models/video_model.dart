@@ -9,6 +9,10 @@ class VideoModel {
   final String videoUrl;
   final String? thumbnailUrl;
   final int duration;
+  final String transcodingStatus;
+  final String? transcodingError;
+  final String? masterPlaylistUrl;
+  final List<int> availableRenditions;
   final int createdAt;
 
   VideoModel({
@@ -20,6 +24,10 @@ class VideoModel {
     required this.videoUrl,
     this.thumbnailUrl,
     required this.duration,
+    this.transcodingStatus = 'unavailable',
+    this.transcodingError,
+    this.masterPlaylistUrl,
+    this.availableRenditions = const [],
     required this.createdAt,
   });
 
@@ -41,6 +49,14 @@ class VideoModel {
       videoUrl: json['video_url'] as String? ?? '',
       thumbnailUrl: json['thumbnail_url'] as String?,
       duration: (json['duration'] as num?)?.toInt() ?? 0,
+      transcodingStatus: json['transcoding_status'] as String? ?? 'unavailable',
+      transcodingError: json['transcoding_error'] as String?,
+      masterPlaylistUrl: json['master_playlist_url'] as String?,
+      availableRenditions:
+          (json['available_renditions'] as List<dynamic>? ?? const [])
+              .whereType<num>()
+              .map((value) => value.toInt())
+              .toList(),
       createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
     );
   }

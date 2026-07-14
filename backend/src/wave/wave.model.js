@@ -33,6 +33,11 @@ async function create({
   hasViolence,
   hasRevealingClothes,
   hasPartialNudity,
+  hasExplicitContent = false,
+  hasParentalGuidance = false,
+  hasEroticDancing = false,
+  hasSexualNature = false,
+  hasSex = false,
 }) {
   const db = getFirestore();
   const id = crypto.randomUUID();
@@ -56,6 +61,11 @@ async function create({
     has_violence: Boolean(hasViolence),
     has_revealing_clothes: Boolean(hasRevealingClothes),
     has_partial_nudity: Boolean(hasPartialNudity),
+    has_explicit_content: Boolean(hasExplicitContent),
+    has_parental_guidance: Boolean(hasParentalGuidance),
+    has_erotic_dancing: Boolean(hasEroticDancing),
+    has_sexual_nature: Boolean(hasSexualNature),
+    has_sex: Boolean(hasSex),
     pulse_count: 0,
     comment_count: 0,
     bookmark_count: 0,
@@ -166,6 +176,11 @@ async function update(id, fields) {
     'has_violence',
     'has_revealing_clothes',
     'has_partial_nudity',
+    'has_explicit_content',
+    'has_parental_guidance',
+    'has_erotic_dancing',
+    'has_sexual_nature',
+    'has_sex',
   ];
   const updates = {};
   for (const key of allowed) {
@@ -207,7 +222,9 @@ async function trackView(waveId, userKey) {
       }),
       logRef.set({ wave_id: waveId, user_key: userKey, created_at: Date.now() }),
     ]);
+    return { unique: true };
   }
+  return { unique: false };
 }
 
 module.exports = {

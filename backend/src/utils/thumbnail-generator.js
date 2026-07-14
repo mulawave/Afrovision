@@ -1,7 +1,6 @@
 const ffmpeg = require('fluent-ffmpeg');
 const { Storage } = require('@google-cloud/storage');
-const { generateSignedUploadUrl, generateSignedReadUrl, extractGCSPath } = require('./gcs');
-const path = require('path');
+const { extractGCSPath } = require('./gcs');
 
 const storage = new Storage();
 const BUCKET_NAME = process.env.GCS_BUCKET || 'afrovision-media';
@@ -32,10 +31,8 @@ async function generateThumbnail(videoUrl, waveId) {
     const thumbnailFile = bucket.file(thumbnailFileName);
 
     // Use ffmpeg to generate thumbnail from video
-    // We'll extract a frame at 1 second (or 10% of duration if shorter)
+    // Extract a frame at the start of the video
     // Use pipe output to avoid filesystem write issues in Cloud Run
-    const { Readable } = require('stream');
-    
     const thumbnailBuffer = await new Promise((resolve, reject) => {
       const chunks = [];
       ffmpeg(file.createReadStream())
@@ -62,10 +59,9 @@ async function generateThumbnail(videoUrl, waveId) {
       },
     });
 
-    // Generate signed URL for thumbnail (valid for 6 days - GCS max is 7 days)
-    // generateSignedReadUrl expects minutes, not seconds
-    const thumbnailUrl = await generateSignedReadUrl(thumbnailFileName, 8640);
-    
+    // Use public URL (consistent with video URLs) — signed URLs expire after 7 days max
+    const thumbnailUrl = `https://storage.googleapis.com/${BUCKET_NAME}/${thumbnailFileName}`;
+
     console.log(`[ThumbnailGenerator] Thumbnail generated for wave ${waveId}: ${thumbnailUrl}`);
     return thumbnailUrl;
   } catch (error) {

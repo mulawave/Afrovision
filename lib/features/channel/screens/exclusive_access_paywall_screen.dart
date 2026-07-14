@@ -193,17 +193,50 @@ class _ExclusiveAccessPaywallScreenState
         });
         return;
       }
+      // Safety net: the backend may have granted access despite returning
+      // an error (e.g. post-processing failure after access was granted,
+      // or a network timeout after a successful request). Re-check access
+      // status before showing a failure to the user.
+      final accessActuallyGranted = await _recheckAccessAfterError();
+      if (accessActuallyGranted) return;
+      if (!mounted) return;
       setState(() {
         _state = _ExclusiveState.purchaseFailure;
         _error = message;
       });
     } catch (_) {
       if (!mounted) return;
+      // Same safety net for generic errors (network timeout, etc.)
+      final accessActuallyGranted = await _recheckAccessAfterError();
+      if (accessActuallyGranted) return;
+      if (!mounted) return;
       setState(() {
         _state = _ExclusiveState.purchaseFailure;
         _error = 'Payment failed. Please try again.';
       });
     }
+  }
+
+  /// Re-checks exclusive access status after a purchase error.
+  /// Returns true if access was actually granted despite the error,
+  /// in which case the UI is updated to show the success state.
+  Future<bool> _recheckAccessAfterError() async {
+    try {
+      final status = await ChannelService.getExclusiveAccessStatus(_channelId!);
+      if (!mounted) return false;
+      if (status.hasActiveEntitlement) {
+        setState(() {
+          _status = status;
+          _state = _ExclusiveState.purchaseSuccess;
+          _error = null;
+          _info = 'Your access is active. Payment was processed successfully.';
+        });
+        return true;
+      }
+    } catch (_) {
+      // If re-check also fails, fall through to show original error
+    }
+    return false;
   }
 
   Future<void> _verifyPic() async {

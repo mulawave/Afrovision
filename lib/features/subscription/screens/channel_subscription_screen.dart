@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../payments/services/google_play_billing_service.dart';
 import '../models/channel_subscription_model.dart';
 import '../services/channel_subscription_service.dart';
 
@@ -25,12 +28,17 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
   String? _error;
   ChannelSubscriptionModel? _subscription;
 
+  bool _googlePlayAvailable = false;
+  bool _googlePlayLoading = false;
+  StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
+
   @override
   void initState() {
     super.initState();
     _animCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
     _fadeIn = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
+    _initGooglePlay();
   }
 
   @override
@@ -51,6 +59,7 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
 
   @override
   void dispose() {
+    _purchaseSub?.cancel();
     _animCtrl.dispose();
     super.dispose();
   }
@@ -129,6 +138,88 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
     } catch (_) {
       if (!mounted) return;
       setState(() { _error = 'Failed to cancel. Please try again.'; _acting = false; });
+    }
+  }
+
+  Future<void> _initGooglePlay() async {
+    try {
+      final available = await GooglePlayBillingService.isAvailable();
+      if (!mounted) return;
+      setState(() => _googlePlayAvailable = available);
+      if (available) {
+        _purchaseSub = InAppPurchase.instance.purchaseStream.listen(
+          (purchases) {
+            for (final purchase in purchases) {
+              if (purchase.status == PurchaseStatus.purchased ||
+                  purchase.status == PurchaseStatus.restored) {
+                _handleGooglePlayPurchase(purchase);
+              } else if (purchase.status == PurchaseStatus.error) {
+                if (!mounted) return;
+                setState(() {
+                  _googlePlayLoading = false;
+                  _error = 'Google Play purchase failed: ${purchase.error?.message ?? "unknown"}';
+                });
+              } else if (purchase.status == PurchaseStatus.canceled) {
+                if (!mounted) return;
+                setState(() => _googlePlayLoading = false);
+              }
+            }
+          },
+          onError: (e) {
+            if (!mounted) return;
+            setState(() {
+              _googlePlayLoading = false;
+              _error = 'Google Play error: $e';
+            });
+          },
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleGooglePlayPurchase(PurchaseDetails purchase) async {
+    if (!mounted) return;
+    setState(() {
+      _googlePlayLoading = true;
+      _error = null;
+    });
+
+    try {
+      await GooglePlayBillingService.completeAndVerify(
+        purchase: purchase,
+        isSubscription: true,
+        channelId: _channelId,
+      );
+
+      if (!mounted) return;
+      setState(() => _googlePlayLoading = false);
+      _showSnack('Subscribed to $_channelName via Google Play!', success: true);
+      _checkSubscription();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _googlePlayLoading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _subscribeWithGooglePlay() async {
+    if (_channelId == null) return;
+    setState(() {
+      _googlePlayLoading = true;
+      _error = null;
+    });
+    try {
+      await GooglePlayBillingService.initiateChannelSubscription(
+        channelId: _channelId!,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _googlePlayLoading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -337,6 +428,28 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
           : 'Subscribe free to this channel and get access to exclusive content.',
         style: const TextStyle(color: AppColors.hintText, fontSize: 12, height: 1.6),
         textAlign: TextAlign.center),
+      if (_isPremium && _googlePlayAvailable) ...[
+        const SizedBox(height: 16),
+        SizedBox(width: double.infinity, height: 52,
+          child: ElevatedButton.icon(
+            onPressed: _googlePlayLoading ? null : _subscribeWithGooglePlay,
+            icon: _googlePlayLoading
+              ? const SizedBox(width: 18, height: 18,
+                  child: CircularProgressIndicator(color: AppColors.white, strokeWidth: 2))
+              : const Icon(Icons.android, size: 20),
+            label: Text(_googlePlayLoading ? 'Processing...' : 'Pay with Google Play',
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF01875F),
+              foregroundColor: AppColors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text('or use Google Play billing for this subscription',
+          style: TextStyle(color: AppColors.hintText, fontSize: 11),
+          textAlign: TextAlign.center),
+      ],
     ]);
   }
 

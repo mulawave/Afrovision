@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import {
   CookieConsent,
   CookieConsentState,
@@ -12,11 +12,7 @@ import {
 
 const CookieConsentContext = createContext<CookieConsentState | undefined>(undefined);
 
-function loadInitialConsent(): { consent: CookieConsent | null; hasMadeChoice: boolean } {
-  if (typeof window === 'undefined') {
-    return { consent: null, hasMadeChoice: false };
-  }
-  
+function loadStoredConsent(): { consent: CookieConsent | null; hasMadeChoice: boolean } {
   try {
     const stored = localStorage.getItem(COOKIE_CONSENT_KEY);
     if (stored) {
@@ -31,13 +27,24 @@ function loadInitialConsent(): { consent: CookieConsent | null; hasMadeChoice: b
   } catch (error) {
     console.error('Error loading cookie consent:', error);
   }
-  
+
   return { consent: null, hasMadeChoice: false };
 }
 
 export function CookieConsentProvider({ children }: { children: ReactNode }) {
-  const [consent, setConsentState] = useState<CookieConsent | null>(() => loadInitialConsent().consent);
-  const [hasMadeChoice, setHasMadeChoice] = useState(() => loadInitialConsent().hasMadeChoice);
+  // Initial state is identical on server and client to avoid hydration
+  // mismatches (which break event handlers and freeze the banner).
+  const [consent, setConsentState] = useState<CookieConsent | null>(null);
+  const [hasMadeChoice, setHasMadeChoice] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Read persisted consent only after mount, on the client.
+  useEffect(() => {
+    const stored = loadStoredConsent();
+    setConsentState(stored.consent);
+    setHasMadeChoice(stored.hasMadeChoice);
+    setIsLoaded(true);
+  }, []);
 
   const setConsent = (newConsent: CookieConsent) => {
     setConsentState(newConsent);
@@ -78,6 +85,7 @@ export function CookieConsentProvider({ children }: { children: ReactNode }) {
   const value: CookieConsentState = {
     consent,
     hasMadeChoice,
+    isLoaded,
     setConsent,
     acceptAll,
     rejectAll,

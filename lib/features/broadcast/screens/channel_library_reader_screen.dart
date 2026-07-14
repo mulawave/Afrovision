@@ -678,7 +678,7 @@ class _ChannelLibraryReaderScreenState
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
               _title,
@@ -691,50 +691,60 @@ class _ChannelLibraryReaderScreenState
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          _PageBadge(label: pageBadge),
-          const SizedBox(width: 8),
-          _ZoomControls(
-            zoom: _zoom,
-            onZoomOut: _zoom > _readerZoomMin ? () => _setZoom(_zoom - 0.2) : null,
-            onReset: _resetZoom,
-            onZoomIn: _zoom < _readerZoomMax ? () => _setZoom(_zoom + 0.2) : null,
-          ),
           const SizedBox(width: 6),
-          _TopIconButton(
-            onTap: _addBookmark,
-            child: const Icon(
-              Icons.bookmark_add_outlined,
-              color: AppColors.lightOrange,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 4),
-          _TopIconButton(
-            onTap: _saving ? null : _saveProgress,
-            child: _saving
-                ? SizedBox(
-                    width: 15,
-                    height: 15,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        AppColors.lightOrange,
-                      ),
-                    ),
-                  )
-                : const Icon(
-                    Icons.save_outlined,
-                    color: AppColors.lightOrange,
-                    size: 18,
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _PageBadge(label: pageBadge),
+                  const SizedBox(width: 6),
+                  _ZoomControls(
+                    zoom: _zoom,
+                    onZoomOut: _zoom > _readerZoomMin ? () => _setZoom(_zoom - 0.2) : null,
+                    onReset: _resetZoom,
+                    onZoomIn: _zoom < _readerZoomMax ? () => _setZoom(_zoom + 0.2) : null,
                   ),
-          ),
-          const SizedBox(width: 4),
-          _BookmarksToggleButton(
-            count: _bookmarks.length,
-            hasBookmarks: _bookmarks.isNotEmpty,
-            open: _bookmarksPanelOpen,
-            onTap: _toggleBookmarksPanel,
+                  const SizedBox(width: 4),
+                  _TopIconButton(
+                    onTap: _addBookmark,
+                    child: const Icon(
+                      Icons.bookmark_add_outlined,
+                      color: AppColors.lightOrange,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  _TopIconButton(
+                    onTap: _saving ? null : _saveProgress,
+                    child: _saving
+                        ? SizedBox(
+                            width: 15,
+                            height: 15,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                AppColors.lightOrange,
+                              ),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.save_outlined,
+                            color: AppColors.lightOrange,
+                            size: 18,
+                          ),
+                  ),
+                  const SizedBox(width: 2),
+                  _BookmarksToggleButton(
+                    count: _bookmarks.length,
+                    hasBookmarks: _bookmarks.isNotEmpty,
+                    open: _bookmarksPanelOpen,
+                    onTap: _toggleBookmarksPanel,
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),

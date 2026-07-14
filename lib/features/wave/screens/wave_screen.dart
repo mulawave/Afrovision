@@ -14,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/services/notification_service.dart';
@@ -24,6 +25,7 @@ import '../../../core/widgets/app_button.dart';
 import '../../auth/services/auth_service.dart';
 import '../../broadcast/models/channel_library_models.dart';
 import '../../broadcast/services/channel_library_service.dart';
+import '../../broadcast/services/broadcast_service.dart';
 import '../../channel/models/channel_model.dart';
 import '../../channel/services/channel_service.dart';
 import '../models/wave_model.dart';
@@ -94,6 +96,7 @@ class _WaveScreenState extends State<WaveScreen> {
   // Channel follow state (loaded per active wave)
   bool _channelFollowLoading = false;
   bool _isFollowingChannel = false;
+  String? _currentUserId;
   // Key for the local floating indicator overlay (pulse, save, comment, reaction)
   final GlobalKey<_LocalFloatingOverlayState> _floatingOverlayKey =
       GlobalKey<_LocalFloatingOverlayState>();
@@ -104,6 +107,8 @@ class _WaveScreenState extends State<WaveScreen> {
   String? _checkingAccessWaveId;
   String? _error;
   String? _nextCursor;
+  Map<String, dynamic>? _waveAd;
+  final Set<String> _recordedWaveAdImpressions = <String>{};
   int _activeWaveIndex = 0;
   bool _argsHandled = false;
   String? _pendingChannelContextId;
@@ -118,6 +123,7 @@ class _WaveScreenState extends State<WaveScreen> {
     _pageController = PageController();
     VideoCacheService.instance.initialize();
     _loadInitial();
+    _loadWaveAd();
   }
 
   @override
@@ -152,6 +158,50 @@ class _WaveScreenState extends State<WaveScreen> {
     _pageController.dispose();
     _disposeWaveControllers();
     super.dispose();
+  }
+
+  Future<void> _loadWaveAd() async {
+    try {
+      final ad = await BroadcastService.getBannerAd('page');
+      if (!mounted) return;
+      setState(() => _waveAd = ad);
+    } catch (_) {}
+  }
+
+  bool _hasWaveAdAfterWaveIndex(int waveIndex) {
+    return _waveAd != null && waveIndex >= 0 && (waveIndex + 1) % 8 == 0;
+  }
+
+  int _adCountBeforePage(int pageIndex) {
+    if (_waveAd == null || pageIndex <= 0) return 0;
+    return pageIndex ~/ 9;
+  }
+
+  bool _isAdPageIndex(int pageIndex) {
+    return _waveAd != null && pageIndex > 0 && (pageIndex + 1) % 9 == 0;
+  }
+
+  int _waveIndexForPageIndex(int pageIndex) {
+    return pageIndex - _adCountBeforePage(pageIndex);
+  }
+
+  int _pageCountWithAds() {
+    if (_waveAd == null) return _waves.length;
+    return _waves.length + (_waves.length ~/ 8);
+  }
+
+  void _recordWaveAdImpression() {
+    final ad = _waveAd;
+    final adId = ad?['id'] as String? ?? '';
+    if (adId.isEmpty || _recordedWaveAdImpressions.contains(adId)) return;
+    _recordedWaveAdImpressions.add(adId);
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      BroadcastService.recordAdImpression(
+        adId: adId,
+        placement: 'wave_feed',
+      ).catchError((_) => <String, dynamic>{});
+    });
   }
 
   void _disposeWaveControllers() {
@@ -264,9 +314,11 @@ class _WaveScreenState extends State<WaveScreen> {
             .then((u) => u.isCreatorAccount)
             .catchError((_) => false),
         AuthStorage.getToken(),
+        AuthService.getCurrentUser().then((u) => u.id).catchError((_) => ''),
       ]);
       final isCreator = results[1] as bool;
       final token = results[2] as String?;
+      final currentUserId = results[3] as String?;
       
       // If a channel context is provided, load that channel's waves first
       if (_pendingChannelContextId != null && _pendingChannelContextId!.isNotEmpty) {
@@ -279,6 +331,7 @@ class _WaveScreenState extends State<WaveScreen> {
           setState(() {
             _waves.addAll(filteredWaves);
             _isCreator = isCreator;
+            _currentUserId = currentUserId;
             _isAuthenticated = token != null && token.isNotEmpty;
             _adultConsentAccepted = false;
             _waveSessionId = 'wv_${DateTime.now().millisecondsSinceEpoch}';
@@ -294,6 +347,7 @@ class _WaveScreenState extends State<WaveScreen> {
             _waves.addAll(filteredWaves);
             _nextCursor = feed.nextCursor;
             _isCreator = isCreator;
+            _currentUserId = currentUserId;
             _isAuthenticated = token != null && token.isNotEmpty;
             _adultConsentAccepted = false;
             _waveSessionId = 'wv_${DateTime.now().millisecondsSinceEpoch}';
@@ -310,6 +364,7 @@ class _WaveScreenState extends State<WaveScreen> {
           _waves.addAll(filteredWaves);
           _nextCursor = feed.nextCursor;
           _isCreator = isCreator;
+          _currentUserId = currentUserId;
           _isAuthenticated = token != null && token.isNotEmpty;
           _adultConsentAccepted = false;
           _waveSessionId = 'wv_${DateTime.now().millisecondsSinceEpoch}';
@@ -1169,55 +1224,64 @@ class _WaveScreenState extends State<WaveScreen> {
 
   Future<void> _onPageChanged(int index) async {
     if (!mounted) return;
-    if (index < 0 || index >= _waves.length) return;
+    if (index < 0 || index >= _pageCountWithAds()) return;
     _pauseAll();
+
+    if (_isAdPageIndex(index)) {
+      _recordWaveAdImpression();
+      return;
+    }
+
+    final waveIndex = _waveIndexForPageIndex(index);
+    if (waveIndex < 0 || waveIndex >= _waves.length) return;
+
     setState(() {
-      _activeWaveIndex = index;
+      _activeWaveIndex = waveIndex;
     });
 
     // CRITICAL: Prune old controllers FIRST before preloading new ones.
     // This frees up controller slots so the active wave's video controller
     // can be created instead of being blocked by the maxConcurrentControllers limit.
-    _pruneControllers(centerIndex: index);
+    _pruneControllers(centerIndex: waveIndex);
 
     // Clear any previous failed state for the wave the user just scrolled to,
     // so it gets a fresh attempt with a new signed URL.
-    final activeWaveId = _waves[index].id;
+    final activeWaveId = _waves[waveIndex].id;
     _failedWaveIds.remove(activeWaveId);
     _initRetryCount.remove(activeWaveId);
 
-    _preloadWave(_waves[index]);
-    _markWaveSeen(_waves[index].id);
-    _loadPulseMoments(_waves[index].id);
-    _loadChannelFollowStatus(_waves[index]);
+    _preloadWave(_waves[waveIndex]);
+    _markWaveSeen(_waves[waveIndex].id);
+    _loadPulseMoments(_waves[waveIndex].id);
+    _loadChannelFollowStatus(_waves[waveIndex]);
 
     // Track view when user navigates to a wave - this increments repeat_play_count
     // and also records unique views for viewCount
-    WaveService.trackView(_waves[index].id);
+    WaveService.trackView(_waves[waveIndex].id);
 
     // Preload adjacent waves with staggered delays. Low-end chips (Unisoc)
     // cannot handle multiple simultaneous decoder initializations — spacing
     // them out prevents NO_MEMORY codec errors.
-    if (index + 1 < _waves.length) {
+    if (waveIndex + 1 < _waves.length) {
       await Future.delayed(const Duration(milliseconds: 150));
       if (!mounted) return;
-      _preloadWave(_waves[index + 1]);
+      _preloadWave(_waves[waveIndex + 1]);
     }
-    if (index + 2 < _waves.length) {
+    if (waveIndex + 2 < _waves.length) {
       await Future.delayed(const Duration(milliseconds: 150));
       if (!mounted) return;
-      _preloadWave(_waves[index + 2]);
+      _preloadWave(_waves[waveIndex + 2]);
     }
-    if (index - 1 >= 0) {
+    if (waveIndex - 1 >= 0) {
       await Future.delayed(const Duration(milliseconds: 150));
       if (!mounted) return;
-      _preloadWave(_waves[index - 1]);
+      _preloadWave(_waves[waveIndex - 1]);
     }
 
     // Access decisions are already set by _filterWaves, no need to call backend check
     _ensureWaveAccessAndPlay(force: false);
 
-    if (index >= _waves.length - 3) {
+    if (waveIndex >= _waves.length - 3) {
       _loadMore();
     }
   }
@@ -1361,18 +1425,21 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   Future<void> _onPulse(WaveModel wave, int intensity) async {
+    final currentSeconds = (_currentTimes[wave.id] ?? 0).round();
+    // Optimistic UI update — instant feedback before network call
+    _updateWave(wave.id, (w) => w.copyWith(pulseCount: w.pulseCount + 1));
+    _applyLocalPulseMoment(wave.id, currentSeconds, intensity);
+    _floatingOverlayKey.currentState?.showPulse();
     try {
-      final currentSeconds = (_currentTimes[wave.id] ?? 0).round();
       await WaveService.addPulse(
         wave.id,
         intensity: intensity,
         momentSeconds: currentSeconds,
       );
-      if (!mounted) return;
-      _updateWave(wave.id, (w) => w.copyWith(pulseCount: w.pulseCount + 1));
-      _applyLocalPulseMoment(wave.id, currentSeconds, intensity);
-      _floatingOverlayKey.currentState?.showPulse();
     } catch (e) {
+      // Revert optimistic update on failure
+      if (!mounted) return;
+      _updateWave(wave.id, (w) => w.copyWith(pulseCount: w.pulseCount - 1));
       _showSnack(e.toString());
     }
   }
@@ -1955,11 +2022,15 @@ class _WaveScreenState extends State<WaveScreen> {
           child: PageView.builder(
             controller: _pageController,
             scrollDirection: Axis.vertical,
-            itemCount: _waves.length,
+            itemCount: _pageCountWithAds(),
             onPageChanged: _onPageChanged,
             itemBuilder: (_, index) {
-              final wave = _waves[index];
-              final isActive = index == _activeWaveIndex;
+              if (_isAdPageIndex(index)) {
+                return _buildWaveAdCard();
+              }
+              final waveIndex = _waveIndexForPageIndex(index);
+              final wave = _waves[waveIndex];
+              final isActive = waveIndex == _activeWaveIndex;
               return _buildWaveCard(wave, isActive: isActive);
             },
           ),
@@ -1981,6 +2052,135 @@ class _WaveScreenState extends State<WaveScreen> {
           child: _LocalFloatingOverlay(key: _floatingOverlayKey),
         ),
       ],
+    );
+  }
+
+  Widget _buildWaveAdCard() {
+    final ad = _waveAd;
+    if (ad == null) return const SizedBox.shrink();
+
+    final title = ad['title'] as String? ?? 'Sponsored';
+    final description = ad['description'] as String? ?? '';
+    final clickUrl = ad['click_url'] as String? ?? '';
+    final mediaUrl = ad['media_url'] as String? ?? '';
+    final fullMediaUrl = mediaUrl.startsWith('http')
+        ? mediaUrl
+        : AppConfig.mediaUrl(mediaUrl);
+    final isVideo = RegExp(r'\.(mp4|webm|mov)(\?.*)?$', caseSensitive: false)
+        .hasMatch(mediaUrl);
+
+    Future<void> openAd() async {
+      final adId = ad['id'] as String? ?? '';
+      if (adId.isNotEmpty) {
+        BroadcastService.recordAdClick(
+          adId: adId,
+          placement: 'wave_feed',
+        ).catchError((_) => <String, dynamic>{});
+      }
+      if (clickUrl.isNotEmpty) {
+        await launchUrl(Uri.parse(clickUrl), mode: LaunchMode.externalApplication);
+      }
+    }
+
+    return GestureDetector(
+      onTap: openAd,
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (mediaUrl.isNotEmpty && !isVideo)
+              Center(
+                child: CachedNetworkImage(
+                  imageUrl: fullMediaUrl,
+                  fit: BoxFit.contain,
+                  width: double.infinity,
+                  height: double.infinity,
+                  errorWidget: (_, __, ___) => const Icon(
+                    Icons.campaign,
+                    color: AppColors.orange,
+                    size: 64,
+                  ),
+                ),
+              )
+            else
+              const Center(
+                child: Icon(Icons.campaign, color: AppColors.orange, size: 72),
+              ),
+            Positioned(
+              top: 48,
+              left: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.orange,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'SPONSORED',
+                  style: TextStyle(
+                    color: AppColors.darkBlue,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(18, 40, 18, 32),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black.withValues(alpha: 0.9)],
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        description,
+                        style: TextStyle(
+                          color: AppColors.white.withValues(alpha: 0.75),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                    if (clickUrl.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      const Text(
+                        'LEARN MORE',
+                        style: TextStyle(
+                          color: AppColors.lightOrange,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2024,6 +2224,9 @@ class _WaveScreenState extends State<WaveScreen> {
                           child: CachedNetworkImage(
                             imageUrl: wave.thumbnailUrl,
                             fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) => Container(
+                              color: AppColors.darkBlue,
+                            ),
                           ),
                         ),
                       ),
@@ -2056,8 +2259,18 @@ class _WaveScreenState extends State<WaveScreen> {
                               fit: BoxFit.cover,
                               memCacheWidth: 400,
                               memCacheHeight: 711,
+                              errorWidget: (_, __, ___) => Container(
+                                color: AppColors.darkBlue,
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.broken_image_outlined,
+                                    color: AppColors.hintText,
+                                    size: 40,
+                                  ),
+                                ),
+                              ),
                             )
-                          : const SizedBox.shrink(),
+                          : Container(color: AppColors.darkBlue),
                     ),
                 ],
               ),
@@ -2594,34 +2807,36 @@ class _WaveScreenState extends State<WaveScreen> {
                 onTap: () => _onBookmark(wave),
               ),
               const SizedBox(height: 6),
-              // Follow channel button
-              GestureDetector(
-                onTap: _channelFollowLoading ? null : () => _toggleChannelFollow(wave),
-                child: Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
+              // Follow channel button (hidden for channel owner)
+              if (wave.ownerId == null || wave.ownerId != _currentUserId) ...[
+                GestureDetector(
+                  onTap: _channelFollowLoading ? null : () => _toggleChannelFollow(wave),
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _isFollowingChannel
+                            ? AppColors.orange.withValues(alpha: 0.7)
+                            : AppColors.white.withValues(alpha: 0.7),
+                        width: 2,
+                      ),
                       color: _isFollowingChannel
-                          ? AppColors.orange.withValues(alpha: 0.7)
-                          : AppColors.white.withValues(alpha: 0.7),
-                      width: 2,
+                          ? AppColors.orange.withValues(alpha: 0.15)
+                          : AppColors.darkBlue.withValues(alpha: 0.7),
                     ),
-                    color: _isFollowingChannel
-                        ? AppColors.orange.withValues(alpha: 0.15)
-                        : AppColors.darkBlue.withValues(alpha: 0.7),
-                  ),
-                  child: Icon(
-                    _isFollowingChannel
-                        ? Icons.notifications_active_rounded
-                        : Icons.add_circle_rounded,
-                    color: _isFollowingChannel ? AppColors.orange : AppColors.white,
-                    size: 22,
+                    child: Icon(
+                      _isFollowingChannel
+                          ? Icons.notifications_active_rounded
+                          : Icons.add_circle_rounded,
+                      color: _isFollowingChannel ? AppColors.orange : AppColors.white,
+                      size: 22,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
+                const SizedBox(height: 8),
+              ],
               // Channel logo trigger button
               GestureDetector(
                 onTap: () {

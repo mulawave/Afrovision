@@ -60,6 +60,7 @@ export default function AdminPage() {
   const [channelNumberDrafts, setChannelNumberDrafts] = useState<Record<string, string>>({});
   const [channelNumberSavingId, setChannelNumberSavingId] = useState<string | null>(null);
   const [channelNumberMessage, setChannelNumberMessage] = useState<string | null>(null);
+  const [channelSearch, setChannelSearch] = useState("");
 
   const loadAdmin = useCallback(async () => {
     setLoading(true);
@@ -292,9 +293,25 @@ export default function AdminPage() {
                     <h2 className="text-lg font-semibold text-av-white">Channel moderation</h2>
                     <span className="text-xs text-av-light-orange">{channels.length} channels</span>
                   </div>
-                  <p className="mt-2 text-xs text-av-light-orange">Reserved numbers: 1-10, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000.</p>
+                  <p className="mt-2 text-xs text-av-light-orange">Numbers 1-10, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 are reserved for auto-assignment but can be manually assigned by admin.</p>
+                  <div className="mt-4">
+                    <input
+                      type="text"
+                      value={channelSearch}
+                      onChange={(e) => setChannelSearch(e.target.value)}
+                      placeholder="Search by name or channel number..."
+                      className="h-10 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-3 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
+                    />
+                  </div>
                   <div className="mt-4 space-y-3">
-                    {[...channels].sort((left, right) => Number(left.channel_number) - Number(right.channel_number)).slice(0, 12).map((channel) => (
+                    {[...channels]
+                      .filter((ch) => {
+                        const q = channelSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return ch.name.toLowerCase().includes(q) || String(ch.channel_number).includes(q);
+                      })
+                      .sort((left, right) => Number(left.channel_number) - Number(right.channel_number))
+                      .map((channel) => (
                       <div key={channel.id} className="flex flex-col gap-3 rounded-2xl border border-av-input-border/20 bg-av-input-fill/30 p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">

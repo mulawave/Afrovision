@@ -9,7 +9,7 @@
     "backfill:exclusive:dryrun": "node scripts/backfill_exclusive_channel_fields.js --dry-run",
     "backfill:exclusive:execute": "node scripts/backfill_exclusive_channel_fields.js --execute --confirm=BACKFILL_EXCLUSIVE_091",
     "preflight:blockchain": "node scripts/blockchain-preflight.js",
-    "test": "node test/smoke.test.js && node test/static-pages-content.test.js && node test/homepage-design.test.js && node test/broadcast-resumable-upload.test.js && node test/exclusive-lifecycle-messaging.test.js && node test/exclusive-lifecycle-template-approval.test.js && node test/exclusive-reconciliation.test.js && node test/exclusive-lifecycle-worker.test.js && node test/exclusive-persona-lifecycle-e2e.test.js && node test/exclusive-security-abuse.test.js && node test/exclusive-rollout-controls.test.js && node test/exclusive-backfill-script.test.js && node test/exclusive-ops-dashboard.test.js && node test/exclusive-go-live-docs.test.js && node test/library-persona-lifecycle-e2e.test.js && node test/library-security-abuse.test.js && node test/library-performance.test.js && node test/library-rollout-controls.test.js && node test/library-go-live-docs.test.js",
+    "test": "node test/smoke.test.js && node test/static-pages-content.test.js && node test/homepage-design.test.js && node test/broadcast-resumable-upload.test.js && node test/broadcast-playback.test.js && node test/exclusive-lifecycle-messaging.test.js && node test/exclusive-lifecycle-template-approval.test.js && node test/exclusive-reconciliation.test.js && node test/exclusive-lifecycle-worker.test.js && node test/exclusive-persona-lifecycle-e2e.test.js && node test/exclusive-security-abuse.test.js && node test/exclusive-rollout-controls.test.js && node test/exclusive-backfill-script.test.js && node test/exclusive-ops-dashboard.test.js && node test/exclusive-go-live-docs.test.js && node test/library-persona-lifecycle-e2e.test.js && node test/library-security-abuse.test.js && node test/library-performance.test.js && node test/library-rollout-controls.test.js && node test/library-go-live-docs.test.js",
     "test:exclusive:load": "node test/exclusive-load-peaks.test.js",
     "deploy:testnet": "hardhat run scripts/deploy.js --network bscTestnet",
     "add-liquidity": "node scripts/add-liquidity.js"
@@ -29,6 +29,7 @@
     "express": "^5.2.1",
     "firebase-admin": "^13.5.0",
     "fluent-ffmpeg": "^2.1.2",
+    "googleapis": "^144.0.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",

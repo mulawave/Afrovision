@@ -7,6 +7,7 @@ const { isAdultKycVerified } = require('./exclusive_policy.service');
 const { getFirestore } = require('../utils/firestore');
 const crypto = require('crypto');
 const StreamResolver = require('./stream_resolver.service');
+const SettingsService = require('../admin/settings.service');
 
 async function getOwnerSafely(ownerId) {
   try {
@@ -153,10 +154,25 @@ async function updateChannel(req, res) {
     return res.status(403).json({ error: 'Not channel owner' });
   }
 
-  // vPT edit gating: creators need ≥500 vPT balance to edit
-  const user = req.user || await User.findById(req.userId);
-  if (user && user.role === 'creator' && user.vpt < 500) {
-    return res.status(403).json({ error: 'Insufficient vPT balance. You need at least ₦500 vPT to edit a channel.' });
+  // vPT edit gating: configurable via admin settings; never applies to exclusive channel owners
+  const isExclusiveChannel = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+  if (!isExclusiveChannel) {
+    const [feeEnabledRaw, feeAmountRaw] = await Promise.all([
+      SettingsService.get('CHANNEL_EDIT_VPT_FEE_ENABLED'),
+      SettingsService.getNumber('CHANNEL_EDIT_VPT_FEE'),
+    ]);
+    const feeEnabled = feeEnabledRaw !== 'false';
+    const feeAmount = (feeAmountRaw != null && Number.isFinite(feeAmountRaw)) ? feeAmountRaw : 500;
+    if (feeEnabled) {
+      const user = req.user || await User.findById(req.userId);
+      if (user && user.role === 'creator' && user.vpt < feeAmount) {
+        return res.status(403).json({
+          error: `Insufficient vPT balance. You need at least ₦${feeAmount} vPT to edit a channel.`,
+          required_vpt: feeAmount,
+          current_vpt: user.vpt || 0,
+        });
+      }
+    }
   }
 
   const { name, description, category } = req.body;

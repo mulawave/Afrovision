@@ -11,7 +11,18 @@ function normalizeImpression(doc) {
   return { ...doc.data(), id: doc.id };
 }
 
-async function record({ adId, channelId, category, viewerCount, cost, channelOwnerId }) {
+async function findByDedupeKey(dedupeKey) {
+  if (!dedupeKey) return null;
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('dedupe_key', '==', dedupeKey)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  return normalizeImpression(snapshot.docs[0]);
+}
+
+async function record({ adId, channelId, category, viewerCount, cost, channelOwnerId, viewerId, sessionId, placement, dedupeKey }) {
   const db = getFirestore();
   const id = crypto.randomUUID();
   const impression = {
@@ -22,6 +33,10 @@ async function record({ adId, channelId, category, viewerCount, cost, channelOwn
     category,
     viewer_count: viewerCount || 0,
     cost: cost || 0,
+    viewer_id: viewerId || null,
+    session_id: sessionId || null,
+    placement: placement || null,
+    dedupe_key: dedupeKey || null,
     played_at: Date.now(),
   };
   await db.collection(COLLECTION).doc(id).set(impression);
@@ -102,6 +117,7 @@ async function getAll(limit = 200) {
 module.exports = {
   init,
   record,
+  findByDedupeKey,
   getByAd,
   getByChannel,
   getByAdvertiser,

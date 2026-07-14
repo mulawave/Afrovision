@@ -150,6 +150,22 @@ export function ExclusiveAccessGate({ id }: { id: string }) {
 
     if (!res.ok) {
       const msg = "error" in res.data ? res.data.error : "Failed to complete purchase.";
+
+      // Safety net: the backend may have granted access despite returning an
+      // error (post-processing failure after access was granted, or network
+      // timeout after a successful request). Re-check access status before
+      // showing a failure to the user.
+      const recheckRes = await getExclusiveAccessStatusApi(id);
+      if (recheckRes.ok && "hasActiveEntitlement" in recheckRes.data && recheckRes.data.hasActiveEntitlement) {
+        setEligibleByKyc(recheckRes.data.eligibleByKyc);
+        setHasActiveEntitlement(true);
+        setRenewalRequired(false);
+        setExpiresAt(recheckRes.data.expiresAt ?? null);
+        setState("purchaseSuccess");
+        setMessage("Your access is active. Payment was processed successfully.");
+        return;
+      }
+
       setError(msg === "INSUFFICIENT_NGN" ? "Insufficient wallet balance for this purchase." : msg);
       setState("purchaseFailure");
       return;

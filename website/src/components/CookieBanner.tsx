@@ -12,7 +12,7 @@ const CATEGORIES: { key: CookieCategory; label: string; desc: string; locked: bo
 ];
 
 export function CookieBanner() {
-  const { hasMadeChoice, acceptAll, rejectAll, setConsent } = useCookieConsent();
+  const { hasMadeChoice, isLoaded, acceptAll, rejectAll, setConsent } = useCookieConsent();
   const [showCustomize, setShowCustomize] = useState(false);
   const [preferences, setPreferences] = useState<Record<CookieCategory, boolean>>({
     necessary: true,
@@ -21,7 +21,9 @@ export function CookieBanner() {
     marketing: false,
   });
 
-  if (hasMadeChoice) return null;
+  // Never render during SSR or before hydration completes — a server-rendered
+  // banner has no event handlers attached yet, so clicks would do nothing.
+  if (!isLoaded || hasMadeChoice) return null;
 
   const togglePreference = (category: CookieCategory) => {
     if (category === 'necessary') return;

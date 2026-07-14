@@ -67,4 +67,24 @@ class ProgramModel {
       isLoop: json['is_loop'] as bool? ?? false,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'channel_id': channelId,
+      'video_id': videoId,
+      'start_time': startTime,
+      'end_time': endTime,
+      'type': type,
+      'status': status,
+      'created_at': createdAt,
+      if (videoUrl != null) 'video_url': videoUrl,
+      if (videoTitle != null) 'video_title': videoTitle,
+      if (videoDescription != null) 'video_description': videoDescription,
+      if (thumbnailUrl != null) 'thumbnail_url': thumbnailUrl,
+      if (videoDuration != null) 'video_duration': videoDuration,
+      if (position != null) 'position': position,
+      'is_loop': isLoop,
+    };
+  }
 }

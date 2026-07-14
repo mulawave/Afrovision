@@ -805,6 +805,7 @@ export async function recordChannelViewApi(channelId: string) {
 export interface FollowStatus {
   followed: boolean;
   followers_count: number;
+  is_owner?: boolean;
 }
 
 export async function getFollowStatusApi(creatorUid: string) {
@@ -1180,6 +1181,9 @@ export interface NowPlaying {
   end_time: number;
   position: number;
   is_loop: boolean;
+  adaptive?: boolean;
+  available_renditions?: number[];
+  transcoding_status?: string;
 }
 
 export interface NextProgram {
@@ -1196,6 +1200,7 @@ export async function getNowPlayingApi(channelId: string) {
     now_playing: NowPlaying | null;
     next_program: NextProgram | null;
     server_time: number;
+    scheduler_state?: { reason: string; program_id?: string; video_missing?: boolean };
   }>(`/broadcast/now-playing/${channelId}`);
 }
 
@@ -1213,8 +1218,7 @@ export interface ScheduleProgram {
 
 export async function getChannelScheduleApi(channelId: string) {
   return api<{ schedule: ScheduleProgram[] }>(
-    `/broadcast/schedule/${channelId}`,
-    { requireAuth: true }
+    `/broadcast/schedule/${channelId}`
   );
 }
 
@@ -1227,6 +1231,10 @@ export interface ChannelVideo {
   video_url: string;
   thumbnail_url: string | null;
   duration: number;
+  transcoding_status?: "pending" | "processing" | "ready" | "failed" | "unavailable";
+  transcoding_error?: string | null;
+  master_playlist_url?: string | null;
+  available_renditions?: number[];
   created_at: string;
 }
 
@@ -2437,7 +2445,7 @@ export async function submitAdApi(data: {
 }
 
 export async function getMyAdsApi() {
-  return api<Advertisement[] | ErrorResponse>("/ads/me", {
+  return api<{ ads: Advertisement[] } | ErrorResponse>("/ads/me", {
     requireAuth: true,
   });
 }
@@ -2486,13 +2494,38 @@ export async function serveInStreamAdsApi(channelId?: string) {
   return api<{ ads: Advertisement[] } | ErrorResponse>(`/ads/serve/stream${params}`);
 }
 
-export async function recordAdImpressionApi(adId: string, channelId?: string, viewerCount?: number) {
-  return api<{ impression_id: string; cost: number; revenue_split: Record<string, number> } | ErrorResponse>(
+export async function recordAdImpressionApi(
+  adId: string,
+  channelId?: string,
+  viewerCount?: number,
+  options?: { sessionId?: string; placement?: string }
+) {
+  return api<{ impression_id: string; cost: number; duplicate?: boolean; revenue_split: Record<string, number> } | ErrorResponse>(
     "/ads/impression",
     {
       method: "POST",
-      body: { ad_id: adId, channel_id: channelId, viewer_count: viewerCount },
-      requireAuth: true,
+      body: {
+        ad_id: adId,
+        channel_id: channelId,
+        viewer_count: viewerCount,
+        session_id: options?.sessionId,
+        placement: options?.placement,
+      },
+    }
+  );
+}
+
+export async function recordAdClickApi(adId: string, channelId?: string, options?: { sessionId?: string; placement?: string }) {
+  return api<{ click_id: string; click_url: string } | ErrorResponse>(
+    "/ads/click",
+    {
+      method: "POST",
+      body: {
+        ad_id: adId,
+        channel_id: channelId,
+        session_id: options?.sessionId,
+        placement: options?.placement,
+      },
     }
   );
 }
@@ -2756,6 +2789,11 @@ export interface Wave {
   has_violence?: boolean;
   has_revealing_clothes?: boolean;
   has_partial_nudity?: boolean;
+  has_explicit_content?: boolean;
+  has_parental_guidance?: boolean;
+  has_erotic_dancing?: boolean;
+  has_sexual_nature?: boolean;
+  has_sex?: boolean;
   pulse_count: number;
   comment_count: number;
   bookmark_count: number;
@@ -2932,7 +2970,7 @@ export async function deleteWaveCommentApi(waveId: string, commentId: string) {
 }
 
 export async function trackWaveViewApi(waveId: string) {
-  return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}/view`, {
+  return api<{ success: boolean; unique?: boolean } | ErrorResponse>(`/wave/${waveId}/view`, {
     method: "POST",
   });
 }

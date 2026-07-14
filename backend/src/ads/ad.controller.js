@@ -1,5 +1,6 @@
 const Ad = require('./ad.model');
 const AdImpression = require('./ad_impression.model');
+const AdClick = require('./ad_click.model');
 const { getNextAd, getBannerAd, getInStreamAds, calculateRevenueSplit } = require('./ad_serving');
 const User = require('../users/user.model');
 const Ledger = require('../vpt/ledger.model');
@@ -8,6 +9,19 @@ const { getFirestore } = require('../utils/firestore');
 const AdAnalyticsService = require('./ad_analytics.service');
 const crypto = require('crypto');
 const path = require('path');
+
+function buildDedupeKey({ adId, channelId, viewerId, sessionId, placement }) {
+  const windowMs = 30 * 60 * 1000;
+  const bucket = Math.floor(Date.now() / windowMs);
+  const viewer = viewerId || sessionId || 'anonymous';
+  return [adId, channelId || 'site', placement || 'unknown', viewer, bucket].join(':');
+}
+
+function getRequestSessionId(req) {
+  const bodySession = typeof req.body?.session_id === 'string' ? req.body.session_id.trim() : '';
+  const headerSession = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'].trim() : '';
+  return bodySession || headerSession || null;
+}
 
 // ──────────────────────────────────────────────────────────
 //  ADVERTISER ENDPOINTS
@@ -238,23 +252,31 @@ async function rejectAd(req, res) {
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
 
     const reason = (req.body.reason || '').trim();
-    const updated = await Ad.update(ad.id, { status: 'rejected' });
-    res.json({ ...updated, rejection_reason: reason });
+    const updated = await Ad.update(ad.id, { status: 'rejected', rejection_reason: reason });
+    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
 
 /**
- * PATCH /ads/:id/activate — admin: set approved ad to active
+ * PATCH /ads/:id/activate — admin activates approved ads; owners can resume paused ads
  */
 async function activateAd(req, res) {
   try {
-    const user = User.findById(req.userId);
-    if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-
     const ad = await Ad.findById(req.params.id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
+
+    const user = User.findById(req.userId);
+    const isAdmin = Boolean(user && user.role === 'admin');
+    const isOwner = ad.advertiser_id === req.userId;
+
+    if (ad.status === 'approved' && !isAdmin) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    if (ad.status === 'paused' && !isAdmin && !isOwner) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     if (ad.status !== 'approved' && ad.status !== 'paused') {
       return res.status(400).json({ error: 'Ad must be approved or paused to activate' });
     }
@@ -421,18 +443,41 @@ async function serveInStream(req, res) {
  */
 async function recordImpression(req, res) {
   try {
-    const { ad_id, channel_id, viewer_count } = req.body;
+    const { ad_id, channel_id, viewer_count, placement } = req.body;
     if (!ad_id) return res.status(400).json({ error: 'ad_id is required' });
 
     const ad = await Ad.findById(ad_id);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
+    if (ad.status !== 'active') return res.status(409).json({ error: 'Ad is not active' });
 
-    const cost = ad.price_per_impression;
+    const sessionId = getRequestSessionId(req);
+    const dedupeKey = buildDedupeKey({
+      adId: ad.id,
+      channelId: channel_id || null,
+      viewerId: req.userId || null,
+      sessionId,
+      placement: placement || ad.category,
+    });
+    const duplicate = await AdImpression.findByDedupeKey(dedupeKey);
+    if (duplicate) {
+      return res.json({
+        impression_id: duplicate.id,
+        cost: duplicate.cost || 0,
+        duplicate: true,
+        revenue_split: calculateRevenueSplit(ad.category, 0),
+      });
+    }
+
+    const cost = Number(ad.price_per_impression || 0);
     const Channel = require('../channels/channel.model');
     const channel = channel_id ? await Channel.findById(channel_id) : null;
     const channelOwnerId = channel ? channel.owner_id : null;
 
-    // Record impression in tracking model
+    const updatedAd = await Ad.recordImpression(ad.id, cost);
+    if (!updatedAd || updatedAd.status === 'depleted' && Number(updatedAd.spent || 0) < Number(ad.spent || 0) + cost) {
+      return res.status(409).json({ error: 'Ad budget is depleted' });
+    }
+
     const impression = await AdImpression.record({
       adId: ad.id,
       channelId: channel_id || null,
@@ -440,15 +485,14 @@ async function recordImpression(req, res) {
       viewerCount: viewer_count || 1,
       cost,
       channelOwnerId,
+      viewerId: req.userId || null,
+      sessionId,
+      placement: placement || ad.category,
+      dedupeKey,
     });
 
-    // Update ad spend & count
-    await Ad.recordImpression(ad.id, cost);
-
-    // Revenue distribution via ledger
     const split = calculateRevenueSplit(ad.category, cost);
 
-    // Record channel owner revenue for in-stream ads
     if (split.channel_share > 0 && channelOwnerId) {
       await Ledger.create({
         uid: channelOwnerId,
@@ -462,7 +506,6 @@ async function recordImpression(req, res) {
       });
     }
 
-    // Record community pool contribution
     if (split.pool_share > 0) {
       await Ledger.create({
         uid: ad.advertiser_id,
@@ -476,7 +519,6 @@ async function recordImpression(req, res) {
       });
     }
 
-    // ── Credit Firestore pools (single source of truth) ─────────────
     const admin = require('firebase-admin');
     const db = getFirestore();
     if (split.operations_share > 0) {
@@ -493,8 +535,37 @@ async function recordImpression(req, res) {
     res.json({
       impression_id: impression.id,
       cost,
+      duplicate: false,
       revenue_split: split,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * POST /ads/click — record that an ad was clicked
+ * Body: { ad_id, channel_id?, session_id?, placement? }
+ */
+async function recordClick(req, res) {
+  try {
+    const { ad_id, channel_id, placement } = req.body;
+    if (!ad_id) return res.status(400).json({ error: 'ad_id is required' });
+
+    const ad = await Ad.findById(ad_id);
+    if (!ad) return res.status(404).json({ error: 'Ad not found' });
+
+    const click = await AdClick.record({
+      adId: ad.id,
+      channelId: channel_id || null,
+      category: ad.category,
+      viewerId: req.userId || null,
+      sessionId: getRequestSessionId(req),
+      clickUrl: ad.click_url || '',
+      placement: placement || ad.category,
+    });
+
+    res.json({ click_id: click.id, click_url: ad.click_url || '' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -537,11 +608,13 @@ async function getMyAnalytics(req, res) {
 
     const adIds = myAds.map((ad) => ad.id);
     const allImpressions = await AdImpression.getByAdvertiser(adIds);
+    const allClicks = await AdClick.getByAdvertiser(adIds);
 
     const totalBudget = myAds.reduce((s, a) => s + (a.budget || 0), 0);
     const totalSpent = myAds.reduce((s, a) => s + (a.spent || 0), 0);
     const totalImpressions = allImpressions.length;
     const totalViewers = allImpressions.reduce((s, i) => s + (i.viewer_count || 0), 0);
+    const totalClicks = allClicks.length;
 
     // Daily time series (last 30 days)
     const now = Date.now();
@@ -566,11 +639,15 @@ async function getMyAnalytics(req, res) {
     // Per-ad breakdown
     const adMap = {};
     for (const imp of allImpressions) {
-      if (!adMap[imp.ad_id]) adMap[imp.ad_id] = { impressions: 0, cost: 0, viewers: 0, channels: new Set() };
+      if (!adMap[imp.ad_id]) adMap[imp.ad_id] = { impressions: 0, cost: 0, viewers: 0, clicks: 0, channels: new Set() };
       adMap[imp.ad_id].impressions += 1;
       adMap[imp.ad_id].cost += imp.cost || 0;
       adMap[imp.ad_id].viewers += imp.viewer_count || 0;
       if (imp.channel_id) adMap[imp.ad_id].channels.add(imp.channel_id);
+    }
+    for (const click of allClicks) {
+      if (!adMap[click.ad_id]) adMap[click.ad_id] = { impressions: 0, cost: 0, viewers: 0, clicks: 0, channels: new Set() };
+      adMap[click.ad_id].clicks += 1;
     }
     const perAd = myAds.map(a => ({
       id: a.id,
@@ -581,6 +658,8 @@ async function getMyAnalytics(req, res) {
       spent: a.spent,
       impressions: adMap[a.id]?.impressions || 0,
       viewers: adMap[a.id]?.viewers || 0,
+      clicks: adMap[a.id]?.clicks || 0,
+      ctr: adMap[a.id]?.impressions ? +(((adMap[a.id]?.clicks || 0) / adMap[a.id].impressions) * 100).toFixed(2) : 0,
       cost: adMap[a.id]?.cost || 0,
       unique_channels: adMap[a.id]?.channels?.size || 0,
     })).sort((a, b) => b.cost - a.cost);
@@ -604,6 +683,8 @@ async function getMyAnalytics(req, res) {
         remaining: +(totalBudget - totalSpent).toFixed(2),
         total_impressions: totalImpressions,
         total_viewers: totalViewers,
+        total_clicks: totalClicks,
+        ctr: totalImpressions > 0 ? +((totalClicks / totalImpressions) * 100).toFixed(2) : 0,
         avg_cost: totalImpressions > 0 ? +(totalSpent / totalImpressions).toFixed(4) : 0,
       },
       daily: Object.values(dailyMap),
@@ -684,4 +765,5 @@ module.exports = {
   serveBanner,
   serveInStream,
   recordImpression,
+  recordClick,
 };

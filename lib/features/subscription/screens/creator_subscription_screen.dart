@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import '../../../core/api/api_service.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../payments/services/google_play_billing_service.dart';
 import '../models/creator_subscription_model.dart';
 import '../services/creator_subscription_service.dart';
 
@@ -42,6 +45,10 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
   static const double _ngnPrice = 2000;
   static const int _vptPrice = 500;
 
+  bool _googlePlayAvailable = false;
+  bool _googlePlayLoading = false;
+  StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +64,7 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
       begin: const Offset(0, 0.1),
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
+    _initGooglePlay();
   }
 
   @override
@@ -74,6 +82,7 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
 
   @override
   void dispose() {
+    _purchaseSub?.cancel();
     _animCtrl.dispose();
     super.dispose();
   }
@@ -198,6 +207,88 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
       setState(() {
         _error = 'Failed to cancel. Please try again.';
         _acting = false;
+      });
+    }
+  }
+
+  Future<void> _initGooglePlay() async {
+    try {
+      final available = await GooglePlayBillingService.isAvailable();
+      if (!mounted) return;
+      setState(() => _googlePlayAvailable = available);
+      if (available) {
+        _purchaseSub = InAppPurchase.instance.purchaseStream.listen(
+          (purchases) {
+            for (final purchase in purchases) {
+              if (purchase.status == PurchaseStatus.purchased ||
+                  purchase.status == PurchaseStatus.restored) {
+                _handleGooglePlayPurchase(purchase);
+              } else if (purchase.status == PurchaseStatus.error) {
+                if (!mounted) return;
+                setState(() {
+                  _googlePlayLoading = false;
+                  _error = 'Google Play purchase failed: ${purchase.error?.message ?? "unknown"}';
+                });
+              } else if (purchase.status == PurchaseStatus.canceled) {
+                if (!mounted) return;
+                setState(() => _googlePlayLoading = false);
+              }
+            }
+          },
+          onError: (e) {
+            if (!mounted) return;
+            setState(() {
+              _googlePlayLoading = false;
+              _error = 'Google Play error: $e';
+            });
+          },
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleGooglePlayPurchase(PurchaseDetails purchase) async {
+    if (!mounted) return;
+    setState(() {
+      _googlePlayLoading = true;
+      _error = null;
+    });
+
+    try {
+      await GooglePlayBillingService.completeAndVerify(
+        purchase: purchase,
+        isSubscription: true,
+        creatorUid: _creatorUid,
+      );
+
+      if (!mounted) return;
+      setState(() => _googlePlayLoading = false);
+      _showSnack('Subscribed to $_creatorName via Google Play!', success: true);
+      _checkSubscription();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _googlePlayLoading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _subscribeWithGooglePlay() async {
+    if (_creatorUid == null) return;
+    setState(() {
+      _googlePlayLoading = true;
+      _error = null;
+    });
+    try {
+      await GooglePlayBillingService.initiateCreatorSubscription(
+        creatorUid: _creatorUid!,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _googlePlayLoading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
@@ -796,6 +887,44 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
           ),
           textAlign: TextAlign.center,
         ),
+
+        if (_googlePlayAvailable) ...[
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _googlePlayLoading ? null : _subscribeWithGooglePlay,
+              icon: _googlePlayLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        color: AppColors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(Icons.android, size: 20),
+              label: Text(
+                _googlePlayLoading ? 'Processing...' : 'Pay with Google Play',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF01875F),
+                foregroundColor: AppColors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'or use Google Play billing for this subscription',
+            style: TextStyle(color: AppColors.hintText, fontSize: 11),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ],
     );
   }

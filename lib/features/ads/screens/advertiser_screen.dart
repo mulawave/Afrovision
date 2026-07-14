@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../services/ad_service.dart';
@@ -584,7 +586,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
       );
     }
 
-    final summary = _analytics!['summary'] as Map<String, dynamic>? ?? {};
+    final overview = _analytics!['overview'] as Map<String, dynamic>? ?? {};
     final perAd = List<Map<String, dynamic>>.from(_analytics!['per_ad'] ?? []);
 
     return SingleChildScrollView(
@@ -597,13 +599,13 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
             children: [
               _analyticCard(
                 'Total Impressions',
-                '${summary['total_impressions'] ?? 0}',
+                '${overview['total_impressions'] ?? 0}',
                 Icons.visibility,
               ),
               const SizedBox(width: 12),
               _analyticCard(
                 'Total Spent',
-                '₦${(summary['total_spent'] as num?)?.toStringAsFixed(0) ?? '0'}',
+                '₦${(overview['total_spent'] as num?)?.toStringAsFixed(0) ?? '0'}',
                 Icons.payments,
               ),
             ],
@@ -613,13 +615,13 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
             children: [
               _analyticCard(
                 'Active Ads',
-                '${summary['active_ads'] ?? 0}',
+                '${overview['active_ads'] ?? 0}',
                 Icons.campaign,
               ),
               const SizedBox(width: 12),
               _analyticCard(
                 'Total Ads',
-                '${summary['total_ads'] ?? 0}',
+                '${overview['total_ads'] ?? 0}',
                 Icons.inventory_2,
               ),
             ],
@@ -666,7 +668,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '${ad['impressions'] ?? 0} impressions · ₦${(ad['spent'] as num?)?.toStringAsFixed(0) ?? '0'} spent',
+                            '${ad['impressions'] ?? 0} impressions · ₦${(ad['cost'] as num?)?.toStringAsFixed(0) ?? '0'} spent',
                             style: TextStyle(
                               color: AppColors.goldText,
                               fontSize: 11,
@@ -743,9 +745,12 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _budgetCtrl = TextEditingController();
-  final _mediaUrlCtrl = TextEditingController();
+  final _clickUrlCtrl = TextEditingController();
   final _pricePerImpressionCtrl = TextEditingController(text: '1');
   String _category = 'banner_home';
+  File? _mediaFile;
+  String? _mediaFileName;
+  String? _mediaContentType;
   bool _submitting = false;
 
   final _categories = [
@@ -756,22 +761,52 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
     ('in_stream_brief', 'In-Stream — Brief'),
   ];
 
+  Future<void> _pickMediaFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm'],
+      allowMultiple: false,
+    );
+    final file = result?.files.single;
+    final path = file?.path;
+    if (file == null || path == null) return;
+
+    final ext = (file.extension ?? '').toLowerCase();
+    final contentType = switch (ext) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'gif' => 'image/gif',
+      'webp' => 'image/webp',
+      'mp4' => 'video/mp4',
+      'webm' => 'video/webm',
+      _ => null,
+    };
+    if (contentType == null) return;
+
+    setState(() {
+      _mediaFile = File(path);
+      _mediaFileName = file.name;
+      _mediaContentType = contentType;
+    });
+  }
+
   Future<void> _submit() async {
     final title = _titleCtrl.text.trim();
     final desc = _descCtrl.text.trim();
     final budget = double.tryParse(_budgetCtrl.text.trim()) ?? 0;
-    final mediaUrl = _mediaUrlCtrl.text.trim();
+    final clickUrl = _clickUrlCtrl.text.trim();
     final pricePerImpression =
         double.tryParse(_pricePerImpressionCtrl.text.trim()) ?? 0;
 
     if (title.isEmpty ||
         budget <= 0 ||
-        mediaUrl.isEmpty ||
+        _mediaFile == null ||
+        _mediaContentType == null ||
         pricePerImpression <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
-            'Title, media URL, budget, and price per impression are required',
+            'Title, media file, budget, and price per impression are required',
             style: TextStyle(color: AppColors.white),
           ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
@@ -786,12 +821,22 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
 
     setState(() => _submitting = true);
     try {
+      final upload = await AdService.getUploadUrl(
+        contentType: _mediaContentType!,
+        fileName: _mediaFileName,
+      );
+      await AdService.uploadToGcs(
+        signedUrl: upload['signed_url'] as String,
+        file: _mediaFile!,
+        contentType: _mediaContentType!,
+      );
       await AdService.submitAd({
         'title': title,
         'description': desc,
         'budget': budget,
         'category': _category,
-        'media_url': mediaUrl,
+        'media_url': upload['public_url'],
+        if (clickUrl.isNotEmpty) 'click_url': clickUrl,
         'price_per_impression': pricePerImpression,
       });
       if (!mounted) return;
@@ -811,8 +856,13 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
       _titleCtrl.clear();
       _descCtrl.clear();
       _budgetCtrl.clear();
-      _mediaUrlCtrl.clear();
+      _clickUrlCtrl.clear();
       _pricePerImpressionCtrl.text = '1';
+      setState(() {
+        _mediaFile = null;
+        _mediaFileName = null;
+        _mediaContentType = null;
+      });
       widget.onSubmitted();
     } catch (e) {
       if (!mounted) return;
@@ -839,7 +889,7 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
     _titleCtrl.dispose();
     _descCtrl.dispose();
     _budgetCtrl.dispose();
-    _mediaUrlCtrl.dispose();
+    _clickUrlCtrl.dispose();
     _pricePerImpressionCtrl.dispose();
     super.dispose();
   }
@@ -914,8 +964,40 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
           ),
           const SizedBox(height: 14),
 
-          _label('Media URL'),
-          _textField(_mediaUrlCtrl, 'https://...'),
+          _label('Click URL'),
+          _textField(_clickUrlCtrl, 'https://...'),
+          const SizedBox(height: 14),
+
+          _label('Media File'),
+          GestureDetector(
+            onTap: _submitting ? null : _pickMediaFile,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.inputFill,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.inputBorder),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.upload_file, color: AppColors.orange, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _mediaFileName ?? 'Choose image or video file',
+                      style: TextStyle(
+                        color: _mediaFileName == null ? AppColors.hintText : AppColors.white,
+                        fontSize: 13,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 24),
 
           GestureDetector(

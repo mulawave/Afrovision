@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
@@ -7,8 +8,9 @@ import '../services/broadcast_service.dart';
 /// Reusable banner ad widget. Pass placement = 'home' or 'page'.
 class BannerAdWidget extends StatefulWidget {
   final String placement;
+  final String? channelId;
 
-  const BannerAdWidget({super.key, this.placement = 'home'});
+  const BannerAdWidget({super.key, this.placement = 'home', this.channelId});
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -18,6 +20,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     with WidgetsBindingObserver {
   Map<String, dynamic>? _ad;
   String? _lastImpressionAdId;
+  Timer? _viewTimer;
 
   @override
   void initState() {
@@ -29,6 +32,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _viewTimer?.cancel();
     super.dispose();
   }
 
@@ -41,17 +45,22 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
 
   Future<void> _loadAd() async {
     try {
-      final ad = await BroadcastService.getBannerAd(widget.placement);
+      final ad = await BroadcastService.getBannerAd(widget.placement, channelId: widget.channelId);
       if (!mounted) return;
       setState(() => _ad = ad);
       if (ad != null) {
         final adId = ad['id'] as String? ?? '';
-        // Only record impression when the ad changes to avoid duplicate billing
         if (adId.isNotEmpty && adId != _lastImpressionAdId) {
-          _lastImpressionAdId = adId;
-          BroadcastService.recordAdImpression(
-            adId: adId,
-          ).catchError((_) => <String, dynamic>{});
+          _viewTimer?.cancel();
+          _viewTimer = Timer(const Duration(seconds: 1), () {
+            if (!mounted || _ad?['id'] != adId || _lastImpressionAdId == adId) return;
+            _lastImpressionAdId = adId;
+            BroadcastService.recordAdImpression(
+              adId: adId,
+              channelId: widget.channelId,
+              placement: 'banner_${widget.placement}',
+            ).catchError((_) => <String, dynamic>{});
+          });
         }
       }
     } catch (_) {}
@@ -74,10 +83,20 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: GestureDetector(
         onTap: clickUrl.isNotEmpty
-            ? () => launchUrl(
-                Uri.parse(clickUrl),
-                mode: LaunchMode.externalApplication,
-              )
+            ? () async {
+                final adId = _ad!['id'] as String? ?? '';
+                if (adId.isNotEmpty) {
+                  BroadcastService.recordAdClick(
+                    adId: adId,
+                    channelId: widget.channelId,
+                    placement: 'banner_${widget.placement}',
+                  ).catchError((_) => <String, dynamic>{});
+                }
+                await launchUrl(
+                  Uri.parse(clickUrl),
+                  mode: LaunchMode.externalApplication,
+                );
+              }
             : null,
         child: Container(
           width: double.infinity,

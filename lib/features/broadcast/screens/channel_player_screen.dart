@@ -50,6 +50,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   bool _premiumBlocked = false;
   Map<String, dynamic>? _nowPlaying;
   Map<String, dynamic>? _nextProgram;
+  Map<String, dynamic>? _schedulerState;
+  List<dynamic> _schedule = [];
   bool _isLoop = false;
   int _lastEventAt = 0;
   final List<ChannelEventModel> _recentEvents = [];
@@ -299,6 +301,20 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     } catch (_) {}
   }
 
+  Future<void> _loadSchedule() async {
+    final channelId = _channelId;
+    if (channelId == null || channelId.isEmpty) return;
+    try {
+      final programs = await BroadcastService.getChannelSchedule(channelId);
+      if (!mounted) return;
+      setState(() {
+        _schedule = programs.map((p) => p.toJson()).toList();
+      });
+    } catch (_) {
+      setState(() => _schedule = []);
+    }
+  }
+
   Future<void> _toggleReminder(String programId) async {
     if (_reminderLoading) return;
     setState(() => _reminderLoading = true);
@@ -355,6 +371,10 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
       _channel = await channelFuture;
 
+      // Load schedule in parallel so the player can show precise
+      // starting-soon / missing-video messages for native channels.
+      unawaited(_loadSchedule());
+
       // Keep Recently Visited in sync even when opening channels directly
       // in the live player (without passing through channel profile screen).
       WatchHistoryService.record(
@@ -385,13 +405,32 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       await offsetFuture;
 
       final data = await nowPlayingFuture.timeout(
-        const Duration(seconds: 8),
+        const Duration(seconds: 15),
         onTimeout: () =>
             BroadcastService.getCachedNowPlaying(channelId) ??
             <String, dynamic>{},
       );
       if (!mounted) return;
       await _applyPlaybackPayload(channelId, data);
+
+      // If the resolver returned nothing but the native channel has a schedule,
+      // retry once with cache disabled — the cached snapshot may be stale.
+      if (_nowPlaying == null &&
+          _channel != null &&
+          _channel!.streamSourceMode.toLowerCase() == 'native' &&
+          _schedule.isEmpty) {
+        await _loadSchedule();
+      }
+      if (_nowPlaying == null &&
+          _channel != null &&
+          _channel!.streamSourceMode.toLowerCase() == 'native' &&
+          _schedule.isNotEmpty) {
+        final retryData = await BroadcastService.getNowPlaying(
+          channelId,
+          preferCache: false,
+        ).timeout(const Duration(seconds: 15));
+        if (mounted) await _applyPlaybackPayload(channelId, retryData);
+      }
     } catch (e) {
       if (e is ApiException && _channelId != null) {
         final msg = e.message.toLowerCase();
@@ -455,6 +494,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   }) async {
     _nowPlaying = data['now_playing'] as Map<String, dynamic>?;
     _nextProgram = data['next_program'] as Map<String, dynamic>?;
+    _schedulerState = data['scheduler_state'] as Map<String, dynamic>?;
 
     if (_nowPlaying != null) {
       final startTime = (_nowPlaying!['start_time'] as num?)?.toInt() ?? 0;
@@ -994,6 +1034,22 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
     player.onAccessDenied = _handleAccessDeniedRecovery;
 
+    player.onRefreshUrl = () async {
+      if (!mounted || _channelId == null) return null;
+      try {
+        final data = await BroadcastService.getNowPlaying(
+          _channelId!,
+          preferCache: false,
+        ).timeout(const Duration(seconds: 10));
+        final np = data['now_playing'] as Map<String, dynamic>?;
+        if (np == null) return null;
+        final videoUrl = np['video_url'] as String? ?? '';
+        return _resolvePlaybackUrl(videoUrl);
+      } catch (_) {
+        return null;
+      }
+    };
+
     player.addListener(() {
       if (!mounted) return;
       setState(() {
@@ -1014,6 +1070,13 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     });
 
     try {
+      final rawRenditions =
+          _nowPlaying?['available_renditions'] as List<dynamic>? ?? const [];
+      final renditions = rawRenditions
+          .whereType<num>()
+          .map((value) => value.toInt())
+          .where((value) => value > 0)
+          .toList();
       await player.initialize(
         videoUrl: url,
         startTime: startTime,
@@ -1021,6 +1084,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         duration: duration,
         positionSec: positionSec,
         loop: loop,
+        renditions: renditions,
       );
       if (!mounted) return;
 
@@ -2211,53 +2275,78 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
           ),
           Flexible(
             child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GestureDetector(
-                    onTap: _onManualPiPTap,
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: AppColors.cardBg,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: AppColors.inputBorder.withValues(alpha: 0.4),
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: _onManualPiPTap,
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: AppColors.cardBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppColors.inputBorder.withValues(alpha: 0.4),
+                          ),
                         ),
-                      ),
-                      child: const Icon(
-                        Icons.picture_in_picture_alt_rounded,
-                        color: AppColors.lightOrange,
-                        size: 15,
+                        child: const Icon(
+                          Icons.picture_in_picture_alt_rounded,
+                          color: AppColors.lightOrange,
+                          size: 15,
+                        ),
                       ),
                     ),
-                  ),
-                  GestureDetector(
-                    onTap: _shareChannel,
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: AppColors.cardBg,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: AppColors.inputBorder.withValues(alpha: 0.4),
+                    GestureDetector(
+                      onTap: _shareChannel,
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: AppColors.cardBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppColors.inputBorder.withValues(alpha: 0.4),
+                          ),
                         ),
-                      ),
-                      child: const Icon(
-                        Icons.share_rounded,
-                        color: AppColors.lightOrange,
-                        size: 15,
+                        child: const Icon(
+                          Icons.share_rounded,
+                          color: AppColors.lightOrange,
+                          size: 15,
+                        ),
                       ),
                     ),
-                  ),
+                    GestureDetector(
+                      onTap: _goDashboard,
+                      child: Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: AppColors.cardBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppColors.inputBorder.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.home_rounded,
+                          color: AppColors.lightOrange,
+                          size: 15,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_channel != null) ...[
+                  const SizedBox(height: 8),
                   GestureDetector(
-                    onTap: _goDashboard,
+                    onTap: _followLoading ? null : _toggleFollow,
                     child: Container(
-                      padding: const EdgeInsets.all(7),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.cardBg,
                         borderRadius: BorderRadius.circular(10),
@@ -2265,75 +2354,50 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                           color: AppColors.inputBorder.withValues(alpha: 0.4),
                         ),
                       ),
-                      child: const Icon(
-                        Icons.home_rounded,
-                        color: AppColors.lightOrange,
-                        size: 15,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.people_alt_rounded,
+                            color: AppColors.goldText,
+                            size: 12,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$_followersCount',
+                            style: const TextStyle(
+                              color: AppColors.goldText,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _followLoading
+                              ? const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.orange,
+                                  ),
+                                )
+                              : Text(
+                                  _isFollowing ? 'Following' : 'Follow',
+                                  style: TextStyle(
+                                    color: _isFollowing
+                                        ? AppColors.lightOrange
+                                        : AppColors.orange,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                        ],
                       ),
                     ),
                   ),
                 ],
-              ),
-              if (_channel != null) ...[
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: _followLoading ? null : _toggleFollow,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.cardBg,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: AppColors.inputBorder.withValues(alpha: 0.4),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.people_alt_rounded,
-                          color: AppColors.goldText,
-                          size: 12,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$_followersCount',
-                          style: const TextStyle(
-                            color: AppColors.goldText,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _followLoading
-                            ? const SizedBox(
-                                width: 12,
-                                height: 12,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.orange,
-                                ),
-                              )
-                            : Text(
-                                _isFollowing ? 'Following' : 'Follow',
-                                style: TextStyle(
-                                  color: _isFollowing
-                                      ? AppColors.lightOrange
-                                      : AppColors.orange,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                      ],
-                    ),
-                  ),
-                ),
               ],
-            ],
-          ),
+            ),
           ),
           if (_nowPlaying != null)
             Container(
@@ -2747,247 +2811,314 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
   Widget _buildNoProgram() {
     final hasLogo = _channel?.logoUrl != null;
+    final isNative = _channel?.streamSourceMode.toLowerCase() == 'native';
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    String title;
+    String subtitle;
+    Color accent = AppColors.goldText;
+    if (isNative && _schedulerState != null) {
+      final reason = _schedulerState!['reason'] as String? ?? '';
+      final videoMissing = _schedulerState!['video_missing'] as bool? ?? false;
+      final upcoming = _schedule.cast<Map<String, dynamic>>().firstWhere(
+        (p) => ((p['start_time'] as num?)?.toInt() ?? 0) > now,
+        orElse: () => <String, dynamic>{},
+      );
+      if (reason == 'current' && videoMissing) {
+        title = 'Scheduled video is missing\nor not uploaded yet';
+        subtitle = 'The creator needs to upload or fix the scheduled video.';
+        accent = const Color(0xFFE53935);
+      } else if (reason == 'upcoming' && upcoming.isNotEmpty) {
+        final start = (upcoming['start_time'] as num?)?.toInt() ?? 0;
+        final startTime = DateTime.fromMillisecondsSinceEpoch(start);
+        final timeStr =
+            '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}';
+        title = 'Starting soon';
+        subtitle =
+            '"${upcoming['video_title'] ?? 'Scheduled program'}" begins at $timeStr.';
+      } else if (reason == 'loop') {
+        title = 'Looping last program';
+        subtitle = 'No upcoming schedule. The previous program is on repeat.';
+      } else {
+        title = 'Stream is currently offline';
+        subtitle = 'Check back later or contact the channel creator.';
+      }
+    } else if (isNative && _schedule.isNotEmpty) {
+      final current = _schedule.cast<Map<String, dynamic>>().firstWhere((p) {
+        final start = (p['start_time'] as num?)?.toInt() ?? 0;
+        final end = (p['end_time'] as num?)?.toInt() ?? 0;
+        return start <= now && end > now;
+      }, orElse: () => <String, dynamic>{});
+      final upcoming = _schedule.cast<Map<String, dynamic>>().firstWhere(
+        (p) => ((p['start_time'] as num?)?.toInt() ?? 0) > now,
+        orElse: () => <String, dynamic>{},
+      );
+      if (current.isNotEmpty) {
+        title = 'Scheduled video is missing\nor not uploaded yet';
+        subtitle = 'The creator needs to upload or fix the scheduled video.';
+        accent = const Color(0xFFE53935);
+      } else if (upcoming.isNotEmpty) {
+        final start = (upcoming['start_time'] as num?)?.toInt() ?? 0;
+        final startTime = DateTime.fromMillisecondsSinceEpoch(start);
+        final timeStr =
+            '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}';
+        title = 'Starting soon';
+        subtitle =
+            '"${upcoming['video_title'] ?? 'Scheduled program'}" begins at $timeStr.';
+      } else {
+        title = 'Stream is currently offline';
+        subtitle = 'Check back later or contact the channel creator.';
+      }
+    } else {
+      title = 'This channel is currently not\ntransmitting any show now';
+      subtitle = 'Check back later';
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // TV color bars
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: SizedBox(
-                height: 4,
-                width: 220,
-                child: Row(
-                  children: const [
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFFC0C0C0),
-                        child: SizedBox.expand(),
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // TV color bars
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: SizedBox(
+                    height: 4,
+                    width: 220,
+                    child: Row(
+                      children: const [
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFFC0C0C0),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFFC0C000),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFF00C0C0),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFF00C000),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFFC000C0),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFFC00000),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFF0000C0),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                // Channel logo or TV icon
+                if (hasLogo)
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: AppColors.inputBorder.withValues(alpha: 0.3),
                       ),
                     ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFFC0C000),
-                        child: SizedBox.expand(),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.network(
+                      AppConfig.mediaUrl(_channel!.logoUrl!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Icon(
+                        Icons.tv_rounded,
+                        color: AppColors.goldText,
+                        size: 40,
                       ),
                     ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFF00C0C0),
-                        child: SizedBox.expand(),
+                  )
+                else
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: AppColors.cardBg,
+                      border: Border.all(
+                        color: AppColors.inputBorder.withValues(alpha: 0.3),
                       ),
                     ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFF00C000),
-                        child: SizedBox.expand(),
+                    child: Icon(
+                      Icons.tv_rounded,
+                      color: AppColors.goldText,
+                      size: 40,
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Text(
+                  _channel?.name ?? 'Channel',
+                  style: TextStyle(
+                    color: AppColors.white.withValues(alpha: 0.7),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  subtitle,
+                  style: TextStyle(color: accent, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                // Standby indicator
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: AppColors.goldText,
+                        shape: BoxShape.circle,
                       ),
                     ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFFC000C0),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFFC00000),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFF0000C0),
-                        child: SizedBox.expand(),
+                    const SizedBox(width: 6),
+                    Text(
+                      'STANDBY',
+                      style: TextStyle(
+                        color: AppColors.goldText,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 2,
                       ),
                     ),
                   ],
                 ),
-              ),
-            ),
-            const SizedBox(height: 28),
-            // Channel logo or TV icon
-            if (hasLogo)
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: AppColors.inputBorder.withValues(alpha: 0.3),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: constraints.maxWidth - 56,
+                  child: _buildSurferBar(),
+                ),
+                if (_nextProgram != null) ...[
+                  const SizedBox(height: 32),
+                  _buildUpNextCard(),
+                ],
+                const SizedBox(height: 28),
+                // Bottom color bars
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: SizedBox(
+                    height: 4,
+                    width: 220,
+                    child: Row(
+                      children: const [
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFF0000C0),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFF131313),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFFC000C0),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFF131313),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFF00C0C0),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFF131313),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Color(0xFFC0C0C0),
+                            child: SizedBox.expand(),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                clipBehavior: Clip.antiAlias,
-                child: Image.network(
-                  AppConfig.mediaUrl(_channel!.logoUrl!),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Icon(
-                    Icons.tv_rounded,
-                    color: AppColors.goldText,
-                    size: 40,
-                  ),
-                ),
-              )
-            else
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: AppColors.cardBg,
-                  border: Border.all(
-                    color: AppColors.inputBorder.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Icon(
-                  Icons.tv_rounded,
-                  color: AppColors.goldText,
-                  size: 40,
-                ),
-              ),
-            const SizedBox(height: 16),
-            Text(
-              _channel?.name ?? 'Channel',
-              style: TextStyle(
-                color: AppColors.white.withValues(alpha: 0.7),
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'This channel is currently not\ntransmitting any show now',
-              style: TextStyle(
-                color: AppColors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Check back later',
-              style: TextStyle(color: AppColors.goldText, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            // Standby indicator
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: AppColors.goldText,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'STANDBY',
-                  style: TextStyle(
-                    color: AppColors.goldText,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 2,
+                const SizedBox(height: 28),
+                GestureDetector(
+                  onTap: _fetchNowPlaying,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppColors.inputBorder.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: const Text(
+                      'Refresh',
+                      style: TextStyle(
+                        color: AppColors.lightOrange,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            SizedBox(width: constraints.maxWidth - 56, child: _buildSurferBar()),
-            if (_nextProgram != null) ...[
-              const SizedBox(height: 32),
-              _buildUpNextCard(),
-            ],
-            const SizedBox(height: 28),
-            // Bottom color bars
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: SizedBox(
-                height: 4,
-                width: 220,
-                child: Row(
-                  children: const [
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFF0000C0),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFF131313),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFFC000C0),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFF131313),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFF00C0C0),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFF131313),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                    Expanded(
-                      child: ColoredBox(
-                        color: Color(0xFFC0C0C0),
-                        child: SizedBox.expand(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 28),
-            GestureDetector(
-              onTap: _fetchNowPlaying,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.cardBg,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: AppColors.inputBorder.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: const Text(
-                  'Refresh',
-                  style: TextStyle(
-                    color: AppColors.lightOrange,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+          ),
+        );
       },
     );
   }
@@ -3210,7 +3341,57 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                 // Channel logo + name badge (top-right)
                 if (_channel != null)
                   Positioned(top: 8, right: 8, child: _buildChannelBadge()),
-                // Fullscreen toggle (bottom-right)
+                if (!useYouTubeEmbed &&
+                    (_player?.availableRenditions.isNotEmpty ?? false))
+                  Positioned(
+                    bottom: 8,
+                    right: 48,
+                    child: PopupMenuButton<int>(
+                      initialValue: _player?.selectedQuality ?? 0,
+                      tooltip: 'Playback quality',
+                      color: AppColors.cardBg,
+                      onSelected: (quality) =>
+                          _player?.setQuality(quality == 0 ? null : quality),
+                      itemBuilder: (_) => [
+                        const PopupMenuItem<int>(
+                          value: 0,
+                          child: Text(
+                            'Auto',
+                            style: TextStyle(color: AppColors.white),
+                          ),
+                        ),
+                        ...?_player?.availableRenditions.reversed.map(
+                          (quality) => PopupMenuItem<int>(
+                            value: quality,
+                            child: Text(
+                              '${quality}p',
+                              style: const TextStyle(color: AppColors.white),
+                            ),
+                          ),
+                        ),
+                      ],
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _player?.selectedQuality == null
+                              ? 'Auto'
+                              : '${_player!.selectedQuality}p',
+                          style: const TextStyle(
+                            color: AppColors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 if (!useYouTubeEmbed)
                   Positioned(
                     bottom: 8,

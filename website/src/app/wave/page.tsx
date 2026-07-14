@@ -16,12 +16,18 @@ import {
   getChannelApi,
   getChannelLibraryApi,
   getChannelFollowStatusApi,
+  followChannelApi,
+  unfollowChannelApi,
   getChannelLibraryItemDetailApi,
   trackWaveViewApi,
   checkWaveAccessApi,
   acknowledgeWaveAdultConsentApi,
   getCreatorWaveLockStatusApi,
   payCreatorWaveLockApi,
+  serveBannerAdApi,
+  recordAdImpressionApi,
+  recordAdClickApi,
+  type Advertisement,
   type Wave,
   type WaveAgeClassification,
   type WaveAccessDecision,
@@ -33,6 +39,7 @@ import {
   type LibraryItemDetail,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import { resolveWebsiteMediaUrl } from "@/lib/media";
 
 // -- Helpers ----------------------------------------------------------------
 
@@ -46,6 +53,32 @@ function formatTime(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function getAdSessionId() {
+  if (typeof window === "undefined") return undefined;
+  const key = "afrovision_ad_session_id";
+  let existing = window.sessionStorage.getItem(key);
+  if (!existing) {
+    existing = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.sessionStorage.setItem(key, existing);
+  }
+  return existing;
+}
+
+function getWaveContentLabels(wave: Wave): string[] {
+  const codes: string[] = [];
+  if (wave.has_sex) codes.push('S');
+  if (wave.has_sexual_nature) codes.push('SN');
+  if (wave.has_nudity) codes.push('N');
+  if (wave.has_explicit_language) codes.push('L');
+  if (wave.has_violence) codes.push('V');
+  if (wave.has_revealing_clothes) codes.push('RC');
+  if (wave.has_partial_nudity) codes.push('PN');
+  if (wave.has_explicit_content) codes.push('XC');
+  if (wave.has_parental_guidance) codes.push('PG');
+  if (wave.has_erotic_dancing) codes.push('ED');
+  return codes;
 }
 
 function getWaveClassificationMeta(ageClassification?: WaveAgeClassification): {
@@ -290,6 +323,7 @@ function WaveGridTile({
   onClick: () => void;
 }) {
   const classification = getWaveClassificationMeta(wave.age_classification);
+  const contentLabels = getWaveContentLabels(wave);
 
   return (
     <button
@@ -337,7 +371,7 @@ function WaveGridTile({
       )}
 
       <div
-        className="absolute top-1.5 right-1.5 z-20 px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider"
+        className="absolute top-1.5 right-1.5 z-20 px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider flex items-center gap-1"
         style={{
           background: classification.bg,
           border: classification.border,
@@ -346,6 +380,11 @@ function WaveGridTile({
         }}
       >
         {classification.label}
+        {contentLabels.length > 0 && (
+          <span className="opacity-80 border-l border-current/30 pl-1">
+            {contentLabels.join(".")}
+          </span>
+        )}
       </div>
 
       <div
@@ -759,7 +798,7 @@ function WaveCommentsPanel({
   return (
     <div
       className="absolute inset-0 z-40 flex flex-col"
-      style={{ background: "linear-gradient(to top, rgba(5,10,48,0.98) 70%, transparent)" }}
+      style={{ background: "linear-gradient(to top, rgba(0,0,0,0.98) 70%, transparent)" }}
     >
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <span className="text-white font-semibold text-base">Comments &middot; {commentCount}</span>
@@ -862,7 +901,7 @@ function WaveOptionsPanel({
     <div className="absolute inset-0 z-50 flex items-end" onClick={onClose}>
       <div
         className="w-full rounded-t-2xl overflow-hidden"
-        style={{ background: "rgba(5,10,48,0.97)", borderTop: "1px solid rgba(255,255,255,0.1)" }}
+        style={{ background: "rgba(0,0,0,0.95)", borderTop: "1px solid rgba(255,255,255,0.1)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mt-3 mb-2" />
@@ -971,6 +1010,204 @@ function WaveMiniToast({ message }: { message: string }) {
   );
 }
 
+// -- Floating Bolt Overlay -------------------------------------------------
+
+type FloatingItem = {
+  id: number;
+  icon: "bolt" | "bookmark" | "comment" | "replay";
+  leftOffset: number;
+};
+
+let _floatingIdCounter = 0;
+
+function FloatingBoltOverlay({ items, onRemove }: {
+  items: FloatingItem[];
+  onRemove: (id: number) => void;
+}) {
+  useEffect(() => {
+    if (items.length === 0) return;
+    const timers = items.map((item) =>
+      setTimeout(() => onRemove(item.id), 2400)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [items, onRemove]);
+
+  return (
+    <div className="absolute inset-0 z-25 pointer-events-none overflow-hidden">
+      {items.map((item) => (
+        <FloatingBoltItem key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}
+
+function FloatingBoltItem({ item }: { item: FloatingItem }) {
+  const iconMap = {
+    bolt: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" />
+      </svg>
+    ),
+    bookmark: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z" />
+      </svg>
+    ),
+    comment: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z" />
+      </svg>
+    ),
+    replay: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
+      </svg>
+    ),
+  };
+
+  return (
+    <div
+      className="absolute bottom-24"
+      style={{
+        left: `${item.leftOffset}px`,
+        animation: "floatUp 2.4s ease-out forwards",
+        color: "#FFD700",
+        filter: "drop-shadow(0 0 6px rgba(255,215,0,0.5))",
+      }}
+    >
+      <div style={{ animation: "scaleIn 0.35s ease-out forwards", transform: "scale(0.6)" }}>
+        {iconMap[item.icon]}
+      </div>
+    </div>
+  );
+}
+
+// -- Channel Card Overlay ---------------------------------------------------
+
+function ChannelCardOverlay({
+  visible,
+  channel,
+  channelFollowersCount,
+  totalReactions,
+  onClose,
+  onViewChannel,
+}: {
+  visible: boolean;
+  channel: Channel | null;
+  channelFollowersCount: number;
+  totalReactions: number;
+  onClose: () => void;
+  onViewChannel: () => void;
+}) {
+  const kGold = "#FFD700";
+  const isExclusive = channel ? (channel.exclusive_monthly_fee_ngn ?? 0) > 0 : false;
+
+  return (
+    <div
+      className={`absolute left-0 right-0 bottom-0 z-40 transition-all duration-300 ${visible ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"}`}
+      style={{ paddingBottom: "76px" }}
+    >
+      <div
+        className="mx-2.5 rounded-2xl p-4"
+        style={{
+          background: "rgba(0,0,0,0.5)",
+          backdropFilter: "blur(18px)",
+          border: `1px solid ${kGold}80`,
+          boxShadow: "0 6px 28px rgba(0,0,0,0.25), 0 2px 24px rgba(255,215,0,0.08)",
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          {/* Logo */}
+          <div
+            className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0"
+            style={{ border: `2px solid ${kGold}cc` }}
+          >
+            {channel?.logo_url ? (
+              <img src={channel.logo_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <span style={{ color: kGold, fontSize: 18, fontWeight: 800 }}>
+                {(channel?.name ?? "C")[0].toUpperCase()}
+              </span>
+            )}
+          </div>
+          {/* Name + number */}
+          <div className="flex-1 min-w-0">
+            <p className="truncate font-bold text-sm" style={{ color: kGold, textShadow: "0 1px 8px rgba(0,0,0,0.6)" }}>
+              {channel?.name ?? "Channel"}
+            </p>
+            {channel?.channel_number && (
+              <p className="text-[11px] font-medium" style={{ color: `${kGold}8c` }}>
+                Channel {channel.channel_number}
+              </p>
+            )}
+          </div>
+          {/* Close + badge */}
+          <div className="flex flex-col items-end gap-1.5">
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-full flex items-center justify-center"
+              style={{ background: `${kGold}1a`, border: `1px solid ${kGold}59` }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={kGold} strokeWidth="2" strokeLinecap="round">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+            {isExclusive && (
+              <span
+                className="px-2 py-0.5 rounded-full text-[8px] font-black tracking-wider"
+                style={{ background: "linear-gradient(90deg, #FFD700, #FF8C00)", color: "#000" }}
+              >
+                EXCLUSIVE
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="flex items-center gap-4 mt-3 text-[11px]">
+          <div className="flex items-center gap-1">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill={kGold} fillOpacity={0.7}><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            <span style={{ color: `${kGold}aa` }}>{formatCount(channelFollowersCount)} followers</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill={kGold} fillOpacity={0.7}><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+            <span style={{ color: `${kGold}aa` }}>{formatCount(totalReactions)} reactions</span>
+          </div>
+        </div>
+
+        {/* Gold divider */}
+        <div className="my-3 h-px" style={{ background: `linear-gradient(90deg, transparent, ${kGold}a6, transparent)` }} />
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={onViewChannel}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-bold"
+            style={{ background: "linear-gradient(90deg, #F49617, #F5C16C)", color: "#050A30" }}
+          >
+            Visit Channel
+          </button>
+          <a
+            href={channel ? `/channel/${channel.id}` : "#"}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-semibold"
+            style={{ background: `${kGold}1a`, color: kGold, border: `1px solid ${kGold}40` }}
+          >
+            Tune In
+          </a>
+          <a
+            href={channel ? `/channel/${channel.id}` : "#"}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-semibold"
+            style={{ background: `${kGold}1a`, color: kGold, border: `1px solid ${kGold}40` }}
+          >
+            Library
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // -- Wave Card --------------------------------------------------------------
 
 function WaveCard({
@@ -986,6 +1223,10 @@ function WaveCard({
   onAdvanceWave,
   onPrevWave,
   phoneMode = false,
+  channelData,
+  channelFollowersCount,
+  totalReactions,
+  onViewChannel,
 }: {
   wave: Wave;
   isActive: boolean;
@@ -999,13 +1240,29 @@ function WaveCard({
   onAdvanceWave?: () => void;
   onPrevWave?: () => void;
   phoneMode?: boolean;
+  channelData?: Channel | null;
+  channelFollowersCount?: number;
+  totalReactions?: number;
+  onViewChannel?: () => void;
 }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [pulseCount, setPulseCount] = useState(wave.pulse_count);
+  const [floatingItems, setFloatingItems] = useState<FloatingItem[]>([]);
+  const [showChannelCard, setShowChannelCard] = useState(false);
+
+  const addFloatingItem = useCallback((icon: FloatingItem["icon"]) => {
+    const id = ++_floatingIdCounter;
+    const leftOffset = 8 + Math.random() * 20;
+    setFloatingItems((prev) => [...prev, { id, icon, leftOffset }]);
+  }, []);
+
+  const removeFloatingItem = useCallback((id: number) => {
+    setFloatingItems((prev) => prev.filter((i) => i.id !== id));
+  }, []);
   const commentCount = wave.comment_count;
   const [bookmarkCount, setBookmarkCount] = useState(wave.bookmark_count);
   const [bookmarked, setBookmarked] = useState(wave.is_bookmarked ?? false);
@@ -1015,9 +1272,18 @@ function WaveCard({
   const [duration, setDuration] = useState(wave.duration || 0);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [uniqueViewCount] = useState(wave.views_count ?? wave.views ?? wave.total_views ?? 0);
+  const [uniqueViewCount, setUniqueViewCount] = useState(wave.views_count ?? wave.views ?? wave.total_views ?? 0);
   const [repeatPlayCount, setRepeatPlayCount] = useState(wave.repeat_play_count ?? 0);
+  const [muted, setMuted] = useState(false);
+  const [showSpeedBar, setShowSpeedBar] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [hideAllUI, setHideAllUI] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const isChannelOwner = Boolean(user && channelData && channelData.owner_id === user.id);
   const classification = getWaveClassificationMeta(wave.age_classification);
+  const contentLabels = getWaveContentLabels(wave);
 
   useEffect(() => {
     getWavePulseMomentsApi(wave.id).then((res) => {
@@ -1027,6 +1293,71 @@ function WaveCard({
       }
     });
   }, [wave.id]);
+
+  // Load channel follow status
+  useEffect(() => {
+    if (!isAuthenticated || !wave.channel_id) return;
+    getChannelFollowStatusApi(wave.channel_id).then((res) => {
+      if (res.ok && "followed" in res.data) {
+        setIsFollowing(res.data.followed);
+      }
+    });
+  }, [wave.channel_id, isAuthenticated]);
+
+  // Apply mute to video
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = muted;
+  }, [muted]);
+
+  // Apply playback speed to video
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.playbackRate = playbackSpeed;
+  }, [playbackSpeed]);
+
+  const toggleMute = useCallback(() => setMuted((m) => !m), []);
+  const toggleSpeedBar = useCallback(() => setShowSpeedBar((s) => !s), []);
+  const toggleHideUI = useCallback(() => setHideAllUI((h) => !h), []);
+
+  const handleSetSpeed = useCallback((speed: number) => {
+    setPlaybackSpeed(speed);
+    setShowSpeedBar(false);
+  }, []);
+
+  const handleShare = useCallback(() => {
+    const url = typeof window !== "undefined" ? `${window.location.origin}/wave?wave_id=${wave.id}` : "";
+    const text = `Watch "${wave.title}" on AfroVision:\n${url}`;
+    if (navigator.share) {
+      navigator.share({ title: wave.title, text, url }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        setShareNotice("Link copied to clipboard");
+        setTimeout(() => setShareNotice(null), 2000);
+      });
+    }
+  }, [wave.id, wave.title]);
+
+  const handleToggleFollow = useCallback(async () => {
+    if (!isAuthenticated || followLoading || !wave.channel_id) return;
+    setFollowLoading(true);
+    try {
+      const res = isFollowing
+        ? await unfollowChannelApi(wave.channel_id)
+        : await followChannelApi(wave.channel_id);
+      if (res.ok && "followed" in res.data) {
+        setIsFollowing(res.data.followed);
+        setActionNotice(res.data.followed ? `Now following ${channelData?.name ?? "channel"}` : `Unfollowed ${channelData?.name ?? "channel"}`);
+        setTimeout(() => setActionNotice(null), 2000);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setFollowLoading(false);
+    }
+  }, [isAuthenticated, followLoading, isFollowing, wave.channel_id, channelData?.name]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -1062,7 +1393,12 @@ function WaveCard({
   useEffect(() => {
     if (!isActive) return;
     void trackWaveViewApi(wave.id).then((res) => {
-      if (res.ok) setRepeatPlayCount((c) => c + 1);
+      if (res.ok) {
+        setRepeatPlayCount((c) => c + 1);
+        if (res.data && 'unique' in res.data && res.data.unique) {
+          setUniqueViewCount((c) => c + 1);
+        }
+      }
     });
   }, [isActive, wave.id]);
 
@@ -1095,6 +1431,7 @@ function WaveCard({
     if (!isAuthenticated) return;
     const momentSeconds = videoRef.current?.currentTime ?? 0;
     setPulseCount((c) => c + 1);
+    addFloatingItem("bolt");
     await addWavePulseApi(wave.id, intensity, momentSeconds);
     getWavePulseMomentsApi(wave.id).then((res) => {
       if (res.ok && "moments" in res.data) setMoments(res.data.moments);
@@ -1107,6 +1444,7 @@ function WaveCard({
     const next = !bookmarked;
     setBookmarked(next);
     setBookmarkCount((c) => c + (next ? 1 : -1));
+    if (next) addFloatingItem("bookmark");
     await toggleWaveBookmarkApi(wave.id);
   };
 
@@ -1130,7 +1468,9 @@ function WaveCard({
     <div
       ref={containerRef}
       className="relative w-full h-full overflow-hidden bg-black"
-      style={{ scrollSnapAlign: phoneMode ? undefined : "start" }}
+      style={{
+        scrollSnapAlign: phoneMode ? undefined : "start",
+      }}
     >
       <video
         ref={videoRef}
@@ -1141,7 +1481,7 @@ function WaveCard({
         muted={false}
         autoPlay
         preload="auto"
-        className={`absolute inset-0 w-full h-full object-cover ${blockedReason || requiresAdultConsent ? "blur-lg scale-105 brightness-50" : ""}`}
+        className={`absolute inset-0 w-full h-full object-contain ${blockedReason || requiresAdultConsent ? "blur-lg scale-105 brightness-50" : ""}`}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onCanPlay={() => {
@@ -1201,31 +1541,154 @@ function WaveCard({
         </>
       )}
 
-      <div
-        className="absolute top-3 right-3 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider pointer-events-none"
-        style={{
-          background: classification.bg,
-          border: classification.border,
-          color: classification.color,
-          backdropFilter: "blur(5px)",
-        }}
-      >
-        {classification.label}
-      </div>
+      {/* Age badge + mini controls (hidden when hideAllUI) */}
+      {!hideAllUI && (
+        <div className="absolute top-3 right-3 z-30 flex items-start gap-2">
+          <div
+            className="px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider pointer-events-none flex items-center gap-1.5"
+            style={{
+              background: classification.bg,
+              border: classification.border,
+              color: classification.color,
+              backdropFilter: "blur(5px)",
+            }}
+          >
+            {classification.label}
+            {contentLabels.length > 0 && (
+              <span className="opacity-80 border-l border-current/30 pl-1.5">
+                {contentLabels.join(".")}
+              </span>
+            )}
+          </div>
+          {/* Mini controls column */}
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={() => setShowOptions(true)}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white/90 transition-all hover:scale-110"
+              style={{
+                background: "rgba(0,0,0,0.45)",
+                backdropFilter: "blur(6px)",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
+              aria-label="More options"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" /></svg>
+            </button>
+            <button
+              onClick={() => onAutoscrollChange(!autoscroll)}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white/90 transition-all hover:scale-110"
+              style={{
+                background: autoscroll ? "rgba(244,150,23,0.35)" : "rgba(0,0,0,0.45)",
+                backdropFilter: "blur(6px)",
+                border: autoscroll ? "1px solid rgba(244,150,23,0.6)" : "1px solid rgba(255,255,255,0.1)",
+              }}
+              aria-label={autoscroll ? "Pause autoscroll" : "Enable autoscroll"}
+            >
+              {autoscroll ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 2l4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" />
+                </svg>
+              )}
+            </button>
+            <button
+              onClick={toggleSpeedBar}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white/90 transition-all hover:scale-110"
+              style={{
+                background: showSpeedBar ? "rgba(244,150,23,0.35)" : "rgba(0,0,0,0.45)",
+                backdropFilter: "blur(6px)",
+                border: showSpeedBar ? "1px solid rgba(244,150,23,0.6)" : "1px solid rgba(255,255,255,0.1)",
+              }}
+              aria-label="Playback speed"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+              </svg>
+            </button>
+            <button
+              onClick={toggleMute}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white/90 transition-all hover:scale-110"
+              style={{
+                background: muted ? "rgba(244,150,23,0.35)" : "rgba(0,0,0,0.45)",
+                backdropFilter: "blur(6px)",
+                border: muted ? "1px solid rgba(244,150,23,0.6)" : "1px solid rgba(255,255,255,0.1)",
+              }}
+              aria-label={muted ? "Unmute" : "Mute"}
+            >
+              {muted ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                </svg>
+              )}
+            </button>
+            <button
+              onClick={toggleHideUI}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white/90 transition-all hover:scale-110"
+              style={{
+                background: "rgba(0,0,0,0.45)",
+                backdropFilter: "blur(6px)",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
+              aria-label="Hide UI"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" /><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" /><line x1="2" y1="2" x2="22" y2="22" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Hide UI restore button */}
+      {hideAllUI && (
+        <button
+          onClick={toggleHideUI}
+          className="absolute top-3 right-3 z-40 w-9 h-9 rounded-full flex items-center justify-center text-white/90 transition-all hover:scale-110"
+          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}
+          aria-label="Show UI"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+      )}
 
-      {/* Gradient overlays */}
-      <div className="absolute inset-0 z-10 pointer-events-none"
-        style={{ background: "linear-gradient(to top, rgba(5,10,48,0.92) 0%, rgba(5,10,48,0.25) 40%, transparent 70%)" }} />
-      <div className="absolute top-0 left-0 right-0 h-20 z-10 pointer-events-none"
-        style={{ background: "linear-gradient(to bottom, rgba(5,10,48,0.65) 0%, transparent 100%)" }} />
+      {/* Playback speed bar */}
+      {showSpeedBar && !hideAllUI && (
+        <div className="absolute top-16 right-3 z-40 flex items-center gap-1.5 px-3 py-2 rounded-xl"
+          style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.12)" }}>
+          {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((s) => (
+            <button
+              key={s}
+              onClick={() => handleSetSpeed(s)}
+              className="px-2 py-1 rounded-md text-xs font-bold transition-all"
+              style={{
+                background: playbackSpeed === s ? "rgba(244,150,23,0.3)" : "transparent",
+                color: playbackSpeed === s ? "#F49617" : "rgba(255,255,255,0.7)",
+                border: playbackSpeed === s ? "1px solid rgba(244,150,23,0.5)" : "1px solid transparent",
+              }}
+            >
+              {s}x
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Bottom ECG timeline */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 pb-4 px-3">
-        <WavePulseTimeline duration={duration} moments={moments} currentTime={currentTime} onSeek={handleSeek} />
-      </div>
+      {/* Bottom ECG timeline (hidden when hideAllUI) */}
+      {!hideAllUI && (
+        <div className="absolute bottom-0 left-0 right-0 z-20 pb-4 px-3">
+          <WavePulseTimeline duration={duration} moments={moments} currentTime={currentTime} onSeek={handleSeek} />
+        </div>
+      )}
 
-      {/* Right icon strip */}
-      <div className={`absolute right-0 top-0 bottom-0 z-30 flex flex-col items-center justify-end pb-24 gap-5 w-16 ${blockedReason || requiresAdultConsent ? "pointer-events-none opacity-50" : ""}`}>
+      {/* Right icon strip (hidden when hideAllUI) */}
+      <div className={`absolute right-0 top-0 bottom-0 z-30 flex flex-col items-center justify-end pb-24 gap-5 w-16 transition-opacity duration-200 ${hideAllUI ? "pointer-events-none opacity-0" : ""} ${blockedReason || requiresAdultConsent ? "pointer-events-none opacity-50" : ""}`}>
         <div className="flex flex-col items-center gap-0.5">
           <span className="text-xl" style={{ color: "rgba(255,255,255,0.9)" }}><IcoEye /></span>
           <span className="text-white/80 text-[10px] font-medium">
@@ -1243,6 +1706,15 @@ function WaveCard({
           <span className="text-xl" style={{ color: "rgba(255,255,255,0.9)" }}><IcoComment /></span>
           <span className="text-white/80 text-[10px] font-medium">{formatCount(commentCount)}</span>
         </button>
+        {/* Share button */}
+        <button className="flex flex-col items-center gap-0.5" onClick={handleShare}>
+          <span className="text-xl" style={{ color: "rgba(255,255,255,0.9)" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+          </span>
+          <span className="text-white/80 text-[10px] font-medium">Share</span>
+        </button>
         <button className="flex flex-col items-center gap-0.5" onClick={handleBookmark}>
           <span className="text-xl transition-all"
             style={{ color: bookmarked ? "#F49617" : "rgba(255,255,255,0.9)", filter: bookmarked ? "drop-shadow(0 0 6px #F49617)" : "none" }}>
@@ -1250,10 +1722,73 @@ function WaveCard({
           </span>
           <span className="text-white/80 text-[10px] font-medium">{formatCount(bookmarkCount)}</span>
         </button>
-        <button className="flex flex-col items-center gap-0.5" onClick={() => setShowOptions(true)}>
-          <span className="text-xl" style={{ color: "rgba(255,255,255,0.9)" }}><IcoDots /></span>
-        </button>
+        {/* Follow channel button (hidden for channel owner) */}
+        {!isChannelOwner && (
+          <button
+            className="flex flex-col items-center gap-0.5"
+            onClick={handleToggleFollow}
+            disabled={followLoading}
+          >
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center transition-all"
+            style={{
+              border: `2px solid ${isFollowing ? "rgba(244,150,23,0.7)" : "rgba(255,255,255,0.7)"}`,
+              background: isFollowing ? "rgba(244,150,23,0.15)" : "rgba(0,0,0,0.65)",
+            }}
+          >
+            {isFollowing ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="#F49617" stroke="#F49617" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" />
+              </svg>
+            )}
+          </div>
+          </button>
+        )}
+        {/* Channel logo button (toggles channel card) */}
+        {channelData !== undefined && (
+          <button
+            className="flex flex-col items-center gap-0.5"
+            onClick={() => setShowChannelCard((v) => !v)}
+          >
+            <div
+              className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center"
+              style={{
+                border: `2px solid ${showChannelCard ? "#F49617" : "rgba(255,255,255,0.7)"}`,
+              }}
+            >
+              {channelData?.logo_url ? (
+                <img src={channelData.logo_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-white text-xs font-bold">
+                  {(channelData?.name ?? wave.channel_id ?? "C")[0].toUpperCase()}
+                </span>
+              )}
+            </div>
+          </button>
+        )}
       </div>
+
+      {/* Floating bolt overlay */}
+      <FloatingBoltOverlay items={floatingItems} onRemove={removeFloatingItem} />
+
+      {/* Channel card overlay */}
+      {channelData !== undefined && (
+        <ChannelCardOverlay
+          visible={showChannelCard}
+          channel={channelData ?? null}
+          channelFollowersCount={channelFollowersCount ?? 0}
+          totalReactions={totalReactions ?? 0}
+          onClose={() => setShowChannelCard(false)}
+          onViewChannel={() => {
+            setShowChannelCard(false);
+            onViewChannel?.();
+          }}
+        />
+      )}
 
       {showComments && (
         <WaveCommentsPanel waveId={wave.id} commentCount={commentCount} onClose={() => setShowComments(false)} />
@@ -1310,6 +1845,78 @@ function WaveCard({
         </div>
       )}
       {actionNotice && <WaveMiniToast message={actionNotice} />}
+      {shareNotice && <WaveMiniToast message={shareNotice} />}
+    </div>
+  );
+}
+
+function WaveSponsoredCard({ ad }: { ad: Advertisement }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const recordedRef = useRef(false);
+  const mediaUrl = resolveWebsiteMediaUrl(ad.media_url || "");
+  const isVideo = /\.(mp4|webm|mov)$/i.test(ad.media_url || "");
+
+  useEffect(() => {
+    if (!ad.id || recordedRef.current || !rootRef.current) return;
+    let viewTimer: number | null = null;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry?.isIntersecting && entry.intersectionRatio >= 0.6) {
+        if (!viewTimer) {
+          viewTimer = window.setTimeout(() => {
+            if (recordedRef.current) return;
+            recordedRef.current = true;
+            recordAdImpressionApi(ad.id, undefined, 1, {
+              sessionId: getAdSessionId(),
+              placement: "wave_feed",
+            }).catch(() => {});
+            observer.disconnect();
+          }, 1200);
+        }
+      } else if (viewTimer) {
+        window.clearTimeout(viewTimer);
+        viewTimer = null;
+      }
+    }, { threshold: [0, 0.6, 1] });
+
+    observer.observe(rootRef.current);
+    return () => {
+      if (viewTimer) window.clearTimeout(viewTimer);
+      observer.disconnect();
+    };
+  }, [ad.id]);
+
+  const handleClick = useCallback(() => {
+    if (!ad.id) return;
+    recordAdClickApi(ad.id, undefined, {
+      sessionId: getAdSessionId(),
+      placement: "wave_feed",
+    }).catch(() => {});
+  }, [ad.id]);
+
+  return (
+    <div ref={rootRef} className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black text-white">
+      <div className="absolute left-4 top-4 z-20 rounded-full bg-[#F49617] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#050A30]">
+        Sponsored
+      </div>
+      <a
+        href={ad.click_url || "#"}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={handleClick}
+        className="relative flex h-full w-full items-center justify-center"
+      >
+        {isVideo ? (
+          <video src={mediaUrl} className="h-full w-full object-contain" autoPlay muted loop playsInline={true} />
+        ) : (
+          <img src={mediaUrl} alt={ad.title || "Sponsored"} className="h-full w-full object-contain" />
+        )}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-5">
+          <h3 className="text-lg font-bold">{ad.title}</h3>
+          {ad.description && <p className="mt-1 text-sm text-white/75">{ad.description}</p>}
+          {ad.click_url && <p className="mt-3 text-xs font-semibold uppercase tracking-wider text-[#F5C16C]">Learn more</p>}
+        </div>
+      </a>
     </div>
   );
 }
@@ -1325,6 +1932,7 @@ export default function WavePage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [waveAd, setWaveAd] = useState<Advertisement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [autoscroll, setAutoscroll] = useState(false);
   const [accessDecision, setAccessDecision] = useState<WaveAccessDecision | null>(null);
@@ -1441,6 +2049,12 @@ export default function WavePage() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    serveBannerAdApi("page").then((res) => {
+      if (res.ok && "ad" in res.data) setWaveAd(res.data.ad);
+    }).catch(() => {});
   }, []);
 
   // Intersection observer � only for mobile scroll snap
@@ -1852,7 +2466,7 @@ export default function WavePage() {
           <div
             className="relative flex flex-col"
             style={{
-              width: "min(390px, 100%)",
+              width: "min(440px, 100%)",
               height: "calc(100dvh - 64px)",
               maxHeight: "844px",
               overflow: "hidden",
@@ -1885,6 +2499,10 @@ export default function WavePage() {
                 onPrevWave={activeIndex > 0 ? () => setActiveIndex((i) => i - 1) : undefined}
                 onAdvanceWave={advanceWave}
                 phoneMode
+                channelData={channelData}
+                channelFollowersCount={channelFollowersCount}
+                totalReactions={totalReactions}
+                onViewChannel={handleViewChannel}
               />
             )}
 
@@ -1926,27 +2544,41 @@ export default function WavePage() {
       style={{ height: "calc(100dvh - 64px)", scrollSnapType: "y mandatory", scrollBehavior: "smooth", background: "#000" }}
     >
       {waves.map((wave, i) => (
-        <div
-          key={wave.id}
-          ref={(el) => { cardRefs.current[i] = el; }}
-          style={{ height: "calc(100dvh - 64px)", scrollSnapAlign: "start" }}
-        >
-          <WaveCard
+        <div key={`wrap-${wave.id}`}>
+          <div
             key={wave.id}
-            wave={wave}
-            isActive={i === activeIndex}
-            autoscroll={autoscroll}
-            blockedReason={
-              i === activeIndex && !checkingAccess && accessDecision && !accessDecision.allowed && !accessDecision.requires_consent
-                ? accessDecision.reason || "This content is not available for your account."
-                : null
-            }
-            requiresAdultConsent={Boolean(i === activeIndex && !checkingAccess && accessDecision?.requires_consent && !adultConsentSessionAccepted)}
-            onConfirmAdultConsent={confirmAdultConsent}
-            onLeaveRestrictedContent={leaveAdultContent}
-            onAutoscrollChange={setAutoscroll}
-            onAdvanceWave={advanceWave}
-          />
+            ref={(el) => { cardRefs.current[i] = el; }}
+            style={{ height: "calc(100dvh - 64px)", scrollSnapAlign: "start" }}
+          >
+            <WaveCard
+              key={wave.id}
+              wave={wave}
+              isActive={i === activeIndex}
+              autoscroll={autoscroll}
+              blockedReason={
+                i === activeIndex && !checkingAccess && accessDecision && !accessDecision.allowed && !accessDecision.requires_consent
+                  ? accessDecision.reason || "This content is not available for your account."
+                  : null
+              }
+              requiresAdultConsent={Boolean(i === activeIndex && !checkingAccess && accessDecision?.requires_consent && !adultConsentSessionAccepted)}
+              onConfirmAdultConsent={confirmAdultConsent}
+              onLeaveRestrictedContent={leaveAdultContent}
+              onAutoscrollChange={setAutoscroll}
+              onAdvanceWave={advanceWave}
+              channelData={i === activeIndex ? channelData : undefined}
+              channelFollowersCount={i === activeIndex ? channelFollowersCount : undefined}
+              totalReactions={i === activeIndex ? totalReactions : undefined}
+              onViewChannel={handleViewChannel}
+            />
+          </div>
+          {waveAd && (i + 1) % 8 === 0 && (
+            <div
+              key={`ad-${wave.id}`}
+              style={{ height: "calc(100dvh - 64px)", scrollSnapAlign: "start" }}
+            >
+              <WaveSponsoredCard ad={waveAd} />
+            </div>
+          )}
         </div>
       ))}
       {loadingMore && (

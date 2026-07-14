@@ -674,13 +674,15 @@ export function ChannelProfile({ id }: { id: string }) {
     const waveId = modalWaves[activeWaveIndex].id;
     if (lastTrackedModalWaveId.current === waveId) return;
     lastTrackedModalWaveId.current = waveId;
-    void trackWaveViewApi(waveId);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setChannelWaves((prev) => prev.map((wave) => (
-      wave.id === waveId
-        ? { ...wave, repeat_play_count: (wave.repeat_play_count || 0) + 1 }
-        : wave
-    )));
+    void trackWaveViewApi(waveId).then((res) => {
+      if (res.ok && res.data && 'unique' in res.data && res.data.unique) {
+        setChannelWaves((prev) => prev.map((wave) => (
+          wave.id === waveId
+            ? { ...wave, views_count: (wave.views_count || wave.views || wave.total_views || 0) + 1, repeat_play_count: (wave.repeat_play_count || 0) + 1 }
+            : wave
+        )));
+      }
+    });
   }, [waveViewerOpen, activeWaveIndex, channelWaves, canManageChannel]);
 
   useEffect(() => {

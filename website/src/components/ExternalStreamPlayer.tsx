@@ -3,10 +3,12 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
-import { downloadSubtitleApi, getSubtitleProxyUrl, searchSubtitlesApi, type Channel, type SubtitleResult } from "@/lib/api";
+import { downloadSubtitleApi, getSubtitleProxyUrl, searchSubtitlesApi, type Channel, type SubtitleResult, type ScheduleProgram } from "@/lib/api";
 import { ChannelSurfer } from "@/components/ChannelSurfer";
 
 type StreamMode = "native" | "external_url" | "external_youtube" | "external_hls" | "external_dash";
+
+type SchedulerState = { reason: string; program_id?: string; video_missing?: boolean } | null;
 
 interface ExternalStreamPlayerProps {
   currentChannel?: Channel | null;
@@ -17,6 +19,10 @@ interface ExternalStreamPlayerProps {
   streamSourceMode?: StreamMode;
   playbackUrl: string | null;
   streamStatus?: string;
+  schedule?: ScheduleProgram[];
+  serverTime?: number;
+  schedulerState?: SchedulerState;
+  onRefreshUrl?: () => void;
 }
 
 type RuntimeMode = "youtube" | "hls" | "dash" | "url" | "unknown";
@@ -73,6 +79,63 @@ function inferMode(streamSourceMode: StreamMode | undefined, playbackUrl: string
   return "url";
 }
 
+type SchedulerMessageType = "starting_soon" | "program_has_no_video" | "offline" | "no_source";
+
+interface SchedulerMessage {
+  type: SchedulerMessageType;
+  startTime?: number;
+  title?: string;
+}
+
+function getSchedulerMessage(
+  streamSourceMode: StreamMode | undefined,
+  schedule: ScheduleProgram[],
+  serverTime: number,
+  schedulerState: SchedulerState,
+): SchedulerMessage | null {
+  // Only native channels resolve playback from the schedule. External modes keep their existing error path.
+  if (!streamSourceMode || streamSourceMode === "external_url" || streamSourceMode.startsWith("external_")) {
+    return null;
+  }
+
+  const reason = schedulerState?.reason;
+
+  if (reason === "current" && schedulerState?.video_missing) {
+    return { type: "program_has_no_video" };
+  }
+
+  if (reason === "upcoming") {
+    const program = schedulerState?.program_id
+      ? schedule.find((p) => p.id === schedulerState.program_id)
+      : schedule.find((p) => p.start_time > serverTime);
+    if (program) {
+      return { type: "starting_soon", startTime: program.start_time, title: program.video_title };
+    }
+  }
+
+  if (reason === "loop" || reason === "offline") {
+    return { type: "offline" };
+  }
+
+  // Fallback when schedulerState is absent or stale: compute directly from schedule.
+  const currentProgram = schedule.find((p) => p.start_time <= serverTime && p.end_time > serverTime);
+  if (currentProgram) {
+    return { type: "program_has_no_video" };
+  }
+  const upcoming = schedule.find((p) => p.start_time > serverTime);
+  if (upcoming) {
+    return { type: "starting_soon", startTime: upcoming.start_time, title: upcoming.video_title };
+  }
+  if (schedule.length > 0) {
+    return { type: "offline" };
+  }
+  return { type: "no_source" };
+}
+
+function formatStartingSoonTime(ts: number) {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function buildYouTubeEmbedUrl(rawUrl: string): string | null {
   try {
     const parsed = new URL(rawUrl);
@@ -126,6 +189,10 @@ export function ExternalStreamPlayer({
   streamSourceMode,
   playbackUrl,
   streamStatus,
+  schedule = [],
+  serverTime = Date.now(),
+  schedulerState = null,
+  onRefreshUrl,
 }: ExternalStreamPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -172,6 +239,7 @@ export function ExternalStreamPlayer({
   const [qualityOptions, setQualityOptions] = useState<QualityOption[]>([{ levelIndex: -1, label: "Auto" }]);
   const [activeQualityLevel, setActiveQualityLevel] = useState<number>(-1);
   const recoveringRef = useRef(false);
+  const urlRefreshAttempted = useRef(false);
   const surferHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SURFER_AUTOHIDE_MS = 5000;
 
@@ -209,6 +277,10 @@ export function ExternalStreamPlayer({
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
 
   const runtimeMode = useMemo(() => inferMode(streamSourceMode, playbackUrl), [streamSourceMode, playbackUrl]);
+  const schedulerMessage = useMemo(
+    () => getSchedulerMessage(streamSourceMode, schedule, serverTime, schedulerState),
+    [streamSourceMode, schedule, serverTime, schedulerState],
+  );
   const isVideoRuntime = ["hls", "dash", "url"].includes(runtimeMode);
   const currentQualityLabel = useMemo(() => {
     if (runtimeMode !== "hls") return "Auto";
@@ -251,6 +323,7 @@ export function ExternalStreamPlayer({
     setSubtitlesEnabled(true);
     setSubResults([]);
     setSubStatus(null);
+    urlRefreshAttempted.current = false;
   }, [playbackUrl, runtimeMode, setRecovering, retryToken, clearPlaybackNoticeTimer]);
 
   // Keep transient recovery notices informative but non-sticky.
@@ -288,19 +361,32 @@ export function ExternalStreamPlayer({
     let networkRecoveries = 0;
     let mediaRecoveries = 0;
 
+    let bufferNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
     const handleWaiting = () => {
       if (cancelled) return;
-      setRecovering(true);
-      setPlaybackError("Buffering... network is unstable.");
+      // Don't immediately show a scary "network is unstable" message —
+      // normal buffering (seek, startup, rebuffer) happens frequently.
+      // Only show after 3s of sustained buffering.
+      if (bufferNoticeTimer) clearTimeout(bufferNoticeTimer);
+      bufferNoticeTimer = setTimeout(() => {
+        if (cancelled) return;
+        if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+          setRecovering(true);
+          setPlaybackError("Buffering... network is slow.");
+        }
+      }, 3000);
     };
 
     const handlePlaying = () => {
       if (cancelled) return;
+      if (bufferNoticeTimer) { clearTimeout(bufferNoticeTimer); bufferNoticeTimer = null; }
       clearPlaybackNotice();
     };
 
     const handleProgress = () => {
       if (cancelled) return;
+      if (bufferNoticeTimer) { clearTimeout(bufferNoticeTimer); bufferNoticeTimer = null; }
       if (!recoveringRef.current) return;
       if (video.paused) return;
       if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
@@ -310,11 +396,13 @@ export function ExternalStreamPlayer({
     const handleStalled = () => {
       if (cancelled) return;
       const snapshotTime = video.currentTime;
-      setRecovering(true);
-      setPlaybackError("Playback stalled. Attempting to recover...");
-      window.setTimeout(() => {
+      // Delay showing "stalled" message — browser often recovers on its own.
+      if (bufferNoticeTimer) clearTimeout(bufferNoticeTimer);
+      bufferNoticeTimer = setTimeout(() => {
         if (cancelled) return;
         if (Math.abs(video.currentTime - snapshotTime) < 0.05) {
+          setRecovering(true);
+          setPlaybackError("Playback stalled. Attempting to recover...");
           try {
             video.currentTime = snapshotTime + 0.1;
           } catch {
@@ -322,7 +410,7 @@ export function ExternalStreamPlayer({
           }
           void video.play().catch(() => undefined);
         }
-      }, 1200);
+      }, 3000);
     };
 
     video.addEventListener("waiting", handleWaiting);
@@ -552,6 +640,7 @@ export function ExternalStreamPlayer({
 
     return () => {
       cancelled = true;
+      if (bufferNoticeTimer) { clearTimeout(bufferNoticeTimer); bufferNoticeTimer = null; }
       video.removeEventListener("waiting", handleWaiting);
       video.removeEventListener("playing", handlePlaying);
       video.removeEventListener("canplay", handleProgress);
@@ -739,6 +828,35 @@ export function ExternalStreamPlayer({
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (!activePlaybackUrl) {
+    if (schedulerMessage) {
+      const { type, startTime, title } = schedulerMessage;
+      if (type === "starting_soon") {
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+            <p className="text-sm font-semibold text-av-white">Starting soon</p>
+            <p className="text-xs text-av-light-orange">
+              {title ? `"${title}"` : "Schedule is set"} — stream begins at {startTime ? formatStartingSoonTime(startTime) : "the scheduled time"}.
+            </p>
+          </div>
+        );
+      }
+      if (type === "program_has_no_video") {
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+            <p className="text-sm font-semibold text-av-white">Scheduled video is missing or not uploaded yet</p>
+            <p className="text-xs text-av-light-orange">The creator needs to upload or fix the scheduled video before it can play.</p>
+          </div>
+        );
+      }
+      if (type === "offline") {
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+            <p className="text-sm font-semibold text-av-white">Stream is currently offline</p>
+            <p className="text-xs text-av-light-orange">Check back later or contact the channel creator.</p>
+          </div>
+        );
+      }
+    }
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-sm font-semibold text-av-white">Stream source not configured</p>
@@ -748,6 +866,14 @@ export function ExternalStreamPlayer({
   }
 
   if (runtimeMode === "unknown") {
+    if (schedulerMessage?.type === "program_has_no_video") {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+          <p className="text-sm font-semibold text-av-white">Scheduled video is missing or not uploaded yet</p>
+          <p className="text-xs text-av-light-orange">The creator needs to upload or fix the scheduled video before it can play.</p>
+        </div>
+      );
+    }
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-sm font-semibold text-av-white">
@@ -784,7 +910,18 @@ export function ExternalStreamPlayer({
           playsInline
           controls={false}
           className="absolute inset-0 h-full w-full object-contain"
-          onError={() => setPlaybackError("Stream failed to play on this device.")}
+          onError={() => {
+            // Attempt one URL refresh before showing a hard error —
+            // the signed URL may have expired or the network blipped.
+            if (!urlRefreshAttempted.current && onRefreshUrl) {
+              urlRefreshAttempted.current = true;
+              setRecovering(true);
+              setPlaybackError("Refreshing stream...");
+              onRefreshUrl();
+              return;
+            }
+            setPlaybackError("Stream failed to play on this device.");
+          }}
         />
       )}
 

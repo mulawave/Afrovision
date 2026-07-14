@@ -21,6 +21,8 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   String? _channelId;
   List<ProgramModel> _schedule = [];
   List<VideoModel> _videos = [];
+  Map<String, dynamic>? _nowPlaying;
+  Map<String, dynamic>? _schedulerState;
   bool _loading = true;
   String? _error;
   String? _deletingId;
@@ -64,11 +66,15 @@ class _ScheduleScreenState extends State<ScheduleScreen>
       final results = await Future.wait([
         BroadcastService.getChannelSchedule(_channelId!),
         BroadcastService.getChannelVideos(_channelId!),
+        BroadcastService.getNowPlaying(_channelId!, preferCache: false),
       ]);
       if (!mounted) return;
       setState(() {
         _schedule = results[0] as List<ProgramModel>;
         _videos = results[1] as List<VideoModel>;
+        final npData = results[2] as Map<String, dynamic>;
+        _nowPlaying = npData['now_playing'] as Map<String, dynamic>?;
+        _schedulerState = npData['scheduler_state'] as Map<String, dynamic>?;
         _selectedProgramIds.removeWhere(
           (id) => !_schedule.any((p) => p.id == id),
         );
@@ -153,13 +159,15 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   }
 
   Future<void> _deleteProgram(ProgramModel program) async {
-    // Program locking: don't allow deletion of started/ended programs
+    // Program locking: don't allow deletion of the live program or any
+    // program that has already started.
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (program.startTime <= now) {
+    final status = _statusLabel(program);
+    if (status == 'LIVE' || program.startTime <= now) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
-            'Cannot delete a program that has already started',
+            'Cannot delete a program that is currently live or has already started',
             style: TextStyle(color: AppColors.white),
           ),
           backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
@@ -239,8 +247,8 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   }
 
   void _toggleProgramSelection(ProgramModel program) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (program.startTime <= now) return;
+    final status = _statusLabel(program);
+    if (status == 'LIVE') return;
 
     setState(() {
       if (_selectedProgramIds.contains(program.id)) {
@@ -334,6 +342,11 @@ class _ScheduleScreenState extends State<ScheduleScreen>
 
   String _statusLabel(ProgramModel p) {
     final now = DateTime.now().millisecondsSinceEpoch;
+    final resolvedProgramId = _nowPlaying?['program_id'] as String? ??
+        _schedulerState?['program_id'] as String?;
+    // The backend resolver is the authoritative source for "what is live now".
+    if (resolvedProgramId == p.id) return 'LIVE';
+    // Fallback to wall-clock classification when resolver data isn't available.
     if (p.startTime <= now && p.endTime > now) return 'LIVE';
     if (p.endTime <= now) return 'ENDED';
     return 'SCHEDULED';
@@ -527,7 +540,8 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     final ended = <ProgramModel>[];
 
     for (final p in _schedule) {
-      if (p.startTime <= now && p.endTime > now) {
+      final status = _statusLabel(p);
+      if (status == 'LIVE') {
         live.add(p);
       } else if (p.startTime > now) {
         upcoming.add(p);

@@ -138,7 +138,7 @@ async function updateStatus(id, status) {
   if (!program) return null;
   program.status = status;
   const db = getFirestore();
-  await db.collection(COLLECTION).doc(id).update({ status });
+  await db.collection(COLLECTION).doc(id).set({ status }, { merge: true });
   return syncProgram(program);
 }
 

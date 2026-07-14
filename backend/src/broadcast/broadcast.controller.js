@@ -7,6 +7,8 @@ const LiveTrigger = require('../channels/live_trigger');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const NotificationService = require('../notifications/notification.service');
+const TranscoderService = require('./transcoder.service');
+const { resolveScheduleState } = require('./scheduler-resolver');
 const { sendReminderEmail } = require('../utils/email');
 const { generateFlashAudio } = require('../utils/tts');
 const SettingsService = require('../admin/settings.service');
@@ -18,6 +20,7 @@ const {
   getGCSObjectMetadata,
   extractGCSPath,
   generateSignedReadUrl,
+  getBucket,
 } = require('../utils/gcs');
 const { getFirestore } = require('../utils/firestore');
 
@@ -36,8 +39,8 @@ async function resolvePlayableVideoUrl(rawUrl) {
   if (!gcsPath) return rawUrl;
 
   try {
-    // Keep URL short-lived for browser playback while avoiding ACL assumptions.
-    return await generateSignedReadUrl(gcsPath, 120);
+    // 24-hour expiry so long viewing sessions and looped content don't break.
+    return await generateSignedReadUrl(gcsPath, 1440);
   } catch (error) {
     console.warn('[Broadcast] Failed to sign playback URL, falling back to raw URL:', error.message);
     return rawUrl;
@@ -64,11 +67,11 @@ async function ensureCreatorAndChannelOwner(userId, channelId) {
   if (channel.owner_id !== userId) {
     return { error: { status: 403, message: 'Not channel owner' } };
   }
-  if (channel.stream_source_mode === 'external_url') {
+  if (channel.stream_source_mode && channel.stream_source_mode !== 'native') {
     return {
       error: {
         status: 400,
-        message: 'URL channels stream continuously and do not support scheduling',
+        message: 'Only native channels support uploaded and scheduled videos',
       },
     };
   }
@@ -105,6 +108,38 @@ async function getVideoUploadUrl(req, res) {
   }
 }
 
+async function prepareAdaptiveVideo(video) {
+  try {
+    const transcoding = await TranscoderService.startTranscode(video);
+    return await Video.update(video.id, transcoding);
+  } catch (error) {
+    console.error(`[Transcoder] Failed to queue video ${video.id}:`, error.message);
+    return await Video.update(video.id, {
+      transcoding_status: 'failed',
+      transcoding_error: error.message,
+    });
+  }
+}
+
+async function refreshAdaptiveVideo(video) {
+  try {
+    if (!video.transcoding_status || (video.transcoding_status === 'pending' && !video.transcoding_job_name)) {
+      return await prepareAdaptiveVideo(video);
+    }
+    if (
+      video.transcoding_status === 'processing' &&
+      Number(video.transcoding_checked_at || 0) > Date.now() - 60_000
+    ) {
+      return video;
+    }
+    const update = await TranscoderService.refreshTranscode(video);
+    return update ? await Video.update(video.id, update) : video;
+  } catch (error) {
+    console.warn(`[Transcoder] Failed to refresh video ${video.id}:`, error.message);
+    return video;
+  }
+}
+
 async function registerUploadedVideo(req, res) {
   try {
     const user = await User.findById(req.userId);
@@ -131,11 +166,11 @@ async function registerUploadedVideo(req, res) {
     if (channel.owner_id !== req.userId) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
-    if (channel.stream_source_mode === 'external_url') {
-      return res.status(400).json({ error: 'URL channels stream continuously and do not support scheduling' });
+    if (channel.stream_source_mode && channel.stream_source_mode !== 'native') {
+      return res.status(400).json({ error: 'Only native channels support uploaded and scheduled videos' });
     }
 
-    const video = await Video.create({
+    let video = await Video.create({
       creatorUid: req.userId,
       channelId: channel_id,
       title,
@@ -144,6 +179,7 @@ async function registerUploadedVideo(req, res) {
       thumbnailUrl: null,
       duration: duration ? parseInt(duration, 10) : 0,
     });
+    video = await prepareAdaptiveVideo(video);
 
     await NotificationService.notifyUser(req.userId, {
       title: 'Upload completed',
@@ -370,7 +406,7 @@ async function completeVideoResumableSession(req, res) {
     }
 
     const bytes = Number.isFinite(Number(metadata.size)) ? parseInt(metadata.size, 10) : (session.uploaded_bytes || 0);
-    const video = await Video.create({
+    let video = await Video.create({
       creatorUid: req.userId,
       channelId: session.channel_id,
       title: session.title,
@@ -379,6 +415,7 @@ async function completeVideoResumableSession(req, res) {
       thumbnailUrl: null,
       duration: session.duration ? parseInt(session.duration, 10) : 0,
     });
+    video = await prepareAdaptiveVideo(video);
 
     const patch = {
       status: 'completed',
@@ -536,12 +573,12 @@ async function uploadVideo(req, res) {
     if (channel.owner_id !== req.userId) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
-    if (channel.stream_source_mode === 'external_url') {
-      return res.status(400).json({ error: 'URL channels stream continuously and do not support scheduling' });
+    if (channel.stream_source_mode && channel.stream_source_mode !== 'native') {
+      return res.status(400).json({ error: 'Only native channels support uploaded and scheduled videos' });
     }
 
     const videoUrl = req.file.gcsUrl;
-    const video = await Video.create({
+    let video = await Video.create({
       creatorUid: req.userId,
       channelId: channel_id,
       title,
@@ -550,6 +587,7 @@ async function uploadVideo(req, res) {
       thumbnailUrl: null,
       duration: duration ? parseInt(duration, 10) : 0,
     });
+    video = await prepareAdaptiveVideo(video);
 
     await NotificationService.notifyUser(req.userId, {
       title: 'Upload completed',
@@ -586,13 +624,23 @@ async function uploadThumbnail(req, res) {
 }
 
 async function getChannelVideos(req, res) {
-  const videos = await Video.getByChannel(req.params.channelId);
-  res.json({ videos });
+  try {
+    const videos = await Video.getByChannel(req.params.channelId);
+    res.json({ videos: await Promise.all(videos.map(refreshAdaptiveVideo)) });
+  } catch (err) {
+    console.error('[Broadcast] getChannelVideos error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 }
 
 async function getMyVideos(req, res) {
-  const videos = await Video.getByCreator(req.userId);
-  res.json({ videos });
+  try {
+    const videos = await Video.getByCreator(req.userId);
+    res.json({ videos: await Promise.all(videos.map(refreshAdaptiveVideo)) });
+  } catch (err) {
+    console.error('[Broadcast] getMyVideos error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 }
 
 async function deleteVideo(req, res) {
@@ -682,23 +730,28 @@ async function scheduleProgram(req, res) {
 }
 
 async function getChannelSchedule(req, res) {
-  const channel = await Channel.findById(req.params.channelId);
-  if (channel?.stream_source_mode === 'external_url') {
-    return res.json({ schedule: [] });
-  }
+  try {
+    const channel = await Channel.findById(req.params.channelId);
+    if (channel?.stream_source_mode === 'external_url') {
+      return res.json({ schedule: [] });
+    }
 
-  const schedule = await Program.getSchedule(req.params.channelId);
-  const enriched = await Promise.all(schedule.map(async (p) => {
-    const video = await Video.findById(p.video_id);
-    return {
-      ...p,
-      video_title: video ? video.title : 'Unknown',
-      video_description: video ? (video.description || '') : '',
-      video_duration: video ? video.duration : 0,
-      video_thumbnail: video ? video.thumbnail_url : null,
-    };
-  }));
-  res.json({ schedule: enriched });
+    const schedule = await Program.getSchedule(req.params.channelId);
+    const enriched = await Promise.all(schedule.map(async (p) => {
+      const video = await Video.findById(p.video_id);
+      return {
+        ...p,
+        video_title: video ? video.title : 'Unknown',
+        video_description: video ? (video.description || '') : '',
+        video_duration: video ? video.duration : 0,
+        video_thumbnail: video ? video.thumbnail_url : null,
+      };
+    }));
+    res.json({ schedule: enriched });
+  } catch (err) {
+    console.error('[Broadcast] getChannelSchedule error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 }
 
 async function deleteProgram(req, res) {
@@ -794,97 +847,195 @@ async function scheduleSequential(req, res) {
 
 // ─── PLAYBACK (VIEWER) ──────────────────────────────────
 
-async function getNowPlaying(req, res) {
-  const channelId = req.params.channelId;
-  const serverTime = Date.now();
-  const program = await Program.getCurrentProgram(channelId);
-
-  // Auto-status: scheduled → live
-  if (program && program.status === 'scheduled') {
-    await Program.updateStatus(program.id, 'live');
-  }
-
-  if (program) {
-    const [video, upcoming] = await Promise.all([
-      Video.findById(program.video_id),
-      Program.getUpcoming(channelId, 1),
-    ]);
-    if (!video) {
-      return res.json({ now_playing: null, next_program: null, server_time: serverTime });
+async function streamAdaptiveAsset(req, res) {
+  try {
+    const rawAssetPath = Array.isArray(req.params.assetPath)
+      ? req.params.assetPath.join('/')
+      : String(req.params.assetPath || '');
+    const assetPath = rawAssetPath.replace(/\\/g, '/');
+    if (!assetPath || assetPath.includes('..') || assetPath.startsWith('/')) {
+      return res.status(400).json({ error: 'Invalid adaptive stream asset path' });
     }
 
-    const positionMs = serverTime - program.start_time;
-    const positionSec = Math.max(0, Math.floor(positionMs / 1000));
-    const playableVideoUrl = await resolvePlayableVideoUrl(video.video_url);
+    const video = await Video.findById(req.params.videoId);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
 
-    return res.json({
-      now_playing: {
-        program_id: program.id,
-        channel_id: program.channel_id,
-        video_id: video.id,
-        video_url: playableVideoUrl,
-        video_title: video.title,
-        video_description: video.description || '',
-        thumbnail_url: video.thumbnail_url,
-        duration: video.duration,
-        start_time: program.start_time,
-        end_time: program.end_time,
-        position: positionSec,
-        is_loop: false,
-      },
-      next_program: upcoming.length > 0 ? await enrichProgram(upcoming[0]) : null,
-      server_time: serverTime,
+    const objectPath = `${video.hls_output_prefix || TranscoderService.getOutputPrefix(video.id)}/${assetPath}`;
+    const file = getBucket().file(objectPath);
+    let metadata;
+    try {
+      [metadata] = await file.getMetadata();
+    } catch (error) {
+      if (error.code === 404) return res.status(404).json({ error: 'Adaptive stream asset not found' });
+      throw error;
+    }
+
+    const size = Number(metadata.size || 0);
+    const range = req.headers.range;
+    let start;
+    let end;
+    if (range) {
+      const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+      if (!match) return res.status(416).end();
+      start = Number(match[1]);
+      end = match[2] ? Number(match[2]) : size - 1;
+      if (start >= size || end >= size || start > end) return res.status(416).end();
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+      res.setHeader('Content-Length', end - start + 1);
+    } else if (size > 0) {
+      res.setHeader('Content-Length', size);
+    }
+
+    const extension = path.extname(assetPath).toLowerCase();
+    const contentTypes = {
+      '.m3u8': 'application/vnd.apple.mpegurl',
+      '.ts': 'video/mp2t',
+      '.m4s': 'video/iso.segment',
+      '.mp4': 'video/mp4',
+      '.aac': 'audio/aac',
+    };
+    res.setHeader('Content-Type', metadata.contentType || contentTypes[extension] || 'application/octet-stream');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', extension === '.m3u8' ? 'public, max-age=30' : 'public, max-age=31536000, immutable');
+
+    const requestedQuality = Number(req.query.quality || 0);
+    if (extension === '.m3u8' && assetPath === 'master.m3u8' && requestedQuality > 0) {
+      const [buffer] = await file.download();
+      const lines = buffer.toString('utf8').split(/\r?\n/);
+      const output = [];
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (!line.startsWith('#EXT-X-STREAM-INF:')) {
+          output.push(line);
+          continue;
+        }
+        const resolution = /RESOLUTION=\d+x(\d+)/i.exec(line);
+        const height = resolution ? Number(resolution[1]) : 0;
+        const uri = lines[index + 1];
+        if (height === requestedQuality && uri) {
+          output.push(line, uri);
+        }
+        index += 1;
+      }
+      const body = output.join('\n');
+      res.status(200);
+      res.removeHeader('Content-Range');
+      res.setHeader('Content-Length', Buffer.byteLength(body));
+      return res.send(body);
+    }
+
+    const stream = file.createReadStream({
+      ...(start !== undefined ? { start } : {}),
+      ...(end !== undefined ? { end } : {}),
     });
+    stream.on('error', (error) => {
+      console.error(`[Broadcast] HLS stream error ${objectPath}:`, error.message);
+      if (!res.headersSent) res.status(500).json({ error: 'Unable to stream adaptive asset' });
+      else res.destroy(error);
+    });
+    return stream.pipe(res);
+  } catch (error) {
+    console.error('[Broadcast] streamAdaptiveAsset error:', error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Unable to stream adaptive asset' });
+    }
   }
+}
 
-  // No current program — check upcoming
-  const upcoming = await Program.getUpcoming(channelId, 1);
+async function getNowPlaying(req, res) {
+  try {
+    const channelId = req.params.channelId;
+    const serverTime = Date.now();
 
-  if (upcoming.length > 0) {
-    // Auto-status: mark past live programs as ended
+    // Single canonical source: the full schedule. This guarantees the player
+    // and the program guide never disagree about what is currently live.
+    const schedule = await Program.getSchedule(channelId);
+
+    const {
+      activeProgram,
+      upcomingProgram,
+      chosenProgram,
+      reason,
+      isLoop,
+    } = resolveScheduleState(schedule, serverTime);
+
+    // Synchronize status transitions after the resolver has chosen the program.
+    if (activeProgram && activeProgram.status === 'scheduled') {
+      await Program.updateStatus(activeProgram.id, 'live');
+    }
     await _markEndedPrograms(channelId, serverTime);
-    return res.json({
-      now_playing: null,
-      next_program: await enrichProgram(upcoming[0]),
-      server_time: serverTime,
-    });
-  }
 
-  // No upcoming — fallback: loop last ended video
-  const lastEnded = await Program.getLastEnded(channelId);
+    if (chosenProgram) {
+      let video = await Video.findById(chosenProgram.video_id);
+      if (!video) {
+        console.warn(`[Scheduler] channelId=${channelId} now=${serverTime} chosenProgram=${chosenProgram.id} status=${chosenProgram.status} reason=${reason} videoMissing=${chosenProgram.video_id}`);
+        return res.json({
+          now_playing: null,
+          next_program: upcomingProgram ? await enrichProgram(upcomingProgram) : null,
+          server_time: serverTime,
+          scheduler_state: { reason, program_id: chosenProgram.id, video_missing: true },
+        });
+      }
 
-  if (lastEnded) {
-    const video = await Video.findById(lastEnded.video_id);
-    if (video && video.duration > 0) {
-      const elapsedMs = serverTime - lastEnded.end_time;
-      const elapsedSec = Math.floor(elapsedMs / 1000);
-      const loopPosition = elapsedSec % video.duration;
-      const playableVideoUrl = await resolvePlayableVideoUrl(video.video_url);
+      video = await refreshAdaptiveVideo(video);
+
+      let positionSec = 0;
+      if (isLoop) {
+        const elapsedMs = serverTime - chosenProgram.end_time;
+        const elapsedSec = Math.floor(elapsedMs / 1000);
+        positionSec = video.duration > 0 ? elapsedSec % video.duration : 0;
+      } else {
+        const positionMs = serverTime - chosenProgram.start_time;
+        positionSec = Math.max(0, Math.floor(positionMs / 1000));
+      }
+
+      const playbackSource = video.transcoding_status === 'ready' && video.master_playlist_url
+        ? video.master_playlist_url
+        : video.video_url;
+      const playableVideoUrl = playbackSource.startsWith('/broadcast/hls/')
+        ? playbackSource
+        : await resolvePlayableVideoUrl(playbackSource);
+
+      console.log(`[Scheduler] channelId=${channelId} now=${serverTime} chosenProgram=${chosenProgram.id} status=${chosenProgram.status} reason=${reason} videoId=${video.id}`);
 
       return res.json({
         now_playing: {
-          program_id: lastEnded.id,
-          channel_id: lastEnded.channel_id,
+          program_id: chosenProgram.id,
+          channel_id: chosenProgram.channel_id,
           video_id: video.id,
           video_url: playableVideoUrl,
           video_title: video.title,
           video_description: video.description || '',
           thumbnail_url: video.thumbnail_url,
           duration: video.duration,
-          start_time: lastEnded.start_time,
-          end_time: lastEnded.end_time,
-          position: loopPosition,
-          is_loop: true,
+          start_time: chosenProgram.start_time,
+          end_time: chosenProgram.end_time,
+          position: positionSec,
+          is_loop: isLoop,
+          adaptive: playbackSource === video.master_playlist_url,
+          available_renditions: video.available_renditions || [],
+          transcoding_status: video.transcoding_status || 'unavailable',
         },
-        next_program: null,
+        next_program: upcomingProgram ? await enrichProgram(upcomingProgram) : null,
         server_time: serverTime,
+        scheduler_state: { reason, program_id: chosenProgram.id },
       });
     }
-  }
 
-  // Truly nothing to play
-  await _markEndedPrograms(channelId, serverTime);
-  res.json({ now_playing: null, next_program: null, server_time: serverTime });
+    console.log(`[Scheduler] channelId=${channelId} now=${serverTime} reason=${reason} upcomingProgram=${upcomingProgram?.id || 'none'}`);
+    return res.json({
+      now_playing: null,
+      next_program: upcomingProgram ? await enrichProgram(upcomingProgram) : null,
+      server_time: serverTime,
+      scheduler_state: upcomingProgram
+        ? { reason, program_id: upcomingProgram.id }
+        : { reason },
+    });
+  } catch (err) {
+    console.error('[Broadcast] getNowPlaying error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 }
 
 // Helper: mark the most recently-ended live program as ended without scanning the full schedule
@@ -965,23 +1116,28 @@ function getServerTime(_req, res) {
 // ─── UPCOMING ALL CHANNELS (PUBLIC) ──────────────────────
 
 async function getUpcomingAll(_req, res) {
-  const programs = await Program.getUpcomingAll(12);
-  const enriched = await Promise.all(programs.map(async (p) => {
-    const video = await Video.findById(p.video_id);
-    const channel = await Channel.findById(p.channel_id);
-    return {
-      id: p.id,
-      channel_id: p.channel_id,
-      channel_name: channel ? channel.name : 'Unknown',
-      channel_category: channel ? channel.category : '',
-      video_title: video ? video.title : 'Unknown',
-      video_description: video ? (video.description || '') : '',
-      video_thumbnail: video ? video.thumbnail_url : null,
-      start_time: p.start_time,
-      end_time: p.end_time,
-    };
-  }));
-  res.json({ upcoming: enriched });
+  try {
+    const programs = await Program.getUpcomingAll(12);
+    const enriched = await Promise.all(programs.map(async (p) => {
+      const video = await Video.findById(p.video_id);
+      const channel = await Channel.findById(p.channel_id);
+      return {
+        id: p.id,
+        channel_id: p.channel_id,
+        channel_name: channel ? channel.name : 'Unknown',
+        channel_category: channel ? channel.category : '',
+        video_title: video ? video.title : 'Unknown',
+        video_description: video ? (video.description || '') : '',
+        video_thumbnail: video ? video.thumbnail_url : null,
+        start_time: p.start_time,
+        end_time: p.end_time,
+      };
+    }));
+    res.json({ upcoming: enriched });
+  } catch (err) {
+    console.error('[Broadcast] getUpcomingAll error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 }
 
 // ─── REMINDERS ───────────────────────────────────────────
@@ -1077,6 +1233,7 @@ module.exports = {
   scheduleSequential,
   getChannelSchedule,
   deleteProgram,
+  streamAdaptiveAsset,
   getNowPlaying,
   getServerTime,
   goLive,

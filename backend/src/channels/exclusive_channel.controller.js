@@ -424,91 +424,8 @@ async function purchaseExclusiveAccess(req, res) {
       monthlyFeeNgn: amount,
     });
 
-    const isRenewal = Boolean(latestAccess && latestAccess.status !== 'active');
-    const viewer = await User.findById(req.userId);
-    const owner = await User.findById(channel.owner_id);
-
-    const viewerMessage = buildExclusiveLifecycleMessage('user.purchase', {
-      user: viewer,
-      channelName: channel.name,
-      isRenewal,
-    });
-    const creatorMessage = buildExclusiveLifecycleMessage('creator.purchase', {
-      user: owner,
-      channelName: channel.name,
-      isRenewal,
-    });
-
-    await Ledger.create({
-      uid: req.userId,
-      type: 'EXCLUSIVE_CHANNEL_ACCESS_PAYMENT',
-      direction: 'debit',
-      currency: 'ngn',
-      amount_ngn: amount,
-      status: 'success',
-      channel_id: channel.id,
-      reference_id: paymentReference,
-      meta: {
-        creator_cash: creatorCash,
-        community_pool_ngn: communityPoolNgn,
-        operations_pool_ngn: operationsPoolNgn,
-        referral_pool_ngn: referralPoolNgn,
-        creator_vpt_ngn: creatorVptNgn,
-        creator_vpt_units: creatorVptUnits,
-        access_id: access.id,
-      },
-      description: `Exclusive channel access payment - ${channel.name}`,
-    }).catch((err) => console.error('[Exclusive] ledger creation failed:', err.message));
-
-    // Non-critical: send notification (don't fail payment if this fails)
-    NotificationService.notifyUser(req.userId, {
-      title: viewerMessage.title,
-      body: viewerMessage.body,
-      type: viewerMessage.type,
-      link: `/channels/${channel.id}`,
-      data: {
-        channel_id: channel.id,
-        access_id: access.id,
-        expires_at: String(access.expires_at),
-      },
-    }).catch((err) => console.error('[Exclusive] user notification failed:', err.message));
-
-    // Non-critical: notify creator (don't fail payment if this fails)
-    NotificationService.notifyUser(channel.owner_id, {
-      title: creatorMessage.title,
-      body: creatorMessage.body,
-      type: creatorMessage.type,
-      link: '/dashboard',
-      data: {
-        channel_id: channel.id,
-        payer_uid: req.userId,
-        amount_ngn: String(amount),
-      },
-    }).catch((err) => console.error('[Exclusive] creator notification failed:', err.message));
-
-    // Non-critical: send emails (don't fail payment if this fails)
-    if (viewer && viewer.email && !viewer.email.endsWith('@afrovision.invalid')) {
-      sendExclusiveLifecycleEmail({
-        to: viewer.email,
-        subject: viewerMessage.emailSubject,
-        title: viewerMessage.title,
-        body: viewerMessage.body,
-        ctaUrl: `https://afrovision-website-134538542038.us-central1.run.app/channel/${channel.id}/exclusive-access`,
-        ctaLabel: viewerMessage.ctaLabel,
-      }).catch((err) => console.error('[Exclusive] viewer lifecycle email failed:', err.message));
-    }
-
-    if (owner && owner.email && !owner.email.endsWith('@afrovision.invalid')) {
-      sendExclusiveLifecycleEmail({
-        to: owner.email,
-        subject: creatorMessage.emailSubject,
-        title: creatorMessage.title,
-        body: creatorMessage.body,
-        ctaUrl: 'https://afrovision-website-134538542038.us-central1.run.app/dashboard',
-        ctaLabel: creatorMessage.ctaLabel,
-      }).catch((err) => console.error('[Exclusive] creator lifecycle email failed:', err.message));
-    }
-
+    // ── Access is now granted. Send the response immediately so the
+    // client gets a success even if non-critical post-processing fails. ──
     const responsePayload = {
       has_access: true,
       access_id: access.id,
@@ -524,18 +441,109 @@ async function purchaseExclusiveAccess(req, res) {
       },
     };
 
-    // Non-critical: audit log (don't fail payment if this fails)
-    safeAuditLog(req.userId, isRenewal ? 'exclusive_entitlement_renewed' : 'exclusive_entitlement_issued', access.id, {
-      channel_id: channel.id,
-      amount_ngn: amount,
-      payment_reference: paymentReference,
-      expires_at: access.expires_at,
-    }).catch((err) => console.error('[Exclusive] audit log failed:', err.message));
-
+    // Finalize idempotency before responding (but don't fail if it errors).
     await finalizePurchaseIdempotency(idempotencyDoc, {
       status: 'completed',
       result: responsePayload,
     }).catch((err) => console.error('[Exclusive] idempotency finalization failed:', err.message));
+
+    // ── Fire-and-forget post-processing. Errors here must never affect
+    // the purchase result sent to the client. Access is already granted. ──
+    const isRenewal = Boolean(latestAccess && latestAccess.status !== 'active');
+
+    Promise.resolve().then(async () => {
+      try {
+        const viewer = await User.findById(req.userId);
+        const owner = await User.findById(channel.owner_id);
+
+        const viewerMessage = buildExclusiveLifecycleMessage('user.purchase', {
+          user: viewer,
+          channelName: channel.name,
+          isRenewal,
+        });
+        const creatorMessage = buildExclusiveLifecycleMessage('creator.purchase', {
+          user: owner,
+          channelName: channel.name,
+          isRenewal,
+        });
+
+        await Ledger.create({
+          uid: req.userId,
+          type: 'EXCLUSIVE_CHANNEL_ACCESS_PAYMENT',
+          direction: 'debit',
+          currency: 'ngn',
+          amount_ngn: amount,
+          status: 'success',
+          channel_id: channel.id,
+          reference_id: paymentReference,
+          meta: {
+            creator_cash: creatorCash,
+            community_pool_ngn: communityPoolNgn,
+            operations_pool_ngn: operationsPoolNgn,
+            referral_pool_ngn: referralPoolNgn,
+            creator_vpt_ngn: creatorVptNgn,
+            creator_vpt_units: creatorVptUnits,
+            access_id: access.id,
+          },
+          description: `Exclusive channel access payment - ${channel.name}`,
+        }).catch((err) => console.error('[Exclusive] ledger creation failed:', err.message));
+
+        NotificationService.notifyUser(req.userId, {
+          title: viewerMessage.title,
+          body: viewerMessage.body,
+          type: viewerMessage.type,
+          link: `/channels/${channel.id}`,
+          data: {
+            channel_id: channel.id,
+            access_id: access.id,
+            expires_at: String(access.expires_at),
+          },
+        }).catch((err) => console.error('[Exclusive] user notification failed:', err.message));
+
+        NotificationService.notifyUser(channel.owner_id, {
+          title: creatorMessage.title,
+          body: creatorMessage.body,
+          type: creatorMessage.type,
+          link: '/dashboard',
+          data: {
+            channel_id: channel.id,
+            payer_uid: req.userId,
+            amount_ngn: String(amount),
+          },
+        }).catch((err) => console.error('[Exclusive] creator notification failed:', err.message));
+
+        if (viewer && viewer.email && !viewer.email.endsWith('@afrovision.invalid')) {
+          sendExclusiveLifecycleEmail({
+            to: viewer.email,
+            subject: viewerMessage.emailSubject,
+            title: viewerMessage.title,
+            body: viewerMessage.body,
+            ctaUrl: `https://afrovision-website-134538542038.us-central1.run.app/channel/${channel.id}/exclusive-access`,
+            ctaLabel: viewerMessage.ctaLabel,
+          }).catch((err) => console.error('[Exclusive] viewer lifecycle email failed:', err.message));
+        }
+
+        if (owner && owner.email && !owner.email.endsWith('@afrovision.invalid')) {
+          sendExclusiveLifecycleEmail({
+            to: owner.email,
+            subject: creatorMessage.emailSubject,
+            title: creatorMessage.title,
+            body: creatorMessage.body,
+            ctaUrl: 'https://afrovision-website-134538542038.us-central1.run.app/dashboard',
+            ctaLabel: creatorMessage.ctaLabel,
+          }).catch((err) => console.error('[Exclusive] creator lifecycle email failed:', err.message));
+        }
+
+        safeAuditLog(req.userId, isRenewal ? 'exclusive_entitlement_renewed' : 'exclusive_entitlement_issued', access.id, {
+          channel_id: channel.id,
+          amount_ngn: amount,
+          payment_reference: paymentReference,
+          expires_at: access.expires_at,
+        }).catch((err) => console.error('[Exclusive] audit log failed:', err.message));
+      } catch (postErr) {
+        console.error('[Exclusive] post-processing error (access already granted):', postErr.message);
+      }
+    });
 
     return res.json(responsePayload);
   } catch (err) {

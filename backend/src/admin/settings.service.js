@@ -140,12 +140,22 @@ async function writeAuditEntry({ key, action, performedBy }) {
   });
 }
 
+const BOOLEAN_VALUES = new Set(['true', 'false']);
+
+function _inferType(definition, effectiveValue) {
+  if (BOOLEAN_VALUES.has(String(definition.defaultValue)) || BOOLEAN_VALUES.has(String(effectiveValue))) {
+    return 'boolean';
+  }
+  return 'text';
+}
+
 function buildPublicSetting(key, definition, storedData) {
   const effectiveValue = storedData ? normalizeStoredValue(storedData) : definition.defaultValue;
 
   return {
     key,
     value: effectiveValue,
+    type: _inferType(definition, effectiveValue),
     is_secret: Boolean(storedData ? storedData.is_secret : definition.sensitive),
     category: definition.category,
     category_label: SETTING_CATEGORIES[definition.category],

@@ -60,6 +60,8 @@ type ExclusiveGateReason = "login" | "kyc" | "entitlement" | null;
 type LiveDataSnapshot = {
   nowPlaying: NowPlaying | null;
   schedule: ScheduleProgram[] | null;
+  serverTime: number;
+  schedulerState: { reason: string; program_id?: string; video_missing?: boolean } | null;
 };
 
 export function LiveStream({ id }: { id: string }) {
@@ -82,6 +84,8 @@ export function LiveStream({ id }: { id: string }) {
   const [payLoading, setPayLoading] = useState(false);
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
   const [schedule, setSchedule] = useState<ScheduleProgram[]>([]);
+  const [serverTime, setServerTime] = useState<number>(Date.now());
+  const [schedulerState, setSchedulerState] = useState<LiveDataSnapshot["schedulerState"]>(null);
   const [loading, setLoading] = useState(true);
   const programEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveDataRequestRef = useRef<Promise<LiveDataSnapshot> | null>(null);
@@ -116,6 +120,8 @@ export function LiveStream({ id }: { id: string }) {
     if (snapshot.schedule) {
       setSchedule(snapshot.schedule);
     }
+    setServerTime(snapshot.serverTime);
+    setSchedulerState(snapshot.schedulerState);
   }, []);
 
   const fetchLiveDataSnapshot = useCallback(async (): Promise<LiveDataSnapshot> => {
@@ -126,12 +132,16 @@ export function LiveStream({ id }: { id: string }) {
           getChannelScheduleApi(id),
         ]);
 
+        const npData = npRes.ok && "now_playing" in npRes.data ? npRes.data : null;
+
         return {
-          nowPlaying: npRes.ok && "now_playing" in npRes.data
-            ? (npRes.data.now_playing ?? null)
-            : null,
+          nowPlaying: npData ? (npData.now_playing ?? null) : null,
           schedule: schedRes.ok && "schedule" in schedRes.data
             ? schedRes.data.schedule
+            : null,
+          serverTime: npData && typeof npData.server_time === "number" ? npData.server_time : Date.now(),
+          schedulerState: npData && typeof npData.scheduler_state === "object" && npData.scheduler_state
+            ? (npData.scheduler_state as LiveDataSnapshot["schedulerState"])
             : null,
         };
       })();
@@ -163,7 +173,13 @@ export function LiveStream({ id }: { id: string }) {
 
   // Record an impression when an ad plays
   const handleAdImpression = useCallback((ad: Advertisement) => {
-    recordAdImpressionApi(ad.id, id).catch(() => {});
+    const sessionKey = 'afrovision_ad_session_id';
+    let sessionId = window.sessionStorage.getItem(sessionKey);
+    if (!sessionId) {
+      sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      window.sessionStorage.setItem(sessionKey, sessionId);
+    }
+    recordAdImpressionApi(ad.id, id, 1, { sessionId, placement: ad.category }).catch(() => {});
   }, [id]);
 
   // Ad break completed — resume stream
@@ -418,7 +434,7 @@ export function LiveStream({ id }: { id: string }) {
   const extPlaybackUrl = channel?.resolved_playback_url ?? channel?.external_url ?? null;
   const nativePlaybackUrl = nowPlaying?.video_url ? resolveWebsiteMediaUrl(nowPlaying.video_url) : null;
   const playbackUrl = isExternalSource ? extPlaybackUrl : nativePlaybackUrl;
-  const streamMode = isExternalSource ? channel?.stream_source_mode : "external_url";
+  const streamMode = isExternalSource ? channel?.stream_source_mode : "native";
   const playbackStatus = isExternalSource
     ? extStreamStatus
     : nowPlaying
@@ -604,6 +620,10 @@ export function LiveStream({ id }: { id: string }) {
                   streamSourceMode={streamMode}
                   playbackUrl={playbackUrl}
                   streamStatus={playbackStatus}
+                  schedule={schedule}
+                  serverTime={serverTime}
+                  schedulerState={schedulerState}
+                  onRefreshUrl={refreshLiveData}
                 />
               </div>
 

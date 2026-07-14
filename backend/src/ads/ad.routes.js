@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { authenticateToken } = require('../utils/jwt');
+const { authenticateToken, optionalAuth } = require('../utils/jwt');
 const ctrl = require('./ad.controller');
 
 const router = Router();
@@ -8,8 +8,9 @@ const router = Router();
 router.get('/serve/banner', ctrl.serveBanner);
 router.get('/serve/stream', ctrl.serveInStream);
 
-// ─── IMPRESSION TRACKING (authenticated) ──────────────────
-router.post('/impression', authenticateToken, ctrl.recordImpression);
+// ─── TRACKING (public with optional auth) ─────────────────
+router.post('/impression', optionalAuth, ctrl.recordImpression);
+router.post('/click', optionalAuth, ctrl.recordClick);
 
 // ─── ADVERTISER (authenticated) ───────────────────────────
 router.post('/', authenticateToken, ctrl.submitAd);

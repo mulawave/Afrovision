@@ -642,10 +642,10 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
       {/* Mobile drawer */}
       <div
         className={`md:hidden overflow-hidden transition-all duration-300 ${
-          mobileOpen ? "max-h-80" : "max-h-0"
+          mobileOpen ? "max-h-[calc(100vh-4rem)]" : "max-h-0"
         }`}
       >
-        <div className="px-6 pb-4 pt-2 bg-av-dark-blue/95 backdrop-blur-md border-t border-av-input-border/30 space-y-1">
+        <div className="px-6 pb-4 pt-2 bg-av-dark-blue/95 backdrop-blur-md border-t border-av-input-border/30 space-y-1 overflow-y-auto max-h-[calc(100vh-4rem)]">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.label}

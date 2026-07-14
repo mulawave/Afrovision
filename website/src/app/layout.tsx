@@ -9,6 +9,7 @@ import { CommunityPoolBar } from "@/components/CommunityPoolBar";
 import { MarqueeTicker } from "@/components/MarqueeTicker";
 import { KycAlertBanner } from "@/components/KycAlertBanner";
 import { DevApiIndicator } from "@/components/DevApiIndicator";
+import { AndroidAppBanner } from "@/components/AndroidAppBanner";
 import { AuthProvider } from "@/lib/AuthContext";
 import { getBranding } from "@/lib/homepage";
 import { CookieConsentProvider } from "@/lib/cookie-consent/CookieConsentProvider";
@@ -94,6 +95,7 @@ fbq('track', 'PageView');`,
             <CommunityPoolBar />
             <KycAlertBanner />
             <main className="flex-1">{children}</main>
+            <AndroidAppBanner />
             <Footer logoUrl={branding.logo_url} />
             <DevApiIndicator />
             <CookieBanner />

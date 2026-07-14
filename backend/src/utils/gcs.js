@@ -148,6 +148,7 @@ async function downloadFromGCS(filename) {
 }
 
 module.exports = {
+  getBucket,
   uploadToGCS,
   deleteFromGCS,
   extractGCSPath,

@@ -27,6 +27,11 @@ async function create({ creatorUid, channelId, title, description, videoUrl, thu
     video_url: videoUrl,
     thumbnail_url: thumbnailUrl || null,
     duration: duration || 0,
+    transcoding_status: 'pending',
+    transcoding_job_name: null,
+    transcoding_error: null,
+    master_playlist_url: null,
+    available_renditions: [],
     created_at: Date.now(),
   };
   await db.collection(COLLECTION).doc(id).set(video);
@@ -67,7 +72,20 @@ async function getByCreator(creatorUid) {
 async function update(id, fields) {
   const video = await findById(id);
   if (!video) return null;
-  const allowed = ['title', 'description', 'thumbnail_url', 'duration'];
+  const allowed = [
+    'title',
+    'description',
+    'thumbnail_url',
+    'duration',
+    'transcoding_status',
+    'transcoding_job_name',
+    'transcoding_error',
+    'transcoding_completed_at',
+    'transcoding_checked_at',
+    'master_playlist_url',
+    'available_renditions',
+    'hls_output_prefix',
+  ];
   const updates = {};
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -77,7 +95,7 @@ async function update(id, fields) {
   }
   if (Object.keys(updates).length > 0) {
     const db = getFirestore();
-    await db.collection(COLLECTION).doc(id).update(updates);
+    await db.collection(COLLECTION).doc(id).set(updates, { merge: true });
   }
   return syncVideo(video);
 }

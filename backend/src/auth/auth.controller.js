@@ -72,18 +72,20 @@ async function register(req, res, next) {
       });
     }
 
-    // Send welcome email (non-blocking)
-    SmtpService.sendTemplateEmail({
-      toEmail: user.email,
-      subject: 'Welcome to AfroVision',
-      templateFile: 'email-1-welcome.html',
-      vars: {
-        name: user.name || user.email.split('@')[0],
-        email: user.email,
-      },
-    }).catch((err) => {
-      console.error('[Auth] welcome email error:', err.message);
-    });
+    // Send welcome email (truly non-blocking — errors never affect the response)
+    Promise.resolve()
+      .then(() => SmtpService.sendTemplateEmail({
+        toEmail: user.email,
+        subject: 'Welcome to AfroVision',
+        templateFile: 'email-1-welcome.html',
+        vars: {
+          name: user.name || user.email.split('@')[0],
+          email: user.email,
+        },
+      }))
+      .catch((err) => {
+        console.error('[Auth] welcome email error:', err.message);
+      });
 
     res.status(201).json({ token, user: User.toSafeUser(user) });
   } catch (err) {

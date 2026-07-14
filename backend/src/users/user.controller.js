@@ -272,6 +272,7 @@ async function getChannelFollowStatus(req, res) {
   res.json({
     followed: await User.isFollowingChannel(req.userId, channelId),
     followers_count: await User.countChannelFollowers(channelId),
+    is_owner: channel.owner_id === req.userId,
   });
 }
 

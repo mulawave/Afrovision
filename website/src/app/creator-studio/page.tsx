@@ -25,10 +25,12 @@ import {
   updateChannelApi,
   updateExternalSourceApi,
   recheckStreamHealthApi,
+  getNowPlayingApi,
   type Channel,
   type ChannelVideo,
   type ScheduleProgram,
   type VideoUploadSession,
+  type NowPlaying,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
@@ -171,6 +173,12 @@ export default function CreatorStudioPage() {
   const [videos, setVideos] = useState<ChannelVideo[]>([]);
   const [schedule, setSchedule] = useState<ScheduleProgram[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState("");
+  const [playbackState, setPlaybackState] = useState<{
+    nowPlaying: NowPlaying | null;
+    schedulerState: { reason: string; program_id?: string; video_missing?: boolean } | null;
+    serverTime: number;
+    loading: boolean;
+  }>({ nowPlaying: null, schedulerState: null, serverTime: 0, loading: false });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,6 +277,27 @@ export default function CreatorStudioPage() {
     }
   }, []);
 
+  const loadPlaybackState = useCallback(async (channelId: string) => {
+    if (!channelId) {
+      setPlaybackState({ nowPlaying: null, schedulerState: null, serverTime: 0, loading: false });
+      return;
+    }
+    setPlaybackState((prev) => ({ ...prev, loading: true }));
+    const res = await getNowPlayingApi(channelId);
+    if (res.ok && "now_playing" in res.data) {
+      setPlaybackState({
+        nowPlaying: (res.data.now_playing as NowPlaying | null) ?? null,
+        schedulerState: res.data.scheduler_state && typeof res.data.scheduler_state === "object"
+          ? (res.data.scheduler_state as { reason: string; program_id?: string; video_missing?: boolean })
+          : null,
+        serverTime: typeof res.data.server_time === "number" ? res.data.server_time : 0,
+        loading: false,
+      });
+    } else {
+      setPlaybackState({ nowPlaying: null, schedulerState: null, serverTime: 0, loading: false });
+    }
+  }, []);
+
   const loadUploadSessions = useCallback(async (channelId?: string) => {
     setLoadingUploadSessions(true);
     const res = await getMyVideoUploadSessionsApi(channelId);
@@ -291,9 +320,19 @@ export default function CreatorStudioPage() {
     const timeoutId = window.setTimeout(() => {
       void loadSchedule(selectedChannelId);
       void loadUploadSessions(selectedChannelId);
+      void loadPlaybackState(selectedChannelId);
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [selectedChannelId, loadSchedule, loadUploadSessions]);
+  }, [selectedChannelId, loadSchedule, loadUploadSessions, loadPlaybackState]);
+
+  // Refresh live playback state every 30 seconds for the selected channel.
+  useEffect(() => {
+    if (!selectedChannelId) return;
+    const intervalId = window.setInterval(() => {
+      void loadPlaybackState(selectedChannelId);
+    }, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [selectedChannelId, loadPlaybackState]);
 
   useEffect(() => {
     if (!selectedChannelId) return;
@@ -2019,8 +2058,14 @@ export default function CreatorStudioPage() {
                   </div>
                 </section>
 
-                {/* ════ RIGHT COLUMN — Broadcast Schedule ════ */}
-                <section className="flex flex-col">
+                {/* ════ RIGHT COLUMN — Playback State + Broadcast Schedule ════ */}
+                <section className="flex flex-col gap-6">
+                  <PlaybackStateCard
+                    playbackState={playbackState}
+                    selectedChannel={selectedChannel}
+                    schedule={schedule}
+                  />
+
                   <div className="flex flex-1 flex-col rounded-3xl border border-av-input-border/30 bg-av-card">
                     {/* Header */}
                     <div className="flex items-center justify-between gap-3 border-b border-av-input-border/15 px-6 py-5">
@@ -2144,46 +2189,58 @@ export default function CreatorStudioPage() {
                         </p>
                       ) : (
                         <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                          {pagedSchedule.map((item, idx) => (
-                            <div
-                              key={item.id}
-                              className={`group rounded-2xl border p-4 transition-all ${
-                                selectedProgramIds.has(item.id)
-                                  ? "border-av-light-orange/40 bg-av-light-orange/5"
-                                  : "border-av-input-border/20 bg-av-input-fill/30 hover:border-av-input-border/40"
-                              }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedProgramIds.has(item.id)}
-                                  onChange={() =>
-                                    toggleProgramSelection(item.id)
-                                  }
-                                  className="h-4 w-4 flex-shrink-0 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
-                                />
-                                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-av-light-orange/20 text-[10px] font-bold text-av-light-orange">
-                                  {(clampedSchedulePage - 1) * ITEMS_PER_PAGE + idx + 1}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm font-semibold text-av-white">
-                                    {item.video_title}
-                                  </p>
-                                  <p className="mt-0.5 text-[11px] text-av-light-orange">
-                                    {formatTimestamp(item.start_time)} →{" "}
-                                    {formatTimestamp(item.end_time)}
-                                  </p>
+                          {pagedSchedule.map((item, idx) => {
+                            const videoMissing = !selectedChannelVideos.some(
+                              (v) => v.id === item.video_id,
+                            );
+                            return (
+                              <div
+                                key={item.id}
+                                className={`group rounded-2xl border p-4 transition-all ${
+                                  selectedProgramIds.has(item.id)
+                                    ? "border-av-light-orange/40 bg-av-light-orange/5"
+                                    : videoMissing
+                                      ? "border-red-500/40 bg-red-500/5 hover:border-red-500/60"
+                                      : "border-av-input-border/20 bg-av-input-fill/30 hover:border-av-input-border/40"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedProgramIds.has(item.id)}
+                                    onChange={() =>
+                                      toggleProgramSelection(item.id)
+                                    }
+                                    className="h-4 w-4 flex-shrink-0 rounded border-av-input-border/40 bg-av-input-fill text-av-orange accent-[#F49617]"
+                                  />
+                                  <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-av-light-orange/20 text-[10px] font-bold text-av-light-orange">
+                                    {(clampedSchedulePage - 1) * ITEMS_PER_PAGE + idx + 1}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-semibold text-av-white">
+                                      {item.video_title}
+                                    </p>
+                                    <p className="mt-0.5 text-[11px] text-av-light-orange">
+                                      {formatTimestamp(item.start_time)} →{" "}
+                                      {formatTimestamp(item.end_time)}
+                                    </p>
+                                    {videoMissing && (
+                                      <p className="mt-1 text-[11px] font-semibold text-red-400">
+                                        Scheduled video missing — upload or re-schedule
+                                      </p>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteProgram(item.id)}
+                                    disabled={busy || deletingBulk}
+                                    className="flex-shrink-0 rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
+                                  >
+                                    Remove
+                                  </button>
                                 </div>
-                                <button
-                                  onClick={() => handleDeleteProgram(item.id)}
-                                  disabled={busy || deletingBulk}
-                                  className="flex-shrink-0 rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
-                                >
-                                  Remove
-                                </button>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
 
                           {schedule.length > ITEMS_PER_PAGE && (
                             <div className="mt-3 flex items-center justify-between rounded-2xl border border-av-input-border/20 bg-av-input-fill/20 px-3 py-2">
@@ -2340,6 +2397,28 @@ export default function CreatorStudioPage() {
                                 {formatDuration(video.duration)} · Added{" "}
                                 {formatTimestamp(video.created_at)}
                               </p>
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                  video.transcoding_status === "ready"
+                                    ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                                    : video.transcoding_status === "failed"
+                                      ? "border-av-error/30 bg-av-error/10 text-av-error"
+                                      : "border-av-orange/30 bg-av-orange/10 text-av-orange"
+                                }`}>
+                                  {video.transcoding_status === "ready"
+                                    ? "Adaptive ready"
+                                    : video.transcoding_status === "failed"
+                                      ? "Adaptive failed"
+                                      : video.transcoding_status === "unavailable"
+                                        ? "Original quality"
+                                        : "Preparing adaptive quality"}
+                                </span>
+                                {video.available_renditions?.map((height) => (
+                                  <span key={height} className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-av-light-orange">
+                                    {height}p
+                                  </span>
+                                ))}
+                              </div>
                             </div>
                             <button
                               onClick={() => handleDeleteVideo(video.id)}
@@ -2384,6 +2463,151 @@ export default function CreatorStudioPage() {
         </div>
       </main>
     </>
+  );
+}
+
+function PlaybackStateCard({
+  playbackState,
+  selectedChannel,
+  schedule,
+}: {
+  playbackState: {
+    nowPlaying: NowPlaying | null;
+    schedulerState: { reason: string; program_id?: string; video_missing?: boolean } | null;
+    serverTime: number;
+    loading: boolean;
+  };
+  selectedChannel: Channel | undefined;
+  schedule: ScheduleProgram[];
+}) {
+  const now = playbackState.serverTime;
+  const nowPlaying = playbackState.nowPlaying;
+  const reason = playbackState.schedulerState?.reason;
+  const isNative = !selectedChannel || selectedChannel.stream_source_mode === "native";
+
+  const formatTime = (ts: number) =>
+    new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  if (!isNative) {
+    return (
+      <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+        <h2 className="mb-4 text-lg font-semibold text-av-white">Current Playback State</h2>
+        <div className="rounded-xl border border-av-input-border/20 bg-av-input-fill/30 p-4">
+          <p className="text-sm font-semibold text-av-white">
+            External {(selectedChannel?.stream_source_mode ?? "url").replace("external_", "").toUpperCase()}
+          </p>
+          <p className="mt-1 text-xs text-av-light-orange">
+            Status: <span className="font-semibold text-av-orange">{selectedChannel?.stream_status ?? "unknown"}</span>
+          </p>
+          <p className="mt-1 text-xs text-av-light-orange truncate">
+            {selectedChannel?.resolved_playback_url ?? selectedChannel?.external_url ?? "No external URL configured"}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (playbackState.loading) {
+    return (
+      <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+        <h2 className="mb-4 text-lg font-semibold text-av-white">Current Playback State</h2>
+        <div className="flex items-center justify-center py-4">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
+        </div>
+      </div>
+    );
+  }
+
+  const currentProgram = schedule.find((p) => p.start_time <= now && p.end_time > now);
+  const upcomingProgram = schedule.find((p) => p.start_time > now);
+
+  if (reason === "current" && nowPlaying) {
+    return (
+      <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+        <h2 className="mb-4 text-lg font-semibold text-av-white">Current Playback State</h2>
+        <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-4">
+          <p className="text-sm font-semibold text-green-400 flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex h-full w-2 rounded-full bg-green-500" />
+            </span>
+            Live · {nowPlaying.video_title}
+          </p>
+          <p className="mt-1 text-xs text-av-light-orange">
+            Video URL: {nowPlaying.video_url ? "Valid signed URL" : <span className="text-red-400">Missing</span>}
+          </p>
+          <p className="mt-1 text-xs text-av-light-orange">
+            Position: {Math.floor(nowPlaying.position / 60)}m {nowPlaying.position % 60}s
+            {nowPlaying.is_loop ? " (loop)" : ""}
+          </p>
+          {upcomingProgram && (
+            <p className="mt-1 text-xs text-av-light-orange">
+              Next: {upcomingProgram.video_title} at {formatTime(upcomingProgram.start_time)}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (reason === "current" && playbackState.schedulerState?.video_missing) {
+    const program = currentProgram ?? schedule.find((p) => p.id === playbackState.schedulerState?.program_id);
+    return (
+      <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+        <h2 className="mb-4 text-lg font-semibold text-av-white">Current Playback State</h2>
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4">
+          <p className="text-sm font-semibold text-red-400">Scheduled video is missing or not uploaded yet</p>
+          {program && (
+            <p className="mt-1 text-xs text-av-light-orange">
+              Program: {program.video_title} ({formatTime(program.start_time)} – {formatTime(program.end_time)})
+            </p>
+          )}
+          <p className="mt-2 text-xs text-av-light-orange">
+            Upload the video to the library and re-schedule it, or fix the existing video URL.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (reason === "upcoming" && upcomingProgram) {
+    return (
+      <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+        <h2 className="mb-4 text-lg font-semibold text-av-white">Current Playback State</h2>
+        <div className="rounded-xl border border-av-orange/30 bg-av-orange/10 p-4">
+          <p className="text-sm font-semibold text-av-white">Starting soon</p>
+          <p className="mt-1 text-xs text-av-light-orange">
+            {upcomingProgram.video_title} begins at {formatTime(upcomingProgram.start_time)}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (reason === "loop" && nowPlaying) {
+    return (
+      <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+        <h2 className="mb-4 text-lg font-semibold text-av-white">Current Playback State</h2>
+        <div className="rounded-xl border border-av-orange/30 bg-av-orange/10 p-4">
+          <p className="text-sm font-semibold text-av-white">Looping last program</p>
+          <p className="mt-1 text-xs text-av-light-orange">
+            {nowPlaying.video_title} (no upcoming schedule)
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+      <h2 className="mb-4 text-lg font-semibold text-av-white">Current Playback State</h2>
+      <div className="rounded-xl border border-av-input-border/20 bg-av-input-fill/30 p-4">
+        <p className="text-sm font-semibold text-av-white">Offline</p>
+        <p className="mt-1 text-xs text-av-light-orange">
+          No active or upcoming program. Schedule a video to go live.
+        </p>
+      </div>
+    </div>
   );
 }
 

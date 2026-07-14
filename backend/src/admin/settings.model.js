@@ -40,6 +40,24 @@ const SETTING_DEFINITIONS = {
     sensitive: false,
     defaultValue: null,
   },
+  GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL: {
+    category: 'payments',
+    description: 'Google Play service account email (…@….iam.gserviceaccount.com) — used server-side to verify in-app purchases via the Android Publisher API',
+    sensitive: false,
+    defaultValue: null,
+  },
+  GOOGLE_PLAY_SERVICE_ACCOUNT_PRIVATE_KEY: {
+    category: 'payments',
+    description: 'Google Play service account private key (PEM) — used server-side to verify in-app purchases. Paste the full private_key value from the service account JSON',
+    sensitive: true,
+    defaultValue: null,
+  },
+  GOOGLE_PLAY_PACKAGE_NAME: {
+    category: 'payments',
+    description: 'Android application package name used for Google Play purchase verification (e.g. com.afrovision.app)',
+    sensitive: false,
+    defaultValue: 'com.afrovision.app',
+  },
   SMTP_HOST: {
     category: 'smtp',
     description: 'SMTP server hostname for outbound transactional email',
@@ -111,6 +129,12 @@ const SETTING_DEFINITIONS = {
     description: 'Optional comma-separated BCC list for audition acknowledgement emails',
     sensitive: false,
     defaultValue: '',
+  },
+  CHANNEL_EDIT_VPT_FEE_ENABLED: {
+    category: 'system',
+    description: 'Require creators to hold a minimum vPT balance before editing a channel (true/false). Disabled automatically for exclusive channel owners.',
+    sensitive: false,
+    defaultValue: 'true',
   },
   AUDITION_SIGNUP_ENABLED: {
     category: 'system',
@@ -333,6 +357,12 @@ const SETTING_DEFINITIONS = {
     description: 'Reference price of 1 vPT in Naira for display and financial calculations',
     sensitive: false,
     defaultValue: '750',
+  },
+  CHANNEL_EDIT_VPT_FEE: {
+    category: 'economy',
+    description: 'Minimum vPT balance a creator must hold to edit a channel (e.g. 500). Only applies when CHANNEL_EDIT_VPT_FEE_ENABLED is true. Does NOT apply to exclusive channel owners.',
+    sensitive: false,
+    defaultValue: '500',
   },
   RAVEN_NGN_RATE: {
     category: 'economy',

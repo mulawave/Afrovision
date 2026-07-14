@@ -10,9 +10,11 @@ import {
   getAdUploadUrlApi,
   uploadFileToGCS,
   getMyAdAnalyticsApi,
+  getChannelsApi,
   type Advertisement,
   type AdStats,
   type AdvertiserAnalytics,
+  type Channel,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -58,6 +60,8 @@ export default function AdvertiserPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [targetChannels, setTargetChannels] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Top-up state
@@ -70,7 +74,7 @@ export default function AdvertiserPage() {
       setLoading(true);
       const res = await getMyAdsApi();
       if (!res.ok || "error" in res.data) throw new Error("error" in res.data ? String(res.data.error) : "Failed");
-      setAds(res.data as Advertisement[]);
+      setAds(res.data.ads);
       setError(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load ads");
@@ -82,6 +86,13 @@ export default function AdvertiserPage() {
   useEffect(() => {
     if (isAuthenticated) loadAds();
   }, [isAuthenticated, loadAds]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    getChannelsApi().then((res) => {
+      if (res.ok && "channels" in res.data) setChannels(res.data.channels);
+    }).catch(() => {});
+  }, [isAuthenticated]);
 
   async function loadStats(adId: string) {
     setStatsLoading(true);
@@ -148,6 +159,7 @@ export default function AdvertiserPage() {
         price_per_impression: Number(formPricePerImpression),
         start_date: formStartDate || undefined,
         end_date: formEndDate || undefined,
+        target_channels: targetChannels,
       });
 
       if (!adRes.ok || "error" in adRes.data) throw new Error("error" in adRes.data ? String(adRes.data.error) : "Submission failed");
@@ -163,6 +175,7 @@ export default function AdvertiserPage() {
       setFormStartDate("");
       setFormEndDate("");
       setFormFile(null);
+      setTargetChannels([]);
       if (fileRef.current) fileRef.current.value = "";
       // Reload and switch to list
       await loadAds();
@@ -328,6 +341,42 @@ export default function AdvertiserPage() {
             {formFile && (
               <p className="mt-1 text-xs text-av-light-orange">{formFile.name} ({(formFile.size / 1024 / 1024).toFixed(1)} MB)</p>
             )}
+          </div>
+
+          {/* Targeting */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-av-light-orange mb-2">Target Channels</label>
+            <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+              <label className="flex items-center gap-2 text-sm text-white">
+                <input
+                  type="checkbox"
+                  checked={targetChannels.length === 0}
+                  onChange={() => setTargetChannels([])}
+                  className="h-4 w-4 accent-[#F49617]"
+                />
+                All eligible channels
+              </label>
+              {channels.length > 0 && (
+                <div className="mt-3 grid max-h-44 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+                  {channels.map((channel) => (
+                    <label key={channel.id} className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-av-light-orange">
+                      <input
+                        type="checkbox"
+                        checked={targetChannels.includes(channel.id)}
+                        onChange={(e) => {
+                          setTargetChannels((prev) => e.target.checked
+                            ? [...prev, channel.id]
+                            : prev.filter((id) => id !== channel.id));
+                        }}
+                        className="h-4 w-4 accent-[#F49617]"
+                      />
+                      <span className="truncate">{channel.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-[11px] text-av-light-orange">Leave all channels selected for site-wide delivery, or choose specific channels for targeted delivery.</p>
+            </div>
           </div>
 
           {/* Budget & Pricing */}

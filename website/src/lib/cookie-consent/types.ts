@@ -10,6 +10,7 @@ export interface CookieConsent {
 export interface CookieConsentState {
   consent: CookieConsent | null;
   hasMadeChoice: boolean;
+  isLoaded: boolean;
   setConsent: (consent: CookieConsent) => void;
   acceptAll: () => void;
   rejectAll: () => void;

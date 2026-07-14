@@ -29,6 +29,8 @@ class BroadcastPlayer extends ChangeNotifier {
   bool hasError = false;
   bool isRecovering = false;
   String? errorMessage;
+  List<int> availableRenditions = const [];
+  int? selectedQuality;
 
   // Sync
   int _syncTick = 0;
@@ -37,6 +39,7 @@ class BroadcastPlayer extends ChangeNotifier {
   bool _isAppActive = true;
   bool _isContinuousStream = false;
   String? _currentVideoUrl;
+  String? _baseVideoUrl;
   bool _recoveringInFlight = false;
   int _retryCount = 0;
   static const int _maxRetries = 4;
@@ -52,6 +55,10 @@ class BroadcastPlayer extends ChangeNotifier {
   VoidCallback? onProgramEnded;
   VoidCallback? onAccessDenied;
 
+  /// Callback to request a fresh playback URL from the parent.
+  /// Returns a new URL string, or null if refresh is not available.
+  Future<String?> Function()? onRefreshUrl;
+
   /// Initialize the player with a video URL and seek to the correct live position.
   Future<void> initialize({
     required String videoUrl,
@@ -60,23 +67,33 @@ class BroadcastPlayer extends ChangeNotifier {
     required int duration,
     required int positionSec,
     required bool loop,
+    List<int> renditions = const [],
+    int? quality,
   }) async {
     programStartTime = startTime;
     programEndTime = endTime;
     videoDuration = duration;
     isLoop = loop;
-    final lowerUrl = videoUrl.toLowerCase();
-    _isContinuousStream =
+    availableRenditions = List<int>.unmodifiable(
+      renditions.toSet().toList()..sort(),
+    );
+    selectedQuality = quality;
+    _baseVideoUrl = videoUrl;
+    final effectiveUrl = _withQuality(videoUrl, quality);
+    final lowerUrl = effectiveUrl.toLowerCase();
+    final adaptiveStream =
         lowerUrl.contains('.m3u8') ||
         lowerUrl.contains('.mpd') ||
         lowerUrl.contains('application/vnd.apple.mpegurl');
-    _currentVideoUrl = videoUrl;
+    _isContinuousStream =
+        adaptiveStream && !(startTime > 0 && endTime > startTime);
+    _currentVideoUrl = effectiveUrl;
 
     await _disposeController();
 
-    final httpHeaders = await _buildNetworkHeaders(videoUrl);
+    final httpHeaders = await _buildNetworkHeaders(effectiveUrl);
     final ctrl = VideoPlayerController.networkUrl(
-      Uri.parse(videoUrl),
+      Uri.parse(effectiveUrl),
       httpHeaders: httpHeaders,
     );
     _controller = ctrl;
@@ -84,7 +101,7 @@ class BroadcastPlayer extends ChangeNotifier {
     ctrl.addListener(_onPlayerStateChange);
 
     try {
-      await ctrl.initialize().timeout(const Duration(seconds: 20));
+      await ctrl.initialize().timeout(const Duration(seconds: 30));
       if (_disposed) return;
 
       // Loop mode: let VideoPlayer handle native looping
@@ -111,6 +128,37 @@ class BroadcastPlayer extends ChangeNotifier {
       errorMessage = sanitizeError(e);
       notifyListeners();
     }
+  }
+
+  String _withQuality(String videoUrl, int? quality) {
+    if (quality == null || !videoUrl.toLowerCase().contains('.m3u8')) {
+      return videoUrl;
+    }
+    final uri = Uri.parse(videoUrl);
+    return uri
+        .replace(
+          queryParameters: {...uri.queryParameters, 'quality': '$quality'},
+        )
+        .toString();
+  }
+
+  Future<void> setQuality(int? quality) async {
+    final baseUrl = _baseVideoUrl;
+    if (baseUrl == null || !baseUrl.toLowerCase().contains('.m3u8')) return;
+    if (quality != null && !availableRenditions.contains(quality)) return;
+    if (selectedQuality == quality) return;
+
+    final position = _controller?.value.position.inSeconds ?? 0;
+    await initialize(
+      videoUrl: baseUrl,
+      startTime: programStartTime,
+      endTime: programEndTime,
+      duration: videoDuration,
+      positionSec: position,
+      loop: isLoop,
+      renditions: availableRenditions,
+      quality: quality,
+    );
   }
 
   Future<Map<String, String>> _buildNetworkHeaders(String videoUrl) async {
@@ -281,12 +329,32 @@ class BroadcastPlayer extends ChangeNotifier {
 
     _recoveringInFlight = true;
     try {
-      for (_retryCount = 1; _retryCount <= _maxRetries && !_disposed; _retryCount++) {
+      for (
+        _retryCount = 1;
+        _retryCount <= _maxRetries && !_disposed;
+        _retryCount++
+      ) {
         await Future.delayed(Duration(seconds: 3 * _retryCount));
         if (_disposed) return;
 
         try {
-          final url = _currentVideoUrl;
+          String? url = _currentVideoUrl;
+
+          // On the first retry, attempt to get a fresh signed URL —
+          // the current one may have expired (GCS signed URLs are time-limited).
+          if (_retryCount == 1 && onRefreshUrl != null) {
+            try {
+              final freshUrl = await onRefreshUrl!();
+              if (freshUrl != null && freshUrl.isNotEmpty) {
+                _baseVideoUrl = freshUrl;
+                url = _withQuality(freshUrl, selectedQuality);
+                _currentVideoUrl = url;
+              }
+            } catch (_) {
+              // Fall back to existing URL if refresh fails
+            }
+          }
+
           if (url != null && url.isNotEmpty) {
             final headers = await _buildNetworkHeaders(url);
             if (_disposed) return;

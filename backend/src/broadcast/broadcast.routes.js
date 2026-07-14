@@ -39,10 +39,11 @@ router.delete('/videos/:videoId', authenticateToken, ctrl.deleteVideo);
 // Schedule management (creator)
 router.post('/schedule', authenticateToken, ctrl.scheduleProgram);
 router.post('/schedule/sequential', authenticateToken, ctrl.scheduleSequential);
-router.get('/schedule/:channelId', authenticateToken, ctrl.getChannelSchedule);
+router.get('/schedule/:channelId', optionalAuth, ctrl.getChannelSchedule);
 router.delete('/schedule/:programId', authenticateToken, ctrl.deleteProgram);
 
 // Playback (viewer) — public for open channels, token is optional for user context
+router.get('/hls/:videoId/*assetPath', optionalAuth, ctrl.streamAdaptiveAsset);
 router.get('/now-playing/:channelId', optionalAuth, ctrl.getNowPlaying);
 
 // Reminders (viewer)

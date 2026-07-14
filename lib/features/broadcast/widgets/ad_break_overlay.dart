@@ -155,6 +155,7 @@ class _AdBreakOverlayState extends State<AdBreakOverlay>
     BroadcastService.recordAdImpression(
       adId: adId,
       channelId: widget.channelId,
+      placement: ad['category'] as String? ?? 'in_stream',
     ).catchError((_) => <String, dynamic>{});
   }
 

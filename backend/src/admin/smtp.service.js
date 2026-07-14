@@ -345,6 +345,7 @@ async function sendAuditionSignupAcknowledgementEmail({
 
 module.exports = {
   getSmtpConfig,
+  sendTemplateEmail,
   sendTestEmail,
   sendPasswordResetEmail,
   sendWithdrawalStatusEmail,

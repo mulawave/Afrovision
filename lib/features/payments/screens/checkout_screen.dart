@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../../../core/services/deep_link_service.dart';
 import 'payment_webview_screen.dart';
 import '../../../core/theme/app_colors.dart';
 import '../services/checkout_recovery_service.dart';
 import '../services/payment_service.dart';
+import '../services/google_play_billing_service.dart';
 
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
@@ -42,6 +45,11 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   String? _checkoutUrl;
   String? _error;
   String _statusText = 'Choose a provider and start checkout.';
+
+  bool _googlePlayAvailable = false;
+  bool _googlePlayLoading = false;
+  StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
+  bool _pendingGooglePlayIsSub = false;
 
   static const String _resultSuccess = 'success';
   static const String _resultFailed = 'failed';
@@ -87,6 +95,8 @@ class _CheckoutScreenState extends State<CheckoutScreen>
       );
       _verifyPayment();
     };
+
+    _initGooglePlay();
   }
 
   @override
@@ -164,6 +174,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     DeepLinkService.onCheckoutResult = null;
+    _purchaseSub?.cancel();
     _amountCtrl.dispose();
     _animCtrl.dispose();
     super.dispose();
@@ -208,6 +219,159 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         _error = e.toString();
       });
       _animCtrl.forward();
+    }
+  }
+
+  Future<void> _initGooglePlay() async {
+    try {
+      final available = await GooglePlayBillingService.isAvailable();
+      if (!mounted) return;
+      setState(() => _googlePlayAvailable = available);
+      if (available) {
+        final stream = InAppPurchase.instance.purchaseStream;
+        _purchaseSub = stream.listen(
+          _onPurchaseUpdated,
+          onError: (e) {
+            if (!mounted) return;
+            setState(() {
+              _googlePlayLoading = false;
+              _error = 'Google Play purchase error: $e';
+            });
+          },
+        );
+      }
+    } catch (_) {
+      // Google Play not available (e.g. iOS or no Play Store)
+    }
+  }
+
+  void _onPurchaseUpdated(List<PurchaseDetails> purchases) {
+    for (final purchase in purchases) {
+      switch (purchase.status) {
+        case PurchaseStatus.purchased:
+        case PurchaseStatus.restored:
+          _handleGooglePlayPurchase(purchase);
+          break;
+        case PurchaseStatus.error:
+          if (!mounted) return;
+          setState(() {
+            _googlePlayLoading = false;
+            _error = 'Google Play purchase failed: ${purchase.error?.message ?? "unknown"}';
+          });
+          break;
+        case PurchaseStatus.canceled:
+          if (!mounted) return;
+          setState(() {
+            _googlePlayLoading = false;
+            _statusText = 'Google Play purchase was canceled.';
+          });
+          break;
+        case PurchaseStatus.pending:
+          if (!mounted) return;
+          setState(() {
+            _statusText = 'Google Play purchase is pending...';
+          });
+          break;
+      }
+    }
+  }
+
+  Future<void> _handleGooglePlayPurchase(PurchaseDetails purchase) async {
+    if (!mounted) return;
+    setState(() {
+      _googlePlayLoading = true;
+      _statusText = 'Verifying Google Play purchase...';
+    });
+
+    try {
+      final isSub = _pendingGooglePlayIsSub ||
+          _purpose == 'platform_plan';
+      final result = await GooglePlayBillingService.completeAndVerify(
+        purchase: purchase,
+        isSubscription: isSub,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _completed = true;
+        _googlePlayLoading = false;
+        _statusText = 'Google Play payment verified successfully.';
+      });
+
+      await CheckoutRecoveryService.clearPendingSession();
+
+      await _openResultScreen(
+        status: _resultSuccess,
+        message: 'Your Google Play payment has been verified and applied successfully.',
+        payload: result,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final parsed = e.toString().replaceFirst('Exception: ', '');
+      setState(() {
+        _googlePlayLoading = false;
+        _error = parsed;
+        _statusText = 'Google Play verification failed.';
+      });
+      await _openResultScreen(status: _resultFailed, message: parsed);
+    }
+  }
+
+  String? _googlePlayProductIdForCurrentSelection() {
+    if (_purpose == 'wallet_topup') {
+      final amount = _displayAmount;
+      // Match to nearest predefined top-up product
+      if (amount <= 500) return 'wallet_topup_500';
+      if (amount <= 1000) return 'wallet_topup_1000';
+      if (amount <= 2000) return 'wallet_topup_2000';
+      if (amount <= 5000) return 'wallet_topup_5000';
+      if (amount <= 10000) return 'wallet_topup_10000';
+      return null; // Amount too large for Google Play top-up products
+    }
+    if (_purpose == 'platform_plan' && _planId != null) {
+      final cycleSuffix = _billingCycle == 'yearly' ? 'yearly' : 'monthly';
+      // Map plan IDs to Google Play product IDs
+      final planProductMap = {
+        'plan_viewer_basic': 'viewer_basic_$cycleSuffix',
+        'plan_viewer_pro': 'viewer_pro_$cycleSuffix',
+        'plan_viewer_premium': 'viewer_premium_$cycleSuffix',
+        'plan_basic': 'creator_basic_monthly',
+        'plan_pro': 'creator_pro_monthly',
+        'plan_premium': 'creator_premium_monthly',
+      };
+      return planProductMap[_planId];
+    }
+    return null;
+  }
+
+  Future<void> _startGooglePlayCheckout() async {
+    final productId = _googlePlayProductIdForCurrentSelection();
+    if (productId == null) {
+      setState(() {
+        _error = 'This amount is not available as a Google Play product. Use card payment instead.';
+      });
+      return;
+    }
+
+    setState(() {
+      _googlePlayLoading = true;
+      _error = null;
+      _statusText = 'Opening Google Play billing...';
+      _pendingGooglePlayIsSub = _purpose == 'platform_plan';
+    });
+
+    try {
+      await GooglePlayBillingService.initiatePurchase(
+        productId: productId,
+        isSubscription: _pendingGooglePlayIsSub,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _googlePlayLoading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _statusText = 'Could not start Google Play purchase.';
+      });
     }
   }
 
@@ -458,6 +622,10 @@ class _CheckoutScreenState extends State<CheckoutScreen>
                                   const SizedBox(height: 16),
                                 ],
                                 _buildProviderSelector(),
+                                if (_googlePlayAvailable) ...[
+                                  const SizedBox(height: 16),
+                                  _buildGooglePlaySection(),
+                                ],
                                 const SizedBox(height: 16),
                                 _buildStatusCard(),
                                 if (_error != null) ...[
@@ -856,6 +1024,82 @@ class _CheckoutScreenState extends State<CheckoutScreen>
           fontSize: 13,
           height: 1.4,
         ),
+      ),
+    );
+  }
+
+  Widget _buildGooglePlaySection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppColors.orange.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.payments_outlined, color: AppColors.orange, size: 20),
+              const SizedBox(width: 8),
+              const Text(
+                'Google Play',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _googlePlayProductIdForCurrentSelection() != null
+                    ? 'Available'
+                    : 'Select a supported amount',
+                style: TextStyle(
+                  color: _googlePlayProductIdForCurrentSelection() != null
+                      ? AppColors.lightOrange
+                      : AppColors.hintText,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _googlePlayLoading || _googlePlayProductIdForCurrentSelection() == null
+                  ? null
+                  : _startGooglePlayCheckout,
+              icon: _googlePlayLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        color: AppColors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(Icons.android, size: 18),
+              label: Text(
+                _googlePlayLoading ? 'Processing...' : 'Pay with Google Play',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF01875F),
+                foregroundColor: AppColors.white,
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

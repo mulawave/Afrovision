@@ -270,17 +270,20 @@ class _ChannelLibraryItemScreenState extends State<ChannelLibraryItemScreen>
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: AspectRatio(
-                  aspectRatio: 2 / 3,
-                  child:
-                      item.coverAssetUrl != null &&
-                          item.coverAssetUrl!.isNotEmpty
-                      ? Image.network(
-                          item.coverAssetUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _coverPlaceholder(),
-                        )
-                      : _coverPlaceholder(),
+                child: Container(
+                  width: double.infinity,
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.55,
+                  ),
+                  color: AppColors.cardBg,
+                  child: item.coverAssetUrl != null &&
+                      item.coverAssetUrl!.isNotEmpty
+                    ? Image.network(
+                        item.coverAssetUrl!,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => _coverPlaceholder(),
+                      )
+                    : _coverPlaceholder(),
                 ),
               ),
               const SizedBox(height: 14),

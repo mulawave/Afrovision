@@ -58,6 +58,19 @@ async function getByUser(uid) {
     .sort((a, b) => b.created_at - a.created_at);
 }
 
+async function findByProviderPurchaseToken(provider, purchaseToken) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('provider', '==', provider)
+    .where('provider_payment_id', '==', purchaseToken)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+
+  const doc = snapshot.docs[0];
+  return syncCache({ id: doc.id, ...doc.data() });
+}
+
 async function create(input) {
   const timestamp = Date.now();
   const payment = {
@@ -100,6 +113,7 @@ module.exports = {
   findById,
   findByReference,
   getByUser,
+  findByProviderPurchaseToken,
   create,
   update,
 };

@@ -9,6 +9,11 @@ class ApiService {
   static final String _baseUrl = AppConfig.baseUrl;
   static const Duration _timeout = Duration(seconds: 30);
   static const Duration _uploadTimeout = Duration(seconds: 60);
+  static const int _maxRetries = 2;
+
+  // Simple in-memory cache for GET responses (path → {data, expiry})
+  static final Map<String, _CacheEntry> _cache = {};
+  static const Duration _cacheTtl = Duration(minutes: 2);
 
   static Future<T> _safeRequest<T>(Future<T> Function() action) async {
     try {
@@ -35,13 +40,56 @@ class ApiService {
     }
   }
 
+  /// Retry on transient network errors (timeout, socket, client exceptions).
+  /// Does NOT retry on ApiException (server returned a real response).
+  static Future<T> _withRetry<T>(Future<T> Function() action) async {
+    int attempts = 0;
+    while (true) {
+      try {
+        return await action();
+      } on TimeoutException {
+        attempts++;
+        if (attempts > _maxRetries) rethrow;
+        await Future.delayed(Duration(seconds: attempts * 2));
+      } on SocketException {
+        attempts++;
+        if (attempts > _maxRetries) rethrow;
+        await Future.delayed(Duration(seconds: attempts * 2));
+      } on http.ClientException {
+        attempts++;
+        if (attempts > _maxRetries) rethrow;
+        await Future.delayed(Duration(seconds: attempts * 2));
+      }
+    }
+  }
+
   static Future<Map<String, String>> _headers() async {
     final token = await AuthStorage.getToken();
-    final headers = <String, String>{'Content-Type': 'application/json'};
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'Accept-Encoding': 'gzip',
+    };
     if (token != null) {
       headers['Authorization'] = 'Bearer $token';
     }
     return headers;
+  }
+
+  static dynamic _readCache(String path) {
+    final entry = _cache[path];
+    if (entry == null) return null;
+    if (DateTime.now().isAfter(entry.expiry)) {
+      _cache.remove(path);
+      return null;
+    }
+    return entry.data;
+  }
+
+  static void _writeCache(String path, dynamic data) {
+    _cache[path] = _CacheEntry(
+      data: data,
+      expiry: DateTime.now().add(_cacheTtl),
+    );
   }
 
   /// Safely decode JSON from a response body.
@@ -81,7 +129,9 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> get(String path) async {
-    return _safeRequest(() async {
+    final cached = _readCache(path);
+    if (cached != null) return cached as Map<String, dynamic>;
+    final result = await _safeRequest(() => _withRetry(() async {
       final response = await http
           .get(Uri.parse('$_baseUrl$path'), headers: await _headers())
           .timeout(_timeout);
@@ -93,7 +143,9 @@ class ApiService {
         );
       }
       return data;
-    });
+    }));
+    _writeCache(path, result);
+    return result;
   }
 
   static Future<Map<String, dynamic>> put(
@@ -222,11 +274,16 @@ class ApiService {
 
   /// Public GET — no auth header, returns dynamic (can be List or Map)
   static Future<dynamic> getPublic(String path) async {
-    return _safeRequest(() async {
+    final cached = _readCache(path);
+    if (cached != null) return cached;
+    final result = await _safeRequest(() => _withRetry(() async {
       final response = await http
           .get(
             Uri.parse('$_baseUrl$path'),
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'gzip',
+            },
           )
           .timeout(_timeout);
       final body = response.body.trimLeft();
@@ -244,12 +301,16 @@ class ApiService {
         );
       }
       return data;
-    });
+    }));
+    _writeCache(path, result);
+    return result;
   }
 
   /// Authenticated GET — sends auth header, returns dynamic (can be List or Map)
   static Future<dynamic> getDynamic(String path) async {
-    return _safeRequest(() async {
+    final cached = _readCache(path);
+    if (cached != null) return cached;
+    final result = await _safeRequest(() => _withRetry(() async {
       final response = await http
           .get(Uri.parse('$_baseUrl$path'), headers: await _headers())
           .timeout(_timeout);
@@ -268,7 +329,9 @@ class ApiService {
         );
       }
       return data;
-    });
+    }));
+    _writeCache(path, result);
+    return result;
   }
 }
 
@@ -279,4 +342,10 @@ class ApiException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class _CacheEntry {
+  final dynamic data;
+  final DateTime expiry;
+  _CacheEntry({required this.data, required this.expiry});
 }

@@ -2,13 +2,24 @@
 
 import Image from 'next/image';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { serveBannerAdApi, recordAdImpressionApi, type Advertisement } from '@/lib/api';
+import { serveBannerAdApi, recordAdImpressionApi, recordAdClickApi, type Advertisement } from '@/lib/api';
 import { resolveWebsiteMediaUrl } from '@/lib/media';
 
 const BANNER_TTL_MS = 60_000;
 
 const bannerCache = new Map<string, { ad: Advertisement | null; updatedAt: number }>();
 const bannerRequestInFlight = new Map<string, Promise<Advertisement | null>>();
+
+function getAdSessionId() {
+  if (typeof window === 'undefined') return undefined;
+  const key = 'afrovision_ad_session_id';
+  let existing = window.sessionStorage.getItem(key);
+  if (!existing) {
+    existing = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.sessionStorage.setItem(key, existing);
+  }
+  return existing;
+}
 
 interface BannerAdProps {
   placement: 'home' | 'page';
@@ -54,6 +65,7 @@ async function getBannerAd(
 export function BannerAd({ placement, channelId, className = '' }: BannerAdProps) {
   const cacheKey = getBannerCacheKey(placement, channelId);
   const [ad, setAd] = useState<Advertisement | null>(() => bannerCache.get(cacheKey)?.ad ?? null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const lastImpressionIdRef = useRef<string | null>(null);
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -83,10 +95,43 @@ export function BannerAd({ placement, channelId, className = '' }: BannerAdProps
   }, [load]);
 
   useEffect(() => {
-    if (!ad?.id || lastImpressionIdRef.current == ad.id) return;
-    lastImpressionIdRef.current = ad.id;
-    recordAdImpressionApi(ad.id, channelId).catch(() => {});
-  }, [ad?.id, channelId]);
+    if (!ad?.id || lastImpressionIdRef.current == ad.id || !rootRef.current) return;
+
+    let viewTimer: number | null = null;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry?.isIntersecting && entry.intersectionRatio >= 0.5) {
+        if (!viewTimer) {
+          viewTimer = window.setTimeout(() => {
+            if (!ad?.id || lastImpressionIdRef.current == ad.id) return;
+            lastImpressionIdRef.current = ad.id;
+            recordAdImpressionApi(ad.id, channelId, 1, {
+              sessionId: getAdSessionId(),
+              placement: `banner_${placement}`,
+            }).catch(() => {});
+            observer.disconnect();
+          }, 1000);
+        }
+      } else if (viewTimer) {
+        window.clearTimeout(viewTimer);
+        viewTimer = null;
+      }
+    }, { threshold: [0, 0.5, 1] });
+
+    observer.observe(rootRef.current);
+    return () => {
+      if (viewTimer) window.clearTimeout(viewTimer);
+      observer.disconnect();
+    };
+  }, [ad?.id, channelId, placement]);
+
+  const handleClick = useCallback(() => {
+    if (!ad?.id) return;
+    recordAdClickApi(ad.id, channelId, {
+      sessionId: getAdSessionId(),
+      placement: `banner_${placement}`,
+    }).catch(() => {});
+  }, [ad?.id, channelId, placement]);
 
   if (!ad) return null;
 
@@ -94,7 +139,7 @@ export function BannerAd({ placement, channelId, className = '' }: BannerAdProps
   const isVideo = /\.(mp4|webm|mov)$/i.test(mediaUrl);
 
   return (
-    <div className={`relative overflow-hidden rounded-xl border border-white/5 ${className}`}>
+    <div ref={rootRef} className={`relative overflow-hidden rounded-xl border border-white/5 ${className}`}>
       {/* Ad label */}
       <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm">
         <span className="text-[9px] font-semibold text-av-light-orange tracking-wider uppercase">Sponsored</span>
@@ -106,6 +151,7 @@ export function BannerAd({ placement, channelId, className = '' }: BannerAdProps
         target="_blank"
         rel="noopener noreferrer"
         className="block w-full"
+        onClick={handleClick}
       >
         {isVideo ? (
           <video
