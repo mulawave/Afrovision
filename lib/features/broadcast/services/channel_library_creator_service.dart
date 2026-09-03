@@ -103,16 +103,27 @@ class ChannelLibraryCreatorService {
     return CreatorLibrarySeriesModel.fromJson(Map<String, dynamic>.from(data));
   }
 
-  static Future<List<ChannelLibraryItemModel>> getItems(String channelId) async {
-    final data = await ApiService.get('/creator/channels/$channelId/library/items');
+  static Future<({List<ChannelLibraryItemModel> items, int? totalPages, int? page, int? total})>
+      getItems(String channelId, {int? page, int? limit}) async {
+    final query = StringBuffer('/creator/channels/$channelId/library/items');
+    if (page != null) query.write('?page=$page');
+    if (limit != null) query.write('${page != null ? '&' : '?'}limit=$limit');
+    final data = await ApiService.get(query.toString());
     final raw = data['data'];
     if (raw is! List) {
-      return const <ChannelLibraryItemModel>[];
+      return (items: const <ChannelLibraryItemModel>[], totalPages: null, page: null, total: null);
     }
-    return raw
+    final items = raw
         .whereType<Map<String, dynamic>>()
         .map(ChannelLibraryItemModel.fromJson)
         .toList();
+    final pagination = data['pagination'] as Map<String, dynamic>?;
+    return (
+      items: items,
+      totalPages: pagination?['totalPages'] as int?,
+      page: pagination?['page'] as int?,
+      total: pagination?['total'] as int?,
+    );
   }
 
   static Future<Map<String, String>> getUploadUrl({

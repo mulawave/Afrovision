@@ -19,6 +19,52 @@ async function getProfile(req, res) {
   res.json({ user: User.toSafeUser(user) });
 }
 
+async function getPublicProfile(req, res) {
+  try {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Fetch public channels owned by this user
+    let channels = [];
+    try {
+      channels = await Channel.getByOwner(userId);
+    } catch (err) {
+      console.error('[Users] getPublicProfile: channel fetch failed:', err.message);
+    }
+
+    const publicChannels = channels.map((ch) => ({
+      id: ch.id,
+      name: ch.name,
+      description: ch.description || '',
+      category: ch.category || '',
+      logo_url: ch.logo_url || null,
+      banner_url: ch.banner_url || null,
+      channel_number: ch.channel_number || 0,
+      type: ch.type || 'public',
+      is_active: ch.is_active !== false,
+      exclusive_monthly_fee_ngn: Number(ch.exclusive_monthly_fee_ngn || 0),
+    }));
+
+    return res.json({
+      profile: {
+        id: user.id,
+        name: user.name || 'User',
+        avatar_url: user.avatar_url || null,
+        role: user.role || 'viewer',
+        is_premium_creator: !!user.is_premium_creator,
+        created_at: user.created_at || null,
+      },
+      channels: publicChannels,
+    });
+  } catch (err) {
+    console.error('[Users] getPublicProfile error:', err.message);
+    return res.status(500).json({ error: 'Failed to load profile' });
+  }
+}
+
 async function getBankDetails(req, res) {
   const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -118,7 +164,13 @@ async function resolveCreator(creatorId) {
 }
 
 async function updateProfile(req, res) {
-  const { name, email } = req.body;
+  const {
+    name, email,
+    firstName, lastName,
+    country, state, city, address,
+    phoneNumber,
+    referralSource, referralSourceDetail,
+  } = req.body;
   const fields = {};
   if (name !== undefined) fields.name = name;
   if (email !== undefined) {
@@ -132,6 +184,15 @@ async function updateProfile(req, res) {
     }
     fields.email = emailStr;
   }
+  if (firstName !== undefined) fields.firstName = firstName;
+  if (lastName !== undefined) fields.lastName = lastName;
+  if (country !== undefined) fields.country = country;
+  if (state !== undefined) fields.state = state;
+  if (city !== undefined) fields.city = city;
+  if (address !== undefined) fields.address = address;
+  if (phoneNumber !== undefined) fields.phoneNumber = phoneNumber;
+  if (referralSource !== undefined) fields.referralSource = referralSource;
+  if (referralSourceDetail !== undefined) fields.referralSourceDetail = referralSourceDetail;
   const user = await User.updateProfile(req.userId, fields);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: User.toSafeUser(user) });
@@ -156,6 +217,21 @@ async function updateCurrency(req, res) {
   const user = await User.updateProfile(req.userId, { preferred_currency: currency.toUpperCase() });
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: User.toSafeUser(user) });
+}
+
+async function updatePlayerSettings(req, res) {
+  try {
+    const { player_settings } = req.body;
+    if (!player_settings || typeof player_settings !== 'object') {
+      return res.status(400).json({ error: 'player_settings object is required' });
+    }
+    const user = await User.updateProfile(req.userId, { player_settings });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user: User.toSafeUser(user) });
+  } catch (err) {
+    console.error('[Users] updatePlayerSettings error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to save player settings' });
+  }
 }
 
 async function requestCreator(req, res) {
@@ -264,14 +340,19 @@ async function getFollowingCreators(req, res) {
   res.json({ creators });
 }
 
+const ChannelSub = require('../subscriptions/channel_subscription.model');
+
 async function getChannelFollowStatus(req, res) {
   const { channelId } = req.params;
   const channel = await Channel.findById(channelId);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
+  const sub = await ChannelSub.findActive(req.userId, channelId);
+  const count = await ChannelSub.countActiveByChannel(channelId);
+
   res.json({
-    followed: await User.isFollowingChannel(req.userId, channelId),
-    followers_count: await User.countChannelFollowers(channelId),
+    followed: !!sub,
+    followers_count: count,
     is_owner: channel.owner_id === req.userId,
   });
 }
@@ -281,15 +362,36 @@ async function followChannel(req, res) {
   const channel = await Channel.findById(channelId);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   if (channel.owner_id === req.userId) {
-    return res.status(400).json({ error: 'You cannot follow your own channel' });
+    return res.status(400).json({ error: 'You cannot subscribe to your own channel' });
   }
 
-  const user = await User.followChannel(req.userId, channelId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  const existing = await ChannelSub.findActive(req.userId, channelId);
+  if (!existing) {
+    await ChannelSub.create({
+      subscriberUid: req.userId,
+      channelId,
+      channelName: channel.name || '',
+      ownerId: channel.owner_id,
+      plan: 'channel_subscription',
+      currency: null,
+      amount: 0,
+      vptEquivalent: 0,
+      isPremium: false,
+      intervalCount: 0,
+      intervalUnit: 'month',
+      nextBilling: null,
+    });
 
+    try {
+      const ChannelStats = require('../channels/channel_stats.model');
+      await ChannelStats.incrementSubscribers(channelId);
+    } catch (e) { console.error('[user.controller] followChannel stats error:', e.message); }
+  }
+
+  const count = await ChannelSub.countActiveByChannel(channelId);
   res.json({
     followed: true,
-    followers_count: await User.countChannelFollowers(channelId),
+    followers_count: count,
   });
 }
 
@@ -298,12 +400,20 @@ async function unfollowChannel(req, res) {
   const channel = await Channel.findById(channelId);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
-  const user = await User.unfollowChannel(req.userId, channelId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  const sub = await ChannelSub.findActive(req.userId, channelId);
+  if (sub) {
+    await ChannelSub.markCancelled(sub.id, 'user_unfollowed');
 
+    try {
+      const ChannelStats = require('../channels/channel_stats.model');
+      await ChannelStats.decrementSubscribers(channelId);
+    } catch (e) { console.error('[user.controller] unfollowChannel stats error:', e.message); }
+  }
+
+  const count = await ChannelSub.countActiveByChannel(channelId);
   res.json({
     followed: false,
-    followers_count: await User.countChannelFollowers(channelId),
+    followers_count: count,
   });
 }
 
@@ -501,9 +611,11 @@ async function confirmImmediateDeletion(req, res) {
 
 module.exports = {
   getProfile,
+  getPublicProfile,
   updateProfile,
   uploadAvatar,
   updateCurrency,
+  updatePlayerSettings,
   requestCreator,
   getDeviceToken,
   registerFcmToken,

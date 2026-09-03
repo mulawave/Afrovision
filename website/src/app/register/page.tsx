@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { executeRecaptchaEnterprise } from "@/lib/recaptcha-enterprise";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const FALLBACK_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "6LeuIsEsAAAAAO6xD7D08pQAraweXcxw9pHBg94k";
 
 type CaptchaStatus = "loading" | "ready" | "unavailable";
@@ -14,7 +13,7 @@ type CaptchaStatus = "loading" | "ready" | "unavailable";
 function RegisterContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { register, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { register, isAuthenticated, isLoading: authLoading, isProfileComplete, kycRequired } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,15 +30,21 @@ function RegisterContent() {
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace(redirect);
+      if (!isProfileComplete) {
+        router.replace("/profile-setup");
+      } else if (kycRequired) {
+        router.replace("/kyc");
+      } else {
+        router.replace(redirect);
+      }
     }
-  }, [authLoading, isAuthenticated, redirect, router]);
+  }, [authLoading, isAuthenticated, isProfileComplete, kycRequired, redirect, router]);
 
   const loadCaptchaSiteKey = useCallback(async () => {
     setCaptchaStatus("loading");
 
     try {
-      const response = await fetch(`${API_BASE}/home/captcha-key`, { cache: "no-store" });
+      const response = await fetch(`/api/proxy/home/captcha-key`, { cache: "no-store" });
       const data = await response.json();
       const siteKeyFromApi = typeof data?.siteKey === "string" ? data.siteKey.trim() : "";
       const siteKey = siteKeyFromApi || FALLBACK_SITE_KEY;
@@ -129,7 +134,7 @@ function RegisterContent() {
     setIsSubmitting(false);
 
     if (result.ok) {
-      router.replace(redirect);
+      router.replace("/profile-setup");
     } else {
       setError(result.error || "Registration failed");
     }

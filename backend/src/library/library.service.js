@@ -100,6 +100,7 @@ class LibraryService {
       updatedBy: userId,
       createdAt: now,
       updatedAt: now,
+      isPublic: !!resolvedPayload.isPublic,
       // Engagement counters
       totalReads: 0,
       totalFavorites: 0,
@@ -156,6 +157,7 @@ class LibraryService {
       'coverAssetUrl',
       'readerAssetManifestUrl',
       'status',
+      'isPublic',
     ];
     const sanitizedUpdates = {};
     for (const field of allowedFields) {
@@ -627,19 +629,27 @@ class LibraryService {
    * @param {string} channelId
    * @returns {Promise<object[]>}
    */
-  async listCreatorItems(channelId) {
+  async listCreatorItems(channelId, { page, limit } = {}) {
     const snapshot = await db
       .collection(COLLECTION_PATHS.LIBRARY_ITEMS)
       .where('channelId', '==', channelId)
       .get();
 
-    return snapshot.docs
+    const all = snapshot.docs
       .map((doc) => doc.data())
       .sort((a, b) => {
         const aMs = a?.updatedAt && typeof a.updatedAt.toMillis === 'function' ? a.updatedAt.toMillis() : 0;
         const bMs = b?.updatedAt && typeof b.updatedAt.toMillis === 'function' ? b.updatedAt.toMillis() : 0;
         return bMs - aMs;
       });
+
+    if (page && limit) {
+      const total = all.length;
+      const totalPages = Math.ceil(total / limit) || 1;
+      const start = (page - 1) * limit;
+      return { items: all.slice(start, start + limit), pagination: { page, limit, total, totalPages } };
+    }
+    return { items: all, pagination: null };
   }
 
   /**

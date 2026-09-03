@@ -168,10 +168,6 @@ class _WaveScreenState extends State<WaveScreen> {
     } catch (_) {}
   }
 
-  bool _hasWaveAdAfterWaveIndex(int waveIndex) {
-    return _waveAd != null && waveIndex >= 0 && (waveIndex + 1) % 8 == 0;
-  }
-
   int _adCountBeforePage(int pageIndex) {
     if (_waveAd == null || pageIndex <= 0) return 0;
     return pageIndex ~/ 9;

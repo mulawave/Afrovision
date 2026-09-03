@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://afrovision-backend-134538542038.us-central1.run.app";
+  "https://afrovision-backend-zoeqld5lsa-uc.a.run.app";
 
 const nextConfig: NextConfig = {
   output: "standalone",

@@ -75,8 +75,16 @@ class _LoginScreenState extends State<LoginScreen>
     try {
       final user = await AuthService.login(email, password);
       if (!mounted) return;
-      final route = user.isAdmin ? '/admin-panel' : '/home';
-      Navigator.pushNamedAndRemoveUntil(context, route, (_) => false);
+      if (!user.isProfileComplete && user.role != 'admin') {
+        Navigator.pushNamedAndRemoveUntil(
+            context, '/profile-setup', (_) => false);
+      } else if (user.kycRequired && user.role != 'admin') {
+        Navigator.pushNamedAndRemoveUntil(
+            context, '/kyc', (_) => false);
+      } else {
+        final route = user.isAdmin ? '/admin-panel' : '/home';
+        Navigator.pushNamedAndRemoveUntil(context, route, (_) => false);
+      }
     } catch (e) {
       setState(() {
         _error = e.toString();

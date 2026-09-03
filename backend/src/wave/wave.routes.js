@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const { authenticateToken, optionalAuth } = require('../utils/jwt');
+const { upload, uploadSingleToGCS } = require('../utils/upload');
 const ctrl = require('./wave.controller');
 
 const router = Router();
@@ -7,13 +8,20 @@ const router = Router();
 // ─── Upload & Register ────────────────────────────────────────────────────────
 router.post('/upload-url', authenticateToken, ctrl.getWaveUploadUrl);
 router.post('/register', authenticateToken, ctrl.registerWave);
+router.post('/resumable-session', authenticateToken, ctrl.createWaveResumableSession);
+router.post('/resumable-complete', authenticateToken, ctrl.completeWaveResumableSession);
+
+// ─── HLS Streaming (Viewer) ───────────────────────────────────────────────────
+router.get('/:waveId/hls/*assetPath', optionalAuth, ctrl.streamWaveAdaptiveAsset);
 
 // ─── Feed & Discovery ────────────────────────────────────────────────────────
 router.get('/feed', optionalAuth, ctrl.getFeed);
+router.get('/following', authenticateToken, ctrl.getFollowingFeed);
 router.get('/channel/:channelId', authenticateToken, ctrl.getChannelWaves);
 router.get('/me/bookmarks', authenticateToken, ctrl.getMyBookmarks);
 router.get('/creator/lock-status', authenticateToken, ctrl.getCreatorLockStatus);
 router.post('/creator/lock-pay', authenticateToken, ctrl.payCreatorLock);
+router.get('/:waveId/thumbnail', optionalAuth, ctrl.getWaveThumbnail);
 router.get('/:waveId', optionalAuth, ctrl.getWave);
 router.post('/:waveId/access-check', optionalAuth, ctrl.checkWaveAccess);
 router.post('/:waveId/access-consent', authenticateToken, ctrl.acknowledgeAdultConsent);
@@ -52,5 +60,7 @@ router.post('/:waveId/classification-report', authenticateToken, ctrl.reportWave
 
 // ─── Admin ─────────────────────────────────────────────────────────────────────
 router.post('/admin/regenerate-thumbnails', authenticateToken, ctrl.regenerateMissingThumbnails);
+router.post('/channel/:channelId/regenerate-thumbnails', authenticateToken, ctrl.regenerateChannelThumbnails);
+router.post('/:waveId/thumbnail', authenticateToken, upload.single('thumbnail'), uploadSingleToGCS, ctrl.uploadWaveThumbnail);
 
 module.exports = router;

@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
 import { downloadSubtitleApi, getSubtitleProxyUrl, searchSubtitlesApi, type Channel, type SubtitleResult, type ScheduleProgram } from "@/lib/api";
+import { getClassificationMeta, getContentLabels, type ContentRating } from "@/lib/content-rating";
 import { ChannelSurfer } from "@/components/ChannelSurfer";
 
 type StreamMode = "native" | "external_url" | "external_youtube" | "external_hls" | "external_dash";
@@ -23,6 +24,14 @@ interface ExternalStreamPlayerProps {
   serverTime?: number;
   schedulerState?: SchedulerState;
   onRefreshUrl?: () => void;
+  contentRating?: ContentRating | null;
+  // Native (upload) stream sync data
+  programStartTime?: number;
+  programEndTime?: number;
+  programDuration?: number;
+  programPosition?: number;
+  isLoop?: boolean;
+  onProgramEnd?: () => void;
 }
 
 type RuntimeMode = "youtube" | "hls" | "dash" | "url" | "unknown";
@@ -193,6 +202,13 @@ export function ExternalStreamPlayer({
   serverTime = Date.now(),
   schedulerState = null,
   onRefreshUrl,
+  contentRating = null,
+  programStartTime,
+  programEndTime,
+  programDuration,
+  programPosition,
+  isLoop = false,
+  onProgramEnd,
 }: ExternalStreamPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -218,7 +234,11 @@ export function ExternalStreamPlayer({
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [activePlaybackUrl, setActivePlaybackUrl] = useState<string | null>(playbackUrl);
   const [httpFallbackTried, setHttpFallbackTried] = useState(false);
-  const [volume, setVolume] = useState(100);
+  const [volume, setVolume] = useState(() => {
+    if (typeof window === "undefined") return 100;
+    const saved = localStorage.getItem("av_player_volume");
+    return saved !== null ? Number(saved) : 100;
+  });
   const [showControls, setShowControls] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -287,6 +307,52 @@ export function ExternalStreamPlayer({
     if (activeQualityLevel < 0) return "Auto";
     return qualityOptions.find((q) => q.levelIndex === activeQualityLevel)?.label ?? "Auto";
   }, [runtimeMode, activeQualityLevel, qualityOptions]);
+
+  // ── Native (upload) stream server-time sync ──────────────────────────────
+  // For upload streams (runtimeMode === "url"), seek to the correct live
+  // position using the backend-provided programPosition so all devices
+  // see the same playback point. No periodic resync — the HLS pipeline
+  // handles continuous playback correctly.
+  const hasNativeSyncedRef = useRef(false);
+
+  useEffect(() => {
+    if (!programStartTime || isLoop || runtimeMode !== "url") return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    hasNativeSyncedRef.current = false;
+
+    const onLoadedMetadata = () => {
+      if (hasNativeSyncedRef.current) return;
+      hasNativeSyncedRef.current = true;
+      // Use backend-provided position (seconds) for one-time seek
+      const seekPos = programPosition ?? 0;
+      if (programDuration && programDuration > 0 && seekPos >= programDuration) {
+        onProgramEnd?.();
+        return;
+      }
+      if (seekPos > 0 && seekPos < (programDuration || Infinity)) {
+        try { video.currentTime = seekPos; } catch {}
+      }
+    };
+
+    const onTimeUpdate = () => {
+      // Check for program end during playback
+      if (!programEndTime) return;
+      const elapsed = video.currentTime * 1000 + programStartTime;
+      if (elapsed >= programEndTime) {
+        onProgramEnd?.();
+      }
+    };
+
+    video.addEventListener("loadedmetadata", onLoadedMetadata);
+    video.addEventListener("timeupdate", onTimeUpdate);
+
+    return () => {
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("timeupdate", onTimeUpdate);
+    };
+  }, [programStartTime, programEndTime, programDuration, programPosition, isLoop, runtimeMode, onProgramEnd]);
 
   const youtubeEmbedUrl = useMemo(() => {
     if (!playbackUrl || runtimeMode !== "youtube") return null;
@@ -437,39 +503,49 @@ export function ExternalStreamPlayer({
             return;
           }
 
-          // Tuned for resilience on unstable networks.
-          // We allow larger retries and slightly conservative ABR up-switching.
+          // Tuned for resilience on unstable/high-latency networks.
+          // Key strategy:
+          //  - Start at lowest quality (startLevel: 0) so first frame appears fast,
+          //    then ABR scales up as bandwidth is measured.
+          //  - Large buffer (120s max) so the player can ride out congestion spikes.
+          //  - Conservative up-switch, aggressive down-switch for smooth ABR.
+          //  - Generous retries because segments now redirect to GCS directly, and
+          //    GCS may occasionally return 5xx under load.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const hls: any = new HlsCtor({
             enableWorker: true,
             lowLatencyMode: false,
             autoStartLoad: true,
-            startLevel: -1,
+            startLevel: 0,
             testBandwidth: true,
             capLevelToPlayerSize: true,
-            maxBufferLength: 20,
-            maxMaxBufferLength: 40,
-            backBufferLength: 30,
-            maxBufferHole: 1,
+            maxBufferLength: 90,
+            maxMaxBufferLength: 120,
+            backBufferLength: 60,
+            highBufferWatchdogPeriod: 2,
+            maxBufferHole: 0.5,
             nudgeOffset: 0.1,
             nudgeMaxRetry: 12,
             liveSyncDurationCount: 4,
             liveMaxLatencyDurationCount: 12,
-            maxLiveSyncPlaybackRate: 1.2,
-            manifestLoadingTimeOut: 15000,
-            manifestLoadingMaxRetry: 6,
+            maxLiveSyncPlaybackRate: 1.1,
+            manifestLoadingTimeOut: 20000,
+            manifestLoadingMaxRetry: 8,
             manifestLoadingRetryDelay: 1000,
-            levelLoadingTimeOut: 15000,
-            levelLoadingMaxRetry: 6,
+            levelLoadingTimeOut: 20000,
+            levelLoadingMaxRetry: 8,
             levelLoadingRetryDelay: 1000,
-            fragLoadingTimeOut: 20000,
-            fragLoadingMaxRetry: 8,
+            fragLoadingTimeOut: 30000,
+            fragLoadingMaxRetry: 10,
             fragLoadingRetryDelay: 1000,
-            fragLoadingMaxRetryTimeout: 8000,
+            fragLoadingMaxRetryTimeout: 10000,
             abrEwmaFastLive: 3.0,
             abrEwmaSlowLive: 9.0,
-            abrBandWidthFactor: 0.8,
-            abrBandWidthUpFactor: 0.6,
+            abrEwmaFastVoD: 3.0,
+            abrEwmaSlowVoD: 9.0,
+            abrBandWidthFactor: 0.75,
+            abrBandWidthUpFactor: 0.4,
+            abrMaxWithRealBitrate: true,
           });
           hlsRef.current = hls;
 
@@ -629,6 +705,10 @@ export function ExternalStreamPlayer({
 
         if (runtimeMode === "url") {
           video.src = activePlaybackUrl;
+          // Enable native looping for loop-mode programs (repeating content)
+          if (isLoop) {
+            video.loop = true;
+          }
           await video.play().catch(() => undefined);
         }
       } catch {
@@ -654,11 +734,12 @@ export function ExternalStreamPlayer({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeMode, activePlaybackUrl, setRecovering, clearPlaybackNotice]);
 
-  // Volume sync
+  // Volume sync + persistence
   useEffect(() => {
     if (!videoRef.current) return;
     videoRef.current.volume = Math.max(0, Math.min(1, volume / 100));
     videoRef.current.muted = volume === 0;
+    try { localStorage.setItem("av_player_volume", String(volume)); } catch {}
   }, [volume]);
 
   // Detect embedded subtitle tracks on native uploads and apply subtitle visibility.
@@ -843,24 +924,24 @@ export function ExternalStreamPlayer({
       if (type === "program_has_no_video") {
         return (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-            <p className="text-sm font-semibold text-av-white">Scheduled video is missing or not uploaded yet</p>
-            <p className="text-xs text-av-light-orange">The creator needs to upload or fix the scheduled video before it can play.</p>
+            <p className="text-sm font-semibold text-av-white">We&apos;ll be right back</p>
+            <p className="text-xs text-av-light-orange">Preparing your next program — stay tuned.</p>
           </div>
         );
       }
       if (type === "offline") {
         return (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-            <p className="text-sm font-semibold text-av-white">Stream is currently offline</p>
-            <p className="text-xs text-av-light-orange">Check back later or contact the channel creator.</p>
+            <p className="text-sm font-semibold text-av-white">We&apos;ll be right back</p>
+            <p className="text-xs text-av-light-orange">Brief intermission — stay tuned.</p>
           </div>
         );
       }
     }
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <p className="text-sm font-semibold text-av-white">Stream source not configured</p>
-        <p className="text-xs text-av-light-orange">Check back later or contact the channel creator.</p>
+        <p className="text-sm font-semibold text-av-white">We&apos;ll be right back</p>
+        <p className="text-xs text-av-light-orange">Brief intermission — stay tuned.</p>
       </div>
     );
   }
@@ -869,17 +950,17 @@ export function ExternalStreamPlayer({
     if (schedulerMessage?.type === "program_has_no_video") {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-sm font-semibold text-av-white">Scheduled video is missing or not uploaded yet</p>
-          <p className="text-xs text-av-light-orange">The creator needs to upload or fix the scheduled video before it can play.</p>
+          <p className="text-sm font-semibold text-av-white">We&apos;ll be right back</p>
+          <p className="text-xs text-av-light-orange">Preparing your next program — stay tuned.</p>
         </div>
       );
     }
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-sm font-semibold text-av-white">
-          {playbackError ?? (streamStatus === "offline" ? "Stream is currently offline" : "Stream source unavailable")}
+          {playbackError ?? (streamStatus === "offline" ? "We&apos;ll be right back" : "We&apos;ll be right back")}
         </p>
-        <p className="text-xs text-av-light-orange">Check back later or contact the channel creator.</p>
+        <p className="text-xs text-av-light-orange">Brief intermission — stay tuned.</p>
       </div>
     );
   }
@@ -936,6 +1017,27 @@ export function ExternalStreamPlayer({
             unoptimized
             className="h-10 w-10 rounded-lg object-cover"
           />
+        </div>
+      )}
+
+      {/* ── Content rating badge — below logo ── */}
+      {contentRating?.age_classification && (
+        <div className="absolute right-3 top-16 flex flex-col items-end gap-1 pointer-events-none">
+          <span
+            className="rounded-md px-2 py-0.5 text-[10px] font-bold backdrop-blur-sm"
+            style={{
+              background: getClassificationMeta(contentRating.age_classification).bg,
+              border: getClassificationMeta(contentRating.age_classification).border,
+              color: getClassificationMeta(contentRating.age_classification).color,
+            }}
+          >
+            {getClassificationMeta(contentRating.age_classification).label}
+          </span>
+          {getContentLabels(contentRating).length > 0 && (
+            <span className="rounded-md bg-black/55 px-1.5 py-0.5 text-[9px] font-semibold text-white/80 backdrop-blur-sm tracking-wide">
+              {getContentLabels(contentRating).join(" · ")}
+            </span>
+          )}
         </div>
       )}
 

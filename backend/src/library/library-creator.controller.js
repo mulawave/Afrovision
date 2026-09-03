@@ -10,7 +10,7 @@
 
 const LibraryService = require('./library.service');
 const LibraryPolicyService = require('./library-policy.service');
-const { generateSignedUploadUrl, extractGCSPath, downloadFromGCS, BUCKET_NAME } = require('../utils/gcs');
+const { generateSignedUploadUrl, createResumableUploadSession, extractGCSPath, downloadFromGCS, setGCSObjectMetadata, uploadToGCS, BUCKET_NAME } = require('../utils/gcs');
 const admin = require('firebase-admin');
 const { PDFDocument } = require('pdf-lib');
 const crypto = require('crypto');
@@ -55,17 +55,32 @@ const LIBRARY_ASSET_EXTENSIONS = {
  * no public-read required) or falls back to HTTP fetch for non-GCS URLs.
  */
 async function fetchBufferFromUrl(url) {
+  console.log(`[fetchBufferFromUrl] Fetching: ${url}`);
   const gcsPath = extractGCSPath(url);
   if (gcsPath) {
-    return downloadFromGCS(gcsPath);
+    console.log(`[fetchBufferFromUrl] Using GCS download for path: ${gcsPath}`);
+    try {
+      const buffer = await downloadFromGCS(gcsPath);
+      console.log(`[fetchBufferFromUrl] GCS download successful, size: ${buffer.length} bytes`);
+      return buffer;
+    } catch (gcsError) {
+      console.error(`[fetchBufferFromUrl] GCS download failed:`, {
+        gcsPath,
+        error: gcsError?.message || String(gcsError),
+      });
+      throw gcsError;
+    }
   }
   // External URL – fall back to HTTP
+  console.log(`[fetchBufferFromUrl] Using HTTP fetch (non-GCS URL)`);
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch asset: ${response.status}`);
   }
   const arr = await response.arrayBuffer();
-  return Buffer.from(arr);
+  const buffer = Buffer.from(arr);
+  console.log(`[fetchBufferFromUrl] HTTP fetch successful, size: ${buffer.length} bytes`);
+  return buffer;
 }
 
 async function getPdfPageCountFromUrl(pdfUrl) {
@@ -186,16 +201,85 @@ exports.createAssetUploadUrl = async (req, res) => {
     if (asset_type === 'reader_page') folder = 'library/page-images';
     const filename = `${folder}/${channelId}/${crypto.randomUUID()}${ext}`;
 
-    const { signedUrl, publicUrl } = await generateSignedUploadUrl(filename, content_type, 30);
+    // Use resumable upload for better CORS support (especially for page images).
+    // Pass the browser origin so GCS includes CORS headers on session requests.
+    const { sessionUrl, publicUrl } = await createResumableUploadSession(filename, content_type, req.headers.origin);
 
     return res.status(200).json({
       success: true,
-      signed_url: signedUrl,
+      signed_url: sessionUrl,  // Return session URL as signed_url for backward compatibility
+      session_url: sessionUrl,
       public_url: publicUrl,
       filename,
     });
   } catch (error) {
     console.error('Error creating library asset upload URL:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * Direct server-side upload for library assets (covers and page images).
+ * POST /creator/channels/:channelId/library/assets
+ * Multipart form: file=<binary>, asset_type=cover|reader_page
+ *
+ * The file travels browser -> backend -> GCS entirely server-side.
+ * No signed URLs, no resumable sessions, no browser-to-GCS CORS. Ever.
+ */
+exports.uploadAssetDirect = async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const userId = req.userId;
+    const assetType = String(req.body?.asset_type || '').trim();
+
+    const canManage = await policyService.canManageLibrary(userId, channelId);
+    if (!canManage) {
+      return res.status(403).json({
+        error: 'Unauthorized',
+        message: 'You do not have permission to manage this channel library',
+      });
+    }
+
+    if (!['cover', 'reader_page'].includes(assetType)) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        message: 'asset_type must be one of: cover, reader_page',
+      });
+    }
+
+    if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        message: 'file is required',
+      });
+    }
+
+    const contentType = req.file.mimetype || 'application/octet-stream';
+    if (!ALLOWED_LIBRARY_ASSET_TYPES[assetType].has(contentType)) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        message: `Unsupported content_type '${contentType}' for ${assetType}`,
+      });
+    }
+
+    const providedExt = path.extname(String(req.file.originalname || '')).toLowerCase();
+    const ext = providedExt || LIBRARY_ASSET_EXTENSIONS[contentType] || '.bin';
+    const folder = assetType === 'cover' ? 'library/covers' : 'library/page-images';
+    const filename = `${folder}/${channelId}/${crypto.randomUUID()}${ext}`;
+
+    const publicUrl = await uploadToGCS(req.file.buffer, filename, contentType);
+    console.log(`[LibraryUpload] Stored ${assetType} (${req.file.buffer.length} bytes) at ${filename}`);
+
+    return res.status(200).json({
+      success: true,
+      public_url: publicUrl,
+      filename,
+    });
+  } catch (error) {
+    console.error('Error uploading library asset directly:', error);
     return res.status(500).json({
       error: 'Internal server error',
       message: error.message,
@@ -236,31 +320,54 @@ exports.generateReaderManifest = async (req, res) => {
     let resolvedPdfUrl = typeof pdf_url === 'string' && pdf_url.trim().length > 0 ? pdf_url.trim() : null;
     let totalPages = 0;
 
-    // Build a PDF for page-image uploads when possible, but do not fail
-    // manifest generation if PDF synthesis fails for an otherwise valid image set.
-    if (!resolvedPdfUrl && pageImageUrls.length > 0) {
-      try {
-        const pdfBuffer = await buildPdfFromImageUrls(pageImageUrls);
-        const pdfFilename = `library/books/${channelId}/${crypto.randomUUID()}.pdf`;
-        const pdfFile = bucket.file(pdfFilename);
-        await pdfFile.save(pdfBuffer, {
-          contentType: 'application/pdf',
-          resumable: false,
-        });
-        resolvedPdfUrl = `https://storage.googleapis.com/${bucket.name}/${pdfFilename}`;
-      } catch (pdfBuildError) {
-        console.warn('PDF synthesis from page images failed; proceeding with image-only manifest:', {
-          channelId,
-          error: pdfBuildError?.message || String(pdfBuildError),
-        });
-      }
-    }
+    // NOTE: Library content is strictly non-downloadable. We never synthesize
+    // PDFs from page images — the reader consumes page images directly.
 
     if (resolvedPdfUrl) {
-      totalPages = await getPdfPageCountFromUrl(resolvedPdfUrl);
+      try {
+        totalPages = await getPdfPageCountFromUrl(resolvedPdfUrl);
+        console.log(`[LibraryManifest] PDF page count extracted: ${totalPages} from ${resolvedPdfUrl}`);
+        
+        // Set Content-Disposition to 'inline' so PDFs display in browser instead of downloading
+        const pdfPath = extractGCSPath(resolvedPdfUrl);
+        if (pdfPath) {
+          try {
+            await setGCSObjectMetadata(pdfPath, {
+              contentDisposition: 'inline',
+              cacheControl: 'public, max-age=31536000',
+            });
+            console.log(`[LibraryManifest] Set contentDisposition=inline for ${pdfPath}`);
+          } catch (metadataError) {
+            console.warn(`[LibraryManifest] Failed to set PDF metadata (non-fatal):`, {
+              pdfPath,
+              error: metadataError?.message || String(metadataError),
+            });
+          }
+        }
+      } catch (pdfCountError) {
+        console.error(`[LibraryManifest] Failed to extract page count from PDF:`, {
+          pdfUrl: resolvedPdfUrl,
+          error: pdfCountError?.message || String(pdfCountError),
+          stack: pdfCountError?.stack,
+        });
+        // If this was a PDF-only upload (no page images), we must fail because we can't determine page count
+        if (pageImageUrls.length === 0) {
+          throw new Error(`Cannot extract page count from PDF: ${pdfCountError?.message || 'Unknown error'}`);
+        }
+        // For image uploads with synthesized PDF, fall back to image count
+        totalPages = 0;
+      }
     }
     if (!Number.isFinite(totalPages) || totalPages <= 0) {
       totalPages = pageImageUrls.length;
+      if (totalPages === 0) {
+        console.error(`[LibraryManifest] No valid pages found - both PDF extraction and pageImageUrls are empty`);
+        throw new Error('No valid pages found - upload failed or PDF is corrupted');
+      }
+      console.warn(`[LibraryManifest] Invalid totalPages from PDF, falling back to pageImageUrls.length: ${totalPages}`, {
+        resolvedPdfUrl,
+        pageImageUrlsCount: pageImageUrls.length,
+      });
     }
 
     const spreadManifest = buildSpreadManifest(totalPages, pageImageUrls);
@@ -419,6 +526,7 @@ exports.createItem = async (req, res) => {
       seriesId: req.body.seriesId,
       seriesOrderIndex: req.body.seriesOrderIndex,
       status: req.body.status || 'draft',
+      isPublic: req.body.isPublic,
     };
 
     const item = await libraryService.createLibraryItem(channelId, payload, userId);
@@ -467,6 +575,7 @@ exports.updateItem = async (req, res) => {
       readerAssetManifestUrl: req.body.readerAssetManifestUrl,
       seriesId: req.body.seriesId,
       seriesOrderIndex: req.body.seriesOrderIndex,
+      isPublic: req.body.isPublic,
     };
 
     // Remove undefined fields
@@ -756,11 +865,14 @@ exports.listItems = async (req, res) => {
       });
     }
 
-    const items = await libraryService.listCreatorItems(channelId);
+    const page = parseInt(req.query.page, 10) || undefined;
+    const limit = parseInt(req.query.limit, 10) || undefined;
+    const result = await libraryService.listCreatorItems(channelId, { page, limit });
 
     return res.status(200).json({
       success: true,
-      data: items,
+      data: result.items,
+      pagination: result.pagination,
     });
   } catch (error) {
     console.error('Error listing creator items:', error);

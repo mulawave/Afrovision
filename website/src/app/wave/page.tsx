@@ -15,9 +15,9 @@ import {
   getChannelWavesApi,
   getChannelApi,
   getChannelLibraryApi,
-  getChannelFollowStatusApi,
-  followChannelApi,
-  unfollowChannelApi,
+  checkChannelSubApi,
+  subscribeToChannelApi,
+  cancelChannelSubApi,
   getChannelLibraryItemDetailApi,
   trackWaveViewApi,
   checkWaveAccessApi,
@@ -402,17 +402,17 @@ function WaveGridTile({
 
 function ChannelInfoSection({
   channel,
-  followersCount,
+  subscriberCount,
   totalReactions,
   onViewChannel,
 }: {
   channel: Channel;
-  followersCount: number;
+  subscriberCount: number;
   totalReactions: number;
   onViewChannel: () => void;
 }) {
   const badge = channelTypeBadge(channel);
-  const displayFollowers = followersCount || channel.followers_count || 0;
+  const displaySubscribers = subscriberCount || channel.subscriber_count || channel.followers_count || 0;
 
   return (
     <div
@@ -452,8 +452,8 @@ function ChannelInfoSection({
         </div>
         <div className="grid grid-cols-2 gap-1.5 mb-2.5" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "8px" }}>
           <div className="text-center">
-            <p className="text-white font-bold text-sm">{formatCount(displayFollowers)}</p>
-            <p className="text-white/40 text-[9px] uppercase tracking-wider">Followers</p>
+            <p className="text-white font-bold text-sm">{formatCount(displaySubscribers)}</p>
+            <p className="text-white/40 text-[9px] uppercase tracking-wider">Subscribers</p>
           </div>
           <div className="text-center">
             <p className="text-white font-bold text-sm">{formatCount(totalReactions)}</p>
@@ -658,7 +658,7 @@ function LibrarySection({
 function LeftPanel({
   channelWaves,
   channelData,
-  channelFollowersCount,
+  channelSubscriberCount,
   totalReactions,
   libraryItems,
   libraryAccess,
@@ -669,7 +669,7 @@ function LeftPanel({
 }: {
   channelWaves: Wave[];
   channelData: Channel | null;
-  channelFollowersCount: number;
+  channelSubscriberCount: number;
   totalReactions: number;
   libraryItems: LibraryItem[];
   libraryAccess: boolean;
@@ -716,7 +716,7 @@ function LeftPanel({
           </div>
           <ChannelInfoSection
             channel={channelData}
-            followersCount={channelFollowersCount}
+            subscriberCount={channelSubscriberCount}
             totalReactions={totalReactions}
             onViewChannel={onViewChannel}
           />
@@ -818,7 +818,9 @@ function WaveCommentsPanel({
                 {c.display_name[0]?.toUpperCase() || "?"}
               </div>
               <div>
-                <span className="text-orange-300 text-xs font-medium">{c.display_name}</span>
+                <Link href={`/u/${c.user_id}`} className="text-orange-300 text-xs font-medium hover:underline transition-colors">
+                  {c.display_name}
+                </Link>
                 <p className="text-white/90 text-sm leading-snug">{c.text}</p>
               </div>
             </div>
@@ -1087,14 +1089,14 @@ function FloatingBoltItem({ item }: { item: FloatingItem }) {
 function ChannelCardOverlay({
   visible,
   channel,
-  channelFollowersCount,
+  channelSubscriberCount,
   totalReactions,
   onClose,
   onViewChannel,
 }: {
   visible: boolean;
   channel: Channel | null;
-  channelFollowersCount: number;
+  channelSubscriberCount: number;
   totalReactions: number;
   onClose: () => void;
   onViewChannel: () => void;
@@ -1168,7 +1170,7 @@ function ChannelCardOverlay({
         <div className="flex items-center gap-4 mt-3 text-[11px]">
           <div className="flex items-center gap-1">
             <svg width="12" height="12" viewBox="0 0 24 24" fill={kGold} fillOpacity={0.7}><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-            <span style={{ color: `${kGold}aa` }}>{formatCount(channelFollowersCount)} followers</span>
+            <span style={{ color: `${kGold}aa` }}>{formatCount(channelSubscriberCount)} subscribers</span>
           </div>
           <div className="flex items-center gap-1">
             <svg width="12" height="12" viewBox="0 0 24 24" fill={kGold} fillOpacity={0.7}><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
@@ -1224,7 +1226,7 @@ function WaveCard({
   onPrevWave,
   phoneMode = false,
   channelData,
-  channelFollowersCount,
+  channelSubscriberCount,
   totalReactions,
   onViewChannel,
 }: {
@@ -1241,7 +1243,7 @@ function WaveCard({
   onPrevWave?: () => void;
   phoneMode?: boolean;
   channelData?: Channel | null;
-  channelFollowersCount?: number;
+  channelSubscriberCount?: number;
   totalReactions?: number;
   onViewChannel?: () => void;
 }) {
@@ -1278,8 +1280,9 @@ function WaveCard({
   const [showSpeedBar, setShowSpeedBar] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [hideAllUI, setHideAllUI] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subLoading, setSubLoading] = useState(false);
+  const [subId, setSubId] = useState<string | null>(null);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const isChannelOwner = Boolean(user && channelData && channelData.owner_id === user.id);
   const classification = getWaveClassificationMeta(wave.age_classification);
@@ -1294,12 +1297,13 @@ function WaveCard({
     });
   }, [wave.id]);
 
-  // Load channel follow status
+  // Load channel subscription status
   useEffect(() => {
     if (!isAuthenticated || !wave.channel_id) return;
-    getChannelFollowStatusApi(wave.channel_id).then((res) => {
-      if (res.ok && "followed" in res.data) {
-        setIsFollowing(res.data.followed);
+    checkChannelSubApi(wave.channel_id).then((res) => {
+      if (res.ok && "subscribed" in res.data) {
+        setIsSubscribed(res.data.subscribed);
+        setSubId(res.data.subscription?.id ?? null);
       }
     });
   }, [wave.channel_id, isAuthenticated]);
@@ -1340,24 +1344,33 @@ function WaveCard({
     }
   }, [wave.id, wave.title]);
 
-  const handleToggleFollow = useCallback(async () => {
-    if (!isAuthenticated || followLoading || !wave.channel_id) return;
-    setFollowLoading(true);
+  const handleToggleSubscribe = useCallback(async () => {
+    if (!isAuthenticated || subLoading || !wave.channel_id) return;
+    setSubLoading(true);
     try {
-      const res = isFollowing
-        ? await unfollowChannelApi(wave.channel_id)
-        : await followChannelApi(wave.channel_id);
-      if (res.ok && "followed" in res.data) {
-        setIsFollowing(res.data.followed);
-        setActionNotice(res.data.followed ? `Now following ${channelData?.name ?? "channel"}` : `Unfollowed ${channelData?.name ?? "channel"}`);
-        setTimeout(() => setActionNotice(null), 2000);
+      if (isSubscribed && subId) {
+        const res = await cancelChannelSubApi(subId);
+        if (res.ok) {
+          setIsSubscribed(false);
+          setSubId(null);
+          setActionNotice(`Unsubscribed from ${channelData?.name ?? "channel"}`);
+          setTimeout(() => setActionNotice(null), 2000);
+        }
+      } else {
+        const res = await subscribeToChannelApi(wave.channel_id);
+        if (res.ok && "subscription" in res.data) {
+          setIsSubscribed(true);
+          setSubId(res.data.subscription.id);
+          setActionNotice(`Subscribed to ${channelData?.name ?? "channel"}`);
+          setTimeout(() => setActionNotice(null), 2000);
+        }
       }
     } catch {
       // ignore
     } finally {
-      setFollowLoading(false);
+      setSubLoading(false);
     }
-  }, [isAuthenticated, followLoading, isFollowing, wave.channel_id, channelData?.name]);
+  }, [isAuthenticated, subLoading, isSubscribed, subId, wave.channel_id, channelData?.name]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -1722,21 +1735,21 @@ function WaveCard({
           </span>
           <span className="text-white/80 text-[10px] font-medium">{formatCount(bookmarkCount)}</span>
         </button>
-        {/* Follow channel button (hidden for channel owner) */}
+        {/* Subscribe to channel button (hidden for channel owner) */}
         {!isChannelOwner && (
           <button
             className="flex flex-col items-center gap-0.5"
-            onClick={handleToggleFollow}
-            disabled={followLoading}
+            onClick={handleToggleSubscribe}
+            disabled={subLoading}
           >
           <div
             className="w-9 h-9 rounded-full flex items-center justify-center transition-all"
             style={{
-              border: `2px solid ${isFollowing ? "rgba(244,150,23,0.7)" : "rgba(255,255,255,0.7)"}`,
-              background: isFollowing ? "rgba(244,150,23,0.15)" : "rgba(0,0,0,0.65)",
+              border: `2px solid ${isSubscribed ? "rgba(244,150,23,0.7)" : "rgba(255,255,255,0.7)"}`,
+              background: isSubscribed ? "rgba(244,150,23,0.15)" : "rgba(0,0,0,0.65)",
             }}
           >
-            {isFollowing ? (
+            {isSubscribed ? (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="#F49617" stroke="#F49617" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
               </svg>
@@ -1780,7 +1793,7 @@ function WaveCard({
         <ChannelCardOverlay
           visible={showChannelCard}
           channel={channelData ?? null}
-          channelFollowersCount={channelFollowersCount ?? 0}
+          channelSubscriberCount={channelSubscriberCount ?? 0}
           totalReactions={totalReactions ?? 0}
           onClose={() => setShowChannelCard(false)}
           onViewChannel={() => {
@@ -1957,7 +1970,7 @@ export default function WavePage() {
   // Channel panel state
   const [channelWaves, setChannelWaves] = useState<Wave[]>([]);
   const [channelData, setChannelData] = useState<Channel | null>(null);
-  const [channelFollowersCount, setChannelFollowersCount] = useState(0);
+  const [channelSubscriberCount, setChannelSubscriberCount] = useState(0);
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
   const [libraryAccess, setLibraryAccess] = useState(true);
   const [loadedChannelId, setLoadedChannelId] = useState<string | null>(null);
@@ -2158,13 +2171,13 @@ export default function WavePage() {
       getChannelApi(channelId),
       getChannelWavesApi(channelId),
       getChannelLibraryApi(channelId, { limit: 20 }),
-      isAuthenticated ? getChannelFollowStatusApi(channelId) : Promise.resolve(null),
+      isAuthenticated ? checkChannelSubApi(channelId) : Promise.resolve(null),
     ]);
 
     if (channelRes.ok && "channel" in channelRes.data) {
       const ch = channelRes.data.channel;
       setChannelData(ch);
-      setChannelFollowersCount(ch.followers_count ?? 0);
+      setChannelSubscriberCount(ch.subscriber_count ?? ch.followers_count ?? 0);
       if (ch.type === "exclusive" && !isAuthenticated) setLibraryAccess(false);
     }
 
@@ -2179,8 +2192,8 @@ export default function WavePage() {
       }
     }
 
-    if (followRes && followRes.ok && "followers_count" in followRes.data) {
-      setChannelFollowersCount(followRes.data.followers_count);
+    if (followRes && followRes.ok && "subscribed" in followRes.data) {
+      // subscription check doesn't return count, use channel data
     }
   }, [isAuthenticated]);
 
@@ -2451,7 +2464,7 @@ export default function WavePage() {
         <LeftPanel
           channelWaves={orderedChannelWaves}
           channelData={channelData}
-          channelFollowersCount={channelFollowersCount}
+          channelSubscriberCount={channelSubscriberCount}
           totalReactions={totalReactions}
           libraryItems={libraryItems}
           libraryAccess={libraryAccess}
@@ -2500,7 +2513,7 @@ export default function WavePage() {
                 onAdvanceWave={advanceWave}
                 phoneMode
                 channelData={channelData}
-                channelFollowersCount={channelFollowersCount}
+                channelSubscriberCount={channelSubscriberCount}
                 totalReactions={totalReactions}
                 onViewChannel={handleViewChannel}
               />
@@ -2566,7 +2579,7 @@ export default function WavePage() {
               onAutoscrollChange={setAutoscroll}
               onAdvanceWave={advanceWave}
               channelData={i === activeIndex ? channelData : undefined}
-              channelFollowersCount={i === activeIndex ? channelFollowersCount : undefined}
+              channelSubscriberCount={i === activeIndex ? channelSubscriberCount : undefined}
               totalReactions={i === activeIndex ? totalReactions : undefined}
               onViewChannel={handleViewChannel}
             />

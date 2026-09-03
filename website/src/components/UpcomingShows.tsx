@@ -255,7 +255,7 @@ export function UpcomingShows({ section }: { section?: HomepageUpcomingSection }
           <div className="text-center py-16 rounded-2xl bg-av-card/50 border border-av-input-border/20">
             <p className="text-4xl mb-3">🗓️</p>
             <p className="text-av-light-orange text-sm">
-              No upcoming shows scheduled. Check back later!
+              No upcoming shows scheduled. Stay tuned!
             </p>
           </div>
         )}

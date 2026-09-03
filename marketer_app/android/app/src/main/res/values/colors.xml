@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#050A30</color>
+    <!-- Accent colour displayed behind the notification icon in the status bar -->
+    <color name="notification_color">#F49617</color>
+</resources>

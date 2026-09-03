@@ -11,7 +11,7 @@ const COLLECTION = 'kyc_records';
 const FIRESTORE_IN_LIMIT = 30;
 
 /* ── Status values ────────────────────────────────────────────── */
-const KYC_STATUSES = ['none', 'pending', 'under_review', 'verified', 'rejected', 'expired'];
+const KYC_STATUSES = ['none', 'pending', 'under_review', 'verified', 'rejected', 'expired', 'minor_pending'];
 
 const ID_TYPES = [
   'national_id',
@@ -244,6 +244,17 @@ async function deleteRecord(id) {
   return removed;
 }
 
+async function countByStatus() {
+  const db = getFirestore();
+  const snap = await db.collection(COLLECTION).get();
+  const counts = {};
+  for (const doc of snap.docs) {
+    const status = doc.data().status || 'pending';
+    counts[status] = (counts[status] || 0) + 1;
+  }
+  return counts;
+}
+
 module.exports = {
   KYC_STATUSES,
   ID_TYPES,
@@ -258,4 +269,5 @@ module.exports = {
   getExpiringSoon,
   getExpired,
   deleteRecord,
+  countByStatus,
 };

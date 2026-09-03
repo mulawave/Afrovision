@@ -2,7 +2,7 @@ import '../../../core/api/api_service.dart';
 import '../models/creator_subscription_model.dart';
 
 class CreatorSubscriptionService {
-  /// Subscribe to a creator. [currency] is 'ngn' or 'vpt'.
+  /// Subscribe to a creator. [currency] is 'ngn', 'vpt', or 'wallet'.
   static Future<CreatorSubscriptionModel> subscribe({
     required String creatorUid,
     String currency = 'ngn',

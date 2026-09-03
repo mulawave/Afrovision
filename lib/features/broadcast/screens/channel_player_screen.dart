@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'dart:async';
-import 'package:video_player/video_player.dart';
+import '../../../core/services/telemetry_service.dart';
+import '../../settings/screens/watch_settings_screen.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
@@ -99,6 +101,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   bool _youtubeReady = false;
   bool _ytEmbedBlocked = false;
   double _ytVolume = 1.0; // YouTube WebView volume (0.0–1.0)
+  late ValueNotifier<double> _systemVolume;
+  StreamSubscription<double>? _volumeSub;
   String _externalRuntimeMode = 'native';
   String? _activePlaybackKey;
   bool _refreshInFlight = false;
@@ -114,6 +118,11 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   static const int _maxSilentRetries = 4;
   Timer? _silentRetryTimer;
   bool _isReconnecting = false;
+
+  // Small grace period before we show a fatal player error. Prevents flashing
+  // the "SIGNAL LOST" screen during sub-second network hiccups.
+  static const _errorDebounceMs = 2000;
+  Timer? _errorDebounceTimer;
 
   // ── Background / PiP state ────────────────────────────────────────────────
   bool _isInBackground = false;
@@ -138,6 +147,13 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       begin: 0,
       end: 1,
     ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
+
+    _systemVolume = ValueNotifier<double>(1.0);
+    VolumeController.instance.showSystemUI = false;
+    _volumeSub = VolumeController.instance.addListener(
+      (volume) => _systemVolume.value = volume,
+      fetchInitialVolume: true,
+    );
 
     // Listen for native PiP mode changes so we can switch to the minimal
     // PiP layout and restore the full UI when the user expands the window.
@@ -176,8 +192,11 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     _hideControlsTimer?.cancel();
 
     _silentRetryTimer?.cancel();
+    _errorDebounceTimer?.cancel();
     _freezeWatchdogTimer?.cancel();
     _animCtrl.dispose();
+    _volumeSub?.cancel();
+    _systemVolume.dispose();
     // Restore portrait orientation
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -217,7 +236,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       // Pause the in-app controllers (PiP keeps playing in its own window).
       _player?.setAppActive(false);
       if (!_isInPiPMode) {
-        _player?.controller?.pause();
+        _player?.pause();
         _pauseYouTubePlayback();
       }
       _eventTimer?.cancel();
@@ -339,12 +358,23 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     // unreliable and can tear down a healthy player on resume.
     if (_isInBackground) return;
 
+    TelemetryService.marker(
+      'channel_player_fetch_now_playing',
+      parameters: {'channel_id': channelId},
+    );
+
     final cachedChannel = ChannelService.getCachedChannelById(channelId);
     final playableSnapshot = BroadcastService.getCachedPlayableSnapshot(
       channelId,
     );
+    final hadActivePlayback =
+        _activePlaybackKey != null || _isExternalPlaybackReady();
     setState(() {
-      _loading = true;
+      // Only show the branded TUNING IN screen on the first load. Subsequent
+      // background refetches must not tear down the player UI.
+      if (!hadActivePlayback) {
+        _loading = true;
+      }
       _error = null;
       _premiumBlocked = false;
       _youtubeReady = false;
@@ -431,7 +461,13 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         ).timeout(const Duration(seconds: 15));
         if (mounted) await _applyPlaybackPayload(channelId, retryData);
       }
-    } catch (e) {
+    } catch (e, st) {
+      TelemetryService.error(
+        'channel_player_fetch_now_playing',
+        e,
+        stackTrace: st,
+        parameters: {'channel_id': channelId},
+      );
       if (e is ApiException && _channelId != null) {
         final msg = e.message.toLowerCase();
         final looksExclusiveBlocked =
@@ -456,10 +492,28 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
       if (!mounted) return;
 
-      // For transient network errors during active playback, retry silently
-      // instead of tearing down the player with an error screen.
       final hadActivePlayback =
           _activePlaybackKey != null || _isExternalPlaybackReady();
+      final networkLevelError = _isNetworkLevelError(e);
+
+      // If the player is already playing and the API call failed because of a
+      // transport/network issue, retry in the background instead of killing the
+      // video with a "Signal lost" overlay.
+      if (hadActivePlayback && networkLevelError) {
+        _silentRetryTimer?.cancel();
+        _silentRetryTimer = Timer(const Duration(seconds: 5), () {
+          if (mounted) _fetchNowPlaying();
+        });
+        setState(() {
+          _isReconnecting = true;
+          _loading = false;
+        });
+        _animCtrl.forward();
+        return;
+      }
+
+      // For other transient, non-ApiException errors during active playback,
+      // use the existing bounded retry logic.
       final isTransientError = e is! ApiException;
       if (hadActivePlayback &&
           isTransientError &&
@@ -514,6 +568,9 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
       if (_activePlaybackKey != playbackKey) {
         _activePlaybackKey = playbackKey;
+        // Keep the branded TUNING IN screen visible until the new player
+        // reports it is initialized.
+        setState(() => _loading = true);
         if (runtimeMode == 'youtube' && _channel != null) {
           // YouTube needs embed rendering path.
           await _initExternalStream(_channel!, startTime, endTime, _duration);
@@ -709,17 +766,9 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       final channels = await ChannelService.getPublicChannels();
       if (!mounted) return;
 
-      var list = channels
-          .where(
-            (c) =>
-                _canFallbackToExternalPlayback(c) ||
-                c.isStreamLive ||
-                c.isStreamScheduled,
-          )
-          .toList();
-      if (list.isEmpty) {
-        list = channels;
-      }
+      // Show every active public/exclusive channel the backend returned so the
+      // surfer and channel list match the full channel count.
+      var list = channels.toList();
       final current = _channel;
       if (current != null && list.indexWhere((c) => c.id == current.id) == -1) {
         list = [current, ...list];
@@ -949,6 +998,18 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     );
   }
 
+  void _openChannelNumberSheet() async {
+    final channel = await showModalBottomSheet<ChannelModel?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ChannelNumberTuneSheet(),
+    );
+    if (channel != null && mounted) {
+      _switchToChannel(channel);
+    }
+  }
+
   Widget _buildSurferTile(ChannelModel item, bool selected, bool compactGrid) {
     return GestureDetector(
       onTap: () {
@@ -1016,6 +1077,15 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     int positionSec,
     bool loop,
   ) async {
+    TelemetryService.marker(
+      'channel_player_init_broadcast',
+      parameters: {
+        'channel_id': _channelId,
+        'start_time': startTime,
+        'end_time': endTime,
+        'duration': duration,
+      },
+    );
     _externalRuntimeMode = 'native';
     final oldPlayer = _player;
     _player = null;
@@ -1056,15 +1126,29 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         if (player.isRecovering) {
           _isReconnecting = true;
           _error = null;
-          _loading = false;
+          _errorDebounceTimer?.cancel();
+          _errorDebounceTimer = null;
+          if (player.value.isInitialized) _loading = false;
         } else if (player.hasError && player.errorMessage != null) {
-          _error = player.errorMessage;
           _isReconnecting = false;
-          _loading = false;
+          if (player.value.isInitialized) _loading = false;
+          // Only start one debounce timer; don't reset it on every update.
+          _errorDebounceTimer ??= Timer(
+            const Duration(milliseconds: _errorDebounceMs),
+            () {
+              if (mounted) {
+                setState(() {
+                  _error = player.errorMessage;
+                });
+              }
+            },
+          );
         } else {
-          _error = null;
+          _errorDebounceTimer?.cancel();
+          _errorDebounceTimer = null;
           _isReconnecting = false;
-          _loading = false;
+          _error = null;
+          if (player.value.isInitialized) _loading = false;
         }
       });
     });
@@ -1094,9 +1178,19 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       _isReconnecting = false;
       setState(() => _loading = false);
       _animCtrl.forward();
+      TelemetryService.marker(
+        'channel_player_init_broadcast_success',
+        parameters: {'channel_id': _channelId},
+      );
       // Enable automatic PiP entry so the video continues when user leaves app.
       unawaited(PipService.setAutoEnterEnabled(true));
-    } catch (e) {
+    } catch (e, st) {
+      TelemetryService.error(
+        'channel_player_init_broadcast',
+        e,
+        stackTrace: st,
+        parameters: {'channel_id': _channelId},
+      );
       final currentChannel = _channel;
       final fallbackRawUrl =
           currentChannel?.resolvedPlaybackUrl ?? currentChannel?.externalUrl;
@@ -1253,8 +1347,23 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     if (_externalRuntimeMode == 'youtube') {
       return _ytWebViewController != null;
     }
-    final controller = _player?.controller;
-    return controller != null && controller.value.isInitialized;
+    return _player?.value.isInitialized == true;
+  }
+
+  /// Returns true for [ApiException]s that are caused by a transport/network
+  /// failure rather than an actual backend response. These should be retried
+  /// silently while the player is still playing instead of showing "Signal lost".
+  bool _isNetworkLevelError(dynamic e) {
+    if (e is! ApiException) return false;
+    if (e.statusCode == 0) return true;
+    final msg = e.message.toLowerCase();
+    return msg.contains('network') ||
+        msg.contains('unavailable') ||
+        msg.contains('timed out') ||
+        msg.contains('timeout') ||
+        msg.contains('socket') ||
+        msg.contains('no internet') ||
+        msg.contains('connection');
   }
 
   String? _extractYouTubeVideoId(String rawUrl) {
@@ -1430,30 +1539,38 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
   void _checkForFreeze() {
     if (_isInBackground) return;
-    final ctrl = _player?.controller;
-    if (ctrl == null || !ctrl.value.isInitialized) return;
-    if (!ctrl.value.isPlaying || (_player?.isBuffering ?? false)) return;
+    final player = _player;
+    if (player == null || !player.value.isInitialized) return;
+    if (!player.value.isPlaying || player.isBuffering) return;
 
-    final pos = ctrl.value.position;
+    final pos = player.value.position;
     final last = _lastKnownPosition;
     if (last != null &&
         (pos - last).abs() < const Duration(milliseconds: 400)) {
       // Position hasn't advanced — player is frozen. Recover silently.
+      TelemetryService.marker(
+        'channel_player_freeze_detected',
+        parameters: {'channel_id': _channelId},
+      );
       _recoverFrozenPlayer();
     }
     _lastKnownPosition = pos;
   }
 
   Future<void> _recoverFrozenPlayer() async {
+    TelemetryService.marker(
+      'channel_player_freeze_recover',
+      parameters: {'channel_id': _channelId},
+    );
     _freezeWatchdogTimer?.cancel();
     _lastKnownPosition = null;
-    final ctrl = _player?.controller;
-    if (ctrl == null || !ctrl.value.isInitialized) return;
+    final player = _player;
+    if (player == null || !player.value.isInitialized) return;
     try {
-      // Seek to current position + 1s to kick ExoPlayer out of the freeze.
-      final target = ctrl.value.position + const Duration(seconds: 1);
-      await ctrl.seekTo(target);
-      await ctrl.play();
+      // Seek to current position + 1s to kick the engine out of the freeze.
+      final target = player.value.position + const Duration(seconds: 1);
+      await player.seekTo(target);
+      await player.play();
     } catch (_) {
       // If seek fails, do a full silent refresh.
       if (mounted && !_isInBackground) _fetchNowPlaying();
@@ -1551,6 +1668,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   }
 
   void _onAdBreakComplete() {
+    TelemetryService.marker('channel_player_ad_break_complete');
     _player?.resumeFromAd();
     setState(() {
       _showAdBreak = false;
@@ -1593,6 +1711,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   // ─── Fullscreen ───
 
   void _enterFullscreen() {
+    TelemetryService.marker('channel_player_enter_fullscreen');
     setState(() => _isFullscreen = true);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
@@ -1603,6 +1722,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   }
 
   void _exitFullscreen() {
+    TelemetryService.marker('channel_player_exit_fullscreen');
     setState(() {
       _isFullscreen = false;
       _showFullscreenControls = true;
@@ -1633,10 +1753,10 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
   Widget _buildPiPView() {
     // Show only the video surface. We intentionally reuse the same player
-    // widgets (VideoPlayer / WebViewWidget) that are already rendering —
-    // creating new instances would interrupt playback.
-    final ctrl = _player?.controller;
-    final initialized = ctrl != null && ctrl.value.isInitialized;
+    // widgets that are already rendering — creating new instances would
+    // interrupt playback.
+    final player = _player;
+    final initialized = player != null && player.value.isInitialized;
     final useYT =
         _externalRuntimeMode == 'youtube' && _ytWebViewController != null;
     return Scaffold(
@@ -1646,8 +1766,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
           : initialized
           ? Center(
               child: AspectRatio(
-                aspectRatio: ctrl.value.aspectRatio,
-                child: VideoPlayer(ctrl),
+                aspectRatio: player.value.aspectRatio,
+                child: player.buildVideo(),
               ),
             )
           : const SizedBox.shrink(),
@@ -1757,8 +1877,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   }
 
   Widget _buildFullscreenPlayer() {
-    final ctrl = _player?.controller;
-    final initialized = ctrl != null && ctrl.value.isInitialized;
+    final player = _player;
+    final initialized = player != null && player.value.isInitialized;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -1771,8 +1891,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
             if (initialized)
               Center(
                 child: AspectRatio(
-                  aspectRatio: ctrl.value.aspectRatio,
-                  child: VideoPlayer(ctrl),
+                  aspectRatio: player.value.aspectRatio,
+                  child: player.buildVideo(),
                 ),
               )
             else
@@ -1783,7 +1903,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
             GiftOverlay(key: _overlayKey),
             // Timer overlay (top-left)
             if (initialized)
-              Positioned(top: 12, left: 12, child: _buildTimerOverlay(ctrl)),
+              Positioned(top: 12, left: 12, child: _buildTimerOverlay(player)),
             // Channel logo + name (top-right)
             if (_channel != null)
               Positioned(top: 12, right: 12, child: _buildChannelBadge()),
@@ -2024,6 +2144,23 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
           ),
         ),
         const SizedBox(width: 8),
+        // Watch settings
+        GestureDetector(
+          onTap: _openWatchSettings,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.settings_rounded,
+              color: AppColors.white,
+              size: 22,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
         // Dashboard quick jump
         GestureDetector(
           onTap: _goDashboard,
@@ -2053,6 +2190,17 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     }
   }
 
+  void _openWatchSettings() {
+    TelemetryService.marker(
+      'channel_player_open_watch_settings',
+      parameters: {'channel_id': _channelId},
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const WatchSettingsScreen()),
+    );
+  }
+
   /// Handles the back button / back gesture on the player screen.
   ///
   /// When content is actively playing, shows an in-app floating mini-player
@@ -2061,8 +2209,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   /// playing.
   Future<void> _handleBackPress() async {
     final isNativePlaying =
-        _player?.controller?.value.isInitialized == true &&
-        _player!.controller!.value.isPlaying;
+        _player?.value.isInitialized == true &&
+        _player!.value.isPlaying;
     final isYouTubePlaying =
         _externalRuntimeMode == 'youtube' &&
         _ytWebViewController != null &&
@@ -2077,8 +2225,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
   Future<void> _onManualPiPTap() async {
     final isNativePlaying =
-        _player?.controller?.value.isInitialized == true &&
-        _player!.controller!.value.isPlaying;
+        _player?.value.isInitialized == true &&
+        _player!.value.isPlaying;
     final isYouTubePlaying =
         _externalRuntimeMode == 'youtube' &&
         _ytWebViewController != null &&
@@ -2119,6 +2267,11 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   void _enterFloatingMode() {
     if (!mounted) return;
 
+    TelemetryService.marker(
+      'channel_player_enter_floating',
+      parameters: {'channel_id': _channelId},
+    );
+
     final channelId = _channelId ?? '';
 
     // Mark that controllers are being handed to the overlay so dispose()
@@ -2127,8 +2280,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
     FloatingPlayerService.instance.show(
       context: context,
-      videoController: _externalRuntimeMode != 'youtube'
-          ? _player?.controller
+      broadcastPlayer: _externalRuntimeMode != 'youtube'
+          ? _player
           : null,
       ytController: _externalRuntimeMode == 'youtube'
           ? _ytWebViewController
@@ -2142,10 +2295,11 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     Navigator.pop(context);
   }
 
-  Widget _buildTimerOverlay(VideoPlayerController ctrl) {
-    return ValueListenableBuilder(
-      valueListenable: ctrl,
-      builder: (_, value, __) {
+  Widget _buildTimerOverlay(BroadcastPlayer player) {
+    return AnimatedBuilder(
+      animation: player,
+      builder: (_, __) {
+        final value = player.value;
         final sec = value.position.inSeconds;
         final m = (sec ~/ 60).toString().padLeft(2, '0');
         final s = (sec % 60).toString().padLeft(2, '0');
@@ -2277,14 +2431,16 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  spacing: 0,
+                  runSpacing: 2,
                   children: [
                     GestureDetector(
                       onTap: _onManualPiPTap,
                       child: Container(
-                        margin: const EdgeInsets.only(right: 6),
-                        padding: const EdgeInsets.all(7),
+                        padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           color: AppColors.cardBg,
                           borderRadius: BorderRadius.circular(10),
@@ -2295,15 +2451,14 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                         child: const Icon(
                           Icons.picture_in_picture_alt_rounded,
                           color: AppColors.lightOrange,
-                          size: 15,
+                          size: 14,
                         ),
                       ),
                     ),
                     GestureDetector(
                       onTap: _shareChannel,
                       child: Container(
-                        margin: const EdgeInsets.only(right: 6),
-                        padding: const EdgeInsets.all(7),
+                        padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           color: AppColors.cardBg,
                           borderRadius: BorderRadius.circular(10),
@@ -2314,14 +2469,14 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                         child: const Icon(
                           Icons.share_rounded,
                           color: AppColors.lightOrange,
-                          size: 15,
+                          size: 14,
                         ),
                       ),
                     ),
                     GestureDetector(
                       onTap: _goDashboard,
                       child: Container(
-                        padding: const EdgeInsets.all(7),
+                        padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           color: AppColors.cardBg,
                           borderRadius: BorderRadius.circular(10),
@@ -2332,7 +2487,43 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                         child: const Icon(
                           Icons.home_rounded,
                           color: AppColors.lightOrange,
-                          size: 15,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _openWatchSettings,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppColors.cardBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppColors.inputBorder.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.settings_rounded,
+                          color: AppColors.lightOrange,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _openChannelNumberSheet,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppColors.cardBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppColors.inputBorder.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.dialpad_rounded,
+                          color: AppColors.lightOrange,
+                          size: 14,
                         ),
                       ),
                     ),
@@ -2357,21 +2548,25 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
-                            Icons.people_alt_rounded,
-                            color: AppColors.goldText,
-                            size: 12,
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.people_alt_rounded,
+                                color: AppColors.goldText,
+                                size: 12,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '$_followersCount',
+                                style: const TextStyle(
+                                  color: AppColors.goldText,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '$_followersCount',
-                            style: const TextStyle(
-                              color: AppColors.goldText,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
                           _followLoading
                               ? const SizedBox(
                                   width: 12,
@@ -2399,48 +2594,6 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
               ],
             ),
           ),
-          if (_nowPlaying != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: _isLoop
-                    ? const Color(0xFFE53935).withValues(alpha: 0.2)
-                    : AppColors.orange.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _isLoop
-                      ? const Color(0xFFE53935).withValues(alpha: 0.5)
-                      : AppColors.orange.withValues(alpha: 0.5),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _isLoop
-                      ? _PulsingDot(color: const Color(0xFFE53935))
-                      : Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: AppColors.orange,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _isLoop ? 'RERUN' : 'LIVE',
-                    style: TextStyle(
-                      color: _isLoop
-                          ? const Color(0xFFE53935)
-                          : AppColors.orange,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );
@@ -2515,12 +2668,15 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
     // Silent retry in progress — keep showing the active player with a
     // subtle reconnecting badge rather than flashing "no program".
-    if (_isReconnecting && _isExternalPlaybackReady()) {
+    if (_isReconnecting &&
+        (_activePlaybackKey != null || _isExternalPlaybackReady())) {
       return Stack(children: [_buildPlayer(), _buildReconnectingBadge()]);
     }
 
-    // No program currently playing (and no external stream fallback active)
-    if (_nowPlaying == null && !_isExternalPlaybackReady()) {
+    // No program currently playing (and no active player or external stream)
+    if (_nowPlaying == null &&
+        _activePlaybackKey == null &&
+        !_isExternalPlaybackReady()) {
       return _buildNoProgram();
     }
 
@@ -3124,8 +3280,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   }
 
   Widget _buildPlayer() {
-    final ctrl = _player?.controller;
-    final initialized = ctrl != null && ctrl.value.isInitialized;
+    final player = _player;
+    final initialized = player != null && player.value.isInitialized;
     final useYouTubeEmbed =
         _externalRuntimeMode == 'youtube' && _ytWebViewController != null;
 
@@ -3141,8 +3297,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                 if (initialized)
                   Center(
                     child: AspectRatio(
-                      aspectRatio: ctrl.value.aspectRatio,
-                      child: VideoPlayer(ctrl),
+                      aspectRatio: player.value.aspectRatio,
+                      child: player.buildVideo(),
                     ),
                   )
                 else if (useYouTubeEmbed)
@@ -3162,12 +3318,14 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                       ),
                     ),
                   ),
-                // Buffering overlay
+                // Buffering overlay (suppressed during a reconnect to avoid
+                // showing two spinners at once).
                 if (!useYouTubeEmbed &&
-                    _player?.isBuffering == true &&
-                    initialized)
+                    player?.isBuffering == true &&
+                    initialized &&
+                    !_isReconnecting)
                   AspectRatio(
-                    aspectRatio: ctrl.value.aspectRatio,
+                    aspectRatio: player.value.aspectRatio,
                     child: Container(
                       color: Colors.black.withValues(alpha: 0.4),
                       child: const Center(
@@ -3337,7 +3495,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                   ),
                 // Timer overlay (top-left)
                 if (initialized)
-                  Positioned(top: 8, left: 8, child: _buildTimerOverlay(ctrl)),
+                  Positioned(top: 8, left: 8, child: _buildTimerOverlay(player)),
                 // Channel logo + name badge (top-right)
                 if (_channel != null)
                   Positioned(top: 8, right: 8, child: _buildChannelBadge()),
@@ -3593,6 +3751,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                           ),
                         ),
                       ],
+                      const SizedBox(height: 6),
+                      _buildLiveRerunBadge(),
                     ],
                   ),
                 ),
@@ -3620,17 +3780,53 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   }
 
   Widget _buildLiveIndicator() {
-    final ctrl = _player?.controller;
-    if (ctrl == null || !ctrl.value.isInitialized) {
-      return const SizedBox.shrink();
-    }
+    // Timer is now shown as an overlay on the video — see _buildPlayer()
+    return const SizedBox.shrink();
+  }
 
-    return ValueListenableBuilder(
-      valueListenable: ctrl,
-      builder: (_, value, __) {
-        // Timer is now shown as an overlay on the video — see _buildPlayer()
-        return const SizedBox.shrink();
-      },
+  /// Live / Rerun badge shown under the channel logo in the info row.
+  Widget _buildLiveRerunBadge() {
+    if (_nowPlaying == null) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: _isLoop
+            ? const Color(0xFFE53935).withValues(alpha: 0.2)
+            : AppColors.orange.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: _isLoop
+              ? const Color(0xFFE53935).withValues(alpha: 0.5)
+              : AppColors.orange.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _isLoop
+              ? _PulsingDot(color: const Color(0xFFE53935))
+              : Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: AppColors.orange,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+          const SizedBox(width: 6),
+          Text(
+            _isLoop ? 'RERUN' : 'LIVE',
+            style: TextStyle(
+              color: _isLoop
+                  ? const Color(0xFFE53935)
+                  : AppColors.orange,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3667,25 +3863,25 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
       );
     }
 
-    // Native player mode
-    final ctrl = _player?.controller;
-    if (ctrl == null || !ctrl.value.isInitialized) {
-      return const SizedBox.shrink();
-    }
-    return ValueListenableBuilder(
-      valueListenable: ctrl,
-      builder: (_, value, __) {
+    // Native player mode — slider controls the phone's main volume, not just
+    // this app's player gain, so it behaves like the hardware volume keys.
+    return ValueListenableBuilder<double>(
+      valueListenable: _systemVolume,
+      builder: (_, volume, __) {
         return Row(
           children: [
             Icon(
-              value.volume > 0 ? Icons.volume_up : Icons.volume_off,
+              volume > 0 ? Icons.volume_up : Icons.volume_off,
               color: AppColors.hintText,
               size: 22,
             ),
             Expanded(
               child: Slider(
-                value: value.volume,
-                onChanged: (v) => _player!.setVolume(v),
+                value: volume,
+                onChanged: (v) {
+                  _systemVolume.value = v;
+                  VolumeController.instance.setVolume(v);
+                },
                 activeColor: AppColors.orange,
                 inactiveColor: AppColors.inputBorder.withValues(alpha: 0.3),
               ),
@@ -4777,6 +4973,195 @@ class _PulsingDotState extends State<_PulsingDot>
         width: 8,
         height: 8,
         decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+      ),
+    );
+  }
+}
+
+/// Bottom sheet for tuning to a channel by number.
+///
+/// Uses its own [State] so the [TextEditingController] and [FocusNode] are
+/// disposed correctly, avoiding the `_dependents.isEmpty` assertion seen with
+/// [StatefulBuilder].
+class _ChannelNumberTuneSheet extends StatefulWidget {
+  const _ChannelNumberTuneSheet();
+
+  @override
+  State<_ChannelNumberTuneSheet> createState() =>
+      _ChannelNumberTuneSheetState();
+}
+
+class _ChannelNumberTuneSheetState extends State<_ChannelNumberTuneSheet> {
+  late TextEditingController _controller;
+  late FocusNode _focusNode;
+  bool _loading = false;
+  String _error = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _tune() async {
+    final number = _controller.text.trim();
+    if (number.isEmpty) {
+      setState(() => _error = 'Enter a channel number');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = '';
+    });
+    try {
+      final channel = await ChannelService.getChannelByNumber(number);
+      if (!mounted) return;
+      Navigator.pop(context, channel);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Channel not found';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.darkBlue,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.goldText.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                child: Row(
+                  children: [
+                    const Text(
+                      'TUNE BY NUMBER',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.4,
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: const Icon(
+                        Icons.close_rounded,
+                        color: AppColors.goldText,
+                        size: 22,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: AppColors.white),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: AppColors.inputFill,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                          const BorderSide(color: AppColors.inputBorder),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                          const BorderSide(color: AppColors.inputBorder),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.orange),
+                    ),
+                    hintText: 'e.g. 839271',
+                    hintStyle: TextStyle(
+                      color: AppColors.hintText.withValues(alpha: 0.6),
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.tag_rounded,
+                      color: AppColors.goldText,
+                    ),
+                    errorText: _error.isNotEmpty ? _error : null,
+                  ),
+                  onChanged: (_) {
+                    if (_error.isNotEmpty) {
+                      setState(() => _error = '');
+                    }
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _tune,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.orange,
+                      disabledBackgroundColor:
+                          AppColors.orange.withValues(alpha: 0.4),
+                      foregroundColor: AppColors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.white,
+                            ),
+                          )
+                        : const Text(
+                            'TUNE',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

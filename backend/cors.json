@@ -1,0 +1,17 @@
+[
+  {
+    "maxAgeSeconds": 3600,
+    "method": ["GET", "HEAD", "OPTIONS", "PUT", "POST", "DELETE"],
+    "origin": ["*"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Range",
+      "Accept-Ranges",
+      "Content-Length",
+      "Range",
+      "ETag",
+      "x-goog-resumable",
+      "x-goog-meta-*"
+    ]
+  }
+]

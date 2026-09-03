@@ -10,5 +10,7 @@ router.delete('/channel/:id/cancel', authenticateToken, ctrl.cancel);
 router.get('/channel/mine', authenticateToken, ctrl.getMine);
 router.get('/channel/check/:channelId', authenticateToken, ctrl.check);
 router.get('/channel/subscribers/:channelId', authenticateToken, ctrl.getSubscribers);
+router.post('/channel/:channelId/ban-subscriber', authenticateToken, ctrl.banSubscriber);
+router.post('/channel/:channelId/unban-subscriber', authenticateToken, ctrl.unbanSubscriber);
 
 module.exports = router;

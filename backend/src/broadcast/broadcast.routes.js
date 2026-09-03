@@ -35,6 +35,8 @@ router.post(
   ctrl.uploadThumbnail
 );
 router.delete('/videos/:videoId', authenticateToken, ctrl.deleteVideo);
+router.patch('/videos/:videoId/content-rating', authenticateToken, ctrl.updateVideoContentRating);
+router.post('/videos/:videoId/retry-transcode', authenticateToken, ctrl.retryVideoTranscode);
 
 // Schedule management (creator)
 router.post('/schedule', authenticateToken, ctrl.scheduleProgram);

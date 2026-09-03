@@ -19,8 +19,9 @@ const {
   createResumableUploadSession,
   getGCSObjectMetadata,
   extractGCSPath,
-  generateSignedReadUrl,
+  resolvePlayableUrl,
   getBucket,
+  BUCKET_NAME,
 } = require('../utils/gcs');
 const { getFirestore } = require('../utils/firestore');
 
@@ -33,18 +34,47 @@ const ALLOWED_VIDEO_TYPES = {
 
 const UPLOAD_SESSIONS_COLLECTION = 'broadcast_upload_sessions';
 
-async function resolvePlayableVideoUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
-  const gcsPath = extractGCSPath(rawUrl);
-  if (!gcsPath) return rawUrl;
+const AGE_CLASSIFICATION_VALUES = new Set(['minor_safe', 'teen', 'adult']);
 
-  try {
-    // 24-hour expiry so long viewing sessions and looped content don't break.
-    return await generateSignedReadUrl(gcsPath, 1440);
-  } catch (error) {
-    console.warn('[Broadcast] Failed to sign playback URL, falling back to raw URL:', error.message);
-    return rawUrl;
+const CONTENT_RATING_FIELDS = [
+  'age_classification',
+  'has_explicit_language',
+  'has_nudity',
+  'has_violence',
+  'has_revealing_clothes',
+  'has_partial_nudity',
+  'has_explicit_content',
+  'has_parental_guidance',
+  'has_erotic_dancing',
+  'has_sexual_nature',
+  'has_sex',
+];
+
+function extractContentRating(body) {
+  const rating = {};
+  for (const key of CONTENT_RATING_FIELDS) {
+    if (body[key] !== undefined) {
+      rating[key] = body[key];
+    }
   }
+  return rating;
+}
+
+function validateContentRating(rating, isPublicChannel) {
+  const ac = rating.age_classification;
+  if (ac !== undefined) {
+    if (!AGE_CLASSIFICATION_VALUES.has(String(ac).toLowerCase())) {
+      return 'age_classification must be one of: minor_safe, teen, adult';
+    }
+    if (isPublicChannel && String(ac).toLowerCase() === 'adult') {
+      return 'Public channels cannot upload 18+ content. Use minor_safe or teen only.';
+    }
+  }
+  return null;
+}
+
+async function resolvePlayableVideoUrl(rawUrl) {
+  return resolvePlayableUrl(rawUrl, 1440);
 }
 
 function buildUploadSessionResponse(session) {
@@ -113,10 +143,16 @@ async function prepareAdaptiveVideo(video) {
     const transcoding = await TranscoderService.startTranscode(video);
     return await Video.update(video.id, transcoding);
   } catch (error) {
-    console.error(`[Transcoder] Failed to queue video ${video.id}:`, error.message);
+    console.error(`[Transcoder] Failed to queue video ${video.id}:`, error.message, {
+      videoUrl: video.video_url,
+      code: error.code,
+      status: error.status,
+      errors: error.errors,
+      stack: error.stack?.split('\n').slice(0, 5).join(' '),
+    });
     return await Video.update(video.id, {
       transcoding_status: 'failed',
-      transcoding_error: error.message,
+      transcoding_error: error.message?.slice(0, 500) || 'Unknown transcoding error',
     });
   }
 }
@@ -148,7 +184,7 @@ async function registerUploadedVideo(req, res) {
       return res.status(403).json({ error: 'Only creators can upload videos' });
     }
 
-    const { channel_id, title, description, duration, video_url } = req.body;
+    const { channel_id, title, description, duration, video_url, ...restBody } = req.body;
     if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
     if (!title) return res.status(400).json({ error: 'title is required' });
     if (!description || !description.trim()) return res.status(400).json({ error: 'description is required' });
@@ -170,6 +206,13 @@ async function registerUploadedVideo(req, res) {
       return res.status(400).json({ error: 'Only native channels support uploaded and scheduled videos' });
     }
 
+    const contentRating = extractContentRating(restBody);
+    if (!contentRating.age_classification) {
+      contentRating.age_classification = 'teen';
+    }
+    const ratingError = validateContentRating(contentRating, channel.type === 'public');
+    if (ratingError) return res.status(400).json({ error: ratingError });
+
     let video = await Video.create({
       creatorUid: req.userId,
       channelId: channel_id,
@@ -178,6 +221,17 @@ async function registerUploadedVideo(req, res) {
       videoUrl: video_url,
       thumbnailUrl: null,
       duration: duration ? parseInt(duration, 10) : 0,
+      ageClassification: contentRating.age_classification,
+      hasExplicitLanguage: contentRating.has_explicit_language,
+      hasNudity: contentRating.has_nudity,
+      hasViolence: contentRating.has_violence,
+      hasRevealingClothes: contentRating.has_revealing_clothes,
+      hasPartialNudity: contentRating.has_partial_nudity,
+      hasExplicitContent: contentRating.has_explicit_content,
+      hasParentalGuidance: contentRating.has_parental_guidance,
+      hasEroticDancing: contentRating.has_erotic_dancing,
+      hasSexualNature: contentRating.has_sexual_nature,
+      hasSex: contentRating.has_sex,
     });
     video = await prepareAdaptiveVideo(video);
 
@@ -208,6 +262,7 @@ async function createVideoResumableSession(req, res) {
       file_name,
       content_type,
       file_size,
+      ...restBody
     } = req.body;
 
     if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
@@ -225,9 +280,16 @@ async function createVideoResumableSession(req, res) {
       return res.status(ownerCheck.error.status).json({ error: ownerCheck.error.message });
     }
 
+    const contentRating = extractContentRating(restBody);
+    if (!contentRating.age_classification) {
+      contentRating.age_classification = 'teen';
+    }
+    const ratingError = validateContentRating(contentRating, ownerCheck.channel.type === 'public');
+    if (ratingError) return res.status(400).json({ error: ratingError });
+
     const ext = ALLOWED_VIDEO_TYPES[content_type] || path.extname(file_name || '').toLowerCase() || '.mp4';
     const filename = `videos/${crypto.randomUUID()}${ext}`;
-    const { sessionUrl, publicUrl } = await createResumableUploadSession(filename, content_type);
+    const { sessionUrl, publicUrl } = await createResumableUploadSession(filename, content_type, req.headers.origin);
     const now = Date.now();
     const sessionId = crypto.randomUUID();
     const totalBytes = Number.isFinite(Number(file_size)) ? Math.max(0, parseInt(file_size, 10)) : 0;
@@ -252,6 +314,17 @@ async function createVideoResumableSession(req, res) {
       created_at: now,
       updated_at: now,
       expires_at: now + 24 * 60 * 60 * 1000,
+      age_classification: contentRating.age_classification,
+      has_explicit_language: contentRating.has_explicit_language || false,
+      has_nudity: contentRating.has_nudity || false,
+      has_violence: contentRating.has_violence || false,
+      has_revealing_clothes: contentRating.has_revealing_clothes || false,
+      has_partial_nudity: contentRating.has_partial_nudity || false,
+      has_explicit_content: contentRating.has_explicit_content || false,
+      has_parental_guidance: contentRating.has_parental_guidance || false,
+      has_erotic_dancing: contentRating.has_erotic_dancing || false,
+      has_sexual_nature: contentRating.has_sexual_nature || false,
+      has_sex: contentRating.has_sex || false,
     };
 
     const db = getFirestore();
@@ -414,6 +487,17 @@ async function completeVideoResumableSession(req, res) {
       videoUrl: session.public_url,
       thumbnailUrl: null,
       duration: session.duration ? parseInt(session.duration, 10) : 0,
+      ageClassification: session.age_classification || 'teen',
+      hasExplicitLanguage: session.has_explicit_language,
+      hasNudity: session.has_nudity,
+      hasViolence: session.has_violence,
+      hasRevealingClothes: session.has_revealing_clothes,
+      hasPartialNudity: session.has_partial_nudity,
+      hasExplicitContent: session.has_explicit_content,
+      hasParentalGuidance: session.has_parental_guidance,
+      hasEroticDancing: session.has_erotic_dancing,
+      hasSexualNature: session.has_sexual_nature,
+      hasSex: session.has_sex,
     });
     video = await prepareAdaptiveVideo(video);
 
@@ -625,8 +709,11 @@ async function uploadThumbnail(req, res) {
 
 async function getChannelVideos(req, res) {
   try {
-    const videos = await Video.getByChannel(req.params.channelId);
-    res.json({ videos: await Promise.all(videos.map(refreshAdaptiveVideo)) });
+    const page = parseInt(req.query.page, 10) || undefined;
+    const limit = parseInt(req.query.limit, 10) || undefined;
+    const result = await Video.getByChannel(req.params.channelId, { page, limit });
+    const videos = await Promise.all(result.videos.map(refreshAdaptiveVideo));
+    res.json({ videos, pagination: result.pagination });
   } catch (err) {
     console.error('[Broadcast] getChannelVideos error:', err.message);
     res.status(500).json({ error: err.message });
@@ -635,8 +722,11 @@ async function getChannelVideos(req, res) {
 
 async function getMyVideos(req, res) {
   try {
-    const videos = await Video.getByCreator(req.userId);
-    res.json({ videos: await Promise.all(videos.map(refreshAdaptiveVideo)) });
+    const page = parseInt(req.query.page, 10) || undefined;
+    const limit = parseInt(req.query.limit, 10) || undefined;
+    const result = await Video.getByCreator(req.userId, { page, limit });
+    const videos = await Promise.all(result.videos.map(refreshAdaptiveVideo));
+    res.json({ videos, pagination: result.pagination });
   } catch (err) {
     console.error('[Broadcast] getMyVideos error:', err.message);
     res.status(500).json({ error: err.message });
@@ -653,6 +743,33 @@ async function deleteVideo(req, res) {
     await Video.remove(video.id);
     res.json({ message: 'Video deleted' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function updateVideoContentRating(req, res) {
+  try {
+    const video = await Video.findById(req.params.videoId);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+    if (video.creator_uid !== req.userId) {
+      return res.status(403).json({ error: 'Not video owner' });
+    }
+
+    const channel = await Channel.findById(video.channel_id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const contentRating = extractContentRating(req.body);
+    if (!contentRating.age_classification) {
+      return res.status(400).json({ error: 'age_classification is required' });
+    }
+    const ratingError = validateContentRating(contentRating, channel.type === 'public');
+    if (ratingError) return res.status(400).json({ error: ratingError });
+
+    const updated = await Video.update(video.id, contentRating);
+    if (!updated) return res.status(500).json({ error: 'Failed to update video' });
+    res.json({ video: updated });
+  } catch (err) {
+    console.error('[Broadcast] updateVideoContentRating error:', err.message);
     res.status(500).json({ error: err.message });
   }
 }
@@ -685,7 +802,7 @@ async function scheduleProgram(req, res) {
 
     const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    if (channel.owner_id !== req.userId) {
+    if (channel.owner_id !== req.userId && user.role !== 'admin') {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
@@ -760,7 +877,9 @@ async function deleteProgram(req, res) {
     if (!program) return res.status(404).json({ error: 'Program not found' });
 
     const channel = await Channel.findById(program.channel_id);
-    if (!channel || channel.owner_id !== req.userId) {
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const user = await User.findById(req.userId);
+    if (channel.owner_id !== req.userId && user?.role !== 'admin') {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
@@ -787,7 +906,7 @@ async function scheduleSequential(req, res) {
 
     const channel = await Channel.findById(channel_id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    if (channel.owner_id !== req.userId) {
+    if (channel.owner_id !== req.userId && user.role !== 'admin') {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
@@ -860,7 +979,24 @@ async function streamAdaptiveAsset(req, res) {
     const video = await Video.findById(req.params.videoId);
     if (!video) return res.status(404).json({ error: 'Video not found' });
 
-    const objectPath = `${video.hls_output_prefix || TranscoderService.getOutputPrefix(video.id)}/${assetPath}`;
+    const outputPrefix = video.hls_output_prefix || TranscoderService.getOutputPrefix(video.id);
+    const objectPath = `${outputPrefix}/${assetPath}`;
+    const extension = path.extname(assetPath).toLowerCase();
+
+    // ── Video segments: redirect directly to the PUBLIC GCS object ───────────
+    // Broadcast TV channel HLS output (hls/{videoId}/...) is served from a
+    // publicly-readable prefix — these are free-to-air channels with no
+    // per-segment access gating (route is optionalAuth only). Skipping GCS
+    // URL signing entirely removes the IAM signBlob network round-trip that
+    // was the dominant source of live-channel buffering.
+    if (extension === '.ts' || extension === '.m4s') {
+      const publicUrl = `https://storage.googleapis.com/${BUCKET_NAME}/${objectPath}`;
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.redirect(302, publicUrl);
+    }
+
+    // ── Manifests and fallback proxy ─────────────────────────────────────────
     const file = getBucket().file(objectPath);
     let metadata;
     try {
@@ -887,7 +1023,6 @@ async function streamAdaptiveAsset(req, res) {
       res.setHeader('Content-Length', size);
     }
 
-    const extension = path.extname(assetPath).toLowerCase();
     const contentTypes = {
       '.m3u8': 'application/vnd.apple.mpegurl',
       '.ts': 'video/mp2t',
@@ -897,7 +1032,7 @@ async function streamAdaptiveAsset(req, res) {
     };
     res.setHeader('Content-Type', metadata.contentType || contentTypes[extension] || 'application/octet-stream');
     res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', extension === '.m3u8' ? 'public, max-age=30' : 'public, max-age=31536000, immutable');
+    res.setHeader('Cache-Control', extension === '.m3u8' ? 'no-cache' : 'public, max-age=31536000, immutable');
 
     const requestedQuality = Number(req.query.quality || 0);
     if (extension === '.m3u8' && assetPath === 'master.m3u8' && requestedQuality > 0) {
@@ -1016,6 +1151,17 @@ async function getNowPlaying(req, res) {
           adaptive: playbackSource === video.master_playlist_url,
           available_renditions: video.available_renditions || [],
           transcoding_status: video.transcoding_status || 'unavailable',
+          age_classification: video.age_classification || null,
+          has_explicit_language: video.has_explicit_language || false,
+          has_nudity: video.has_nudity || false,
+          has_violence: video.has_violence || false,
+          has_revealing_clothes: video.has_revealing_clothes || false,
+          has_partial_nudity: video.has_partial_nudity || false,
+          has_explicit_content: video.has_explicit_content || false,
+          has_parental_guidance: video.has_parental_guidance || false,
+          has_erotic_dancing: video.has_erotic_dancing || false,
+          has_sexual_nature: video.has_sexual_nature || false,
+          has_sex: video.has_sex || false,
         },
         next_program: upcomingProgram ? await enrichProgram(upcomingProgram) : null,
         server_time: serverTime,
@@ -1216,6 +1362,35 @@ async function getFlashAudio(req, res) {
   }
 }
 
+async function retryVideoTranscode(req, res) {
+  try {
+    const video = await Video.findById(req.params.videoId);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+
+    const ownerCheck = await ensureCreatorAndChannelOwner(req.userId, video.channel_id);
+    if (ownerCheck.error) {
+      return res.status(ownerCheck.error.status).json({ error: ownerCheck.error.message });
+    }
+
+    if (!['failed', 'unavailable'].includes(video.transcoding_status)) {
+      return res.status(409).json({ error: `Cannot retry: current status is '${video.transcoding_status}'` });
+    }
+
+    await Video.update(video.id, {
+      transcoding_status: 'pending',
+      transcoding_job_name: null,
+      transcoding_error: null,
+    });
+
+    const refreshed = await Video.findById(video.id);
+    const updated = await prepareAdaptiveVideo(refreshed);
+    res.json({ video: updated });
+  } catch (err) {
+    console.error('[Broadcast] retryVideoTranscode error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   getVideoUploadUrl,
   createVideoResumableSession,
@@ -1229,6 +1404,8 @@ module.exports = {
   getChannelVideos,
   getMyVideos,
   deleteVideo,
+  updateVideoContentRating,
+  retryVideoTranscode,
   scheduleProgram,
   scheduleSequential,
   getChannelSchedule,

@@ -151,6 +151,77 @@ async function markRenewed(id) {
   return sub;
 }
 
+async function countActiveByChannel(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .where('status', '==', 'active')
+    .get();
+  return snapshot.size;
+}
+
+async function getActiveSubscriberUids(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .where('status', '==', 'active')
+    .get();
+  return snapshot.docs.map((doc) => doc.data().subscriber_uid).filter(Boolean);
+}
+
+async function getActiveSubscribedChannelIds(subscriberUid) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('subscriber_uid', '==', subscriberUid)
+    .where('status', '==', 'active')
+    .get();
+  return snapshot.docs.map((doc) => doc.data().channel_id).filter(Boolean);
+}
+
+async function findBySubscriberAndChannel(subscriberUid, channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('subscriber_uid', '==', subscriberUid)
+    .where('channel_id', '==', channelId)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  return { ...doc.data(), id: doc.id };
+}
+
+async function banSubscriber(channelId, subscriberUid, reason) {
+  const db = getFirestore();
+  const sub = await findBySubscriberAndChannel(subscriberUid, channelId);
+  if (!sub) return null;
+  const ref = db.collection(COLLECTION).doc(sub.id);
+  await ref.set({
+    status: 'banned_by_owner',
+    cancelled_at: Date.now(),
+    cancel_reason: reason || 'banned_by_owner',
+  }, { merge: true });
+  return { ...sub, status: 'banned_by_owner' };
+}
+
+async function unbanSubscriber(channelId, subscriberUid) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('subscriber_uid', '==', subscriberUid)
+    .where('channel_id', '==', channelId)
+    .where('status', '==', 'banned_by_owner')
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  const ref = db.collection(COLLECTION).doc(doc.id);
+  await ref.set({
+    status: 'active',
+    cancelled_at: null,
+    cancel_reason: null,
+  }, { merge: true });
+  return { ...doc.data(), id: doc.id, status: 'active' };
+}
+
 module.exports = {
   init,
   create,
@@ -161,4 +232,10 @@ module.exports = {
   markCancelled,
   markCancelledOnFailure,
   markRenewed,
+  countActiveByChannel,
+  getActiveSubscriberUids,
+  getActiveSubscribedChannelIds,
+  findBySubscriberAndChannel,
+  banSubscriber,
+  unbanSubscriber,
 };

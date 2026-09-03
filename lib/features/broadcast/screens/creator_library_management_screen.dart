@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_pagination_controls.dart';
 import '../models/channel_library_models.dart';
 import '../models/video_model.dart';
 import '../services/broadcast_service.dart';
@@ -30,6 +31,13 @@ class _CreatorLibraryManagementScreenState
   bool _readablesLoading = false;
   String? _readablesError;
   List<ChannelLibraryItemModel> _readables = [];
+
+  // Pagination state
+  static const int _pageLimit = 12;
+  int _videosPage = 1;
+  int _videosTotalPages = 1;
+  int _readablesPage = 1;
+  int _readablesTotalPages = 1;
 
   late AnimationController _animCtrl;
   late Animation<double> _fadeAnim;
@@ -82,10 +90,15 @@ class _CreatorLibraryManagementScreenState
 
   Future<void> _loadVideos() async {
     try {
-      final videos = await BroadcastService.getChannelVideos(_channelId!);
+      final result = await BroadcastService.getChannelVideos(
+        _channelId!,
+        page: _videosPage,
+        limit: _pageLimit,
+      );
       if (!mounted) return;
       setState(() {
-        _videos = videos;
+        _videos = result.videos;
+        _videosTotalPages = result.totalPages ?? 1;
         _loading = false;
         _error = null;
         _selectedVideoIds.removeWhere(
@@ -114,10 +127,15 @@ class _CreatorLibraryManagementScreenState
     });
 
     try {
-      final items = await ChannelLibraryCreatorService.getItems(_channelId!);
+      final result = await ChannelLibraryCreatorService.getItems(
+        _channelId!,
+        page: _readablesPage,
+        limit: _pageLimit,
+      );
       if (!mounted) return;
       setState(() {
-        _readables = items;
+        _readables = result.items;
+        _readablesTotalPages = result.totalPages ?? 1;
         _readablesLoading = false;
       });
       _animCtrl.forward();
@@ -474,6 +492,7 @@ class _CreatorLibraryManagementScreenState
                 if (_selectedTab == CreatorLibraryTab.watch) return;
                 setState(() {
                   _selectedTab = CreatorLibraryTab.watch;
+                  _videosPage = 1;
                 });
               },
             ),
@@ -488,6 +507,7 @@ class _CreatorLibraryManagementScreenState
                 setState(() {
                   _selectedTab = CreatorLibraryTab.readables;
                   _selectionMode = false;
+                  _readablesPage = 1;
                 });
                 if (_readables.isEmpty && !_readablesLoading) {
                   _loadReadables();
@@ -792,6 +812,26 @@ class _CreatorLibraryManagementScreenState
             ),
           ),
         ),
+        if (_videosTotalPages > 1)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: AppPaginationControls(
+              currentPage: _videosPage - 1,
+              totalPages: _videosTotalPages,
+              onPrevious: _videosPage > 1
+                  ? () {
+                      setState(() => _videosPage--);
+                      _loadVideos();
+                    }
+                  : null,
+              onNext: _videosPage < _videosTotalPages
+                  ? () {
+                      setState(() => _videosPage++);
+                      _loadVideos();
+                    }
+                  : null,
+            ),
+          ),
       ],
     );
   }
@@ -894,11 +934,14 @@ class _CreatorLibraryManagementScreenState
                             ),
                           ],
                         )
-                      : ListView.builder(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                          itemCount: _readables.length,
-                          itemBuilder: (ctx, index) {
+                      : Column(
+                          children: [
+                            Expanded(
+                              child: ListView.builder(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                                itemCount: _readables.length,
+                                itemBuilder: (ctx, index) {
                             final item = _readables[index];
                             return Container(
                               margin: const EdgeInsets.only(bottom: 14),
@@ -1012,6 +1055,29 @@ class _CreatorLibraryManagementScreenState
                               ),
                             );
                           },
+                              ),
+                            ),
+                            if (_readablesTotalPages > 1)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                                child: AppPaginationControls(
+                                  currentPage: _readablesPage - 1,
+                                  totalPages: _readablesTotalPages,
+                                  onPrevious: _readablesPage > 1
+                                      ? () {
+                                          setState(() => _readablesPage--);
+                                          _loadReadables();
+                                        }
+                                      : null,
+                                  onNext: _readablesPage < _readablesTotalPages
+                                      ? () {
+                                          setState(() => _readablesPage++);
+                                          _loadReadables();
+                                        }
+                                      : null,
+                                ),
+                              ),
+                          ],
                         ),
         ),
       ),

@@ -36,13 +36,18 @@ const creatorAnalyticsRoutes = require('./analytics/creator_analytics.routes');
 const copyrightRoutes = require('./copyright/copyright.routes');
 const challengeRoutes = require('./challenge/challenge.routes');
 const kycRoutes = require('./kyc/kyc.routes');
+const guardianRoutes = require('./guardian/guardian.routes');
 const adRoutes = require('./ads/ad.routes');
 const subtitleRoutes = require('./subtitles/subtitle.routes');
 const libraryRoutes = require('./library/library.routes');
+const movieRoutes = require('./movies/movie.routes');
+const seriesRoutes = require('./series/series.routes');
 const waveRoutes = require('./wave/wave.routes');
 const aiVideoRoutes = require('./ai_video/ai_video.routes');
 const announcementRoutes = require('./announcements/announcement.routes');
 const AnnouncementModel = require('./announcements/announcement.model');
+const distributionRoutes = require('./distribution/distribution.routes');
+const progressRoutes = require('./watch-progress/progress.routes');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
 const app = express();
@@ -114,13 +119,18 @@ app.use('/analytics/creator', creatorAnalyticsRoutes);
 app.use('/copyright', copyrightRoutes);
 app.use('/challenge', challengeRoutes);
 app.use('/kyc', kycRoutes);
+app.use('/guardian', guardianRoutes);
 app.use('/ads', adRoutes);
 app.use('/subtitles', subtitleRoutes);
 app.use('/reputation', reputationRoutes);
 app.use('/', libraryRoutes);
+app.use('/', movieRoutes);
+app.use('/', seriesRoutes);
 app.use('/wave', waveRoutes);
 app.use('/ai-video', aiVideoRoutes);
+app.use('/distribution', distributionRoutes);
 app.use('/announcements', announcementRoutes);
+app.use('/progress', progressRoutes);
 
 function getOpsSecret() {
   return process.env.OPS_SECRET || null;
@@ -324,12 +334,41 @@ async function validateRuntimeConfiguration() {
   }
 }
 
+async function ensureGcsCors() {
+  const BUCKET_NAME = process.env.GCS_BUCKET;
+  if (!BUCKET_NAME) return;
+  try {
+    const { getBucket } = require('./utils/gcs');
+    const bucket = getBucket();
+    await bucket.setCorsConfiguration([{
+      maxAgeSeconds: 3600,
+      method: ['GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'DELETE'],
+      origin: ['*'],
+      responseHeader: [
+        'Content-Type',
+        'Content-Range',
+        'Accept-Ranges',
+        'Content-Length',
+        'Range',
+        'ETag',
+        'x-goog-resumable',
+        'x-goog-meta-*',
+      ],
+    }]);
+    console.log('[GCS] CORS configured for uploads and HLS delivery');
+  } catch (err) {
+    console.warn('[GCS] Failed to set bucket CORS:', err.message);
+    console.warn('[GCS] Run: gsutil cors set cors.json gs://' + BUCKET_NAME);
+  }
+}
+
 async function startServer() {
   await Promise.all([
     SettingsService.ensureDefinitionsExist(),
     // ChannelStatsModel has no init; it initializes lazily on demand
     PoolService.init(),
     AnnouncementModel.init(),
+    ensureGcsCors(),
   ]);
 
   console.log('[RenewalWorker] Waiting for external renewal trigger ownership');
@@ -379,6 +418,78 @@ async function startServer() {
     console.error('[Migration] gift_wallets → users failed (non-fatal):', migErr.message);
   }
 
+  // ── Migration: Auto-fill KYC fields for existing users ────────
+  try {
+    const KycModel = require('./kyc/kyc.model');
+    const migKycFlag = getFirestore().doc('ops_migrations/kyc_fields_v1');
+    const migKycSnap = await migKycFlag.get();
+    if (!migKycSnap.exists) {
+      const allUsers = await UserModel.getAll();
+      let migrated = 0;
+      let gracePeriodSet = 0;
+      const gracePeriodEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      for (const user of allUsers) {
+        if (user.deleted_at) continue;
+        const updates = {};
+
+        if (user.kyc_status === 'verified') {
+          // Auto-fill date_of_birth from existing KYC record
+          if (!user.date_of_birth) {
+            const kyc = await KycModel.findByUserId(user.id);
+            if (kyc?.date_of_birth) {
+              updates.date_of_birth = kyc.date_of_birth;
+            }
+          }
+          // Auto-fill is_minor from DOB (default false if no DOB)
+          if (user.is_minor === undefined) {
+            const dob = updates.date_of_birth || user.date_of_birth;
+            updates.is_minor = UserModel.computeIsMinor(dob);
+          }
+          // No grace period for verified users
+          if (user.kyc_grace_period_end === undefined) {
+            updates.kyc_grace_period_end = null;
+          }
+          if (user.guardian_id === undefined) {
+            updates.guardian_id = null;
+          }
+          if (user.kyc_reminder_count === undefined) {
+            updates.kyc_reminder_count = 0;
+          }
+          if (Object.keys(updates).length > 0) {
+            await UserModel.updateProfile(user.id, updates);
+            migrated++;
+          }
+        } else if (user.kyc_status === 'none' && user.role !== 'admin') {
+          // Set 7-day grace period for existing non-KYC users with complete profiles
+          if (!user.kyc_grace_period_end) {
+            await UserModel.setKycGracePeriod(user.id, gracePeriodEnd);
+            gracePeriodSet++;
+          }
+          // Ensure new fields exist
+          if (user.is_minor === undefined) {
+            await UserModel.updateProfile(user.id, { is_minor: false, guardian_id: null, kyc_reminder_count: 0 });
+          }
+        } else if (['pending', 'under_review', 'rejected', 'expired'].includes(user.kyc_status)) {
+          // Pending/under_review users: just ensure new fields exist, no grace period
+          if (user.is_minor === undefined) {
+            await UserModel.updateProfile(user.id, {
+              is_minor: false,
+              guardian_id: null,
+              kyc_grace_period_end: null,
+              kyc_reminder_count: 0,
+            });
+          }
+        }
+      }
+
+      await migKycFlag.set({ completed_at: Date.now(), migrated, gracePeriodSet });
+      console.log(`[Migration] KYC fields: ${migrated} verified users auto-filled, ${gracePeriodSet} grace periods set`);
+    }
+  } catch (migKycErr) {
+    console.error('[Migration] KYC fields migration failed (non-fatal):', migKycErr.message);
+  }
+
   // Auto-generate secrets for staging (no-op in production)
   await SettingsService.ensureStagingSecrets();
 
@@ -402,6 +513,45 @@ async function startServer() {
   } catch (err) {
     console.log(`[Blockchain] Readiness check skipped: ${err.message}`);
   }
+
+  // ── Auto-backfill missing wave thumbnails (non-blocking) ──
+  setImmediate(async () => {
+    try {
+      const Wave = require('./wave/wave.model');
+      const { generateThumbnail } = require('./utils/thumbnail-generator');
+      const db = getFirestore();
+      const snapshot = await db.collection('waves')
+        .where('status', '==', 'active')
+        .get();
+
+      let missing = 0;
+      for (const doc of snapshot.docs) {
+        const wave = doc.data();
+        if (!wave.thumbnail_url || wave.thumbnail_url === '' ||
+            wave.thumbnail_url.includes('.webp') || wave.thumbnail_url.includes('.png')) {
+          if (wave.video_url) {
+            missing++;
+            try {
+              const thumbnailUrl = await generateThumbnail(wave.video_url, doc.id);
+              if (thumbnailUrl) {
+                await Wave.update(doc.id, { thumbnail_url: thumbnailUrl });
+                console.log(`[ThumbnailBackfill] Generated for wave ${doc.id}`);
+              }
+            } catch (err) {
+              console.error(`[ThumbnailBackfill] Failed for wave ${doc.id}:`, err.message);
+            }
+          }
+        }
+      }
+      if (missing > 0) {
+        console.log(`[ThumbnailBackfill] Processed ${missing} waves with missing thumbnails`);
+      } else {
+        console.log('[ThumbnailBackfill] All waves have thumbnails');
+      }
+    } catch (err) {
+      console.error('[ThumbnailBackfill] Failed:', err.message);
+    }
+  });
 }
 
 startServer().catch((error) => {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { API_BASE } from "@/lib/api";
 
 const MARQUEE_TTL_MS = 5 * 60_000;
 
@@ -25,7 +24,7 @@ async function getMarqueeTopics(forceRefresh = false): Promise<Topic[]> {
   if (!marqueeRequestInFlight) {
     marqueeRequestInFlight = (async () => {
       try {
-        const res = await fetch(`${API_BASE}/home/marquee`);
+        const res = await fetch(`/api/proxy/home/marquee`);
         if (!res.ok) {
           return marqueeCache;
         }

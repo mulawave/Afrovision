@@ -86,3 +86,31 @@ temp_output.txt
 request.json
 reputation_building_plan.md
 reports/
+
+# Local debug/build artifacts — keep these out of git
+*.apk
+*.apks
+*.aab
+logcat*.txt
+current_build_*
+stable_store_*
+screen.png
+test_window_dump.xml
+wips/
+.windsurf/
+.windsurfrules
+*findings.md
+playback_recovery_report.md
+
+# Marketer app build / sensitive files
+marketer_app/**/build/
+marketer_app/**/.gradle/
+marketer_app/**/.cxx/
+marketer_app/**/key.properties
+marketer_app/**/local.properties
+marketer_app/.metadata
+marketer_app/**/mac_key.jks
+
+# Backup files
+*.bak
+stable_broadcast_player.dart

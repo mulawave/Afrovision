@@ -2,9 +2,24 @@ class UserModel {
   final String id;
   final String email;
   final String? name;
+  final String? firstName;
+  final String? lastName;
+  final String? country;
+  final String? state;
+  final String? city;
+  final String? address;
+  final String? phoneNumber;
+  final String? referralSource;
+  final String? referralSourceDetail;
+  final bool profileSetupComplete;
   final String role;
   final bool isPremiumCreator;
   final String kycStatus;
+  final String? dateOfBirth;
+  final bool isMinor;
+  final String? guardianId;
+  final String? kycGracePeriodEnd;
+  final int kycReminderCount;
   final String? subscriptionPlan;
   final String? subscriptionPlanType;
   final String subscriptionStatus;
@@ -25,9 +40,24 @@ class UserModel {
     required this.id,
     required this.email,
     this.name,
+    this.firstName,
+    this.lastName,
+    this.country,
+    this.state,
+    this.city,
+    this.address,
+    this.phoneNumber,
+    this.referralSource,
+    this.referralSourceDetail,
+    this.profileSetupComplete = false,
     required this.role,
     required this.isPremiumCreator,
     required this.kycStatus,
+    this.dateOfBirth,
+    this.isMinor = false,
+    this.guardianId,
+    this.kycGracePeriodEnd,
+    this.kycReminderCount = 0,
     this.subscriptionPlan,
     this.subscriptionPlanType,
     required this.subscriptionStatus,
@@ -62,6 +92,30 @@ class UserModel {
       hasActiveSubscription && subscriptionPlanType == 'viewer';
   bool get kycVerified => kycStatus == 'verified';
 
+  bool get kycRequired =>
+      kycStatus == 'none' ||
+      kycStatus == 'rejected' ||
+      kycStatus == 'minor_pending';
+
+  bool get kycComplete =>
+      kycStatus == 'verified' ||
+      kycStatus == 'pending' ||
+      kycStatus == 'under_review';
+
+  bool get isMinorRestricted => isMinor;
+
+  bool get gracePeriodActive =>
+      kycGracePeriodEnd != null &&
+      kycGracePeriodEnd!.isNotEmpty &&
+      (DateTime.tryParse(kycGracePeriodEnd!)?.isAfter(DateTime.now()) ?? false);
+
+  bool get gracePeriodExpired =>
+      kycGracePeriodEnd != null &&
+      kycGracePeriodEnd!.isNotEmpty &&
+      (DateTime.tryParse(kycGracePeriodEnd!)?.isBefore(DateTime.now()) ?? false);
+
+  bool get isProfileComplete => profileSetupComplete;
+
   String get subscriptionPlanDisplay =>
       subscriptionPlan?.toUpperCase() ?? 'NONE';
 
@@ -77,9 +131,24 @@ class UserModel {
       id: (json['id'] ?? '') as String,
       email: (json['email'] ?? '') as String,
       name: json['name'] as String?,
+      firstName: json['firstName'] as String?,
+      lastName: json['lastName'] as String?,
+      country: json['country'] as String?,
+      state: json['state'] as String?,
+      city: json['city'] as String?,
+      address: json['address'] as String?,
+      phoneNumber: json['phoneNumber'] as String?,
+      referralSource: json['referralSource'] as String?,
+      referralSourceDetail: json['referralSourceDetail'] as String?,
+      profileSetupComplete: json['profile_setup_complete'] as bool? ?? false,
       role: (json['role'] ?? 'viewer') as String,
       isPremiumCreator: json['is_premium_creator'] as bool? ?? false,
       kycStatus: json['kyc_status'] as String? ?? 'none',
+      dateOfBirth: json['date_of_birth'] as String?,
+      isMinor: json['is_minor'] as bool? ?? false,
+      guardianId: json['guardian_id'] as String?,
+      kycGracePeriodEnd: json['kyc_grace_period_end'] as String?,
+      kycReminderCount: (json['kyc_reminder_count'] as num?)?.toInt() ?? 0,
       subscriptionPlan: json['subscription_plan'] as String?,
       subscriptionPlanType: json['subscription_plan_type'] as String?,
       subscriptionStatus: json['subscription_status'] as String? ?? 'inactive',

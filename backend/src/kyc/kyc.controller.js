@@ -13,6 +13,7 @@
 const KycModel = require('./kyc.model');
 const UserModel = require('../users/user.model');
 const ReputationService = require('../reputation/reputation.service');
+const { extractKycGCSPath, generateKycSignedReadUrl } = require('../utils/gcs');
 
 /* ── User-facing ──────────────────────────────────────────────── */
 
@@ -57,6 +58,9 @@ async function submitKyc(req, res) {
     if (!full_name || !id_type || !id_number) {
       return res.status(400).json({ error: 'full_name, id_type, and id_number are required' });
     }
+    if (!date_of_birth) {
+      return res.status(400).json({ error: 'date_of_birth is required' });
+    }
     if (!KycModel.ID_TYPES.includes(id_type)) {
       return res.status(400).json({ error: `Invalid id_type. Must be one of: ${KycModel.ID_TYPES.join(', ')}` });
     }
@@ -85,7 +89,22 @@ async function submitKyc(req, res) {
       previous_kyc_id: existing ? existing.id : null,
     });
 
-    // Update user KYC status
+    // Set date_of_birth and compute is_minor on user record
+    await UserModel.setDateOfBirth(userId, date_of_birth);
+
+    // Check if user is a minor
+    const isMinor = UserModel.computeIsMinor(date_of_birth);
+    if (isMinor) {
+      // Minor — set KYC status to minor_pending, require guardian form
+      await UserModel.setKyc(userId, 'minor_pending');
+      return res.status(201).json({
+        ...record,
+        minor: true,
+        message: 'You are under 18. A guardian needs to complete a consent form.',
+      });
+    }
+
+    // Adult — proceed as normal
     await UserModel.setKyc(userId, 'pending');
 
     res.status(201).json(record);
@@ -98,8 +117,23 @@ async function submitKyc(req, res) {
 async function getMyKyc(req, res) {
   try {
     const record = await KycModel.findByUserId(req.userId);
-    if (!record) return res.status(404).json({ error: 'No KYC record' });
-    res.json(record);
+    const user = await UserModel.findById(req.userId);
+
+    const response = { ...(record || {}) };
+    if (user) {
+      response.is_minor = user.is_minor || false;
+      response.kyc_status = user.kyc_status;
+      if (user.guardian_id) {
+        const GuardianModel = require('../guardian/guardian.model');
+        const guardian = await GuardianModel.findById(user.guardian_id);
+        if (guardian) {
+          response.guardian = guardian;
+        }
+      }
+    }
+
+    if (!record) return res.status(404).json({ error: 'No KYC record', ...response });
+    res.json(response);
   } catch (err) {
     console.error('[KYC] getMyKyc error:', err);
     res.status(500).json({ error: 'Failed to fetch KYC' });
@@ -122,7 +156,30 @@ async function updateMyGender(req, res) {
   }
 }
 
-/* ── Admin ────────────────────────────────────────────────────── */
+/* ── Helpers ──────────────────────────────────────────────────── */
+
+const KYC_IMAGE_FIELDS = ['id_front_url', 'id_back_url', 'selfie_url'];
+
+/**
+ * Replace raw KYC bucket URLs with signed read URLs for admin display.
+ * Non-KYC URLs (e.g. older public-bucket uploads) are left as-is.
+ */
+async function signKycImageUrls(record) {
+  if (!record || typeof record !== 'object') return record;
+  for (const field of KYC_IMAGE_FIELDS) {
+    const rawUrl = record[field];
+    if (!rawUrl) continue;
+    const path = extractKycGCSPath(rawUrl);
+    if (!path) continue;
+    try {
+      record[field] = await generateKycSignedReadUrl(path, 60);
+    } catch (err) {
+      console.error(`[KYC] Failed to sign ${field}:`, err.message);
+      // Keep the original URL as a fallback.
+    }
+  }
+  return record;
+}
 
 async function adminListKyc(req, res) {
   try {
@@ -132,6 +189,9 @@ async function adminListKyc(req, res) {
       limit: limit ? Number(limit) : 50,
       offset: offset ? Number(offset) : 0,
     });
+    if (result.items && result.items.length > 0) {
+      result.items = await Promise.all(result.items.map(signKycImageUrls));
+    }
     res.json(result);
   } catch (err) {
     console.error('[KYC] adminList error:', err);
@@ -143,7 +203,7 @@ async function adminGetKyc(req, res) {
   try {
     const record = await KycModel.findById(req.params.id);
     if (!record) return res.status(404).json({ error: 'KYC record not found' });
-    res.json(record);
+    res.json(await signKycImageUrls(record));
   } catch (err) {
     console.error('[KYC] adminGet error:', err);
     res.status(500).json({ error: 'Failed to fetch KYC record' });
@@ -156,6 +216,16 @@ async function adminReviewKyc(req, res) {
     const status = decision || rawStatus;
     if (!status || !['verified', 'rejected'].includes(status)) {
       return res.status(400).json({ error: 'Status must be "verified" or "rejected"' });
+    }
+
+    // Prevent direct verification of minors — they must go through guardian consent
+    if (status === 'verified') {
+      const existingRecord = await KycModel.findById(req.params.id);
+      if (!existingRecord) return res.status(404).json({ error: 'KYC record not found' });
+      const kycUser = await UserModel.findById(existingRecord.user_id);
+      if (kycUser && kycUser.is_minor === true) {
+        return res.status(400).json({ error: 'Cannot verify KYC for a minor. Approve the guardian consent form instead.' });
+      }
     }
 
     const record = await KycModel.update(req.params.id, {
@@ -175,7 +245,7 @@ async function adminReviewKyc(req, res) {
       console.error('[KYC] refreshEligibility error:', err.message),
     );
 
-    res.json(record);
+    res.json(await signKycImageUrls(record));
   } catch (err) {
     console.error('[KYC] adminReview error:', err);
     res.status(500).json({ error: 'Failed to review KYC' });
@@ -186,7 +256,8 @@ async function adminGetExpiring(req, res) {
   try {
     const days = req.query.days ? Number(req.query.days) : 30;
     const items = await KycModel.getExpiringSoon(days);
-    res.json({ items, total: items.length });
+    const signedItems = await Promise.all(items.map(signKycImageUrls));
+    res.json({ items: signedItems, total: signedItems.length });
   } catch (err) {
     console.error('[KYC] adminGetExpiring error:', err);
     res.status(500).json({ error: 'Failed to get expiring records' });
@@ -196,7 +267,8 @@ async function adminGetExpiring(req, res) {
 async function adminGetExpired(req, res) {
   try {
     const items = await KycModel.getExpired();
-    res.json({ items, total: items.length });
+    const signedItems = await Promise.all(items.map(signKycImageUrls));
+    res.json({ items: signedItems, total: signedItems.length });
   } catch (err) {
     console.error('[KYC] adminGetExpired error:', err);
     res.status(500).json({ error: 'Failed to get expired records' });
@@ -214,6 +286,17 @@ async function adminDeleteKyc(req, res) {
   }
 }
 
+async function adminKycStats(req, res) {
+  try {
+    const counts = await KycModel.countByStatus();
+    const pending = (counts.pending || 0) + (counts.under_review || 0) + (counts.minor_pending || 0);
+    res.json({ counts, pending });
+  } catch (err) {
+    console.error('[KYC] adminStats error:', err);
+    res.status(500).json({ error: 'Failed to get KYC stats' });
+  }
+}
+
 module.exports = {
   uploadKycDoc,
   submitKyc,
@@ -225,4 +308,5 @@ module.exports = {
   adminGetExpiring,
   adminGetExpired,
   adminDeleteKyc,
+  adminKycStats,
 };

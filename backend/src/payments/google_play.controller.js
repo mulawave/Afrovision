@@ -361,7 +361,7 @@ async function applyCreatorSubscriptionGooglePlay(payment, user) {
     title: '🎉 New Subscriber!',
     body: `${user.name || user.email || 'A user'} just subscribed to your channel!`,
     type: 'new_subscriber',
-    link: '/dashboard',
+    link: '/creator-studio',
     data: { subscriber_uid: payment.uid, subscription_id: sub.id, currency: 'ngn', amount: String(amount) },
   }).catch(() => {});
 
@@ -369,7 +369,7 @@ async function applyCreatorSubscriptionGooglePlay(payment, user) {
     title: '✅ Subscription Confirmed!',
     body: `You subscribed via Google Play. ${subscriberVptUnits > 0 ? `You earned ${subscriberVptUnits} vPT!` : ''}`,
     type: 'subscription_activated',
-    link: '/subscriptions',
+    link: '/my-subscriptions',
     data: { creator_uid: creatorUid, subscription_id: sub.id, amount: String(amount) },
   }).catch(() => {});
 }

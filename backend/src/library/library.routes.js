@@ -4,8 +4,9 @@
  */
 
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
-const { authenticateToken } = require('../utils/jwt');
+const { authenticateToken, optionalAuth } = require('../utils/jwt');
 
 const creatorController = require('./library-creator.controller');
 const viewerController = require('./library-viewer.controller');
@@ -40,6 +41,19 @@ router.post('/creator/channels/:channelId/library/items', authenticateToken, cre
 
 // Create signed upload URL for library assets (cover image or reader manifest)
 router.post('/creator/channels/:channelId/library/upload-url', authenticateToken, creatorController.createAssetUploadUrl);
+
+// Direct server-side upload for library assets (covers, page images).
+// File flows browser -> backend -> GCS, avoiding all browser-to-GCS CORS issues.
+const libraryAssetUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+router.post(
+  '/creator/channels/:channelId/library/assets',
+  authenticateToken,
+  libraryAssetUpload.single('file'),
+  creatorController.uploadAssetDirect
+);
 
 // Auto-generate reader manifest from uploaded PDF/pages
 router.post('/creator/channels/:channelId/library/reader-assets/manifest', authenticateToken, creatorController.generateReaderManifest);
@@ -96,6 +110,13 @@ router.get(
 // ============================================
 // VIEWER ROUTES
 // ============================================
+
+/**
+ * Public Library Feed (global)
+ */
+
+// Global public library feed — no auth required
+router.get('/library/feed', optionalAuth, viewerController.listPublicLibrary);
 
 /**
  * Library Listing & Detail

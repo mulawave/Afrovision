@@ -14,7 +14,7 @@ import AddBankAccountModal from "./AddBankAccountModal";
 import WithdrawalSuccessModal from "./WithdrawalSuccessModal";
 
 export default function WithdrawalPage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isMinor } = useAuth();
   const [wallet, setWallet] = useState<GiftWallet | null>(null);
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,6 +106,21 @@ export default function WithdrawalPage() {
           <p className="text-sm text-av-light-orange">Sign in to request withdrawals.</p>
           <Link href="/login?redirect=/wallet/withdrawal" className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
             Sign in →
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (isMinor) {
+    return (
+      <main className="min-h-screen pt-24 flex items-center justify-center px-6">
+        <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
+          <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Withdrawals</p>
+          <h1 className="mt-3 text-2xl font-bold text-av-white">Not available for minors</h1>
+          <p className="mt-4 text-sm text-av-light-orange">Wallet withdrawals are restricted to users aged 18 and above.</p>
+          <Link href="/wallet" className="mt-6 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
+            ← Back to Wallet
           </Link>
         </div>
       </main>

@@ -11,6 +11,7 @@ const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
 const NotificationService = require('../notifications/notification.service');
 const PoolService = require('../vpt/pool.service');
+const { chargeWallet } = require('./wallet_payment.helper');
 
 /**
  * POST /subscriptions/channel/subscribe
@@ -46,27 +47,52 @@ async function subscribe(req, res) {
     let currency = null;
     let vptEquivalent = 0;
     let nextBilling = null;
+    const useWallet = req.body.currency === 'wallet';
 
     if (isPremium) {
       amount = Number(channel.subscription_price_ngn) || 0;
-      currency = 'ngn';
+      currency = useWallet ? 'ngn' : 'ngn';
 
       // Compute vPT equivalent
       vptEquivalent = parseFloat(
         (amount / ReferralModel.VPT_PRICE_NGN).toFixed(4),
       );
 
-      const wallet = await GiftWallet.ensureWallet(subscriberUid);
-      if (wallet.ngn_balance < amount) {
-        return res.status(402).json({
-          error: 'INSUFFICIENT_NGN',
-          required: amount,
-          available: wallet.ngn_balance,
-        });
-      }
+      if (useWallet) {
+        // Mixed wallet payment: cash first, vPT for remainder
+        try {
+          await chargeWallet(subscriberUid, amount, {
+            type: 'SUBSCRIPTION_PAYMENT',
+            description: `Channel subscription to ${channel.name || channelId.slice(0, 8)} via wallet`,
+            meta: {
+              channel_id: channelId,
+              channel_name: channel.name,
+              method: 'wallet',
+            },
+          });
+        } catch (err) {
+          if (err.code === 'INSUFFICIENT_FUNDS') {
+            return res.status(402).json({
+              error: 'INSUFFICIENT_FUNDS',
+              message: 'Your wallet balance is insufficient. Top up your wallet or use a different payment method.',
+              details: err.details,
+            });
+          }
+          return res.status(500).json({ error: err.message || 'Wallet payment failed' });
+        }
+      } else {
+        const wallet = await GiftWallet.ensureWallet(subscriberUid);
+        if (wallet.ngn_balance < amount) {
+          return res.status(402).json({
+            error: 'INSUFFICIENT_NGN',
+            required: amount,
+            available: wallet.ngn_balance,
+          });
+        }
 
-      // Deduct full amount from subscriber
-      await GiftWallet.adjustNgnBalance(subscriberUid, -amount);
+        // Deduct full amount from subscriber
+        await GiftWallet.adjustNgnBalance(subscriberUid, -amount);
+      }
 
       // ── Payout Split ──
       const opsPool = Math.floor(amount * 0.50);
@@ -325,9 +351,101 @@ async function getSubscribers(req, res) {
     }
 
     const subscribers = await ChannelSub.getByChannel(channelId);
-    res.json({ subscribers });
+    const enriched = await Promise.all(subscribers.map(async (s) => {
+      try {
+        const subscriberUser = await User.findById(s.subscriber_uid);
+        return {
+          ...s,
+          subscriber_name: subscriberUser?.name || subscriberUser?.email || 'Unknown',
+          subscriber_email: subscriberUser?.email || null,
+          subscriber_avatar_url: subscriberUser?.avatar_url || subscriberUser?.profilePicture || null,
+        };
+      } catch {
+        return {
+          ...s,
+          subscriber_name: 'Unknown',
+          subscriber_email: null,
+          subscriber_avatar_url: null,
+        };
+      }
+    }));
+    res.json({ subscribers: enriched });
   } catch (err) {
     console.error('[ChannelSub] getSubscribers:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /subscriptions/channel/:channelId/ban-subscriber
+ * Body: { subscriberUid, reason }
+ * Channel owner or admin can ban a subscriber.
+ */
+async function banSubscriber(req, res) {
+  try {
+    const { channelId } = req.params;
+    const { subscriberUid, reason } = req.body;
+    if (!subscriberUid) return res.status(400).json({ error: 'subscriberUid is required' });
+
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    if (req.userId !== channel.owner_id && req.userRole !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const result = await ChannelSub.banSubscriber(channelId, subscriberUid, reason);
+    if (!result) return res.status(404).json({ error: 'Subscription not found' });
+
+    try {
+      await ChannelStats.decrementSubscribers(channelId);
+    } catch (e) { console.error('[ChannelSub] stats decrement error:', e.message); }
+
+    try {
+      await NotificationService.notifyUser(subscriberUid, {
+        title: 'Subscription Banned',
+        body: `You have been banned from ${channel.name || 'this channel'}.`,
+        type: 'subscription_banned',
+        link: `/channel/${channelId}`,
+        data: { channel_id: channelId, reason: reason || 'banned_by_owner' },
+      });
+    } catch (e) { console.error('[ChannelSub] ban notification error:', e.message); }
+
+    res.json({ message: 'Subscriber banned', subscription: result });
+  } catch (err) {
+    console.error('[ChannelSub] banSubscriber:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /subscriptions/channel/:channelId/unban-subscriber
+ * Body: { subscriberUid }
+ * Channel owner or admin can unban a previously banned subscriber.
+ */
+async function unbanSubscriber(req, res) {
+  try {
+    const { channelId } = req.params;
+    const { subscriberUid } = req.body;
+    if (!subscriberUid) return res.status(400).json({ error: 'subscriberUid is required' });
+
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    if (req.userId !== channel.owner_id && req.userRole !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const result = await ChannelSub.unbanSubscriber(channelId, subscriberUid);
+    if (!result) return res.status(404).json({ error: 'Banned subscription not found' });
+
+    try {
+      await ChannelStats.incrementSubscribers(channelId);
+    } catch (e) { console.error('[ChannelSub] stats increment error:', e.message); }
+
+    res.json({ message: 'Subscriber unbanned', subscription: result });
+  } catch (err) {
+    console.error('[ChannelSub] unbanSubscriber:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -338,4 +456,6 @@ module.exports = {
   getMine,
   check,
   getSubscribers,
+  banSubscriber,
+  unbanSubscriber,
 };

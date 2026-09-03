@@ -19,7 +19,7 @@ class NotificationInboxService {
   }) async {
     final query = StringBuffer('/notifications/me?scope=$scope&limit=$limit');
     if (unreadOnly) query.write('&unread_only=1');
-    final data = await ApiService.get(query.toString());
+    final data = await ApiService.get(query.toString(), noCache: true);
     final list = data['notifications'] as List<dynamic>? ?? [];
     return NotificationInboxResponse(
       notifications: list
@@ -32,32 +32,38 @@ class NotificationInboxService {
   }
 
   static Future<int> getUnreadCount() async {
-    final data = await ApiService.get('/notifications/unread-count');
+    final data = await ApiService.get('/notifications/unread-count', noCache: true);
     return (data['unread_count'] as num?)?.toInt() ?? 0;
   }
 
   static Future<void> markRead(String id) async {
     await ApiService.patch('/notifications/$id/read', {});
+    ApiService.clearCache();
   }
 
   static Future<void> markUnread(String id) async {
     await ApiService.patch('/notifications/$id/unread', {});
+    ApiService.clearCache();
   }
 
   static Future<void> archive(String id) async {
     await ApiService.patch('/notifications/$id/archive', {});
+    ApiService.clearCache();
   }
 
   static Future<void> unarchive(String id) async {
     await ApiService.patch('/notifications/$id/unarchive', {});
+    ApiService.clearCache();
   }
 
   static Future<void> delete(String id) async {
     await ApiService.delete('/notifications/$id');
+    ApiService.clearCache();
   }
 
   static Future<void> markAllRead() async {
     await ApiService.post('/notifications/mark-all-read', {});
+    ApiService.clearCache();
   }
 
   static Future<void> bulkAction({
@@ -68,9 +74,11 @@ class NotificationInboxService {
       'ids': ids,
       'action': action,
     });
+    ApiService.clearCache();
   }
 
   static Future<void> clearArchived() async {
     await ApiService.delete('/notifications/clear/archived');
+    ApiService.clearCache();
   }
 }

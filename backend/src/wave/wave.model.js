@@ -54,6 +54,7 @@ async function create({
     description: description || '',
     video_url: videoUrl,
     thumbnail_url: thumbnailUrl || null,
+    thumbnail_status: thumbnailUrl ? 'ready' : null,
     duration: duration || 0,
     age_classification: normalizedClassification,
     has_explicit_language: Boolean(hasExplicitLanguage),
@@ -120,6 +121,72 @@ async function getFeed({ limit = 20, cursor = null } = {}) {
       .filter((wave) => wave.status === 'active')
       .slice(0, limit);
   }
+}
+
+/**
+ * Return active waves from a given set of channel IDs, newest first.
+ * Supports cursor-based pagination (cursor = last wave ID from previous page).
+ * Batches channel IDs in groups of 30 to stay within Firestore `in` query limits.
+ */
+async function getFollowingFeed(channelIds = [], { limit = 20, cursor = null } = {}) {
+  if (!channelIds.length) return { waves: [], nextCursor: null };
+
+  const db = getFirestore();
+  const BATCH = 30; // Firestore `in` clause max
+  const batches = [];
+  for (let i = 0; i < channelIds.length; i += BATCH) {
+    batches.push(channelIds.slice(i, i + BATCH));
+  }
+
+  // Resolve cursor document for startAfter (same created_at ordering as global feed)
+  let cursorDoc = null;
+  if (cursor) {
+    const snap = await db.collection(COLLECTION).doc(cursor).get();
+    if (snap.exists) cursorDoc = snap;
+  }
+
+  const fetchBatch = (ids, withStatusFilter) => {
+    let q = db.collection(COLLECTION)
+      .where('channel_id', 'in', ids);
+    if (withStatusFilter) {
+      q = q.where('status', '==', 'active');
+    }
+    q = q.orderBy('created_at', 'desc');
+    if (cursorDoc) q = q.startAfter(cursorDoc);
+    return q.limit(limit * batches.length).get();
+  };
+
+  let batchResults;
+  try {
+    // First attempt: with composite index (channel_id + status + created_at)
+    batchResults = await Promise.all(
+      batches.map((ids) => fetchBatch(ids, true)),
+    );
+  } catch (error) {
+    if (!isIndexError(error)) throw error;
+    // Fallback: fetch without status filter, filter in memory
+    batchResults = await Promise.all(
+      batches.map((ids) => fetchBatch(ids, false)),
+    );
+  }
+
+  const all = batchResults.flatMap((snap) =>
+    snap.docs.map((doc) => syncWave({ ...doc.data(), id: doc.id })),
+  );
+
+  // Filter to active only (needed for fallback path; no-op for primary path)
+  const active = all.filter((w) => w.status === 'active');
+
+  // Re-sort merged results (individual batches are sorted but not cross-batch)
+  active.sort((a, b) => {
+    const tA = typeof a.created_at === 'number' ? a.created_at : new Date(a.created_at).getTime();
+    const tB = typeof b.created_at === 'number' ? b.created_at : new Date(b.created_at).getTime();
+    return tB - tA;
+  });
+
+  const page = active.slice(0, limit);
+  const nextCursor = page.length === limit ? page[page.length - 1].id : null;
+  return { waves: page, nextCursor };
 }
 
 async function getByChannel(channelId, options = {}) {
@@ -200,6 +267,51 @@ async function update(id, fields) {
   return findById(id);
 }
 
+async function updateTranscoding(id, fields) {
+  const db = getFirestore();
+  const allowed = [
+    'transcoding_status',
+    'transcoding_job_name',
+    'transcoding_error',
+    'hls_output_prefix',
+    'master_playlist_url',
+    'available_renditions',
+    'transcoding_completed_at',
+    'transcoding_checked_at',
+  ];
+  const updates = {};
+  for (const key of allowed) {
+    if (fields[key] !== undefined) updates[key] = fields[key];
+  }
+  if (Object.keys(updates).length === 0) return findById(id);
+  await db.collection(COLLECTION).doc(id).update(updates);
+  return findById(id);
+}
+
+/**
+ * Update thumbnail-related fields using `set(..., { merge: true })` so we never
+ * fail when a wave document is missing or concurrently deleted.
+ * This is intentionally separate from [update] because thumbnail jobs are
+ * asynchronous and the doc may be modified by another path.
+ */
+async function updateThumbnailStatus(id, fields) {
+  const db = getFirestore();
+  const allowed = [
+    'thumbnail_url',
+    'thumbnail_status',
+    'thumbnail_error',
+    'thumbnail_started_at',
+    'thumbnail_generated_at',
+    'thumbnail_failed_at',
+  ];
+  const updates = {};
+  for (const key of allowed) {
+    if (fields[key] !== undefined) updates[key] = fields[key];
+  }
+  if (Object.keys(updates).length === 0) return;
+  await db.collection(COLLECTION).doc(id).set(updates, { merge: true });
+}
+
 async function remove(id) {
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).update({ status: 'deleted' });
@@ -231,11 +343,14 @@ module.exports = {
   create,
   findById,
   getFeed,
+  getFollowingFeed,
   getByChannel,
   incrementField,
   updatePulseScore,
   updateStatus,
   update,
+  updateTranscoding,
+  updateThumbnailStatus,
   remove,
   trackView,
   ALLOWED_AGE_CLASSIFICATIONS,

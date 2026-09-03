@@ -40,6 +40,7 @@ export default function NotificationsPage() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -89,13 +90,20 @@ export default function NotificationsPage() {
   }
 
   async function handleSingleAction(id: string, action: Exclude<BulkAction, "delete"> | "delete") {
+    const actionKey = `${id}:${action}`;
+    setBusyAction(actionKey);
     setBusy(true);
-    if (action === "read") await markNotificationReadApi(id);
-    if (action === "unread") await markNotificationUnreadApi(id);
-    if (action === "archive") await archiveNotificationApi(id);
-    if (action === "unarchive") await unarchiveNotificationApi(id);
-    if (action === "delete") await deleteNotificationApi(id);
+    let res;
+    if (action === "read") res = await markNotificationReadApi(id);
+    if (action === "unread") res = await markNotificationUnreadApi(id);
+    if (action === "archive") res = await archiveNotificationApi(id);
+    if (action === "unarchive") res = await unarchiveNotificationApi(id);
+    if (action === "delete") res = await deleteNotificationApi(id);
+    if (res?.ok && "unread_count" in res.data) {
+      window.dispatchEvent(new CustomEvent("notifications-updated", { detail: { unread_count: res.data.unread_count } }));
+    }
     await loadNotifications();
+    setBusyAction(null);
     setBusy(false);
   }
 
@@ -105,6 +113,8 @@ export default function NotificationsPage() {
     const res = await bulkNotificationActionApi(selectedIds, action);
     if (!res.ok) {
       setError("Bulk action failed.");
+    } else if ("unread_count" in res.data) {
+      window.dispatchEvent(new CustomEvent("notifications-updated", { detail: { unread_count: res.data.unread_count } }));
     }
     setSelectedIds([]);
     await loadNotifications();
@@ -116,6 +126,8 @@ export default function NotificationsPage() {
     const res = await markAllNotificationsReadApi();
     if (!res.ok) {
       setError("Could not mark all notifications as read.");
+    } else if ("unread_count" in res.data) {
+      window.dispatchEvent(new CustomEvent("notifications-updated", { detail: { unread_count: res.data.unread_count } }));
     }
     await loadNotifications();
     setBusy(false);
@@ -126,6 +138,8 @@ export default function NotificationsPage() {
     const res = await clearArchivedNotificationsApi();
     if (!res.ok) {
       setError("Could not clear archived notifications.");
+    } else if ("unread_count" in res.data) {
+      window.dispatchEvent(new CustomEvent("notifications-updated", { detail: { unread_count: res.data.unread_count } }));
     }
     setSelectedIds([]);
     await loadNotifications();
@@ -162,7 +176,7 @@ export default function NotificationsPage() {
               disabled={busy || unreadCount === 0}
               className="rounded-full border border-av-orange/30 bg-av-orange/10 px-4 py-2 text-sm font-semibold text-av-orange disabled:opacity-50"
             >
-              Mark all read
+              {busy ? "Updating…" : "Mark all read"}
             </button>
             {scope === "archived" ? (
               <button
@@ -170,7 +184,7 @@ export default function NotificationsPage() {
                 disabled={busy || notifications.length === 0}
                 className="rounded-full border border-av-error/30 bg-av-error/5 px-4 py-2 text-sm font-semibold text-av-error disabled:opacity-50"
               >
-                Clear archived
+                {busy ? "Clearing…" : "Clear archived"}
               </button>
             ) : null}
           </div>
@@ -210,13 +224,13 @@ export default function NotificationsPage() {
             <div className="flex flex-wrap gap-2">
               {scope === "inbox" ? (
                 <>
-                  <BulkButton label="Mark read" onClick={() => handleBulkAction("read")} disabled={busy || selectedIds.length === 0} />
-                  <BulkButton label="Archive" onClick={() => handleBulkAction("archive")} disabled={busy || selectedIds.length === 0} />
+                  <BulkButton label="Mark read" busyLabel="Marking…" onClick={() => handleBulkAction("read")} disabled={busy || selectedIds.length === 0} busy={busy} />
+                  <BulkButton label="Archive" busyLabel="Archiving…" onClick={() => handleBulkAction("archive")} disabled={busy || selectedIds.length === 0} busy={busy} />
                 </>
               ) : (
                 <>
-                  <BulkButton label="Unarchive" onClick={() => handleBulkAction("unarchive")} disabled={busy || selectedIds.length === 0} />
-                  <BulkButton label="Mark unread" onClick={() => handleBulkAction("unread")} disabled={busy || selectedIds.length === 0} />
+                  <BulkButton label="Unarchive" busyLabel="Unarchiving…" onClick={() => handleBulkAction("unarchive")} disabled={busy || selectedIds.length === 0} busy={busy} />
+                  <BulkButton label="Mark unread" busyLabel="Marking…" onClick={() => handleBulkAction("unread")} disabled={busy || selectedIds.length === 0} busy={busy} />
                 </>
               )}
               <button
@@ -224,7 +238,7 @@ export default function NotificationsPage() {
                 disabled={busy || selectedIds.length === 0}
                 className="rounded-full border border-av-error/30 bg-av-error/5 px-4 py-2 text-sm font-semibold text-av-error disabled:opacity-50"
               >
-                Delete selected
+                {busy ? "Deleting…" : "Delete selected"}
               </button>
             </div>
           </div>
@@ -280,20 +294,20 @@ export default function NotificationsPage() {
                   <div className="flex flex-wrap gap-2 lg:max-w-xs lg:justify-end">
                     {item.archived ? (
                       <button onClick={() => handleSingleAction(item.id, "unarchive")} disabled={busy} className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange disabled:opacity-50">
-                        Unarchive
+                        {busyAction === `${item.id}:unarchive` ? "Unarchiving…" : "Unarchive"}
                       </button>
                     ) : (
                       <button onClick={() => handleSingleAction(item.id, item.is_read ? "unread" : "read")} disabled={busy} className="rounded-full border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange disabled:opacity-50">
-                        {item.is_read ? "Mark unread" : "Mark read"}
+                        {busyAction === `${item.id}:read` || busyAction === `${item.id}:unread` ? "Updating…" : item.is_read ? "Mark unread" : "Mark read"}
                       </button>
                     )}
                     {!item.archived ? (
                       <button onClick={() => handleSingleAction(item.id, "archive")} disabled={busy} className="rounded-full border border-av-orange/30 bg-av-orange/10 px-3 py-1.5 text-xs font-semibold text-av-orange disabled:opacity-50">
-                        Archive
+                        {busyAction === `${item.id}:archive` ? "Archiving…" : "Archive"}
                       </button>
                     ) : null}
                     <button onClick={() => handleSingleAction(item.id, "delete")} disabled={busy} className="rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error disabled:opacity-50">
-                      Delete
+                      {busyAction === `${item.id}:delete` ? "Deleting…" : "Delete"}
                     </button>
                   </div>
                 </div>
@@ -309,12 +323,16 @@ export default function NotificationsPage() {
 
 function BulkButton({
   label,
+  busyLabel,
   onClick,
   disabled,
+  busy,
 }: {
   label: string;
+  busyLabel: string;
   onClick: () => void;
   disabled: boolean;
+  busy: boolean;
 }) {
   return (
     <button
@@ -322,7 +340,7 @@ function BulkButton({
       disabled={disabled}
       className="rounded-full border border-av-input-border/30 bg-av-input-fill/40 px-4 py-2 text-sm font-semibold text-av-light-orange disabled:opacity-50"
     >
-      {label}
+      {busy ? busyLabel : label}
     </button>
   );
 }

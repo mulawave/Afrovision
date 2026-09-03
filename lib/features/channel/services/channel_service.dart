@@ -330,18 +330,33 @@ class ChannelService {
   static Future<FollowStatusModel> getChannelFollowStatus(
     String channelId,
   ) async {
-    final data = await ApiService.get('/users/channel-follows/$channelId');
-    return FollowStatusModel.fromJson(data);
+    final data = await ApiService.get('/subscriptions/channel/check/$channelId');
+    return FollowStatusModel(
+      followed: data['subscribed'] as bool? ?? false,
+      followersCount: 0,
+    );
   }
 
   static Future<FollowStatusModel> followChannel(String channelId) async {
-    final data = await ApiService.post('/users/channel-follows/$channelId', {});
-    return FollowStatusModel.fromJson(data);
+    final data = await ApiService.post(
+      '/subscriptions/channel/subscribe',
+      {'channelId': channelId},
+    );
+    final sub = data['subscription'] as Map<String, dynamic>?;
+    return FollowStatusModel(
+      followed: sub != null,
+      followersCount: 0,
+    );
   }
 
   static Future<FollowStatusModel> unfollowChannel(String channelId) async {
-    final data = await ApiService.delete('/users/channel-follows/$channelId');
-    return FollowStatusModel.fromJson(data);
+    // First check to get subscription id, then cancel
+    final checkData = await ApiService.get('/subscriptions/channel/check/$channelId');
+    final sub = checkData['subscription'] as Map<String, dynamic>?;
+    if (sub != null && sub['id'] != null) {
+      await ApiService.delete('/subscriptions/channel/${sub['id']}/cancel');
+    }
+    return const FollowStatusModel(followed: false, followersCount: 0);
   }
 
   static Future<void> recordView(String channelId) async {

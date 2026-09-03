@@ -1,15 +1,15 @@
 ﻿const PRIMARY_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://afrovision-backend-134538542038.us-central1.run.app";
+  "https://afrovision-backend-zoeqld5lsa-uc.a.run.app";
 
 const API_BASE_CANDIDATES = Array.from(
   new Set(
     [
       process.env.NEXT_PUBLIC_API_URL,
       process.env.NEXT_PUBLIC_API_BASE_URL,
-      "https://afrovision-backend-134538542038.us-central1.run.app",
       "https://afrovision-backend-zoeqld5lsa-uc.a.run.app",
+      "https://afrovision-backend-134538542038.us-central1.run.app",
     ].filter((value): value is string => Boolean(value && value.trim()))
   )
 );
@@ -227,9 +227,24 @@ export interface StoredUser {
   id: string;
   email: string;
   name: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  country?: string | null;
+  state?: string | null;
+  city?: string | null;
+  address?: string | null;
+  phoneNumber?: string | null;
+  referralSource?: string | null;
+  referralSourceDetail?: string | null;
+  profile_setup_complete?: boolean;
   role: "viewer" | "creator" | "admin";
   is_premium_creator: boolean;
-  kyc_status: "none" | "pending" | "verified" | "rejected";
+  kyc_status: "none" | "pending" | "verified" | "rejected" | "minor_pending";
+  date_of_birth?: string | null;
+  is_minor?: boolean;
+  guardian_id?: string | null;
+  kyc_grace_period_end?: string | null;
+  kyc_reminder_count?: number;
   subscription_plan: string | null;
   subscription_plan_type?: "creator" | "viewer" | null;
   subscription_status: "inactive" | "active" | "expired";
@@ -378,6 +393,34 @@ let cachedGiftsAt = 0;
 
 export async function getPlansApi() {
   return api<{ plans: Plan[] }>("/subscriptions/plans");
+}
+
+export interface WalletPaymentPreview {
+  sufficient: boolean;
+  cashBalance: number;
+  vptBalance: number;
+  vptPriceNgn: number;
+  vptEquivalent: number;
+  cashToDeduct: number;
+  vptToDeduct: number;
+}
+
+export async function previewWalletPaymentApi(amountNgn: number) {
+  return api<{ preview: WalletPaymentPreview } | ErrorResponse>(
+    `/subscriptions/wallet-preview?amount=${amountNgn}`,
+    { requireAuth: true },
+  );
+}
+
+export async function subscribeWithWalletApi(planId: string, billingCycle?: "monthly" | "yearly") {
+  return api<{ user: StoredUser; wallet_payment: { cashCharged: number; vptCharged: number; vptPriceNgn: number } } | ErrorResponse>(
+    "/subscriptions/subscribe",
+    {
+      method: "POST",
+      body: { planId, paymentMethod: "wallet", billingCycle: billingCycle || "monthly" },
+      requireAuth: true,
+    },
+  );
 }
 
 export async function getCheckoutProvidersApi() {
@@ -605,6 +648,7 @@ export interface Channel {
   owner_details_visible?: boolean;
   public_owner_name?: string;
   followers_count?: number;
+  subscriber_count?: number;
   requires_payment?: boolean;
   entry_fee_type?: "vpt" | "ngn" | null;
   entry_fee_vpt_units?: number;
@@ -968,6 +1012,7 @@ export async function resolveSourceApi(url: string) {
     external_url: string;
     resolved_playback_url: string;
     stream_status: string;
+    last_checked_at: string;
     provider_metadata?: Record<string, unknown>;
   } | ErrorResponse>("/channels/resolve-source", {
     method: "POST",
@@ -1184,6 +1229,17 @@ export interface NowPlaying {
   adaptive?: boolean;
   available_renditions?: number[];
   transcoding_status?: string;
+  age_classification?: string | null;
+  has_explicit_language?: boolean;
+  has_nudity?: boolean;
+  has_violence?: boolean;
+  has_revealing_clothes?: boolean;
+  has_partial_nudity?: boolean;
+  has_explicit_content?: boolean;
+  has_parental_guidance?: boolean;
+  has_erotic_dancing?: boolean;
+  has_sexual_nature?: boolean;
+  has_sex?: boolean;
 }
 
 export interface NextProgram {
@@ -1236,6 +1292,17 @@ export interface ChannelVideo {
   master_playlist_url?: string | null;
   available_renditions?: number[];
   created_at: string;
+  age_classification?: string | null;
+  has_explicit_language?: boolean;
+  has_nudity?: boolean;
+  has_violence?: boolean;
+  has_revealing_clothes?: boolean;
+  has_partial_nudity?: boolean;
+  has_explicit_content?: boolean;
+  has_parental_guidance?: boolean;
+  has_erotic_dancing?: boolean;
+  has_sexual_nature?: boolean;
+  has_sex?: boolean;
 }
 
 export interface LibraryItem {
@@ -1305,6 +1372,50 @@ export interface LibrarySeries {
   status: "active" | "archived";
 }
 
+/**
+ * Upload a library asset (cover or page image) directly through the backend.
+ * The file travels browser -> Next.js proxy -> backend -> GCS, entirely
+ * same-origin from the browser's perspective. No GCS CORS involved.
+ */
+export async function uploadCreatorLibraryAssetApi(
+  channelId: string,
+  file: File,
+  assetType: "cover" | "reader_page",
+  onProgress?: (percent: number) => void,
+): Promise<ApiResponse<{ success?: boolean; public_url?: string; filename?: string; error?: string; message?: string }>> {
+  const token = getToken();
+  if (!token) {
+    return { ok: false, status: 401, data: { error: "Not authenticated" } };
+  }
+
+  const formData = new FormData();
+  formData.append("asset_type", assetType);
+  formData.append("file", file);
+
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BROWSER_PROXY_BASE}/creator/channels/${channelId}/library/assets`);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      let data: Record<string, unknown> = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // Non-JSON response body
+      }
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data });
+    };
+    xhr.onerror = () => resolve({ ok: false, status: 0, data: { error: "Network request failed" } });
+    xhr.ontimeout = () => resolve({ ok: false, status: 0, data: { error: "Upload timed out" } });
+    xhr.send(formData);
+  });
+}
+
 export async function createCreatorLibraryAssetUploadUrlApi(
   channelId: string,
   input: {
@@ -1313,7 +1424,7 @@ export async function createCreatorLibraryAssetUploadUrlApi(
     fileName: string;
   },
 ) {
-  return api<{ success: boolean; signed_url: string; public_url: string; filename: string }>(
+  return api<{ success: boolean; signed_url: string; session_url?: string; public_url: string; filename: string }>(
     `/creator/channels/${channelId}/library/upload-url`,
     {
       method: "POST",
@@ -1450,9 +1561,18 @@ export async function getChannelLibraryRecommendationsApi(channelId: string, lim
   );
 }
 
-export async function getCreatorChannelLibraryItemsApi(channelId: string) {
-  return api<{ success: boolean; data: LibraryItem[] } | ErrorResponse>(
-    `/creator/channels/${channelId}/library/items`,
+export async function getCreatorChannelLibraryItemsApi(
+  channelId: string,
+  params?: { page?: number; limit?: number },
+) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return api<
+    { success: boolean; data: LibraryItem[]; pagination?: { page: number; limit: number; total: number; totalPages: number } } | ErrorResponse
+  >(
+    `/creator/channels/${channelId}/library/items${query ? `?${query}` : ""}`,
     { requireAuth: true },
   );
 }
@@ -1598,17 +1718,407 @@ export async function removeChannelLibraryFavoriteApi(channelId: string, itemId:
   );
 }
 
-export async function getChannelVideosApi(channelId: string) {
-  return api<{ videos: ChannelVideo[] }>(
-    `/broadcast/videos/channel/${channelId}`,
+export async function getChannelVideosApi(
+  channelId: string,
+  params?: { page?: number; limit?: number },
+) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return api<
+    { videos: ChannelVideo[]; pagination?: { page: number; limit: number; total: number; totalPages: number } }
+  >(
+    `/broadcast/videos/channel/${channelId}${query ? `?${query}` : ""}`,
     { requireAuth: true }
   );
 }
 
-export async function getMyVideosApi() {
-  return api<{ videos: ChannelVideo[] } | ErrorResponse>("/broadcast/videos/me", {
+export async function getMyVideosApi(params?: { page?: number; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return api<
+    { videos: ChannelVideo[]; pagination?: { page: number; limit: number; total: number; totalPages: number } } | ErrorResponse
+  >(`/broadcast/videos/me${query ? `?${query}` : ""}`, {
     requireAuth: true,
   });
+}
+
+export interface ChannelMovie {
+  id: string;
+  channel_id: string;
+  title: string;
+  synopsis?: string;
+  poster_url?: string;
+  hosted_url?: string;
+  external_url?: string;
+  embed_url?: string;
+  hls_url?: string;
+  video_source_mode?: "hosted" | "external_url" | "embed" | "hls";
+  status?: "draft" | "published" | "archived";
+  age_classification?: "all" | "teen" | "adult";
+  duration?: number;
+  total_views?: number;
+  date_released?: string | number;
+  published_at?: number;
+  created_at?: number;
+}
+
+export interface ChannelSeries {
+  id: string;
+  channel_id: string;
+  title: string;
+  description?: string;
+  cover_url?: string;
+  status?: "draft" | "published" | "archived";
+  published_at?: number;
+  created_at?: number;
+}
+
+export interface ChannelSeriesEpisode {
+  id: string;
+  series_id: string;
+  season_id: string;
+  title: string;
+  description?: string;
+  episode_number: number;
+  video_url?: string;
+  external_url?: string;
+  embed_url?: string;
+  hls_url?: string;
+  video_source_mode?: "hosted" | "external_url" | "embed" | "hls";
+  status?: "draft" | "published" | "archived";
+  age_classification?: "all" | "teen" | "adult";
+  duration?: number;
+  thumbnail_url?: string;
+  created_at?: number;
+}
+
+export interface ChannelSeason {
+  id: string;
+  series_id: string;
+  title: string;
+  season_number: number;
+  episodes?: ChannelSeriesEpisode[];
+  created_at?: number;
+}
+
+export interface ChannelSeriesDetail extends ChannelSeries {
+  seasons: ChannelSeason[];
+}
+
+export async function getChannelMoviesApi(channelId: string, params?: { page?: number; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return api<{ success: boolean; data: { movies: ChannelMovie[]; pagination: { page: number; limit: number; total: number; pages: number } } } | ErrorResponse>(
+    `/channels/${channelId}/movies${query ? `?${query}` : ""}`,
+    { requireAuth: false },
+  );
+}
+
+export async function getChannelSeriesApi(channelId: string, params?: { page?: number; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return api<{ success: boolean; data: { series: ChannelSeries[]; pagination: { page: number; limit: number; total: number; pages: number } } } | ErrorResponse>(
+    `/channels/${channelId}/series${query ? `?${query}` : ""}`,
+    { requireAuth: false },
+  );
+}
+
+export async function getPublicMoviesApi(params?: { page?: number; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return api<{ success: boolean; data: { movies: ChannelMovie[]; pagination: { page: number; limit: number; total: number; pages: number } } } | ErrorResponse>(
+    `/movies${query ? `?${query}` : ""}`,
+    { requireAuth: false },
+  );
+}
+
+export async function getPublicSeriesApi(params?: { page?: number; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return api<{ success: boolean; data: { series: ChannelSeries[]; pagination: { page: number; limit: number; total: number; pages: number } } } | ErrorResponse>(
+    `/series${query ? `?${query}` : ""}`,
+    { requireAuth: false },
+  );
+}
+
+export async function getPublicLibraryFeedApi(params?: { page?: number; limit?: number; contentType?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.contentType) qs.set("contentType", params.contentType);
+  const query = qs.toString();
+  return api<{ success: boolean; data: { items: LibraryItem[]; pagination: { page: number; limit: number; total: number; pages: number } } } | ErrorResponse>(
+    `/library/feed${query ? `?${query}` : ""}`,
+    { requireAuth: false },
+  );
+}
+
+export async function getMovieDetailApi(movieId: string) {
+  return api<{ success: boolean; data: { movie: ChannelMovie } } | ErrorResponse>(
+    `/movies/${movieId}`,
+    { requireAuth: false },
+  );
+}
+
+export async function getSeriesDetailApi(seriesId: string) {
+  return api<{ success: boolean; data: { series: ChannelSeriesDetail } } | ErrorResponse>(
+    `/series/${seriesId}`,
+    { requireAuth: false },
+  );
+}
+
+export async function recordMovieViewApi(movieId: string) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/movies/${movieId}/view`,
+    { method: "POST", requireAuth: false },
+  );
+}
+
+export async function recordSeriesEpisodeViewApi(seriesId: string, episodeId: string) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/series/${seriesId}/episodes/${episodeId}/view`,
+    { method: "POST", requireAuth: false },
+  );
+}
+
+export async function saveWatchProgressApi(
+  mediaType: "movie" | "episode",
+  mediaId: string,
+  positionSeconds: number,
+  durationSeconds: number,
+) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/progress/${mediaType}/${mediaId}`,
+    { method: "PUT", body: { position_seconds: positionSeconds, duration_seconds: durationSeconds }, requireAuth: true },
+  );
+}
+
+export async function getWatchProgressApi(mediaType: "movie" | "episode", mediaId: string) {
+  return api<{ success: boolean; data: { position_seconds: number; duration_seconds: number; updated_at: number } | null } | ErrorResponse>(
+    `/progress/${mediaType}/${mediaId}`,
+    { requireAuth: true },
+  );
+}
+
+export async function createMovieApi(channelId: string, payload: {
+  title: string;
+  synopsis?: string;
+  poster_url?: string;
+  hosted_url?: string;
+  external_url?: string;
+  embed_url?: string;
+  hls_url?: string;
+  video_source_mode?: "hosted" | "external_url" | "embed" | "hls";
+  age_classification?: "minor_safe" | "teen" | "adult";
+  date_released?: string | number;
+  duration?: number;
+  status?: "draft" | "published" | "archived";
+}) {
+  return api<{ success: boolean; movie: ChannelMovie } | ErrorResponse>(
+    `/creator/channels/${channelId}/movies`,
+    { method: "POST", body: payload, requireAuth: true },
+  );
+}
+
+export async function updateMovieApi(channelId: string, movieId: string, payload: {
+  title?: string;
+  synopsis?: string;
+  poster_url?: string;
+  hosted_url?: string;
+  external_url?: string;
+  embed_url?: string;
+  hls_url?: string;
+  video_source_mode?: "hosted" | "external_url" | "embed" | "hls";
+  age_classification?: "minor_safe" | "teen" | "adult";
+  date_released?: string | number;
+  duration?: number;
+  status?: "draft" | "published" | "archived";
+}) {
+  return api<{ success: boolean; movie: ChannelMovie } | ErrorResponse>(
+    `/creator/channels/${channelId}/movies/${movieId}`,
+    { method: "PATCH", body: payload, requireAuth: true },
+  );
+}
+
+export async function publishMovieApi(channelId: string, movieId: string) {
+  return api<{ success: boolean; movie: ChannelMovie } | ErrorResponse>(
+    `/creator/channels/${channelId}/movies/${movieId}/publish`,
+    { method: "POST", body: {}, requireAuth: true },
+  );
+}
+
+export async function archiveMovieApi(channelId: string, movieId: string) {
+  return api<{ success: boolean; movie: ChannelMovie } | ErrorResponse>(
+    `/creator/channels/${channelId}/movies/${movieId}/archive`,
+    { method: "POST", body: {}, requireAuth: true },
+  );
+}
+
+export async function deleteMovieApi(channelId: string, movieId: string) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/creator/channels/${channelId}/movies/${movieId}`,
+    { method: "DELETE", requireAuth: true },
+  );
+}
+
+export async function listCreatorMoviesApi(channelId: string) {
+  return api<{ success: boolean; movies: ChannelMovie[] } | ErrorResponse>(
+    `/creator/channels/${channelId}/movies`,
+    { requireAuth: true },
+  );
+}
+
+export async function uploadMoviePosterApi(channelId: string, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`/api/proxy/creator/channels/${channelId}/movies/poster`, {
+    method: "POST",
+    body: form,
+    headers: {},
+    credentials: "include",
+  });
+  const json = (await res.json()) as { success?: boolean; url?: string; error?: string };
+  return { ok: res.ok, status: res.status, data: json };
+}
+
+export async function createMovieResumableSessionApi(channelId: string, input: {
+  file_name: string;
+  file_size: number;
+  content_type: string;
+}) {
+  return api<{ success: boolean; session: { id: string; upload_url: string; public_url: string; filename: string } } | ErrorResponse>(
+    `/creator/channels/${channelId}/movies/resumable-session`,
+    { method: "POST", body: input, requireAuth: true },
+  );
+}
+
+export async function completeMovieResumableSessionApi(channelId: string, sessionId: string) {
+  return api<{ success: boolean; public_url: string } | ErrorResponse>(
+    `/creator/channels/${channelId}/movies/resumable-complete`,
+    { method: "POST", body: { session_id: sessionId }, requireAuth: true },
+  );
+}
+
+export async function createSeriesResumableSessionApi(channelId: string, input: {
+  file_name: string;
+  file_size: number;
+  content_type: string;
+}) {
+  return api<{ success: boolean; session: { id: string; upload_url: string; public_url: string; filename: string } } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/resumable-session`,
+    { method: "POST", body: input, requireAuth: true },
+  );
+}
+
+export async function completeSeriesResumableSessionApi(channelId: string, sessionId: string) {
+  return api<{ success: boolean; public_url: string } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/resumable-complete`,
+    { method: "POST", body: { session_id: sessionId }, requireAuth: true },
+  );
+}
+
+export async function createSeriesApi(channelId: string, payload: {
+  title: string;
+  description?: string;
+  cover_url?: string;
+  status?: "draft" | "published" | "archived";
+}) {
+  return api<{ success: boolean; series: ChannelSeries } | ErrorResponse>(
+    `/creator/channels/${channelId}/series`,
+    { method: "POST", body: payload, requireAuth: true },
+  );
+}
+
+export async function updateSeriesApi(channelId: string, seriesId: string, payload: {
+  title?: string;
+  description?: string;
+  cover_url?: string;
+  status?: "draft" | "published" | "archived";
+}) {
+  return api<{ success: boolean; series: ChannelSeries } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}`,
+    { method: "PATCH", body: payload, requireAuth: true },
+  );
+}
+
+export async function publishSeriesApi(channelId: string, seriesId: string) {
+  return api<{ success: boolean; series: ChannelSeries } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}/publish`,
+    { method: "POST", body: {}, requireAuth: true },
+  );
+}
+
+export async function archiveSeriesApi(channelId: string, seriesId: string) {
+  return api<{ success: boolean; series: ChannelSeries } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}/archive`,
+    { method: "POST", body: {}, requireAuth: true },
+  );
+}
+
+export async function deleteSeriesApi(channelId: string, seriesId: string) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}`,
+    { method: "DELETE", requireAuth: true },
+  );
+}
+
+export async function listCreatorSeriesApi(channelId: string) {
+  return api<{ success: boolean; series: ChannelSeries[] } | ErrorResponse>(
+    `/creator/channels/${channelId}/series`,
+    { requireAuth: true },
+  );
+}
+
+export async function uploadSeriesCoverApi(channelId: string, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`/api/proxy/creator/channels/${channelId}/series/cover`, {
+    method: "POST",
+    body: form,
+    headers: {},
+    credentials: "include",
+  });
+  const json = (await res.json()) as { success?: boolean; url?: string; error?: string };
+  return { ok: res.ok, status: res.status, data: json };
+}
+
+export async function createSeasonApi(channelId: string, seriesId: string, payload: { title?: string; season_number?: number }) {
+  return api<{ success: boolean; season: ChannelSeason } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}/seasons`,
+    { method: "POST", body: payload, requireAuth: true },
+  );
+}
+
+export async function createEpisodeApi(channelId: string, seriesId: string, seasonId: string, payload: {
+  title: string;
+  description?: string;
+  episode_number?: number;
+  video_url?: string;
+  external_url?: string;
+  embed_url?: string;
+  hls_url?: string;
+  video_source_mode?: "hosted" | "external_url" | "embed" | "hls";
+  age_classification?: "minor_safe" | "teen" | "adult";
+  duration?: number;
+  thumbnail_url?: string;
+  status?: "draft" | "published" | "archived";
+}) {
+  return api<{ success: boolean; episode: ChannelSeriesEpisode } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}/seasons/${seasonId}/episodes`,
+    { method: "POST", body: payload, requireAuth: true },
+  );
 }
 
 /**
@@ -1659,6 +2169,17 @@ export async function createVideoResumableSessionApi(input: {
   fileName: string;
   fileSize: number;
   contentType: string;
+  ageClassification?: string;
+  hasExplicitLanguage?: boolean;
+  hasNudity?: boolean;
+  hasViolence?: boolean;
+  hasRevealingClothes?: boolean;
+  hasPartialNudity?: boolean;
+  hasExplicitContent?: boolean;
+  hasParentalGuidance?: boolean;
+  hasEroticDancing?: boolean;
+  hasSexualNature?: boolean;
+  hasSex?: boolean;
 }) {
   return api<{ session: VideoUploadSession } | ErrorResponse>(
     "/broadcast/videos/resumable-session",
@@ -1672,6 +2193,17 @@ export async function createVideoResumableSessionApi(input: {
         file_name: input.fileName,
         file_size: input.fileSize,
         content_type: input.contentType,
+        age_classification: input.ageClassification || "teen",
+        has_explicit_language: input.hasExplicitLanguage ?? false,
+        has_nudity: input.hasNudity ?? false,
+        has_violence: input.hasViolence ?? false,
+        has_revealing_clothes: input.hasRevealingClothes ?? false,
+        has_partial_nudity: input.hasPartialNudity ?? false,
+        has_explicit_content: input.hasExplicitContent ?? false,
+        has_parental_guidance: input.hasParentalGuidance ?? false,
+        has_erotic_dancing: input.hasEroticDancing ?? false,
+        has_sexual_nature: input.hasSexualNature ?? false,
+        has_sex: input.hasSex ?? false,
       },
       requireAuth: true,
     },
@@ -1861,6 +2393,17 @@ export async function registerUploadedVideoApi(input: {
   description: string;
   duration?: number;
   videoUrl: string;
+  ageClassification?: string;
+  hasExplicitLanguage?: boolean;
+  hasNudity?: boolean;
+  hasViolence?: boolean;
+  hasRevealingClothes?: boolean;
+  hasPartialNudity?: boolean;
+  hasExplicitContent?: boolean;
+  hasParentalGuidance?: boolean;
+  hasEroticDancing?: boolean;
+  hasSexualNature?: boolean;
+  hasSex?: boolean;
 }) {
   return api<{ video: ChannelVideo } | ErrorResponse>("/broadcast/videos/register", {
     method: "POST",
@@ -1870,6 +2413,17 @@ export async function registerUploadedVideoApi(input: {
       description: input.description,
       duration: input.duration || 0,
       video_url: input.videoUrl,
+      age_classification: input.ageClassification || "teen",
+      has_explicit_language: input.hasExplicitLanguage ?? false,
+      has_nudity: input.hasNudity ?? false,
+      has_violence: input.hasViolence ?? false,
+      has_revealing_clothes: input.hasRevealingClothes ?? false,
+      has_partial_nudity: input.hasPartialNudity ?? false,
+      has_explicit_content: input.hasExplicitContent ?? false,
+      has_parental_guidance: input.hasParentalGuidance ?? false,
+      has_erotic_dancing: input.hasEroticDancing ?? false,
+      has_sexual_nature: input.hasSexualNature ?? false,
+      has_sex: input.hasSex ?? false,
     },
     requireAuth: true,
   });
@@ -1901,9 +2455,42 @@ export async function uploadVideoApi(input: {
   });
 }
 
+export async function updateVideoContentRatingApi(
+  videoId: string,
+  input: {
+    age_classification: string;
+    has_explicit_language?: boolean;
+    has_nudity?: boolean;
+    has_violence?: boolean;
+    has_revealing_clothes?: boolean;
+    has_partial_nudity?: boolean;
+    has_explicit_content?: boolean;
+    has_parental_guidance?: boolean;
+    has_erotic_dancing?: boolean;
+    has_sexual_nature?: boolean;
+    has_sex?: boolean;
+  },
+) {
+  return api<{ video: ChannelVideo } | ErrorResponse>(
+    `/broadcast/videos/${videoId}/content-rating`,
+    {
+      method: "PATCH",
+      body: input,
+      requireAuth: true,
+    },
+  );
+}
+
 export async function deleteVideoApi(videoId: string) {
   return api<{ message: string } | ErrorResponse>(`/broadcast/videos/${videoId}`, {
     method: "DELETE",
+    requireAuth: true,
+  });
+}
+
+export async function retryVideoTranscodeApi(videoId: string) {
+  return api<{ video: ChannelVideo } | ErrorResponse>(`/broadcast/videos/${videoId}/retry-transcode`, {
+    method: "POST",
     requireAuth: true,
   });
 }
@@ -2116,6 +2703,52 @@ export async function requestPremiumElevationApi(channelId: string) {
   return api<{ message: string; channel: Channel } | ErrorResponse>(
     `/channels/${channelId}/request-premium`,
     { method: "POST", requireAuth: true }
+  );
+}
+
+export interface ChannelSubscriber {
+  id: string;
+  subscriber_uid: string;
+  channel_id: string;
+  channel_name: string;
+  owner_id: string;
+  plan: string;
+  currency: string | null;
+  amount: number;
+  vpt_equivalent: number;
+  status: string;
+  is_premium: boolean;
+  interval_count: number;
+  interval_unit: string;
+  next_billing: number | null;
+  subscribed_at: number;
+  last_renewed_at: number | null;
+  cancelled_at: number | null;
+  cancel_reason: string | null;
+  renewal_count: number;
+  subscriber_name: string;
+  subscriber_email: string | null;
+  subscriber_avatar_url: string | null;
+}
+
+export async function getChannelSubscribersApi(channelId: string) {
+  return api<{ subscribers: ChannelSubscriber[] }>(
+    `/subscriptions/channel/subscribers/${channelId}`,
+    { requireAuth: true }
+  );
+}
+
+export async function banChannelSubscriberApi(channelId: string, subscriberUid: string, reason?: string) {
+  return api<{ message: string; subscription: ChannelSubscriber } | ErrorResponse>(
+    `/subscriptions/channel/${channelId}/ban-subscriber`,
+    { method: "POST", body: { subscriberUid, reason }, requireAuth: true }
+  );
+}
+
+export async function unbanChannelSubscriberApi(channelId: string, subscriberUid: string) {
+  return api<{ message: string; subscription: ChannelSubscriber } | ErrorResponse>(
+    `/subscriptions/channel/${channelId}/unban-subscriber`,
+    { method: "POST", body: { subscriberUid }, requireAuth: true }
   );
 }
 
@@ -2892,6 +3525,39 @@ export async function registerWaveApi(input: {
   });
 }
 
+export async function createWaveResumableSessionApi(input: {
+  channel_id: string;
+  title: string;
+  description?: string;
+  duration?: number;
+  file_name: string;
+  file_size: number;
+  content_type: string;
+  age_classification: WaveAgeClassification;
+  has_explicit_language: boolean;
+  has_nudity: boolean;
+  has_violence: boolean;
+  has_revealing_clothes: boolean;
+  has_partial_nudity: boolean;
+  has_explicit_content?: boolean;
+  has_parental_guidance?: boolean;
+  has_erotic_dancing?: boolean;
+  has_sexual_nature?: boolean;
+  has_sex?: boolean;
+}) {
+  return api<{ session: { id: string; upload_url: string; public_url: string; [key: string]: unknown } } | ErrorResponse>(
+    "/wave/resumable-session",
+    { method: "POST", body: input, requireAuth: true },
+  );
+}
+
+export async function completeWaveResumableSessionApi(sessionId: string) {
+  return api<{ wave: Wave; session: { id: string; [key: string]: unknown } } | ErrorResponse>(
+    "/wave/resumable-complete",
+    { method: "POST", body: { session_id: sessionId }, requireAuth: true },
+  );
+}
+
 export async function deleteWaveApi(waveId: string) {
   return api<{ success: boolean } | ErrorResponse>(`/wave/${waveId}`, {
     method: "DELETE",
@@ -3116,4 +3782,85 @@ export async function reviewAdminCersCaseApi(caseId: string, input: {
     body: input,
     requireAuth: true,
   });
+}
+
+// ── Wave Thumbnail Regeneration (Admin) ──────────────────────────────────────
+export async function regenerateWaveThumbnailsApi() {
+  return api<{ success: boolean; message: string; total?: number; processed?: number; failed?: number } | ErrorResponse>(
+    "/wave/admin/regenerate-thumbnails",
+    { method: "POST", requireAuth: true },
+  );
+}
+
+// ── Public Profile ───────────────────────────────────────────────────────────
+export interface PublicProfile {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  role: string;
+  is_premium_creator: boolean;
+  created_at: number | null;
+}
+
+export interface PublicProfileChannel {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  logo_url: string | null;
+  banner_url: string | null;
+  channel_number: number;
+  type: string;
+  is_active: boolean;
+  exclusive_monthly_fee_ngn: number;
+}
+
+export async function getPublicProfileApi(userId: string) {
+  return api<{ profile: PublicProfile; channels: PublicProfileChannel[] } | ErrorResponse>(
+    `/users/${userId}/public`,
+  );
+}
+
+// ── Channel Owner Transactions ───────────────────────────────────────────────
+export interface ChannelTransaction {
+  id: string;
+  type: string;
+  direction: string | null;
+  currency: string | null;
+  amount_ngn: number;
+  amount_vpt_units: number;
+  status: string;
+  description: string | null;
+  created_at: number;
+  reference_id: string | null;
+}
+
+export interface ChannelSubscriberInfo {
+  id: string;
+  user_uid: string;
+  display_name: string;
+  avatar_url: string | null;
+  type: "exclusive" | "regular";
+  status: string;
+  issued_at: number | null;
+  expires_at: number | null;
+  monthly_fee_ngn: number;
+}
+
+export interface ChannelTransactionsResponse {
+  transactions: ChannelTransaction[];
+  subscribers: ChannelSubscriberInfo[];
+  summary: {
+    totalGiftsVpt: number;
+    totalGiftsNgn: number;
+    totalSubscriptions: number;
+    totalSettlements: number;
+  };
+}
+
+export async function getMyChannelTransactionsApi(channelId: string) {
+  return api<ChannelTransactionsResponse | ErrorResponse>(
+    `/withdrawals/channel/${channelId}/my-transactions`,
+    { requireAuth: true },
+  );
 }

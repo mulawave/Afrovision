@@ -8,10 +8,31 @@ class ProfileService {
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 
-  static Future<UserModel> updateProfile({String? name, String? email}) async {
+  static Future<UserModel> updateProfile({
+    String? name,
+    String? email,
+    String? firstName,
+    String? lastName,
+    String? country,
+    String? state,
+    String? city,
+    String? address,
+    String? phoneNumber,
+    String? referralSource,
+    String? referralSourceDetail,
+  }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (email != null) body['email'] = email;
+    if (firstName != null) body['firstName'] = firstName;
+    if (lastName != null) body['lastName'] = lastName;
+    if (country != null) body['country'] = country;
+    if (state != null) body['state'] = state;
+    if (city != null) body['city'] = city;
+    if (address != null) body['address'] = address;
+    if (phoneNumber != null) body['phoneNumber'] = phoneNumber;
+    if (referralSource != null) body['referralSource'] = referralSource;
+    if (referralSourceDetail != null) body['referralSourceDetail'] = referralSourceDetail;
     final data = await ApiService.put('/users/update-profile', body);
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }

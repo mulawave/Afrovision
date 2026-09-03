@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { api, apiFormData } from "@/lib/api";
 
@@ -22,15 +23,20 @@ interface KycRecord {
   submitted_at: string;
   reviewed_at?: string;
   rejection_reason?: string;
+  date_of_birth?: string;
+  is_minor?: boolean;
+  kyc_status?: string;
 }
 
 export default function KycPage() {
   const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
   const [kycStatus, setKycStatus] = useState<KycRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [showMinorPrompt, setShowMinorPrompt] = useState(false);
 
   // Form fields
   const [fullName, setFullName] = useState("");
@@ -56,7 +62,7 @@ export default function KycPage() {
     if (!isAuthenticated || isLoading) return;
     let cancelled = false;
 
-    api<KycRecord | { error: string }>("/kyc/me").then((res) => {
+    api<KycRecord | { error: string }>("/kyc/me", { requireAuth: true }).then((res) => {
       if (cancelled) return;
       if (res.ok && "id" in res.data) {
         setKycStatus(res.data as KycRecord);
@@ -115,6 +121,7 @@ export default function KycPage() {
     setError(null);
 
     if (!fullName.trim()) { setError("Full name is required"); return; }
+    if (!dob) { setError("Date of birth is required"); return; }
     if (!idNumber.trim()) { setError("ID number is required"); return; }
     if (!idFrontUrl) { setError("ID front image is required"); return; }
     if (!selfieUrl) { setError("Selfie photo is required"); return; }
@@ -140,6 +147,12 @@ export default function KycPage() {
       });
 
       if (res.ok) {
+        const data = res.data as KycRecord & { minor?: boolean };
+        if (data.minor) {
+          setShowMinorPrompt(true);
+          setSubmitting(false);
+          return;
+        }
         setSuccess(true);
         if ("id" in res.data) setKycStatus(res.data as KycRecord);
       } else {
@@ -162,11 +175,14 @@ export default function KycPage() {
     );
   }
 
-  if (kycStatus && ["pending", "under_review", "verified"].includes(kycStatus.status)) {
+  const effectiveStatus = kycStatus?.kyc_status || kycStatus?.status || "none";
+
+  if (kycStatus && ["pending", "under_review", "verified", "minor_pending"].includes(effectiveStatus)) {
     const statusColors: Record<string, string> = {
       pending: "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
       under_review: "text-blue-400 bg-blue-500/10 border-blue-500/20",
       verified: "text-green-400 bg-green-500/10 border-green-500/20",
+      minor_pending: "text-purple-400 bg-purple-500/10 border-purple-500/20",
     };
     return (
       <>
@@ -174,13 +190,15 @@ export default function KycPage() {
         <main className="min-h-screen pt-24 pb-16">
           <div className="max-w-xl mx-auto px-6 lg:px-8">
             <div className="rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
-              <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-semibold ${statusColors[kycStatus.status] || statusColors.pending}`}>
-                {kycStatus.status === "verified" ? "✓ Verified" : kycStatus.status === "under_review" ? "Under Review" : "Pending Review"}
+              <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-semibold ${statusColors[effectiveStatus] || statusColors.pending}`}>
+                {effectiveStatus === "verified" ? "✓ Verified" : effectiveStatus === "under_review" ? "Under Review" : effectiveStatus === "minor_pending" ? "Guardian Consent Required" : "Pending Review"}
               </div>
               <h1 className="mt-6 text-2xl font-bold text-av-white">KYC Verification</h1>
               <p className="mt-3 text-sm text-av-light-orange">
-                {kycStatus.status === "verified"
+                {effectiveStatus === "verified"
                   ? "Your identity has been verified. You have full access to all platform features."
+                  : effectiveStatus === "minor_pending"
+                  ? "You are under 18. A parent or legal guardian must complete a consent form to verify your identity."
                   : "Your documents are being reviewed. This usually takes 1-2 business days."}
               </p>
               <div className="mt-6 space-y-2 text-left rounded-xl bg-av-input-fill/30 p-4">
@@ -188,9 +206,18 @@ export default function KycPage() {
                 <p className="text-xs text-av-light-orange">ID Type: <span className="text-av-white">{kycStatus.id_type}</span></p>
                 <p className="text-xs text-av-light-orange">Submitted: <span className="text-av-white">{new Date(kycStatus.submitted_at).toLocaleDateString()}</span></p>
               </div>
-              <Link href="/" className="mt-6 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
-                ← Back to Home
-              </Link>
+              {effectiveStatus === "minor_pending" ? (
+                <button
+                  onClick={() => router.push("/guardian-form")}
+                  className="mt-6 inline-block rounded-full bg-orange-500 px-6 py-2.5 text-sm font-semibold text-av-dark-blue transition-all hover:bg-orange-400"
+                >
+                  Continue to Guardian Form →
+                </button>
+              ) : (
+                <Link href="/" className="mt-6 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
+                  ← Back to Home
+                </Link>
+              )}
             </div>
           </div>
         </main>
@@ -235,13 +262,34 @@ export default function KycPage() {
             </p>
           </div>
 
-          {kycStatus?.status === "rejected" && (
+          {effectiveStatus === "rejected" && (
             <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/5 p-4">
               <p className="text-sm font-semibold text-red-400">Previous submission was rejected</p>
-              {kycStatus.rejection_reason && (
-                <p className="mt-1 text-xs text-red-300/70">Reason: {kycStatus.rejection_reason}</p>
+              {kycStatus?.rejection_reason && (
+                <p className="mt-1 text-xs text-red-300/70">Reason: {kycStatus?.rejection_reason}</p>
               )}
               <p className="mt-2 text-xs text-av-light-orange">Please re-submit with valid documents below.</p>
+            </div>
+          )}
+
+          {showMinorPrompt && (
+            <div className="mb-6 rounded-xl border border-orange-500/25 bg-orange-500/5 p-6">
+              <div className="flex items-center gap-2">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="text-orange-400">
+                  <path d="M12 2L1 21h22L12 2zm0 3.83L19.53 19H4.47L12 5.83zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z" />
+                </svg>
+                <h3 className="text-sm font-bold text-orange-400">Guardian Consent Required</h3>
+              </div>
+              <p className="mt-2 text-xs text-av-light-orange leading-relaxed">
+                You are under 18. To complete your verification, a parent or legal guardian must submit a consent form with their own ID documents.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push("/guardian-form")}
+                className="mt-4 inline-block rounded-full bg-orange-500 px-6 py-2.5 text-sm font-semibold text-av-dark-blue transition-all hover:bg-orange-400"
+              >
+                Continue to Guardian Form →
+              </button>
             </div>
           )}
 
@@ -268,12 +316,13 @@ export default function KycPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Date of Birth</label>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Date of Birth *</label>
                   <input
                     type="date"
                     value={dob}
                     onChange={(e) => setDob(e.target.value)}
                     className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-3 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                    required
                   />
                 </div>
                 <div>

@@ -11,6 +11,8 @@ analyzer:
   errors:
     avoid_print: ignore
     use_build_context_synchronously: ignore
+  exclude:
+    - wips/**
 include: package:flutter_lints/flutter.yaml
 
 linter:

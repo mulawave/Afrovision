@@ -64,8 +64,7 @@ export default function ReportCopyrightPage() {
 
     setIsSubmitting(true);
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-      const res = await fetch(`${API_BASE}/copyright/report`, {
+      const res = await fetch(`/api/proxy/copyright/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

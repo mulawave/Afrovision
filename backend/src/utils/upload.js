@@ -1,7 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
-const { uploadToGCS } = require('./gcs');
+const { uploadToGCS, uploadKycDocToGCSBucket } = require('./gcs');
 
 const storage = multer.memoryStorage();
 
@@ -62,5 +62,25 @@ async function uploadFieldsToGCS(req, res, next) {
   }
 }
 
-module.exports = { upload, uploadSingleToGCS, uploadFieldsToGCS };
+/**
+ * Middleware: uploads KYC identity documents to a dedicated, private KYC
+ * bucket — a hard bucket-level isolation from the main media bucket (which
+ * is publicly readable) so identity documents can never be exposed by a
+ * bucket-wide public access grant. Works for `upload.single()`.
+ */
+async function uploadKycDocToGCS(req, res, next) {
+  if (!req.file) return next();
+  try {
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const filename = `${crypto.randomUUID()}${ext}`;
+    const url = await uploadKycDocToGCSBucket(req.file.buffer, filename, req.file.mimetype);
+    req.file.gcsUrl = url;
+    req.file.filename = filename;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { upload, uploadSingleToGCS, uploadFieldsToGCS, uploadKycDocToGCS };
 

@@ -30,9 +30,9 @@ import {
   getExclusiveAccessStatusApi,
   getChannelsApi,
   payForAccessApi,
-  getChannelFollowStatusApi,
-  followChannelApi,
-  unfollowChannelApi,
+  checkChannelSubApi,
+  subscribeToChannelApi,
+  cancelChannelSubApi,
   getChannelEventsApi,
   getChannelEventsSinceApi,
   getMyRemindersApi,
@@ -69,9 +69,10 @@ export function LiveStream({ id }: { id: string }) {
   const [rightPanel, setRightPanel] = useState<RightPanel>("channels");
   const rightPanelRef = useRef<HTMLDivElement>(null);
   const [pendingChannelId, setPendingChannelId] = useState<string | null>(null);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
-  const [followersCount, setFollowersCount] = useState(0);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subLoading, setSubLoading] = useState(false);
+  const [subId, setSubId] = useState<string | null>(null);
+  const [subscriberCount, setSubscriberCount] = useState(0);
   const [giftOverlay, setGiftOverlay] = useState<string | null>(null);
   const [events, setEvents] = useState<ChannelEvent[]>([]);
   const { user, isAuthenticated, refreshUser } = useAuth();
@@ -91,6 +92,7 @@ export function LiveStream({ id }: { id: string }) {
   const liveDataRequestRef = useRef<Promise<LiveDataSnapshot> | null>(null);
   const lastEventAtRef = useRef(0);
   const eventsRequestInFlightRef = useRef(false);
+  const prevAuthRef = useRef(isAuthenticated);
 
   useEffect(() => {
     setPendingChannelId(null);
@@ -202,7 +204,12 @@ export function LiveStream({ id }: { id: string }) {
     if (!nowPlaying || !preRollDone) return;
     const programId = nowPlaying.program_id ?? nowPlaying.video_title;
     if (prevProgramId.current && prevProgramId.current !== programId) {
-      // Program changed — show "Now Playing" flash + check mid-roll
+      // Program changed — immediately dismiss any playing ad (scheduled content is king)
+      if (showAdBreak) {
+        setShowAdBreak(false);
+        setAdBreakAds([]);
+      }
+      // Show "Now Playing" flash + check mid-roll
       showFlash('now_playing', nowPlaying.video_title ?? 'Untitled');
       const timeSinceLastAd = Date.now() - lastMidRoll.current;
       if (timeSinceLastAd >= MID_ROLL_INTERVAL) {
@@ -210,7 +217,25 @@ export function LiveStream({ id }: { id: string }) {
       }
     }
     prevProgramId.current = programId;
-  }, [nowPlaying, preRollDone, fetchAndShowAds, MID_ROLL_INTERVAL, showFlash]);
+  }, [nowPlaying, preRollDone, fetchAndShowAds, MID_ROLL_INTERVAL, showFlash, showAdBreak]);
+
+  // Ad fill during standby: when no program is playing and no upcoming within 30s,
+  // play ads to fill the gap. Scheduled content always overrides ads (handled above).
+  useEffect(() => {
+    if (!preRollDone || showAdBreak || loading) return;
+    if (nowPlaying) return; // Only fill during standby
+
+    const now = Date.now();
+    const upcoming = schedule
+      .filter((p) => p.start_time > now)
+      .sort((a, b) => a.start_time - b.start_time)[0];
+
+    // If an upcoming program starts within 30s, don't bother with ads
+    if (upcoming && upcoming.start_time - now < 30000) return;
+
+    // Fetch and show ads to fill the gap
+    fetchAndShowAds();
+  }, [nowPlaying, schedule, preRollDone, showAdBreak, loading, fetchAndShowAds]);
 
   // Fetch channel + now-playing + access check
   useEffect(() => {
@@ -297,9 +322,9 @@ export function LiveStream({ id }: { id: string }) {
 
     load();
 
-    // Safety-net: 5-minute fallback for null/loop cases where the precision timer
+    // Safety-net: 30-second fallback for null/loop cases where the precision timer
     // cannot fire (no end_time). Skipped when the tab is hidden.
-    const SAFETY_NET_INTERVAL = 5 * 60 * 1000;
+    const SAFETY_NET_INTERVAL = 30 * 1000;
     const interval = setInterval(async () => {
       if (cancelled) return;
       if (typeof document !== "undefined" && document.hidden) return;
@@ -327,48 +352,96 @@ export function LiveStream({ id }: { id: string }) {
     };
   }, [id, isAuthenticated, applyLiveDataSnapshot, fetchLiveDataSnapshot, user?.kyc_status, refreshUser]);
 
+  // Synchronous logout protection: when isAuthenticated flips true→false on an
+  // exclusive channel, immediately deny access and stop loading so the paywall
+  // renders (unmounting ExternalStreamPlayer) without waiting for async re-fetch.
+  useEffect(() => {
+    if (prevAuthRef.current && !isAuthenticated && channel?.type === "exclusive") {
+      setAccess({ checked: true, has_access: false });
+      setExclusiveGateReason("login");
+      setLoading(false);
+    }
+    prevAuthRef.current = isAuthenticated;
+  }, [isAuthenticated, channel?.type]);
+
   // Precision timer: auto-refresh exactly when the current program ends
+  // or when the next scheduled program starts (handles loop/standby too)
   useEffect(() => {
     if (programEndTimer.current) {
       clearTimeout(programEndTimer.current);
       programEndTimer.current = null;
     }
-    if (!nowPlaying || nowPlaying.is_loop) return;
 
-    const msUntilEnd = nowPlaying.end_time - Date.now();
-    if (msUntilEnd <= 0) {
-      // Already past end — refresh immediately
-      refreshLiveData();
+    // Find the next upcoming program from the schedule
+    const now = Date.now();
+    const upcoming = schedule
+      .filter((p) => p.start_time > now)
+      .sort((a, b) => a.start_time - b.start_time)[0];
+
+    // Case 1: Current program is playing (non-loop) — set timer for its end
+    if (nowPlaying && !nowPlaying.is_loop) {
+      const msUntilEnd = nowPlaying.end_time - now;
+      if (msUntilEnd <= 0) {
+        refreshLiveData();
+        return;
+      }
+      // If there's an upcoming program starting before current ends, use the earlier deadline
+      const msUntilUpcoming = upcoming ? upcoming.start_time - now : Infinity;
+      const msUntilTransition = Math.min(msUntilEnd + 1000, msUntilUpcoming - 1000);
+      if (msUntilTransition <= 0) {
+        refreshLiveData();
+        return;
+      }
+      programEndTimer.current = setTimeout(() => {
+        refreshLiveData();
+      }, msUntilTransition);
       return;
     }
 
-    // Set timer to refresh 1s after program end
-    programEndTimer.current = setTimeout(() => {
-      refreshLiveData();
-    }, msUntilEnd + 1000);
-
-    return () => {
-      if (programEndTimer.current) {
-        clearTimeout(programEndTimer.current);
-        programEndTimer.current = null;
+    // Case 2: Loop/rerun content — set timer for next program's start time
+    if (nowPlaying && nowPlaying.is_loop && upcoming) {
+      const msUntilStart = upcoming.start_time - now;
+      if (msUntilStart <= 1000) {
+        refreshLiveData();
+        return;
       }
-    };
-  }, [nowPlaying, refreshLiveData]);
+      programEndTimer.current = setTimeout(() => {
+        refreshLiveData();
+      }, msUntilStart - 1000);
+      return;
+    }
+
+    // Case 3: Standby (no nowPlaying) — set timer for next program's start
+    if (!nowPlaying && upcoming) {
+      const msUntilStart = upcoming.start_time - now;
+      if (msUntilStart <= 1000) {
+        refreshLiveData();
+        return;
+      }
+      programEndTimer.current = setTimeout(() => {
+        refreshLiveData();
+      }, msUntilStart - 1000);
+      return;
+    }
+
+    // No upcoming program — safety net interval handles it
+  }, [nowPlaying, schedule, refreshLiveData]);
 
   useEffect(() => {
     if (!isAuthenticated || !channel?.id || channel.owner_id === user?.id) return;
     let cancelled = false;
 
-    getChannelFollowStatusApi(channel.id).then((res) => {
-      if (cancelled || !res.ok || !("followed" in res.data)) return;
-      setIsFollowing(res.data.followed);
-      setFollowersCount(res.data.followers_count);
+    checkChannelSubApi(channel.id).then((res) => {
+      if (cancelled || !res.ok || !("subscribed" in res.data)) return;
+      setIsSubscribed(res.data.subscribed);
+      setSubId(res.data.subscription?.id ?? null);
+      setSubscriberCount(channel.subscriber_count ?? channel.followers_count ?? 0);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, channel?.id, channel?.owner_id, user?.id]);
+  }, [isAuthenticated, channel?.id, channel?.owner_id, channel?.subscriber_count, channel?.followers_count, user?.id]);
 
   useEffect(() => {
     lastEventAtRef.current = 0;
@@ -481,21 +554,26 @@ export function LiveStream({ id }: { id: string }) {
     });
   }, [requireAuth, id, refreshUser]);
 
-  const handleFollowToggle = useCallback(() => {
+  const handleSubscribeToggle = useCallback(() => {
     if (!channel?.id || !channel?.owner_id || channel.owner_id === user?.id) return;
     requireAuth(async () => {
-      setFollowLoading(true);
-      const res = isFollowing
-        ? await unfollowChannelApi(channel.id)
-        : await followChannelApi(channel.id);
-
-      if (res.ok && "followed" in res.data) {
-        setIsFollowing(res.data.followed);
-        setFollowersCount(res.data.followers_count);
+      setSubLoading(true);
+      if (isSubscribed && subId) {
+        const res = await cancelChannelSubApi(subId);
+        if (res.ok) {
+          setIsSubscribed(false);
+          setSubId(null);
+        }
+      } else {
+        const res = await subscribeToChannelApi(channel.id);
+        if (res.ok && "subscription" in res.data) {
+          setIsSubscribed(true);
+          setSubId(res.data.subscription.id);
+        }
       }
-      setFollowLoading(false);
+      setSubLoading(false);
     });
-  }, [channel, isFollowing, requireAuth, user?.id]);
+  }, [channel, isSubscribed, subId, requireAuth, user?.id]);
 
   if (loading) {
     return (
@@ -624,8 +702,62 @@ export function LiveStream({ id }: { id: string }) {
                   serverTime={serverTime}
                   schedulerState={schedulerState}
                   onRefreshUrl={refreshLiveData}
+                  programStartTime={nowPlaying?.start_time}
+                  programEndTime={nowPlaying?.end_time}
+                  programDuration={nowPlaying?.duration}
+                  programPosition={nowPlaying?.position}
+                  isLoop={nowPlaying?.is_loop}
+                  onProgramEnd={refreshLiveData}
+                  contentRating={nowPlaying ? {
+                    age_classification: (nowPlaying.age_classification as "minor_safe" | "teen" | "adult" | null) ?? null,
+                    has_explicit_language: nowPlaying.has_explicit_language,
+                    has_nudity: nowPlaying.has_nudity,
+                    has_violence: nowPlaying.has_violence,
+                    has_revealing_clothes: nowPlaying.has_revealing_clothes,
+                    has_partial_nudity: nowPlaying.has_partial_nudity,
+                    has_explicit_content: nowPlaying.has_explicit_content,
+                    has_parental_guidance: nowPlaying.has_parental_guidance,
+                    has_erotic_dancing: nowPlaying.has_erotic_dancing,
+                    has_sexual_nature: nowPlaying.has_sexual_nature,
+                    has_sex: nowPlaying.has_sex,
+                  } : null}
                 />
               </div>
+
+              {/* ── Up Next overlay on player (YouTube-card style) ── */}
+              {(() => {
+                const now = Date.now();
+                const upcoming = schedule
+                  .filter((p) => p.start_time > now)
+                  .sort((a, b) => a.start_time - b.start_time)[0];
+                if (!upcoming) return null;
+                const msUntilStart = upcoming.start_time - now;
+                const msUntilEnd = nowPlaying ? nowPlaying.end_time - now : 0;
+                // Show when within 60s of current program ending, or when in standby
+                const shouldShow =
+                  (!nowPlaying || msUntilEnd <= 60000) && msUntilStart > 0;
+                if (!shouldShow) return null;
+                const startTime = new Date(upcoming.start_time);
+                const timeStr = startTime.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+                return (
+                  <div className="absolute top-3 right-3 z-10 pointer-events-none">
+                    <div className="bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2 border border-av-orange/30 shadow-lg max-w-[200px]">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-av-light-orange mb-0.5">
+                        Up Next
+                      </p>
+                      <p className="text-xs text-white font-medium truncate">
+                        {upcoming.video_title}
+                      </p>
+                      <p className="text-[10px] text-av-light-orange/80 mt-0.5">
+                        {timeStr}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── DSTV-style Ad Break Overlay ── */}
               {showAdBreak && adBreakAds.length > 0 && (
@@ -703,16 +835,29 @@ export function LiveStream({ id }: { id: string }) {
 
                 {/* Action buttons */}
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  {channel?.owner_id && channel.owner_id === user?.id && (
+                    <Link
+                      href={`/channel/${id}`}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold rounded-full bg-av-card border border-av-light-orange/40 text-av-light-orange hover:bg-av-light-orange/10 hover:border-av-light-orange/60 transition-all"
+                      title="Manage uploads, schedule, and channel settings"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                      </svg>
+                      Manage Channel
+                    </Link>
+                  )}
                   <button
-                    onClick={handleFollowToggle}
-                    disabled={followLoading || !channel?.owner_id || channel.owner_id === user?.id}
+                    onClick={handleSubscribeToggle}
+                    disabled={subLoading || !channel?.owner_id || channel.owner_id === user?.id}
                     className={`inline-flex items-center gap-1.5 px-5 py-2.5 text-xs font-semibold rounded-full transition-all ${
-                      isFollowing
+                      isSubscribed
                         ? "bg-av-card border border-av-orange/40 text-av-orange"
                         : "bg-gradient-to-r from-av-orange to-av-light-orange text-av-dark-blue hover:shadow-lg hover:shadow-av-orange/25"
                     } disabled:opacity-60`}
                   >
-                    {followLoading ? "Working..." : isFollowing ? `✓ Following${followersCount ? ` · ${followersCount}` : ""}` : `🔔 Follow${followersCount ? ` · ${followersCount}` : ""}`}
+                    {subLoading ? "Working..." : isSubscribed ? `✓ Subscribed${subscriberCount ? ` · ${subscriberCount}` : ""}` : `🔔 Subscribe${subscriberCount ? ` · ${subscriberCount}` : ""}`}
                   </button>
                   <button
                     onClick={() => {

@@ -235,7 +235,7 @@ async function processExclusiveLifecycle() {
             title: creatorExpiredMessage.title,
             body: creatorExpiredMessage.body,
             type: creatorExpiredMessage.type,
-            link: '/dashboard',
+            link: `/channel/${channel.id}`,
             data: {
               channel_id: channel.id,
               user_uid: access.user_uid,
@@ -249,7 +249,7 @@ async function processExclusiveLifecycle() {
               subject: creatorExpiredMessage.emailSubject,
               title: creatorExpiredMessage.title,
               body: creatorExpiredMessage.body,
-              ctaUrl: 'https://afrovision-website-134538542038.us-central1.run.app/dashboard',
+              ctaUrl: 'https://afrovision-website-134538542038.us-central1.run.app/creator-studio',
               ctaLabel: creatorExpiredMessage.ctaLabel,
             }).catch((error) => console.error('[ExclusiveLifecycleWorker] creator expired email failed:', error.message));
           }
@@ -310,7 +310,7 @@ async function processExclusiveLifecycle() {
           title: creatorExpiringMessage.title,
           body: creatorExpiringMessage.body,
           type: creatorExpiringMessage.type,
-          link: '/dashboard',
+          link: `/channel/${channel.id}`,
           data: {
             channel_id: channel.id,
             user_uid: access.user_uid,
@@ -325,7 +325,7 @@ async function processExclusiveLifecycle() {
             subject: creatorExpiringMessage.emailSubject,
             title: creatorExpiringMessage.title,
             body: creatorExpiringMessage.body,
-            ctaUrl: 'https://afrovision-website-134538542038.us-central1.run.app/dashboard',
+            ctaUrl: 'https://afrovision-website-134538542038.us-central1.run.app/creator-studio',
             ctaLabel: creatorExpiringMessage.ctaLabel,
           }).catch((error) => console.error('[ExclusiveLifecycleWorker] creator expiring email failed:', error.message));
         }

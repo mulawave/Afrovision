@@ -12,18 +12,19 @@
  */
 const { Router } = require('express');
 const { authenticateToken } = require('../utils/jwt');
-const { upload, uploadSingleToGCS } = require('../utils/upload');
+const { upload, uploadKycDocToGCS } = require('../utils/upload');
 const ctrl = require('./kyc.controller');
 
 const router = Router();
 
 // Authenticated user
-router.post('/upload-doc', authenticateToken, upload.single('file'), uploadSingleToGCS, ctrl.uploadKycDoc);
+router.post('/upload-doc', authenticateToken, upload.single('file'), uploadKycDocToGCS, ctrl.uploadKycDoc);
 router.post('/submit', authenticateToken, ctrl.submitKyc);
 router.get('/me', authenticateToken, ctrl.getMyKyc);
 router.patch('/gender', authenticateToken, ctrl.updateMyGender);
 
 // Admin
+router.get('/admin/stats', authenticateToken, ctrl.adminKycStats);
 router.get('/admin/list', authenticateToken, ctrl.adminListKyc);
 router.get('/admin/expiring', authenticateToken, ctrl.adminGetExpiring);
 router.get('/admin/expired', authenticateToken, ctrl.adminGetExpired);

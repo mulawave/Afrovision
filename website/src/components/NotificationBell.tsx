@@ -65,12 +65,23 @@ export function NotificationBell() {
       }
     }
 
+    function handleNotificationsUpdated(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail?.unread_count === "number") {
+        setUnreadCount(detail.unread_count);
+      } else {
+        loadUnreadCount();
+      }
+    }
+
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("notifications-updated", handleNotificationsUpdated as EventListener);
 
     return () => {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("notifications-updated", handleNotificationsUpdated as EventListener);
     };
   }, [isAuthenticated, loadUnreadCount]);
 
@@ -117,6 +128,7 @@ export function NotificationBell() {
           read_at: item.read_at ?? Date.now(),
         }))
       );
+      window.dispatchEvent(new CustomEvent("notifications-updated", { detail: { unread_count: res.data.unread_count } }));
     }
     setMarkingAll(false);
   }

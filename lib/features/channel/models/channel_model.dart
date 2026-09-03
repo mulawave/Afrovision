@@ -12,6 +12,7 @@ class ChannelModel {
   final String createdAt;
   final String? ownerName;
   final int followersCount;
+  final int subscriberCount;
   final int viewerCount;
 
   // Module 11 — Premium stream fields
@@ -60,6 +61,7 @@ class ChannelModel {
     required this.createdAt,
     this.ownerName,
     this.followersCount = 0,
+    this.subscriberCount = 0,
     this.viewerCount = 0,
     this.requiresPayment = false,
     this.entryFeeType,
@@ -133,6 +135,8 @@ class ChannelModel {
       createdAt: _asString(json['created_at']),
       ownerName: _asNullableString(json['owner_name']),
       followersCount: (json['followers_count'] as num?)?.toInt() ?? 0,
+      subscriberCount: (json['subscriber_count'] as num?)?.toInt() ??
+          (json['followers_count'] as num?)?.toInt() ?? 0,
       viewerCount: (json['viewer_count'] as num?)?.toInt() ?? 0,
       requiresPayment: _asBool(json['requires_payment']),
       entryFeeType: _asNullableString(json['entry_fee_type']),

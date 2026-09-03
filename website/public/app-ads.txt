@@ -1,0 +1,9 @@
+google.com, pub-5677596795547366, DIRECT, f08c47fec0942fa0
+
+# TODO: Add the exact line(s) Mintegral gives you for app-ads.txt.
+# Find it in the Mintegral dashboard under App Setting, or see:
+# https://www.mintegral.com/en/blog/how-app-ads-txt-can-help-fight-ad-fraud
+
+# TODO: Add the exact line(s) Pangle gives you for app-ads.txt.
+# Find it in the Pangle dashboard, or see:
+# https://www.pangleglobal.com/integration/app-ads-txt

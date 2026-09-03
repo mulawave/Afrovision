@@ -71,6 +71,7 @@ router.get('/cers/reporter-state/:userId', authenticateToken, cersAdminCtrl.getR
 
 // User management
 router.get('/users', authenticateToken, ctrl.listUsers);
+router.get('/users/search', authenticateToken, ctrl.searchUsers);
 router.delete('/users/:uid', authenticateToken, ctrl.deleteUser);
 router.post('/users/cleanup/duplicates', authenticateToken, ctrl.cleanupDuplicates);
 router.post('/users/cleanup/empty',      authenticateToken, ctrl.cleanupEmpty);
@@ -84,6 +85,15 @@ router.post('/users/cleanup-shells',     authenticateToken, ctrl.cleanupRecovery
 router.post('/users/pitr-restore',       authenticateToken, ctrl.pitrRestore);
 router.get('/users/:uid/wallet', authenticateToken, ctrl.getUserWallet);
 router.get('/users/:uid/detail', authenticateToken, ctrl.getUserDetail);
+router.post('/users/:uid/ban', authenticateToken, ctrl.banUser);
+router.post('/users/:uid/unban', authenticateToken, ctrl.unbanUser);
+router.post('/users/:uid/freeze-wallet', authenticateToken, ctrl.freezeWallet);
+router.post('/users/:uid/unfreeze-wallet', authenticateToken, ctrl.unfreezeWallet);
+router.post('/users/:uid/ban-withdrawal', authenticateToken, ctrl.banWithdrawal);
+router.post('/users/:uid/unban-withdrawal', authenticateToken, ctrl.unbanWithdrawal);
+router.post('/users/:uid/ban-channel-creation', authenticateToken, ctrl.banChannelCreation);
+router.post('/users/:uid/unban-channel-creation', authenticateToken, ctrl.unbanChannelCreation);
+router.post('/users/:uid/debit', authenticateToken, ctrl.debitUserAssets);
 router.get('/wallets', authenticateToken, ctrl.listWallets);
 
 // Channel control
@@ -101,12 +111,26 @@ router.post(
 );
 router.post('/channels/bulk-recheck-sources', authenticateToken, ctrl.adminBulkRecheckSources);
 router.post('/channels/backfill-defaults', authenticateToken, ctrl.adminBackfillChannelDefaults);
+router.post('/channels/cleanup-orphaned-events', authenticateToken, ctrl.adminCleanupOrphanedChannelEvents);
 router.post('/channels/:id/disable', authenticateToken, ctrl.adminDisableChannel);
 router.post('/channels/:id/enable', authenticateToken, ctrl.adminEnableChannel);
 router.patch('/channels/:id/number', authenticateToken, ctrl.adminUpdateChannelNumber);
 router.post('/channels/:id/recheck-source', authenticateToken, ctrl.adminRecheckChannelSource);
 router.patch('/channels/:id/external-source', authenticateToken, ctrl.adminUpdateChannelExternalSource);
 router.patch('/channels/:id/owner-display', authenticateToken, ctrl.adminUpdateChannelOwnerDisplay);
+router.delete('/channels/:id', authenticateToken, ctrl.adminHardDeleteChannel);
+router.post('/channels/:id/ban', authenticateToken, ctrl.adminBanChannel);
+router.post('/channels/:id/unban', authenticateToken, ctrl.adminUnbanChannel);
+router.get('/channels/:id/analytics', authenticateToken, ctrl.adminChannelAnalytics);
+router.get('/channels/:id/audit/gifts', authenticateToken, ctrl.adminChannelAuditGifts);
+router.get('/channels/:id/audit/subscriptions', authenticateToken, ctrl.adminChannelAuditSubscriptions);
+router.get('/channels/:id/audit/events', authenticateToken, ctrl.adminChannelAuditEvents);
+router.get('/channels/:id/audit/asset-flow', authenticateToken, ctrl.adminChannelAuditAssetFlow);
+router.get('/channels/:id/audit/logs', authenticateToken, ctrl.adminChannelAuditLogs);
+router.post('/channels/migrate-follows-to-subscriptions', authenticateToken, ctrl.adminMigrateFollowsToSubscriptions);
+
+// Site-wide withdrawals toggle
+router.post('/settings/withdrawals-toggle', authenticateToken, ctrl.toggleWithdrawalsSiteWide);
 
 // Premium stream management (Module 11)
 router.get('/channels/premium', authenticateToken, premiumCtrl.adminListPremiumChannels);
@@ -132,6 +156,7 @@ router.post('/ai-video/providers/:providerKey/test', authenticateToken, aiVideoA
 router.get('/dashboard', authenticateToken, ctrl.getDashboard);
 router.get('/dashboard/trend', authenticateToken, ctrl.getDashboardTrend);
 router.get('/dashboard/exclusive-ops', authenticateToken, ctrl.getExclusiveOpsDashboard);
+router.get('/dashboard/registrations', authenticateToken, ctrl.getRegistrationAnalytics);
 router.post('/renewals/run', authenticateToken, ctrl.runRenewals);
 
 // Analytics
@@ -161,3 +186,4 @@ module.exports = router;
 // Email broadcast (Communication page → Send Email using template)
 router.post('/email/send',      authenticateToken, ctrl.sendEmailToUser);
 router.post('/email/broadcast', authenticateToken, ctrl.broadcastEmail);
+router.get('/communication/audience-preview', authenticateToken, ctrl.getCommunicationAudiencePreview);

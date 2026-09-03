@@ -36,6 +36,11 @@ class _PlansScreenState extends State<PlansScreen>
   late TabController _tabController;
   bool _tabSelectionApplied = false;
 
+  // Wallet payment state
+  WalletPaymentPreview? _walletPreview;
+  bool _walletPreviewLoading = false;
+  bool _walletPaying = false;
+
   @override
   void initState() {
     super.initState();
@@ -242,6 +247,372 @@ class _PlansScreenState extends State<PlansScreen>
         ),
       );
     }
+  }
+
+  Future<void> _subscribeWithWallet(PlanModel plan) async {
+    if (plan.price == 0) return;
+    if (plan.isViewer && _isCreatorAccount) return;
+
+    final billingCycle = _yearlyBilling && plan.isViewer ? 'yearly' : 'monthly';
+    final amount = billingCycle == 'yearly'
+        ? (plan.yearlyPrice ?? plan.price)
+        : plan.price;
+
+    setState(() {
+      _walletPreviewLoading = true;
+      _walletPreview = null;
+      _walletPaying = false;
+    });
+
+    try {
+      final preview = await SubscriptionService.previewWalletPayment(amount);
+      if (!mounted) return;
+      setState(() {
+        _walletPreview = preview;
+        _walletPreviewLoading = false;
+      });
+      _showWalletPaymentSheet(plan, billingCycle, amount);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _walletPreviewLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load wallet balance: $e'),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
+  void _showWalletPaymentSheet(PlanModel plan, String billingCycle, double amount) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              left: 20,
+              right: 20,
+              top: 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Pay with Wallet',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _walletPaying
+                          ? null
+                          : () => Navigator.pop(ctx),
+                      child: const Icon(
+                        Icons.close_rounded,
+                        color: AppColors.hintText,
+                        size: 22,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.inputFill,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.inputBorder),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Plan',
+                        style: TextStyle(color: AppColors.hintText, fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        plan.name.replaceAll('_', ' ').toUpperCase(),
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Amount Due',
+                        style: TextStyle(color: AppColors.hintText, fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '\u20a6${_formatPrice(amount)}',
+                        style: const TextStyle(
+                          color: AppColors.orange,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_walletPreviewLoading)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20),
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.orange),
+                      ),
+                    ),
+                  ),
+                if (_walletPreview != null && !_walletPreviewLoading) ...[
+                  _buildWalletBalanceRow('Cash Balance',
+                      '\u20a6${_formatPrice(_walletPreview!.cashBalance)}'),
+                  const SizedBox(height: 8),
+                  _buildWalletBalanceRow(
+                    'vPT Balance',
+                    '${_walletPreview!.vptBalance.toStringAsFixed(2)} vPT (\u20a6${_formatPrice(_walletPreview!.vptBalance * _walletPreview!.vptPriceNgn)})',
+                  ),
+                  const SizedBox(height: 8),
+                  _buildWalletBalanceRow(
+                    'vPT Equivalent',
+                    '${_walletPreview!.vptEquivalent.toStringAsFixed(2)} vPT',
+                  ),
+                  const SizedBox(height: 16),
+                  if (_walletPreview!.sufficient)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Payment Breakdown',
+                            style: TextStyle(
+                              color: Color(0xFF4CAF50),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          if (_walletPreview!.cashToDeduct > 0)
+                            _buildWalletBalanceRow(
+                              'Cash Deducted',
+                              '\u20a6${_formatPrice(_walletPreview!.cashToDeduct)}',
+                              textColor: const Color(0xFF4CAF50),
+                            ),
+                          if (_walletPreview!.cashToDeduct > 0)
+                            const SizedBox(height: 6),
+                          if (_walletPreview!.vptToDeduct > 0)
+                            _buildWalletBalanceRow(
+                              'vPT Deducted',
+                              '${_walletPreview!.vptToDeduct.toStringAsFixed(2)} vPT',
+                              textColor: const Color(0xFF4CAF50),
+                            ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorRed.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.errorRed.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Insufficient Balance',
+                            style: TextStyle(
+                              color: AppColors.errorRed,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Your combined wallet balance is not enough. Top up your wallet or pay with card.',
+                            style: TextStyle(
+                              color: AppColors.errorRed.withValues(alpha: 0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _walletPaying
+                              ? null
+                              : () => Navigator.pop(ctx),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            decoration: BoxDecoration(
+                              color: AppColors.inputFill,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.inputBorder),
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  color: AppColors.lightOrange,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: (_walletPreview!.sufficient && !_walletPaying)
+                              ? () async {
+                                  setSheetState(() => _walletPaying = true);
+                                  try {
+                                    await SubscriptionService.subscribeWithWallet(
+                                      plan.id,
+                                      billingCycle: billingCycle,
+                                    );
+                                    if (!ctx.mounted) return;
+                                    Navigator.pop(ctx);
+                                    if (!mounted) return;
+                                    setState(() => _subscribingPlanId = null);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Subscribed to ${plan.name.toUpperCase()} plan!',
+                                          style: const TextStyle(color: AppColors.white),
+                                        ),
+                                        backgroundColor:
+                                            const Color(0xFF4CAF50).withValues(alpha: 0.9),
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                      ),
+                                    );
+                                    Navigator.pop(context, true);
+                                  } catch (e) {
+                                    setSheetState(() => _walletPaying = false);
+                                    if (!ctx.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          e.toString(),
+                                          style: const TextStyle(color: AppColors.white),
+                                        ),
+                                        backgroundColor:
+                                            AppColors.errorRed.withValues(alpha: 0.9),
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                              : null,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            decoration: BoxDecoration(
+                              gradient: (_walletPreview!.sufficient && !_walletPaying)
+                                  ? const LinearGradient(
+                                      colors: [Color(0xFF4CAF50), Color(0xFF45A049)],
+                                    )
+                                  : null,
+                              color: (_walletPreview!.sufficient && !_walletPaying)
+                                  ? null
+                                  : AppColors.inputFill,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: _walletPaying
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(AppColors.white),
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Confirm Payment',
+                                      style: TextStyle(
+                                        color: AppColors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 24),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildWalletBalanceRow(String label, String value, {Color? textColor}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(color: AppColors.hintText, fontSize: 13),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: textColor ?? AppColors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -849,6 +1220,42 @@ class _PlansScreenState extends State<PlansScreen>
               ),
             ),
           ),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: isSubscribing ? null : () => _subscribeWithWallet(plan),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                ),
+              ),
+              child: const Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: Color(0xFF4CAF50),
+                      size: 16,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Pay with Wallet',
+                      style: TextStyle(
+                        color: Color(0xFF4CAF50),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1192,6 +1599,44 @@ class _PlansScreenState extends State<PlansScreen>
                 ),
               ),
             ),
+          if (!isFree && !isLockedForCreator && !isRepLocked) ...[
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: isSubscribing ? null : () => _subscribeWithWallet(plan),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: const Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.account_balance_wallet_rounded,
+                        color: Color(0xFF4CAF50),
+                        size: 16,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Pay with Wallet',
+                        style: TextStyle(
+                          color: Color(0xFF4CAF50),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

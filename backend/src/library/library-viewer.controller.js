@@ -10,6 +10,7 @@ const LibraryService = require('./library.service');
 const LibraryPolicyService = require('./library-policy.service');
 const { isLibraryRolloutEnabledForUser } = require('./library-rollout.service');
 const { extractGCSPath, generateSignedReadUrl, getGCSObjectMetadata } = require('../utils/gcs');
+const Channel = require('../channels/channel.model');
 
 const db = {
   collection: (...args) => admin.firestore().collection(...args),
@@ -771,6 +772,105 @@ exports.getRecommendations = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting recommendations:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * GET /library/feed
+ * Global public library feed — aggregates published library items from:
+ *  1. Public, non-exclusive channels (always implicitly public)
+ *  2. Any channel where the item has isPublic=true (opt-in)
+ * Supports pagination and optional contentType filter.
+ */
+exports.listPublicLibrary = async (req, res) => {
+  try {
+    const { page = 1, limit = 24, contentType } = req.query;
+    const pageNumber = Math.max(1, parseInt(page, 10) || 1);
+    const limitNumber = Math.max(1, Math.min(100, parseInt(limit, 10) || 24));
+
+    // 1. Get all public non-exclusive channels
+    const publicChannels = await Channel.getPublicChannels();
+    const publicNonExclusiveIds = publicChannels
+      .filter((ch) => ch.type === 'public' && Number(ch.exclusive_monthly_fee_ngn || 0) === 0)
+      .map((ch) => ch.id);
+
+    const mapDoc = (doc) => ({ ...doc.data(), id: doc.id });
+    const seenIds = new Set();
+    let allItems = [];
+
+    // 2. Fetch items from public non-exclusive channels (chunked for Firestore 'in' limit of 30)
+    for (let i = 0; i < publicNonExclusiveIds.length; i += 30) {
+      const chunk = publicNonExclusiveIds.slice(i, i + 30);
+      let q = db
+        .collection('channel_library_items')
+        .where('channelId', 'in', chunk)
+        .where('status', '==', 'published');
+
+      if (contentType) {
+        q = q.where('contentType', '==', contentType);
+      }
+
+      const snap = await q.get();
+      for (const doc of snap.docs) {
+        if (!seenIds.has(doc.id)) {
+          seenIds.add(doc.id);
+          allItems.push(mapDoc(doc));
+        }
+      }
+    }
+
+    // 3. Fetch items opted-in via isPublic=true from any channel (including exclusive/private)
+    let optInQuery = db
+      .collection('channel_library_items')
+      .where('isPublic', '==', true)
+      .where('status', '==', 'published');
+
+    if (contentType) {
+      optInQuery = optInQuery.where('contentType', '==', contentType);
+    }
+
+    const optInSnap = await optInQuery.get();
+    for (const doc of optInSnap.docs) {
+      if (!seenIds.has(doc.id)) {
+        seenIds.add(doc.id);
+        allItems.push(mapDoc(doc));
+      }
+    }
+
+    // 4. Sort by publishedAt desc (fallback to createdAt)
+    allItems.sort((a, b) => {
+      const aMs = a.publishedAt && typeof a.publishedAt.toMillis === 'function'
+        ? a.publishedAt.toMillis()
+        : new Date(a.createdAt || 0).getTime();
+      const bMs = b.publishedAt && typeof b.publishedAt.toMillis === 'function'
+        ? b.publishedAt.toMillis()
+        : new Date(b.createdAt || 0).getTime();
+      return bMs - aMs;
+    });
+
+    // 5. Paginate
+    const total = allItems.length;
+    const offset = (pageNumber - 1) * limitNumber;
+    const items = allItems.slice(offset, offset + limitNumber);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        items,
+        pagination: {
+          page: pageNumber,
+          limit: limitNumber,
+          total,
+          pages: Math.ceil(total / limitNumber),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error listing public library feed:', error);
     return res.status(500).json({
       error: 'Internal server error',
       message: error.message,

@@ -35,6 +35,9 @@ async function authenticateToken(req, res, next) {
     if (!req.user) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
+    if (req.user.is_banned && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'ACCOUNT_BANNED', message: 'Your account has been banned. Contact support.' });
+    }
     req.userRole = req.user.role || null;
     next();
   } catch (error) {

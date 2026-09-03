@@ -128,9 +128,15 @@ class ApiService {
     });
   }
 
-  static Future<Map<String, dynamic>> get(String path) async {
-    final cached = _readCache(path);
-    if (cached != null) return cached as Map<String, dynamic>;
+  static void clearCache() {
+    _cache.clear();
+  }
+
+  static Future<Map<String, dynamic>> get(String path, {bool noCache = false}) async {
+    if (!noCache) {
+      final cached = _readCache(path);
+      if (cached != null) return cached as Map<String, dynamic>;
+    }
     final result = await _safeRequest(() => _withRetry(() async {
       final response = await http
           .get(Uri.parse('$_baseUrl$path'), headers: await _headers())
@@ -144,7 +150,9 @@ class ApiService {
       }
       return data;
     }));
-    _writeCache(path, result);
+    if (!noCache) {
+      _writeCache(path, result);
+    }
     return result;
   }
 

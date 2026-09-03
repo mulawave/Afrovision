@@ -57,7 +57,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     try {
       debugPrint('[Splash] Calling getCurrentUser...');
-      await AuthService.getCurrentUser();
+      final user = await AuthService.getCurrentUser();
       debugPrint('[Splash] getCurrentUser succeeded');
       if (!mounted) return;
 
@@ -75,6 +75,19 @@ class _SplashScreenState extends State<SplashScreen>
       }
 
       if (!mounted) return;
+
+      // Redirect to profile setup if incomplete (non-admin)
+      if (!user.isProfileComplete && user.role != 'admin') {
+        Navigator.pushReplacementNamed(context, '/profile-setup');
+        return;
+      }
+
+      // Redirect to KYC if required (non-admin)
+      if (user.kycRequired && user.role != 'admin') {
+        Navigator.pushReplacementNamed(context, '/kyc');
+        return;
+      }
+
       Navigator.pushReplacementNamed(context, '/home');
     } catch (e) {
       debugPrint('[Splash] Auth check failed: $e');

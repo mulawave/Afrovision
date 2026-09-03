@@ -1,6 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../../features/broadcast/widgets/broadcast_player.dart';
 import '../../features/broadcast/widgets/floating_player_widget.dart';
 
 class FloatingSessionSnapshot {
@@ -19,7 +20,7 @@ class FloatingSessionSnapshot {
 ///
 /// A Flutter `Overlay` widget floats above every route so the user can keep
 /// watching a channel while browsing the rest of the app. It reuses the
-/// already-playing [VideoPlayerController] / [WebViewController] — there is no
+/// already-playing [BroadcastPlayer] / [WebViewController] — there is no
 /// second playback source — so returning to the player never leaves rogue
 /// audio behind.
 ///
@@ -67,7 +68,7 @@ class FloatingPlayerService with WidgetsBindingObserver {
   }
 
   OverlayEntry? _entry;
-  VideoPlayerController? _videoController;
+  BroadcastPlayer? _broadcastPlayer;
   WebViewController? _ytController;
 
   String? _channelId;
@@ -83,7 +84,7 @@ class FloatingPlayerService with WidgetsBindingObserver {
 
   void show({
     required BuildContext context,
-    VideoPlayerController? videoController,
+    BroadcastPlayer? broadcastPlayer,
     WebViewController? ytController,
     required String channelId,
     String? channelName,
@@ -91,7 +92,7 @@ class FloatingPlayerService with WidgetsBindingObserver {
     required String externalMode,
     VoidCallback? onOpenChannelSurfer,
   }) {
-    _videoController = videoController;
+    _broadcastPlayer = broadcastPlayer;
     _ytController = ytController;
     _channelId = channelId;
     _sessionNotifier.value = FloatingSessionSnapshot(
@@ -103,7 +104,7 @@ class FloatingPlayerService with WidgetsBindingObserver {
     _entry?.remove();
     _entry = OverlayEntry(
       builder: (_) => FloatingPlayerWidget(
-        videoController: _videoController,
+        broadcastPlayer: _broadcastPlayer,
         ytController: _ytController,
         channelName: channelName ?? '',
         externalMode: externalMode,
@@ -139,7 +140,7 @@ class FloatingPlayerService with WidgetsBindingObserver {
   /// from the player screen, not here.)
   Future<void> onAppBackground() async {
     if (!isActive) return;
-    _videoController?.pause();
+    _broadcastPlayer?.pause();
     _pauseYouTubePlayback();
   }
 
@@ -162,34 +163,35 @@ class FloatingPlayerService with WidgetsBindingObserver {
     }
     _entry = null;
     _pauseYouTubePlayback();
-    // Dispose the native video controller so it releases audio focus and
-    // stops decoding. Pausing alone can leave audio holding focus, which
-    // conflicts with the next channel and previously required an app restart.
+    // Dispose the player so it releases audio focus and stops decoding.
+    // Pausing alone can leave audio holding focus, which conflicts with the
+    // next channel and previously required an app restart.
     try {
-      _videoController?.pause();
-      _videoController?.dispose();
+      _broadcastPlayer?.pause();
+      unawaited(_broadcastPlayer?.disposeAsync());
     } catch (_) {
       // Controller may already be disposed by the owning screen.
     }
-    _videoController = null;
+    _broadcastPlayer = null;
     _ytController = null;
     _channelId = null;
     _sessionNotifier.value = null;
     _unregisterLifecycleObserver();
   }
 
-  /// Remove overlay WITHOUT stopping playback (expand back to full player).
+  /// Remove overlay and pause playback (expand back to full player).
   void removeWithoutStopping() {
     _entry?.remove();
     _entry = null;
-    _videoController = null;
+    _broadcastPlayer?.pause();
+    _broadcastPlayer = null;
     _ytController = null;
     _channelId = null;
     _sessionNotifier.value = null;
     _unregisterLifecycleObserver();
   }
 
-  /// Remove overlay WITHOUT stopping playback or clearing session (return to app).
+  /// Remove overlay and pause playback (return to app).
   void removeOverlayOnly() {
     try {
       _entry?.remove();
@@ -197,6 +199,10 @@ class FloatingPlayerService with WidgetsBindingObserver {
       // Entry may have been removed during background transition
     }
     _entry = null;
+    _broadcastPlayer?.pause();
+    _broadcastPlayer = null;
+    _ytController = null;
+    _unregisterLifecycleObserver();
   }
 
   void onExpandToChannel() {
@@ -206,13 +212,9 @@ class FloatingPlayerService with WidgetsBindingObserver {
       return;
     }
 
-    try {
-      _entry?.remove();
-    } catch (_) {
-      // Entry may have been removed during background transition
-    }
-    _entry = null;
-    _sessionNotifier.value = null;
+    // Dispose the mini-player to prevent audio leaks before the new
+    // ChannelPlayerScreen is created.
+    dismiss();
 
     final nav = navigatorKey?.currentState;
     if (nav == null) return;
@@ -244,9 +246,9 @@ class FloatingPlayerService with WidgetsBindingObserver {
   /// Resume in-app playback (video + YouTube) for the floating mini-player.
   void _resumeInAppPlayback() {
     try {
-      final c = _videoController;
-      if (c != null && c.value.isInitialized && !c.value.isPlaying) {
-        c.play();
+      final player = _broadcastPlayer;
+      if (player != null && player.value.isInitialized && !player.value.isPlaying) {
+        unawaited(player.play());
       }
     } catch (_) {}
     _resumeYouTubePlayback();

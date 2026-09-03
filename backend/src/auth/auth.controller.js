@@ -129,6 +129,10 @@ async function login(req, res, next) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    if (user.is_banned && user.role !== 'admin') {
+      return res.status(403).json({ error: 'ACCOUNT_BANNED', message: 'Your account has been banned. Contact support.' });
+    }
+
     const token = await generateToken(user.id);
     res.json({ token, user: User.toSafeUser(user) });
   } catch (err) {

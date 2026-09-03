@@ -6,6 +6,7 @@ const ctrl = require('./user.controller');
 const router = Router();
 
 router.get('/me', authenticateToken, ctrl.getProfile);
+router.get('/:userId/public', ctrl.getPublicProfile);
 router.get('/bank-details', authenticateToken, ctrl.getBankDetails);
 router.get('/bank-details/banks', authenticateToken, ctrl.listSupportedBanks);
 router.post('/bank-details/resolve', authenticateToken, ctrl.resolveBankAccount);
@@ -13,6 +14,7 @@ router.post('/bank-details', authenticateToken, ctrl.createBankDetails);
 router.put('/update-profile', authenticateToken, ctrl.updateProfile);
 router.post('/avatar', authenticateToken, upload.single('avatar'), uploadSingleToGCS, ctrl.uploadAvatar);
 router.patch('/currency', authenticateToken, ctrl.updateCurrency);
+router.patch('/player-settings', authenticateToken, ctrl.updatePlayerSettings);
 router.post('/request-creator', authenticateToken, ctrl.requestCreator);
 router.get('/device-token', authenticateToken, ctrl.getDeviceToken);
 router.post('/fcm-token', authenticateToken, ctrl.registerFcmToken);

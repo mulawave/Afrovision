@@ -9,6 +9,7 @@ import { ChallengeSection } from "@/components/ChallengeSection";
 import { UpdatesSection } from "@/components/UpdatesSection";
 import { BannerAd } from "@/components/BannerAd";
 import { PromoModal } from "@/components/PromoModal";
+import { GracePeriodBanner } from "@/components/GracePeriodBanner";
 import { MySubscriptionsRow } from "@/components/MySubscriptionsRow";
 import { RecentlyViewedRow } from "@/components/RecentlyViewedRow";
 import { HeroToggleWrapper } from "@/components/HeroToggleWrapper";
@@ -146,6 +147,7 @@ export default function Home() {
   return (
     <>
       <PromoModal />
+      <GracePeriodBanner />
       <Suspense fallback={<HomepageSkeleton />}>
         <HomepageContent />
       </Suspense>

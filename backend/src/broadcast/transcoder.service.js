@@ -4,6 +4,29 @@ const { extractGCSPath } = require('../utils/gcs');
 const LOCATION = process.env.TRANSCODER_LOCATION || 'us-central1';
 const BUCKET_NAME = process.env.GCS_BUCKET || 'afrovision-media';
 
+// Kill switch: the Transcoder API is expensive (HD SKU ~$0.03/output-minute).
+// Transcoding is DISABLED unless TRANSCODING_ENABLED=true is set explicitly.
+// When disabled, playback falls back to the original MP4 (already handled by
+// broadcast.controller.js and wave.controller.js).
+const TRANSCODING_ENABLED = String(process.env.TRANSCODING_ENABLED || '').toLowerCase() === 'true';
+
+// Configurable rendition ladder to control cost when re-enabled.
+// e.g. TRANSCODER_RENDITIONS=480 (SD only, cheapest) or TRANSCODER_RENDITIONS=480,720
+const ALL_RENDITIONS = {
+  240: { key: 'video-240p', height: 240, width: 426, bitrate: 400000 },
+  480: { key: 'video-480p', height: 480, width: 854, bitrate: 1100000 },
+  720: { key: 'video-720p', height: 720, width: 1280, bitrate: 2500000 },
+  1080: { key: 'video-1080p', height: 1080, width: 1920, bitrate: 5000000 },
+};
+
+function getEnabledRenditions() {
+  const raw = String(process.env.TRANSCODER_RENDITIONS || '240,480').trim();
+  const heights = raw.split(',')
+    .map((v) => parseInt(v.trim(), 10))
+    .filter((h) => ALL_RENDITIONS[h]);
+  return heights.length > 0 ? heights.map((h) => ALL_RENDITIONS[h]) : [ALL_RENDITIONS[480]];
+}
+
 function getProjectId() {
   return process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || null;
 }
@@ -17,12 +40,7 @@ function getMasterPlaylistUrl(videoId) {
 }
 
 function buildJobConfig() {
-  const renditions = [
-    { key: 'video-240p', height: 240, width: 426, bitrate: 400000 },
-    { key: 'video-480p', height: 480, width: 854, bitrate: 1100000 },
-    { key: 'video-720p', height: 720, width: 1280, bitrate: 2500000 },
-    { key: 'video-1080p', height: 1080, width: 1920, bitrate: 5000000 },
-  ];
+  const renditions = getEnabledRenditions();
   const elementaryStreams = renditions.map((rendition) => ({
     key: rendition.key,
     videoStream: {
@@ -70,7 +88,11 @@ async function getClient() {
   return { authClient, api: google.transcoder('v1') };
 }
 
-async function startTranscode(video) {
+async function startTranscode(video, outputPrefixOverride = null) {
+  if (!TRANSCODING_ENABLED) {
+    // Cost control: skip Transcoder API entirely; playback uses the original MP4.
+    return { transcoding_status: 'unavailable', transcoding_error: 'transcoding_disabled' };
+  }
   const projectId = getProjectId();
   const inputPath = extractGCSPath(video.video_url);
   if (!projectId || !inputPath) {
@@ -78,7 +100,7 @@ async function startTranscode(video) {
   }
 
   const { authClient, api } = await getClient();
-  const outputPrefix = getOutputPrefix(video.id);
+  const outputPrefix = outputPrefixOverride || getOutputPrefix(video.id);
   const response = await api.projects.locations.jobs.create({
     auth: authClient,
     parent: `projects/${projectId}/locations/${LOCATION}`,
@@ -112,7 +134,7 @@ async function refreshTranscode(video) {
       transcoding_status: 'ready',
       transcoding_error: null,
       master_playlist_url: getMasterPlaylistUrl(video.id),
-      available_renditions: [240, 480, 720, 1080],
+      available_renditions: getEnabledRenditions().map((r) => r.height),
       transcoding_completed_at: Date.now(),
       transcoding_checked_at: Date.now(),
     };

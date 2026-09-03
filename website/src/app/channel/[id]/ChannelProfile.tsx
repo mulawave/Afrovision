@@ -30,9 +30,6 @@ import {
   cancelChannelSubApi,
   checkChannelAccessApi,
   getExclusiveAccessStatusApi,
-  getChannelFollowStatusApi,
-  followChannelApi,
-  unfollowChannelApi,
   deleteWaveApi,
   setWaveTimelineVisibilityApi,
   bulkDeleteWavesApi,
@@ -41,6 +38,17 @@ import {
   recordChannelViewApi,
   getNotificationUnreadCountApi,
   markAllNotificationsReadApi,
+  getMyRemindersApi,
+  setReminderApi,
+  removeReminderApi,
+  getMyChannelTransactionsApi,
+  type ChannelTransaction,
+  type ChannelMovie,
+  type ChannelSeries,
+  getChannelMoviesApi,
+  getChannelSeriesApi,
+  type ChannelSubscriberInfo,
+  type ChannelTransactionsResponse,
 } from "@/lib/api";
 import { addToRecentlyViewed } from "@/components/RecentlyViewedRow";
 import { ChannelCreatorPanel } from "./ChannelCreatorPanel";
@@ -64,7 +72,7 @@ function formatClock(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string | number): string {
   const d = new Date(iso);
   const now = new Date();
   const diff = now.getTime() - d.getTime();
@@ -92,7 +100,7 @@ function extractLibraryItemEpoch(itemId: string): number {
   return Number(match[1] || 0);
 }
 
-type Tab = "streams" | "waves" | "about" | "schedule" | "library" | "manage";
+type Tab = "about" | "movies" | "series" | "waves" | "library" | "schedule" | "streams" | "manage" | "assets";
 
 export function ChannelProfile({ id }: { id: string }) {
   const router = useRouter();
@@ -112,14 +120,19 @@ export function ChannelProfile({ id }: { id: string }) {
   const [libraryModalLoading, setLibraryModalLoading] = useState(false);
   const [libraryFavoriteItemIds, setLibraryFavoriteItemIds] = useState<Record<string, boolean>>({});
   const [newLibraryItemsCount, setNewLibraryItemsCount] = useState(0);
+  const [libraryPage, setLibraryPage] = useState(1);
+  const LIBRARY_ITEMS_PER_PAGE = 15;
+  const [movies, setMovies] = useState<ChannelMovie[]>([]);
+  const [moviesLoading, setMoviesLoading] = useState(false);
+  const [moviesLoaded, setMoviesLoaded] = useState(false);
+  const [series, setSeries] = useState<ChannelSeries[]>([]);
+  const [seriesLoading, setSeriesLoading] = useState(false);
+  const [seriesLoaded, setSeriesLoaded] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subId, setSubId] = useState<string | null>(null);
   const [subLoading, setSubLoading] = useState(false);
   const [hasAccess, setHasAccess] = useState(true);
   const [exclusiveGateReason, setExclusiveGateReason] = useState<null | "login" | "kyc" | "entitlement">(null);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
-  const [followersCount, setFollowersCount] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +154,13 @@ export function ChannelProfile({ id }: { id: string }) {
   const lastTrackedModalWaveId = useRef<string | null>(null);
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
-  const isExclusive = channel?.type === "exclusive";
+  const [transactionsData, setTransactionsData] = useState<ChannelTransactionsResponse | null>(null);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionFilter, setTransactionFilter] = useState<"all" | "gifts" | "subscriptions" | "settlements">("all");
+  const [assetsLoaded, setAssetsLoaded] = useState(false);
+  const [reminderProgramIds, setReminderProgramIds] = useState<Set<string>>(new Set());
+  const [reminderToggling, setReminderToggling] = useState<string | null>(null);
+  const isExclusive = Number(channel?.exclusive_monthly_fee_ngn || 0) > 0;
   const channelId = channel?.id;
   const canManageChannel = !!user && (user.role === "admin" || user.id === channel?.owner_id);
 
@@ -276,21 +295,6 @@ export function ChannelProfile({ id }: { id: string }) {
     return () => { cancelled = true; };
   }, [id, isAuthenticated, channel]);
 
-  useEffect(() => {
-    if (!isAuthenticated || !channel?.id) return;
-    let cancelled = false;
-
-    getChannelFollowStatusApi(channel.id).then((res) => {
-      if (cancelled || !res.ok || !("followed" in res.data)) return;
-      setIsFollowing(res.data.followed);
-      setFollowersCount(res.data.followers_count);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, channel?.id]);
-
   // Lazy-load videos when streams tab is activated
   useEffect(() => {
     if (activeTab !== "streams" || videosLoaded) return;
@@ -322,6 +326,52 @@ export function ChannelProfile({ id }: { id: string }) {
 
     return () => { cancelled = true; };
   }, [activeTab, scheduleLoaded, id]);
+
+  // Load user's reminders when schedule tab is activated
+  useEffect(() => {
+    if (activeTab !== "schedule" || !isAuthenticated) return;
+    let cancelled = false;
+
+    getMyRemindersApi().then((res) => {
+      if (cancelled) return;
+      if (res.ok && res.data?.reminders) {
+        const ids = new Set<string>();
+        for (const r of res.data.reminders) {
+          if (r.channel_id === id) {
+            ids.add(r.program_id);
+          }
+        }
+        setReminderProgramIds(ids);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [activeTab, isAuthenticated, id]);
+
+  const toggleReminder = useCallback(async (programId: string) => {
+    if (reminderToggling) return;
+    setReminderToggling(programId);
+    try {
+      if (reminderProgramIds.has(programId)) {
+        const res = await removeReminderApi(programId);
+        if (res.ok) {
+          setReminderProgramIds((prev) => {
+            const next = new Set(prev);
+            next.delete(programId);
+            return next;
+          });
+        }
+      } else {
+        const res = await setReminderApi(programId);
+        if (res.ok) {
+          setReminderProgramIds((prev) => new Set(prev).add(programId));
+        }
+      }
+    } catch {
+      // ignore
+    }
+    setReminderToggling(null);
+  }, [reminderProgramIds, reminderToggling]);
 
   const loadChannelWaves = useCallback(async () => {
     setChannelWavesLoading(true);
@@ -410,6 +460,72 @@ export function ChannelProfile({ id }: { id: string }) {
 
     return () => { cancelled = true; };
   }, [activeTab, libraryLoaded, isExclusive, hasAccess, id, user, channel?.owner_id]);
+
+  // Lazy-load transactions when assets tab is activated
+  useEffect(() => {
+    if (activeTab !== "assets" || assetsLoaded || !canManageChannel) return;
+    let cancelled = false;
+
+    setTransactionsLoading(true);
+    getMyChannelTransactionsApi(id).then((res) => {
+      if (cancelled) return;
+      if (res.ok && "transactions" in res.data) {
+        setTransactionsData(res.data);
+      }
+      setTransactionsLoading(false);
+      setAssetsLoaded(true);
+    }).catch(() => {
+      if (cancelled) return;
+      setTransactionsLoading(false);
+      setAssetsLoaded(true);
+    });
+
+    return () => { cancelled = true; };
+  }, [activeTab, assetsLoaded, canManageChannel, id]);
+
+  // Lazy-load movies when movies tab is activated
+  useEffect(() => {
+    if (activeTab !== "movies" || moviesLoaded) return;
+    let cancelled = false;
+
+    setMoviesLoading(true);
+    getChannelMoviesApi(id).then((res) => {
+      if (cancelled) return;
+      if (res.ok && "data" in res.data) {
+        setMovies(res.data.data.movies || []);
+      }
+      setMoviesLoading(false);
+      setMoviesLoaded(true);
+    }).catch(() => {
+      if (cancelled) return;
+      setMoviesLoading(false);
+      setMoviesLoaded(true);
+    });
+
+    return () => { cancelled = true; };
+  }, [activeTab, moviesLoaded, id]);
+
+  // Lazy-load series when series tab is activated
+  useEffect(() => {
+    if (activeTab !== "series" || seriesLoaded) return;
+    let cancelled = false;
+
+    setSeriesLoading(true);
+    getChannelSeriesApi(id).then((res) => {
+      if (cancelled) return;
+      if (res.ok && "data" in res.data) {
+        setSeries(res.data.data.series || []);
+      }
+      setSeriesLoading(false);
+      setSeriesLoaded(true);
+    }).catch(() => {
+      if (cancelled) return;
+      setSeriesLoading(false);
+      setSeriesLoaded(true);
+    });
+
+    return () => { cancelled = true; };
+  }, [activeTab, seriesLoaded, id]);
 
   const acknowledgeLibraryNewItems = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -505,21 +621,6 @@ export function ChannelProfile({ id }: { id: string }) {
     });
   }, [requireAuth, id, channel, isSubscribed, subId]);
 
-  const handleFollow = useCallback(() => {
-    requireAuth(async () => {
-      if (!channel?.id) return;
-      setFollowLoading(true);
-      const res = isFollowing
-        ? await unfollowChannelApi(channel.id)
-        : await followChannelApi(channel.id);
-      if (res.ok && "followed" in res.data) {
-        setIsFollowing(res.data.followed);
-        setFollowersCount(res.data.followers_count);
-      }
-      setFollowLoading(false);
-    });
-  }, [channel, isFollowing, requireAuth]);
-
   const isLive = !!nowPlaying;
 
   // External stream source derived values (AV-STR-003)
@@ -535,7 +636,7 @@ export function ChannelProfile({ id }: { id: string }) {
       : `by ${publicOwnerName}`
     : "";
   const watchLiveLabel = isExternalSource
-    ? extStreamStatus === "live" ? "Watch Live" : extStreamStatus === "scheduled" ? "Tune In (Scheduled)" : "Open Channel"
+    ? "Watch Live"
     : "Watch Live";
   const watchTarget = isExclusive && !hasAccess ? `/channel/${id}/exclusive-access` : `/live/${id}`;
   const setWaveViewerAt = useCallback((nextIndex: number) => {
@@ -693,11 +794,14 @@ export function ChannelProfile({ id }: { id: string }) {
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "about", label: "About" },
-    { key: "streams", label: "Past Streams" },
-    ...(isExclusive ? [{ key: "library" as Tab, label: "Library" }] : []),
+    { key: "movies", label: "Movies" },
+    { key: "series", label: "Series" },
     { key: "waves", label: "Waves" },
+    ...(isExclusive ? [{ key: "library" as Tab, label: "Library" }] : []),
     { key: "schedule", label: "Schedule" },
+    { key: "streams", label: "Past Streams" },
     ...(canManageChannel ? [{ key: "manage" as Tab, label: "⚙ Manage" }] : []),
+    ...(canManageChannel ? [{ key: "assets" as Tab, label: "💰 Assets" }] : []),
   ];
 
   // Loading state
@@ -800,10 +904,10 @@ export function ChannelProfile({ id }: { id: string }) {
               </div>
               <p className="text-sm text-av-light-orange mt-0.5">
                 #{channel.channel_number} · {channel.category}
-                {(channel.type === "private" || channel.type === "exclusive") && (
+                {(channel.type === "private" || isExclusive) && (
                   <>
                     <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold text-av-orange bg-av-orange/10 border border-av-orange/20">
-                      {channel.type === "exclusive" ? "EXCLUSIVE" : "PREMIUM"}
+                      {isExclusive ? "EXCLUSIVE" : "PREMIUM"}
                     </span>
                     <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold border ${hasAccess ? "text-emerald-300 bg-emerald-400/10 border-emerald-400/20" : "text-av-light-orange bg-av-input-fill/60 border-av-input-border/30"}`}>
                       {hasAccess ? "ACCESS ACTIVE" : "LOCKED"}
@@ -812,13 +916,21 @@ export function ChannelProfile({ id }: { id: string }) {
                 )}
               </p>
               <p className="text-xs text-av-light-orange mt-1">
-                {ownerIdentityText ? `${ownerIdentityText} · Joined ${formatDate(channel.created_at)}` : `Joined ${formatDate(channel.created_at)}`}
+                {ownerIdentityText && ownerDetailsVisible && channel?.owner_id ? (
+                  <>
+                    {ownerDisplayMode === "brand_only" ? "" : "by "}
+                    <Link href={`/u/${channel.owner_id}`} className="text-av-orange hover:text-av-light-orange hover:underline transition-colors">
+                      {publicOwnerName}
+                    </Link>
+                    {" · Joined "}{formatDate(channel.created_at)}
+                  </>
+                ) : ownerIdentityText ? `${ownerIdentityText} · Joined ${formatDate(channel.created_at)}` : `Joined ${formatDate(channel.created_at)}`}
               </p>
             </div>
 
             {/* Action buttons */}
             <div className="flex items-center gap-3 flex-shrink-0">
-              {(isLive || isExternalLive || (isExclusive && !hasAccess)) && (
+              {(isLive || isExternalSource || (isExclusive && !hasAccess)) && (
                 <button
                   onClick={() => router.push(watchTarget)}
                   className="inline-flex items-center gap-2 px-6 py-3 text-sm font-bold rounded-full bg-av-error text-white hover:shadow-xl hover:shadow-av-error/30 hover:scale-105 active:scale-95 transition-all"
@@ -827,19 +939,6 @@ export function ChannelProfile({ id }: { id: string }) {
                     <path d="M8 5v14l11-7z" />
                   </svg>
                   {isExclusive && !hasAccess ? "Unlock Exclusive Access" : watchLiveLabel}
-                </button>
-              )}
-              {channel.owner_id && ownerDetailsVisible && (
-                <button
-                  onClick={handleFollow}
-                  disabled={followLoading}
-                  className={`inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold rounded-full transition-all disabled:opacity-60 ${
-                    isFollowing
-                      ? "bg-av-card border border-av-orange/40 text-av-orange"
-                      : "bg-av-input-fill border border-av-input-border/30 text-av-white hover:border-av-orange/40"
-                  }`}
-                >
-                  {followLoading ? "Working..." : isFollowing ? `✓ Following${followersCount ? ` · ${formatNumber(followersCount)}` : ""}` : `Follow${followersCount ? ` · ${formatNumber(followersCount)}` : ""}`}
                 </button>
               )}
               <button
@@ -854,9 +953,9 @@ export function ChannelProfile({ id }: { id: string }) {
                 {subLoading ? (
                   <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
                 ) : isSubscribed ? (
-                  "✓ Subscribed"
+                  `✓ Subscribed${channel?.subscriber_count ? ` · ${formatNumber(channel.subscriber_count)}` : ""}`
                 ) : (
-                  "🔔 Subscribe"
+                  `🔔 Subscribe${channel?.subscriber_count ? ` · ${formatNumber(channel.subscriber_count)}` : ""}`
                 )}
               </button>
               <button className="w-11 h-11 rounded-full bg-av-card border border-av-input-border/30 flex items-center justify-center text-av-light-orange hover:text-av-white hover:border-av-input-border/50 transition-all">
@@ -939,7 +1038,7 @@ export function ChannelProfile({ id }: { id: string }) {
         {/* ===== TAB CONTENT ===== */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main content area */}
-          <div className={activeTab === "manage" ? "lg:col-span-3" : "lg:col-span-2"}>
+          <div className={activeTab === "manage" || activeTab === "assets" || activeTab === "library" ? "lg:col-span-3" : "lg:col-span-2"}>
             {/* Past Streams tab */}
             {activeTab === "streams" && (
               <div className="space-y-3">
@@ -984,6 +1083,110 @@ export function ChannelProfile({ id }: { id: string }) {
                       </div>
                     </div>
                   ))
+                )}
+              </div>
+            )}
+
+            {/* Movies tab */}
+            {activeTab === "movies" && (
+              <div className="space-y-4">
+                {moviesLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <div className="w-6 h-6 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
+                  </div>
+                ) : movies.length === 0 ? (
+                  <div className="text-center py-16 rounded-xl bg-av-card/50 border border-av-input-border/20">
+                    <p className="text-3xl mb-2">🎬</p>
+                    <p className="text-sm text-av-light-orange">No movies published yet</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {movies.map((movie) => (
+                      <button
+                        key={movie.id}
+                        onClick={() => router.push(`/movies/${movie.id}`)}
+                        className="group rounded-xl bg-av-card border border-av-input-border/20 overflow-hidden text-left hover:border-av-orange/40 transition-all"
+                      >
+                        <div className="relative aspect-[2/3] bg-av-input-fill/40">
+                          {movie.poster_url ? (
+                            <img
+                              src={movie.poster_url}
+                              alt={movie.title}
+                              className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform"
+                            />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <span className="text-3xl group-hover:scale-110 transition-transform">🎬</span>
+                            </div>
+                          )}
+                          {movie.age_classification === "adult" && (
+                            <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-red-600/80 text-[10px] font-bold text-white">18+</span>
+                          )}
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z" /></svg>
+                          </div>
+                        </div>
+                        <div className="p-3">
+                          <p className="text-sm font-semibold text-av-white leading-snug line-clamp-2 group-hover:text-av-orange transition-colors">{movie.title}</p>
+                          {movie.synopsis && (
+                            <p className="mt-1 text-[11px] text-av-light-orange line-clamp-2">{movie.synopsis}</p>
+                          )}
+                          {movie.duration !== undefined && movie.duration > 0 && (
+                            <p className="mt-1 text-[10px] text-av-light-orange">⏱ {formatDuration(movie.duration)}</p>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Series tab */}
+            {activeTab === "series" && (
+              <div className="space-y-4">
+                {seriesLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <div className="w-6 h-6 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
+                  </div>
+                ) : series.length === 0 ? (
+                  <div className="text-center py-16 rounded-xl bg-av-card/50 border border-av-input-border/20">
+                    <p className="text-3xl mb-2">📺</p>
+                    <p className="text-sm text-av-light-orange">No series published yet</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {series.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => router.push(`/series/${s.id}`)}
+                        className="group rounded-xl bg-av-card border border-av-input-border/20 overflow-hidden text-left hover:border-av-orange/40 transition-all"
+                      >
+                        <div className="relative aspect-[2/3] bg-av-input-fill/40">
+                          {s.cover_url ? (
+                            <img
+                              src={s.cover_url}
+                              alt={s.title}
+                              className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform"
+                            />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <span className="text-3xl group-hover:scale-110 transition-transform">📺</span>
+                            </div>
+                          )}
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z" /></svg>
+                          </div>
+                        </div>
+                        <div className="p-3">
+                          <p className="text-sm font-semibold text-av-white leading-snug line-clamp-2 group-hover:text-av-orange transition-colors">{s.title}</p>
+                          {s.description && (
+                            <p className="mt-1 text-[11px] text-av-light-orange line-clamp-2">{s.description}</p>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -1189,7 +1392,10 @@ export function ChannelProfile({ id }: { id: string }) {
                     <p className="text-sm text-av-light-orange">No upcoming programs scheduled</p>
                   </div>
                 ) : (
-                  schedule.map((prog) => (
+                  schedule.map((prog) => {
+                    const hasReminder = reminderProgramIds.has(prog.id);
+                    const isToggling = reminderToggling === prog.id;
+                    return (
                     <div
                       key={prog.id}
                       className="flex items-center gap-4 p-4 rounded-xl bg-av-card border border-av-input-border/20"
@@ -1213,8 +1419,40 @@ export function ChannelProfile({ id }: { id: string }) {
                           {formatScheduleTime(prog.start_time)} · {formatDuration(prog.video_duration)}
                         </p>
                       </div>
+                      {isAuthenticated && (
+                        <button
+                          onClick={() => toggleReminder(prog.id)}
+                          disabled={isToggling}
+                          className="flex items-center justify-center w-9 h-9 rounded-lg border transition-colors flex-shrink-0 disabled:opacity-50"
+                          style={{
+                            borderColor: hasReminder ? "rgba(255,165,0,0.4)" : "rgba(255,255,255,0.1)",
+                            background: hasReminder ? "rgba(255,165,0,0.1)" : "transparent",
+                          }}
+                          title={hasReminder ? "Remove reminder" : "Set reminder"}
+                        >
+                          {isToggling ? (
+                            <span className="block w-4 h-4 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
+                          ) : (
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill={hasReminder ? "#ff8800" : "none"}
+                              stroke={hasReminder ? "#ff8800" : "#aaa"}
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}
@@ -1228,9 +1466,251 @@ export function ChannelProfile({ id }: { id: string }) {
               />
             )}
 
+            {/* Assets tab (owner/admin only) */}
+            {activeTab === "assets" && canManageChannel && (
+              <div className="space-y-6">
+                {transactionsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <div className="w-6 h-6 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
+                  </div>
+                ) : !transactionsData ? (
+                  <div className="text-center py-16 rounded-xl bg-av-card/50 border border-av-input-border/20">
+                    <p className="text-3xl mb-2">💰</p>
+                    <p className="text-sm text-av-light-orange">Unable to load transaction data</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Summary cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="rounded-xl bg-av-card border border-av-input-border/20 p-4">
+                        <p className="text-[11px] text-av-light-orange uppercase tracking-wider">Gifts (vPT)</p>
+                        <p className="text-2xl font-bold text-av-white mt-1">{formatNumber(transactionsData.summary.totalGiftsVpt)}</p>
+                      </div>
+                      <div className="rounded-xl bg-av-card border border-av-input-border/20 p-4">
+                        <p className="text-[11px] text-av-light-orange uppercase tracking-wider">Gifts (NGN)</p>
+                        <p className="text-2xl font-bold text-av-white mt-1">₦{formatNumber(transactionsData.summary.totalGiftsNgn)}</p>
+                      </div>
+                      <div className="rounded-xl bg-av-card border border-av-input-border/20 p-4">
+                        <p className="text-[11px] text-av-light-orange uppercase tracking-wider">Subscribers</p>
+                        <p className="text-2xl font-bold text-av-white mt-1">{transactionsData.summary.totalSubscriptions}</p>
+                      </div>
+                      <div className="rounded-xl bg-av-card border border-av-input-border/20 p-4">
+                        <p className="text-[11px] text-av-light-orange uppercase tracking-wider">Settlements</p>
+                        <p className="text-2xl font-bold text-av-white mt-1">{formatNumber(transactionsData.summary.totalSettlements)}</p>
+                      </div>
+                    </div>
+
+                    {/* Filter tabs */}
+                    <div className="flex items-center gap-1 border-b border-av-input-border/20">
+                      {(["all", "gifts", "subscriptions", "settlements"] as const).map((filter) => (
+                        <button
+                          key={filter}
+                          onClick={() => setTransactionFilter(filter)}
+                          className={`relative px-3 py-2 text-xs font-medium capitalize transition-colors ${
+                            transactionFilter === filter
+                              ? "text-av-orange"
+                              : "text-av-light-orange hover:text-av-white"
+                          }`}
+                        >
+                          {filter}
+                          {transactionFilter === filter && (
+                            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-av-orange rounded-full" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Transaction list */}
+                    <div className="space-y-2">
+                      {(() => {
+                        const filtered = transactionsData.transactions.filter((tx) => {
+                          if (transactionFilter === "all") return true;
+                          if (transactionFilter === "gifts") return ["GIFT_RECEIVED_VPT", "GIFT_RECEIVED_NGN"].includes(tx.type);
+                          if (transactionFilter === "subscriptions") return ["PLAN_PAYMENT", "SUBSCRIPTION"].includes(tx.type);
+                          if (transactionFilter === "settlements") return ["VPT_DISTRIBUTION", "WITHDRAWAL_HOLD", "WITHDRAWAL_FEE"].includes(tx.type);
+                          return true;
+                        });
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="text-center py-12 rounded-xl bg-av-card/50 border border-av-input-border/20">
+                              <p className="text-sm text-av-light-orange">No transactions in this category</p>
+                            </div>
+                          );
+                        }
+                        return filtered.map((tx) => {
+                          const isGift = tx.type.includes("GIFT");
+                          const isSettlement = ["VPT_DISTRIBUTION", "WITHDRAWAL_HOLD", "WITHDRAWAL_FEE"].includes(tx.type);
+                          const icon = isGift ? "🎁" : isSettlement ? "🏦" : "💳";
+                          const amount = tx.amount_vpt_units > 0
+                            ? `${formatNumber(tx.amount_vpt_units)} vPT`
+                            : tx.amount_ngn > 0
+                              ? `₦${formatNumber(tx.amount_ngn)}`
+                              : "—";
+                          return (
+                            <div
+                              key={tx.id}
+                              className="flex items-center gap-3 p-3 rounded-xl bg-av-card border border-av-input-border/20 hover:border-av-orange/30 transition-all"
+                            >
+                              <span className="text-xl flex-shrink-0">{icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-av-white truncate">
+                                  {tx.description || tx.type.replace(/_/g, " ").toLowerCase()}
+                                </p>
+                                <p className="text-[11px] text-av-light-orange mt-0.5">
+                                  {formatDate(tx.created_at)}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3 flex-shrink-0">
+                                <span className="text-sm font-semibold text-av-white">{amount}</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                  tx.status === "success"
+                                    ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                                    : tx.status === "pending"
+                                      ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                                      : "bg-red-500/10 text-red-400 border border-red-500/20"
+                                }`}>
+                                  {tx.status}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+
+                    {/* Subscribers section */}
+                    {transactionsData.subscribers.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-av-white">Subscribers</h3>
+                        <div className="rounded-xl bg-av-card border border-av-input-border/20 overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                              <thead>
+                                <tr className="border-b border-av-input-border/20">
+                                  <th className="px-4 py-2 text-[11px] text-av-light-orange uppercase tracking-wider">User</th>
+                                  <th className="px-4 py-2 text-[11px] text-av-light-orange uppercase tracking-wider">Type</th>
+                                  <th className="px-4 py-2 text-[11px] text-av-light-orange uppercase tracking-wider">Status</th>
+                                  <th className="px-4 py-2 text-[11px] text-av-light-orange uppercase tracking-wider">Issued</th>
+                                  <th className="px-4 py-2 text-[11px] text-av-light-orange uppercase tracking-wider">Expires</th>
+                                  <th className="px-4 py-2 text-[11px] text-av-light-orange uppercase tracking-wider">Fee</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {transactionsData.subscribers.map((sub) => (
+                                  <tr key={sub.id} className="border-b border-av-input-border/10 last:border-0">
+                                    <td className="px-4 py-3">
+                                      <div className="flex items-center gap-2">
+                                        {sub.avatar_url ? (
+                                          <img src={sub.avatar_url} alt={sub.display_name} className="w-7 h-7 rounded-full object-cover" />
+                                        ) : (
+                                          <div className="w-7 h-7 rounded-full bg-av-orange/20 flex items-center justify-center text-[10px] font-bold text-av-orange">
+                                            {sub.display_name.slice(0, 2).toUpperCase()}
+                                          </div>
+                                        )}
+                                        <span className="text-sm text-av-white">{sub.display_name}</span>
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                        sub.type === "exclusive"
+                                          ? "bg-av-orange/10 text-av-orange border border-av-orange/20"
+                                          : "bg-av-light-blue/10 text-av-light-blue border border-av-light-blue/20"
+                                      }`}>
+                                        {sub.type}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                        sub.status === "active"
+                                          ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                                          : sub.status === "banned"
+                                            ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                                            : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                                      }`}>
+                                        {sub.status}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-xs text-av-light-orange">
+                                      {sub.issued_at ? formatDate(sub.issued_at) : "—"}
+                                    </td>
+                                    <td className="px-4 py-3 text-xs text-av-light-orange">
+                                      {sub.expires_at ? formatDate(sub.expires_at) : "—"}
+                                    </td>
+                                    <td className="px-4 py-3 text-xs text-av-white">
+                                      {sub.monthly_fee_ngn > 0 ? `₦${formatNumber(sub.monthly_fee_ngn)}` : "—"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Library tab (exclusive channels only) */}
             {activeTab === "library" && isExclusive && (
               <div className="space-y-5">
+                {/* About + Channel Info now horizontal above library grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Quick description */}
+                  <div className="rounded-xl bg-av-card border border-av-input-border/20 p-5">
+                    <h3 className="text-sm font-semibold text-av-white mb-2">About</h3>
+                    <p className="text-xs text-av-light-orange leading-relaxed line-clamp-3">
+                      {channel.description || "No description provided."}
+                    </p>
+                  </div>
+
+                  {/* Channel info */}
+                  <div className="rounded-xl bg-av-card border border-av-input-border/20 p-5">
+                    <h3 className="text-sm font-semibold text-av-white mb-3">Channel Info</h3>
+                    <div className="space-y-2.5 text-xs text-av-light-orange">
+                      {ownerDisplayMode === "show_owner" && ownerDetailsVisible && (
+                        <div className="flex items-center justify-between">
+                          <span>Owner</span>
+                          {channel?.owner_id ? (
+                            <Link href={`/u/${channel.owner_id}`} className="text-av-orange font-medium hover:text-av-light-orange hover:underline transition-colors">
+                              {publicOwnerName}
+                            </Link>
+                          ) : (
+                            <span className="text-av-white font-medium">{publicOwnerName}</span>
+                          )}
+                        </div>
+                      )}
+                      {ownerDisplayMode === "brand_only" && (
+                        <div className="flex items-center justify-between">
+                          <span>Brand</span>
+                          <span className="text-av-white font-medium">{publicOwnerName}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span>Category</span>
+                        <span className="text-av-white font-medium">{channel.category}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Channel #</span>
+                        <span className="text-av-white font-medium">{channel.channel_number}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Type</span>
+                        <span className="text-av-white font-medium capitalize">{channel.type}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Created</span>
+                        <span className="text-av-white font-medium">{formatDate(channel.created_at)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Subscribers</span>
+                        <span className="text-av-white font-medium">{formatNumber(channel.subscriber_count || channel.followers_count || 0)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Library header row */}
                 <div className="flex items-center justify-between">
                   <div>
@@ -1266,7 +1746,7 @@ export function ChannelProfile({ id }: { id: string }) {
                     </button>
                   </div>
                 ) : !libraryLoaded ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                     {Array.from({ length: 6 }).map((_, idx) => (
                       <div key={idx} className="rounded-xl bg-av-card border border-av-input-border/20 overflow-hidden animate-pulse">
                         <div className="aspect-[2/3] bg-av-input-fill/60" />
@@ -1285,62 +1765,97 @@ export function ChannelProfile({ id }: { id: string }) {
                     <p className="text-xs text-av-light-orange">No titles have been published yet — check back soon</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {libraryItems.map((item) => (
-                      <button
-                        key={item.id}
-                        onClick={() => void openLibraryDetail(item.id)}
-                        className="group text-left rounded-xl bg-av-card border border-av-input-border/20 hover:border-av-orange/40 hover:shadow-xl hover:shadow-av-orange/10 transition-all duration-200 overflow-hidden"
-                      >
-                        {/* Portrait cover — book/comic aspect ratio */}
-                        <div className="relative aspect-[2/3] bg-gradient-to-br from-av-light-blue/25 to-av-dark-blue/80 overflow-hidden">
-                          {item.coverAssetUrl ? (
-                            <img
-                              src={item.coverAssetUrl}
-                              alt={item.title}
-                              className="absolute inset-0 w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-                            />
-                          ) : (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                              <span className="text-4xl">📘</span>
-                              <span className="text-[10px] text-av-light-orange/50 font-medium px-2 text-center">{item.title}</span>
-                            </div>
-                          )}
-                          {/* Hover overlay */}
-                          <div className="absolute inset-0 bg-av-dark-blue/0 group-hover:bg-av-dark-blue/30 transition-all duration-200 flex items-center justify-center">
-                            <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-xs font-bold text-white bg-av-orange rounded-full px-3 py-1.5 shadow-lg">
-                              Read
-                            </span>
+                  <>
+                    {(() => {
+                      const totalPages = Math.ceil(libraryItems.length / LIBRARY_ITEMS_PER_PAGE);
+                      const pageItems = libraryItems.slice(
+                        (libraryPage - 1) * LIBRARY_ITEMS_PER_PAGE,
+                        libraryPage * LIBRARY_ITEMS_PER_PAGE
+                      );
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                            {pageItems.map((item) => (
+                              <button
+                                key={item.id}
+                                onClick={() => void openLibraryDetail(item.id)}
+                                className="group text-left rounded-xl bg-av-card border border-av-input-border/20 hover:border-av-orange/40 hover:shadow-xl hover:shadow-av-orange/10 transition-all duration-200 overflow-hidden"
+                              >
+                                {/* Portrait cover — book/comic aspect ratio */}
+                                <div className="relative aspect-[2/3] bg-gradient-to-br from-av-light-blue/25 to-av-dark-blue/80 overflow-hidden">
+                                  {item.coverAssetUrl ? (
+                                    <img
+                                      src={item.coverAssetUrl}
+                                      alt={item.title}
+                                      className="absolute inset-0 w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                                    />
+                                  ) : (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                                      <span className="text-4xl">📘</span>
+                                      <span className="text-[10px] text-av-light-orange/50 font-medium px-2 text-center">{item.title}</span>
+                                    </div>
+                                  )}
+                                  {/* Hover overlay */}
+                                  <div className="absolute inset-0 bg-av-dark-blue/0 group-hover:bg-av-dark-blue/30 transition-all duration-200 flex items-center justify-center">
+                                    <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-xs font-bold text-white bg-av-orange rounded-full px-3 py-1.5 shadow-lg">
+                                      Read
+                                    </span>
+                                  </div>
+                                  {/* Page count badge */}
+                                  {item.totalPages > 0 && (
+                                    <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] font-medium text-white/80 backdrop-blur-sm">
+                                      {item.totalPages}p
+                                    </div>
+                                  )}
+                                </div>
+                                {/* Card info */}
+                                <div className="p-3">
+                                  <p className="text-xs font-semibold text-av-white leading-snug line-clamp-2 group-hover:text-av-orange transition-colors">
+                                    {item.title}
+                                  </p>
+                                  <p className="mt-1 text-[11px] text-av-light-orange truncate">{item.author}</p>
+                                  {item.estimatedReadMinutes > 0 && (
+                                    <p className="mt-1 text-[10px] text-av-light-orange/60">
+                                      {item.estimatedReadMinutes} min read
+                                    </p>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
                           </div>
-                          {/* Page count badge */}
-                          {item.totalPages > 0 && (
-                            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] font-medium text-white/80 backdrop-blur-sm">
-                              {item.totalPages}p
+
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-2 pt-4">
+                              <button
+                                onClick={() => setLibraryPage((p) => Math.max(1, p - 1))}
+                                disabled={libraryPage === 1}
+                                className="px-3 py-1.5 rounded-lg bg-av-card border border-av-input-border/20 text-xs font-semibold text-av-white disabled:opacity-40 hover:border-av-orange/40 transition-all"
+                              >
+                                Previous
+                              </button>
+                              <span className="text-xs text-av-light-orange min-w-[4rem] text-center">
+                                Page {libraryPage} of {totalPages}
+                              </span>
+                              <button
+                                onClick={() => setLibraryPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={libraryPage === totalPages}
+                                className="px-3 py-1.5 rounded-lg bg-av-card border border-av-input-border/20 text-xs font-semibold text-av-white disabled:opacity-40 hover:border-av-orange/40 transition-all"
+                              >
+                                Next
+                              </button>
                             </div>
                           )}
-                        </div>
-                        {/* Card info */}
-                        <div className="p-3">
-                          <p className="text-xs font-semibold text-av-white leading-snug line-clamp-2 group-hover:text-av-orange transition-colors">
-                            {item.title}
-                          </p>
-                          <p className="mt-1 text-[11px] text-av-light-orange truncate">{item.author}</p>
-                          {item.estimatedReadMinutes > 0 && (
-                            <p className="mt-1 text-[10px] text-av-light-orange/60">
-                              {item.estimatedReadMinutes} min read
-                            </p>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                        </>
+                      );
+                    })()}
+                  </>
                 )}
               </div>
             )}
           </div>
 
           {/* Sidebar — hidden on manage tab */}
-          <div className={`space-y-4${activeTab === "manage" ? " hidden" : ""}`}>
+          <div className={`space-y-4${activeTab === "manage" || activeTab === "assets" || activeTab === "library" ? " hidden" : ""}`}>
             {/* Quick description */}
             <div className="rounded-xl bg-av-card border border-av-input-border/20 p-5">
               <h3 className="text-sm font-semibold text-av-white mb-2">About</h3>
@@ -1356,7 +1871,13 @@ export function ChannelProfile({ id }: { id: string }) {
                 {ownerDisplayMode === "show_owner" && ownerDetailsVisible && (
                   <div className="flex items-center justify-between">
                     <span>Owner</span>
-                    <span className="text-av-white font-medium">{publicOwnerName}</span>
+                    {channel?.owner_id ? (
+                      <Link href={`/u/${channel.owner_id}`} className="text-av-orange font-medium hover:text-av-light-orange hover:underline transition-colors">
+                        {publicOwnerName}
+                      </Link>
+                    ) : (
+                      <span className="text-av-white font-medium">{publicOwnerName}</span>
+                    )}
                   </div>
                 )}
                 {ownerDisplayMode === "brand_only" && (
@@ -1382,8 +1903,8 @@ export function ChannelProfile({ id }: { id: string }) {
                   <span className="text-av-white font-medium">{formatDate(channel.created_at)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>Followers</span>
-                  <span className="text-av-white font-medium">{formatNumber(followersCount || channel.followers_count || 0)}</span>
+                  <span>Subscribers</span>
+                  <span className="text-av-white font-medium">{formatNumber(channel.subscriber_count || channel.followers_count || 0)}</span>
                 </div>
               </div>
             </div>

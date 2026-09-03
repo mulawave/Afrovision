@@ -60,14 +60,13 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
       );
       if (!mounted) return;
 
-      final live =
-          channels
-              .where((channel) => channel.isActive && channel.isStreamLive)
-              .toList()
-            ..sort((a, b) => b.followersCount.compareTo(a.followersCount));
+      final all = channels
+          .where((channel) => channel.isActive)
+          .toList()
+        ..sort((a, b) => b.subscriberCount.compareTo(a.subscriberCount));
 
       setState(() {
-        _liveChannels = live;
+        _liveChannels = all;
         _currentPage = 1;
         _loading = false;
       });
@@ -76,7 +75,7 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
       if (!mounted) return;
       setState(() {
         _error =
-            'Unable to load live channels right now. Please check your internet connection and retry.';
+            'Unable to load channels right now. Please check your internet connection and retry.';
         _loading = false;
       });
     }
@@ -156,7 +155,7 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'STREAMING NOW',
+                  'ALL CHANNELS',
                   style: TextStyle(
                     color: AppColors.lightOrange,
                     fontSize: 11,
@@ -166,7 +165,7 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Live Channels',
+                  'Channels',
                   style: TextStyle(
                     color: AppColors.white,
                     fontSize: 22,
@@ -224,7 +223,7 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
               child: Row(
                 children: [
                   Text(
-                    '${_liveChannels.length} live channels',
+                    '${_liveChannels.length} channels',
                     style: TextStyle(
                       color: AppColors.white.withValues(alpha: 0.88),
                       fontSize: 13,
@@ -362,7 +361,7 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
               ),
               const SizedBox(height: 16),
               const Text(
-                'No channels are live right now',
+                'No channels available right now',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: AppColors.white,
@@ -415,7 +414,7 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
               ),
               const SizedBox(height: 12),
               const Text(
-                'Unable to load live channels',
+                'Unable to load channels',
                 style: TextStyle(
                   color: AppColors.white,
                   fontSize: 17,

@@ -10,13 +10,15 @@ const ExclusiveAccess = require('../channels/exclusive_access.model');
 const ExclusivePicUnlock = require('../channels/exclusive_pic_unlock.model');
 const { isAdultKycVerified } = require('../channels/exclusive_policy.service');
 const { isExclusiveRolloutEnabledForUser } = require('../channels/exclusive_rollout.service');
-const { generateSignedUploadUrl, generateSignedReadUrl, extractGCSPath } = require('../utils/gcs');
+const { generateSignedUploadUrl, extractGCSPath, getBucket, createResumableUploadSession, getGCSObjectMetadata, BUCKET_NAME } = require('../utils/gcs');
 const { getFirestore } = require('../utils/firestore');
-const { generateThumbnail, generateThumbnailAsync } = require('../utils/thumbnail-generator');
+const { generateThumbnail, generateThumbnailAsync, generateAndStoreThumbnail, getThumbnailUrl } = require('../utils/thumbnail-generator');
 const CersService = require('./wave.cers.service');
 const NotificationService = require('../notifications/notification.service');
+const TranscoderService = require('../broadcast/transcoder.service');
 
 const COLLECTION = 'waves';
+
 
 const ALLOWED_VIDEO_TYPES = {
   'video/mp4': '.mp4',
@@ -37,15 +39,52 @@ const FEED_CLIENT_EXCLUDE_LIMIT = 160;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function resolvePlayableUrl(rawUrl) {
-  if (!rawUrl) return rawUrl;
-  const gcsPath = extractGCSPath(rawUrl);
-  if (!gcsPath) return rawUrl;
+function getWaveOutputPrefix(waveId) {
+  return `hls/waves/${waveId}`;
+}
+
+function getWaveMasterPlaylistUrl(waveId) {
+  return `/wave/${waveId}/hls/master.m3u8`;
+}
+
+async function prepareWaveTranscode(wave) {
   try {
-    return await generateSignedReadUrl(gcsPath, 120);
-  } catch {
-    return rawUrl;
+    const outputPrefix = getWaveOutputPrefix(wave.id);
+    const transcoding = await TranscoderService.startTranscode(wave, outputPrefix);
+    return await Wave.updateTranscoding(wave.id, transcoding);
+  } catch (error) {
+    console.error(`[WaveTranscoder] Failed to queue wave ${wave.id}:`, error.message);
+    return await Wave.updateTranscoding(wave.id, {
+      transcoding_status: 'failed',
+      transcoding_error: error.message,
+    });
   }
+}
+
+async function refreshWaveTranscode(wave) {
+  try {
+    if (!wave.transcoding_status || (wave.transcoding_status === 'pending' && !wave.transcoding_job_name)) {
+      return await prepareWaveTranscode(wave);
+    }
+    if (wave.transcoding_status === 'processing' && Number(wave.transcoding_checked_at || 0) > Date.now() - 60_000) {
+      return wave;
+    }
+    const update = await TranscoderService.refreshTranscode(wave);
+    if (!update) return wave;
+    if (update.transcoding_status === 'ready') {
+      update.master_playlist_url = getWaveMasterPlaylistUrl(wave.id);
+    }
+    return await Wave.updateTranscoding(wave.id, update);
+  } catch (error) {
+    console.warn(`[WaveTranscoder] Failed to refresh wave ${wave.id}:`, error.message);
+    return wave;
+  }
+}
+
+async function resolvePlayableUrl(rawUrl) {
+  // Media bucket is publicly readable — raw GCS URLs are already playable,
+  // no signing needed.
+  return rawUrl;
 }
 
 function parseExcludeIdsFromQuery(value) {
@@ -187,13 +226,38 @@ async function buildNovelFeed({ limit, cursor, excludedIds }) {
   };
 }
 
-async function enrichWave(wave, userId = null) {
-  const signed = { ...wave, video_url: await resolvePlayableUrl(wave.video_url) };
-  
-  // Sign thumbnail URL so it's always accessible (GCS bucket may not be public)
-  if (wave.thumbnail_url) {
+async function enrichWave(wave, userId = null, req = null) {
+  // Build an absolute base URL so HLS paths like /wave/{id}/hls/master.m3u8
+  // are returned as full https:// URLs that every client can play directly.
+  const backendBase = req
+    ? `${req.protocol}://${req.get('host')}`
+    : (process.env.BACKEND_URL || '').replace(/\/$/, '');
+
+  // Use HLS master playlist if transcoding is complete, otherwise sign the raw MP4
+  const isHlsReady = wave.transcoding_status === 'ready' && wave.master_playlist_url;
+  let videoUrl;
+  if (isHlsReady) {
+    const hlsPath = wave.master_playlist_url;
+    videoUrl = hlsPath.startsWith('http') ? hlsPath : `${backendBase}${hlsPath}`;
+  } else {
+    videoUrl = await resolvePlayableUrl(wave.video_url);
+  }
+  const signed = {
+    ...wave,
+    video_url: videoUrl,
+    adaptive: isHlsReady,
+    available_renditions: wave.available_renditions || [],
+    transcoding_status: wave.transcoding_status || 'unavailable',
+  };
+
+  // Sign thumbnail URL so it's always accessible (GCS bucket may not be public).
+  // Only return a URL when the status is 'ready' so clients don't try to load a
+  // missing object. Thumbnail prefetch / generation is driven by the client via
+  // GET /waves/:id/thumbnail, NOT inline during feed enrichment.
+  if (wave.thumbnail_url && wave.thumbnail_status === 'ready') {
     signed.thumbnail_url = await resolvePlayableUrl(wave.thumbnail_url);
   }
+  signed.thumbnail_status = wave.thumbnail_status || null;
   
   // Include channel exclusive fee so frontend can properly identify exclusive channels
   const channel = await Channel.findById(wave.channel_id);
@@ -307,13 +371,15 @@ async function evaluateExclusiveChannelAccess({ channel, userId, user }) {
   // Check if user has admin-approved KYC verification
   const eligibleByKyc = await isAdultKycVerified(userId);
   console.log('[ExclusiveAccess] KYC verified:', eligibleByKyc);
-  if (!eligibleByKyc) {
+  if (!eligibleByKyc.isVerified) {
     console.log('[ExclusiveAccess] KYC verification failed, denying access');
     return {
       allowed: false,
       requires_consent: false,
-      reason: 'KYC verification is required for exclusive channels',
-      code: 'EXCLUSIVE_KYC_REQUIRED',
+      reason: eligibleByKyc.isMinor
+        ? 'Exclusive channels are not available for users under 18'
+        : 'KYC verification is required for exclusive channels',
+      code: eligibleByKyc.isMinor ? 'EXCLUSIVE_MINOR_BLOCKED' : 'EXCLUSIVE_KYC_REQUIRED',
     };
   }
 
@@ -439,6 +505,10 @@ async function registerWave(req, res) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
+    if (channel.type === 'public' && String(age_classification).toLowerCase() === 'adult') {
+      return res.status(400).json({ error: 'Public channels cannot upload 18+ content. Use minor_safe or teen only.' });
+    }
+
     const wave = await Wave.create({
       creatorUid: req.userId,
       channelId: channel_id,
@@ -466,6 +536,12 @@ async function registerWave(req, res) {
         console.error('[Wave] Async thumbnail generation failed:', err);
       });
     }
+
+    // Kick off HLS transcoding asynchronously — the wave is immediately available
+    // via the raw MP4 signed URL while transcoding runs in the background.
+    prepareWaveTranscode(wave).catch((err) => {
+      console.error('[WaveTranscoder] Async transcode failed:', err.message);
+    });
 
     res.status(201).json(wave);
   } catch (err) {
@@ -602,11 +678,59 @@ async function getFeed(req, res) {
       visibleWaves.push(wave);
     }
 
-    const enriched = await Promise.all(visibleWaves.map((w) => enrichWave(w, userId)));
+    const enriched = await Promise.all(visibleWaves.map((w) => enrichWave(w, userId, req)));
     const nextCursor = novel.nextCursor;
     res.json({ waves: enriched, next_cursor: nextCursor });
   } catch (err) {
     console.error('[Wave] getFeed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Following feed ──────────────────────────────────────────────────────────
+
+async function getFollowingFeed(req, res) {
+  try {
+    const userId = req.userId;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+    const cursor = req.query.cursor || null;
+    const clientExcludedIds = parseExcludeIdsFromQuery(req.query.exclude_ids);
+
+    const ChannelSub = require('../subscriptions/channel_subscription.model');
+    const channelIds = await ChannelSub.getActiveSubscribedChannelIds(userId);
+    const user = await User.findById(userId);
+
+    if (!channelIds.length) {
+      return res.json({ waves: [], next_cursor: null });
+    }
+
+    const { waves, nextCursor } = await Wave.getFollowingFeed(channelIds, { limit, cursor });
+
+    const excludedIds = new Set(clientExcludedIds);
+    const channelCache = new Map();
+
+    const visibleWaves = [];
+    for (const wave of waves) {
+      if (excludedIds.has(wave.id)) continue;
+      const channelId = wave.channel_id;
+      if (!channelId) continue;
+
+      let channel = channelCache.get(channelId) || null;
+      if (!channel) {
+        channel = await Channel.findById(channelId);
+        if (channel) channelCache.set(channelId, channel);
+      }
+      if (!channel) continue;
+
+      const exclusiveDecision = await evaluateExclusiveChannelAccess({ channel, userId, user });
+      if (!exclusiveDecision.allowed) continue;
+      visibleWaves.push(wave);
+    }
+
+    const enriched = await Promise.all(visibleWaves.map((w) => enrichWave(w, userId, req)));
+    res.json({ waves: enriched, next_cursor: nextCursor });
+  } catch (err) {
+    console.error('[Wave] getFollowingFeed:', err.message);
     res.status(500).json({ error: err.message });
   }
 }
@@ -631,7 +755,7 @@ async function getWave(req, res) {
       return res.status(403).json(toExclusiveAccessPayload(exclusiveDecision));
     }
 
-    res.json(await enrichWave(wave, userId));
+    res.json(await enrichWave(wave, userId, req));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -665,7 +789,7 @@ async function getChannelWaves(req, res) {
     }
 
     const waves = await Wave.getByChannel(req.params.channelId, { includeHidden });
-    const enriched = await Promise.all(waves.map((w) => enrichWave(w, userId)));
+    const enriched = await Promise.all(waves.map((w) => enrichWave(w, userId, req)));
     res.json(enriched);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1095,7 +1219,7 @@ async function getMyBookmarks(req, res) {
     const waves = await Promise.all(
       bookmarks.map(async (b) => {
         const w = await Wave.findById(b.wave_id);
-        return w && w.status === 'active' ? enrichWave(w, req.userId) : null;
+        return w && w.status === 'active' ? enrichWave(w, req.userId, req) : null;
       })
     );
     res.json(waves.filter(Boolean));
@@ -1180,12 +1304,14 @@ async function checkWaveAccess(req, res) {
 
       // Check if user has admin-approved KYC verification
       const eligibleByKyc = await isAdultKycVerified(req.userId);
-      if (!eligibleByKyc) {
+      if (!eligibleByKyc.isVerified) {
         return res.json({
           allowed: false,
           requires_consent: false,
-          reason: 'KYC verification is required for exclusive channels',
-          code: 'EXCLUSIVE_KYC_REQUIRED',
+          reason: eligibleByKyc.isMinor
+            ? 'Exclusive channels are not available for users under 18'
+            : 'KYC verification is required for exclusive channels',
+          code: eligibleByKyc.isMinor ? 'EXCLUSIVE_MINOR_BLOCKED' : 'EXCLUSIVE_KYC_REQUIRED',
         });
       }
 
@@ -1367,13 +1493,445 @@ async function trackView(req, res) {
   }
 }
 
+// ─── Thumbnail prefetch / on-demand generation (viewer) ───────────────────────
+
+const PREFETCH_RETRY_AFTER_SECONDS = 3;
+
+async function getWaveThumbnail(req, res) {
+  try {
+    const wave = await Wave.findById(req.params.waveId);
+    if (!wave || wave.status === 'deleted') {
+      return res.status(404).json({ error: 'Wave not found' });
+    }
+
+    // Ready thumbnail: return immediately with the signed / playable URL.
+    if (wave.thumbnail_status === 'ready' && wave.thumbnail_url) {
+      const thumbnailUrl = await resolvePlayableUrl(wave.thumbnail_url);
+      return res.json({
+        thumbnail_url: thumbnailUrl,
+        status: 'ready',
+      });
+    }
+
+    if (!wave.video_url) {
+      return res.status(404).json({ error: 'Wave has no video source' });
+    }
+
+    // Kick off (or resume) generation without blocking the response.
+    // generateThumbnailAsync uses Firestore status tracking to avoid duplicate
+    // concurrent jobs, keeping Cloud Run CPU usage low.
+    generateThumbnailAsync(wave.video_url, wave.id).catch((err) => {
+      console.error('[Wave] Thumbnail prefetch failed:', err.message);
+    });
+
+    return res.status(202)
+      .set('Retry-After', String(PREFETCH_RETRY_AFTER_SECONDS))
+      .json({ status: wave.thumbnail_status || 'pending' });
+  } catch (err) {
+    console.error('[Wave] getWaveThumbnail:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Client thumbnail upload (mobile app generates thumbnail locally) ────────
+
+async function uploadWaveThumbnail(req, res) {
+  try {
+    const wave = await Wave.findById(req.params.waveId);
+    if (!wave || wave.status === 'deleted') {
+      return res.status(404).json({ error: 'Wave not found' });
+    }
+
+    // Only the channel owner or admin can upload thumbnails
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const channel = await Channel.findById(wave.channel_id);
+    const isOwner = channel && channel.owner_id === req.userId;
+    const isAdmin = user.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Only the channel owner or admin can upload thumbnails' });
+    }
+
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    // Use the GCS URL from the upload middleware
+    const thumbnailUrl = req.file.gcsUrl;
+    if (!thumbnailUrl) return res.status(500).json({ error: 'Failed to upload thumbnail to GCS' });
+
+    await Wave.updateThumbnailStatus(wave.id, {
+      thumbnail_url: thumbnailUrl,
+      thumbnail_status: 'ready',
+      thumbnail_generated_at: Date.now(),
+      thumbnail_error: null,
+      thumbnail_failed_at: null,
+    });
+    console.log(`[Wave] Thumbnail uploaded by client for wave ${wave.id}: ${thumbnailUrl}`);
+    res.json({ success: true, thumbnail_url: thumbnailUrl });
+  } catch (err) {
+    console.error('[Wave] uploadWaveThumbnail:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Channel-owner thumbnail regeneration ───────────────────────────────────
+
+async function regenerateChannelThumbnails(req, res) {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const channel = await Channel.findById(req.params.channelId);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const isOwner = channel.owner_id === req.userId;
+    const isAdmin = user.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Only the channel owner or admin can regenerate thumbnails' });
+    }
+
+    const waves = await Wave.getByChannel(req.params.channelId, { includeHidden: true });
+    const wavesWithoutThumbnails = waves.filter((w) =>
+      w.status === 'active' && (!w.thumbnail_url || w.thumbnail_url === '' ||
+      w.thumbnail_url.includes('.webp') || w.thumbnail_url.includes('.png'))
+    );
+
+    if (wavesWithoutThumbnails.length === 0) {
+      return res.json({ success: true, message: 'All waves already have JPEG thumbnails', processed: 0 });
+    }
+
+    let processed = 0;
+    let failed = 0;
+    const results = [];
+
+    for (const wave of wavesWithoutThumbnails) {
+      if (wave.video_url) {
+        try {
+          const thumbnailUrl = await generateThumbnail(wave.video_url, wave.id);
+          if (thumbnailUrl) {
+            await Wave.update(wave.id, { thumbnail_url: thumbnailUrl });
+            processed++;
+            results.push({ waveId: wave.id, status: 'completed', thumbnailUrl });
+          } else {
+            failed++;
+            results.push({ waveId: wave.id, status: 'failed', reason: 'thumbnail generation returned null' });
+          }
+        } catch (err) {
+          console.error(`[ThumbnailRegeneration] Failed for wave ${wave.id}:`, err.message);
+          failed++;
+          results.push({ waveId: wave.id, status: 'failed', reason: err.message });
+        }
+      } else {
+        results.push({ waveId: wave.id, status: 'skipped', reason: 'no video_url' });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Thumbnail generation completed: ${processed} succeeded, ${failed} failed`,
+      total: wavesWithoutThumbnails.length,
+      processed,
+      failed,
+      results,
+    });
+  } catch (err) {
+    console.error('[ThumbnailRegeneration] Channel error:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Wave HLS Streaming (Viewer) ─────────────────────────────────────────────
+
+async function streamWaveAdaptiveAsset(req, res) {
+  try {
+    const rawAssetPath = Array.isArray(req.params.assetPath)
+      ? req.params.assetPath.join('/')
+      : String(req.params.assetPath || '');
+    const assetPath = rawAssetPath.replace(/\\/g, '/');
+    if (!assetPath || assetPath.includes('..') || assetPath.startsWith('/')) {
+      return res.status(400).json({ error: 'Invalid wave stream asset path' });
+    }
+
+    let wave = await Wave.findById(req.params.waveId);
+    if (!wave || wave.status === 'deleted') return res.status(404).json({ error: 'Wave not found' });
+
+    // Check transcoding status and refresh if needed
+    if (wave.transcoding_status !== 'ready') {
+      wave = await refreshWaveTranscode(wave);
+    }
+    if (wave.transcoding_status !== 'ready') {
+      return res.status(503).json({ error: 'Wave is still being processed. Please retry shortly.', transcoding_status: wave.transcoding_status });
+    }
+
+    const outputPrefix = wave.hls_output_prefix || getWaveOutputPrefix(wave.id);
+    const objectPath = `${outputPrefix}/${assetPath}`;
+    const extension = path.extname(assetPath).toLowerCase();
+
+    // Segments: redirect directly to the PUBLIC GCS object — no signing,
+    // no proxying through Cloud Run.
+    if (extension === '.ts' || extension === '.m4s') {
+      const publicUrl = `https://storage.googleapis.com/${BUCKET_NAME}/${objectPath}`;
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.redirect(302, publicUrl);
+    }
+
+    // Manifests: proxy through backend (small, allows quality filtering)
+    const file = getBucket().file(objectPath);
+    let metadata;
+    try {
+      [metadata] = await file.getMetadata();
+    } catch (error) {
+      if (error.code === 404) return res.status(404).json({ error: 'Wave stream asset not found' });
+      throw error;
+    }
+
+    const size = Number(metadata.size || 0);
+    const range = req.headers.range;
+    let start;
+    let end;
+    if (range) {
+      const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+      if (!match) return res.status(416).end();
+      start = Number(match[1]);
+      end = match[2] ? Number(match[2]) : size - 1;
+      if (start >= size || end >= size || start > end) return res.status(416).end();
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+      res.setHeader('Content-Length', end - start + 1);
+    } else if (size > 0) {
+      res.setHeader('Content-Length', size);
+    }
+
+    const contentTypes = {
+      '.m3u8': 'application/vnd.apple.mpegurl',
+      '.ts': 'video/mp2t',
+      '.m4s': 'video/iso.segment',
+      '.mp4': 'video/mp4',
+      '.aac': 'audio/aac',
+    };
+    res.setHeader('Content-Type', metadata.contentType || contentTypes[extension] || 'application/octet-stream');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', extension === '.m3u8' ? 'no-cache' : 'public, max-age=31536000, immutable');
+
+    const stream = file.createReadStream(
+      Object.assign({}, start !== undefined ? { start } : {}, end !== undefined ? { end } : {}),
+    );
+    stream.on('error', (error) => {
+      console.error(`[WaveTranscoder] HLS stream error ${objectPath}:`, error.message);
+      if (!res.headersSent) res.status(500).json({ error: 'Unable to stream wave asset' });
+      else res.destroy(error);
+    });
+    return stream.pipe(res);
+  } catch (error) {
+    console.error('[WaveTranscoder] streamWaveAdaptiveAsset error:', error.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Unable to stream wave asset' });
+  }
+}
+
+// ─── Resumable Upload Sessions for Waves ──────────────────────────────────────
+const WAVE_UPLOAD_SESSIONS_COLLECTION = 'wave_upload_sessions';
+
+async function createWaveResumableSession(req, res) {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.role !== 'creator' && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only creators can upload waves' });
+    }
+
+    const lock = await ensureCreatorNotLocked(req.userId);
+    if (lock) return res.status(lock.status).json(lock.payload);
+
+    const {
+      channel_id,
+      title,
+      description,
+      duration,
+      file_name,
+      file_size,
+      content_type,
+      age_classification,
+      has_explicit_language,
+      has_nudity,
+      has_violence,
+      has_revealing_clothes,
+      has_partial_nudity,
+      has_explicit_content,
+      has_parental_guidance,
+      has_erotic_dancing,
+      has_sexual_nature,
+      has_sex,
+    } = req.body;
+
+    if (!channel_id) return res.status(400).json({ error: 'channel_id is required' });
+    if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
+    if (!content_type) return res.status(400).json({ error: 'content_type is required' });
+    if (!ALLOWED_VIDEO_TYPES[content_type]) {
+      return res.status(400).json({
+        error: `Unsupported type: ${content_type}. Allowed: ${Object.keys(ALLOWED_VIDEO_TYPES).join(', ')}`,
+      });
+    }
+    if (!age_classification || !AGE_CLASSIFICATION_VALUES.includes(String(age_classification).toLowerCase())) {
+      return res.status(400).json({ error: 'age_classification must be one of: minor_safe, teen, adult' });
+    }
+
+    const channel = await Channel.findById(channel_id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    if (channel.owner_id !== req.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Not channel owner' });
+    }
+
+    if (channel.type === 'public' && String(age_classification).toLowerCase() === 'adult') {
+      return res.status(400).json({ error: 'Public channels cannot upload 18+ content. Use minor_safe or teen only.' });
+    }
+
+    const ext = ALLOWED_VIDEO_TYPES[content_type];
+    const filename = `waves/${crypto.randomUUID()}${ext}`;
+    const { sessionUrl, publicUrl } = await createResumableUploadSession(filename, content_type, req.headers.origin);
+    const now = Date.now();
+    const sessionId = crypto.randomUUID();
+    const totalBytes = Number.isFinite(Number(file_size)) ? Math.max(0, parseInt(file_size, 10)) : 0;
+
+    const session = {
+      id: sessionId,
+      creator_uid: req.userId,
+      channel_id,
+      title: title.trim(),
+      description: (description || '').trim(),
+      duration: duration ? parseInt(duration, 10) : 0,
+      file_name: file_name || null,
+      content_type,
+      filename,
+      public_url: publicUrl,
+      upload_url: sessionUrl,
+      total_bytes: totalBytes,
+      uploaded_bytes: 0,
+      status: 'initiated',
+      error: null,
+      wave_id: null,
+      created_at: now,
+      updated_at: now,
+      expires_at: now + 24 * 60 * 60 * 1000,
+      age_classification: String(age_classification).toLowerCase(),
+      has_explicit_language: has_explicit_language || false,
+      has_nudity: has_nudity || false,
+      has_violence: has_violence || false,
+      has_revealing_clothes: has_revealing_clothes || false,
+      has_partial_nudity: has_partial_nudity || false,
+      has_explicit_content: has_explicit_content || false,
+      has_parental_guidance: has_parental_guidance || false,
+      has_erotic_dancing: has_erotic_dancing || false,
+      has_sexual_nature: has_sexual_nature || false,
+      has_sex: has_sex || false,
+    };
+
+    const db = getFirestore();
+    await db.collection(WAVE_UPLOAD_SESSIONS_COLLECTION).doc(sessionId).set(session);
+
+    res.status(201).json({ session });
+  } catch (err) {
+    console.error('[Wave] createWaveResumableSession:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function completeWaveResumableSession(req, res) {
+  try {
+    const sessionId = req.body?.session_id;
+    if (!sessionId) return res.status(400).json({ error: 'session_id is required' });
+
+    const db = getFirestore();
+    const ref = db.collection(WAVE_UPLOAD_SESSIONS_COLLECTION).doc(sessionId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: 'Upload session not found' });
+    }
+
+    const session = snap.data();
+    if (session.creator_uid !== req.userId) {
+      return res.status(403).json({ error: 'Not upload owner' });
+    }
+    if (Number(session.expires_at || 0) > 0 && Number(session.expires_at) < Date.now()) {
+      return res.status(410).json({ error: 'Upload session expired. Create a new upload session.' });
+    }
+    if (session.status === 'completed' && session.wave_id) {
+      const existingWave = await Wave.findById(session.wave_id);
+      if (existingWave) {
+        return res.json({ wave: existingWave, session });
+      }
+    }
+
+    const metadata = await getGCSObjectMetadata(session.filename);
+    if (!metadata) {
+      return res.status(409).json({ error: 'Upload is not complete yet. Please retry shortly.' });
+    }
+
+    const channel = await Channel.findById(session.channel_id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    if (channel.owner_id !== req.userId) {
+      return res.status(403).json({ error: 'Not channel owner' });
+    }
+
+    const wave = await Wave.create({
+      creatorUid: req.userId,
+      channelId: session.channel_id,
+      title: session.title,
+      description: session.description || '',
+      videoUrl: session.public_url,
+      thumbnailUrl: null,
+      duration: session.duration ? parseInt(session.duration, 10) : 0,
+      ageClassification: session.age_classification || 'teen',
+      hasExplicitLanguage: session.has_explicit_language || false,
+      hasNudity: session.has_nudity || false,
+      hasViolence: session.has_violence || false,
+      hasRevealingClothes: session.has_revealing_clothes || false,
+      hasPartialNudity: session.has_partial_nudity || false,
+      hasExplicitContent: session.has_explicit_content || false,
+      hasParentalGuidance: session.has_parental_guidance || false,
+      hasEroticDancing: session.has_erotic_dancing || false,
+      hasSexualNature: session.has_sexual_nature || false,
+      hasSex: session.has_sex || false,
+    });
+
+    if (!session.thumbnail_url && session.public_url) {
+      generateThumbnailAsync(session.public_url, wave.id).catch((err) => {
+        console.error('[Wave] Async thumbnail generation failed:', err);
+      });
+    }
+
+    prepareWaveTranscode(wave).catch((err) => {
+      console.error('[WaveTranscoder] Async transcode failed:', err.message);
+    });
+
+    const bytes = Number.isFinite(Number(metadata.size)) ? parseInt(metadata.size, 10) : (session.uploaded_bytes || 0);
+    await ref.update({
+      status: 'completed',
+      uploaded_bytes: bytes,
+      wave_id: wave.id,
+      completed_at: Date.now(),
+      updated_at: Date.now(),
+      error: null,
+      upload_url: null,
+    });
+
+    res.json({ wave, session: { ...session, status: 'completed', wave_id: wave.id, uploaded_bytes: bytes } });
+  } catch (err) {
+    console.error('[Wave] completeWaveResumableSession:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   getWaveUploadUrl,
   registerWave,
+  createWaveResumableSession,
+  completeWaveResumableSession,
   updateWave,
   getFeed,
+  getFollowingFeed,
   getWave,
   getChannelWaves,
+  getWaveThumbnail,
   deleteWave,
   setTimelineVisibility,
   bulkDeleteWaves,
@@ -1399,4 +1957,7 @@ module.exports = {
   getCreatorLockStatus,
   payCreatorLock,
   regenerateMissingThumbnails,
+  regenerateChannelThumbnails,
+  uploadWaveThumbnail,
+  streamWaveAdaptiveAsset,
 };

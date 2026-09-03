@@ -48,6 +48,7 @@ function summarizeChannel(channel) {
     owner_display_name: serialized.owner_display_name,
     owner_email: serialized.owner_email,
     is_active: Boolean(serialized.is_active),
+    is_banned: Boolean(serialized.is_banned),
     requires_payment: Boolean(serialized.requires_payment),
   };
 }

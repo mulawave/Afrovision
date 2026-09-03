@@ -490,6 +490,12 @@ const SETTING_DEFINITIONS = {
     sensitive: false,
     defaultValue: 'EXAVITQu4vr4xnSDxMaL',
   },
+  withdrawals_disabled: {
+    category: 'system',
+    description: 'Site-wide withdrawal deactivation toggle (true = withdrawals blocked for all users)',
+    sensitive: false,
+    defaultValue: false,
+  },
 };
 
 module.exports = {

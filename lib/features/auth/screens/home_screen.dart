@@ -1790,9 +1790,9 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildUserAssetsSection() {
     final user = _user;
     if (user == null) return const SizedBox.shrink();
-    final cash = (user.cash ?? 0).toDouble();
-    final vpt = (user.vptBalance ?? user.vpt ?? 0).toDouble();
-    final ravens = (user.coins ?? 0).toDouble();
+    final cash = user.cash.toDouble();
+    final vpt = (user.vptBalance > 0 ? user.vptBalance : user.vpt).toDouble();
+    final ravens = user.coins.toDouble();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(

@@ -27,6 +27,11 @@ interface AuthContextValue {
   user: StoredUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isProfileComplete: boolean;
+  kycRequired: boolean;
+  kycVerified: boolean;
+  isMinor: boolean;
+  gracePeriodActive: boolean;
   login: (email: string, password: string, captchaToken?: string) => Promise<{ ok: boolean; error?: string }>;
   pakLogin: (pak: string) => Promise<{ ok: boolean; error?: string }>;
   walletLogin: (address: string) => Promise<{ ok: boolean; error?: string }>;
@@ -43,13 +48,20 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<StoredUser | null>(() => getStoredUser());
-  const [isLoading, setIsLoading] = useState(() => !!getToken());
+  const [user, setUser] = useState<StoredUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // On mount: validate existing token against backend
+  // On mount: load from localStorage, then validate token against backend
   useEffect(() => {
     const token = getToken();
-    if (!token) return;
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Restore cached user first
+    const cached = getStoredUser();
+    if (cached) setUser(cached);
 
     getMeApi()
       .then((res) => {
@@ -144,6 +156,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        isProfileComplete: !!user?.profile_setup_complete,
+        kycRequired: user?.role !== "admin" && (user?.kyc_status === "none" || user?.kyc_status === "rejected" || user?.kyc_status === "minor_pending"),
+        kycVerified: user?.kyc_status === "verified",
+        isMinor: !!user?.is_minor,
+        gracePeriodActive: (() => {
+          const end = user?.kyc_grace_period_end;
+          if (!end) return false;
+          const expiry = new Date(end);
+          return expiry.getTime() > Date.now();
+        })(),
         login,
         pakLogin,
         walletLogin,

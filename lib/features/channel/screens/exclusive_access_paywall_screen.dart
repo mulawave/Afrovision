@@ -302,7 +302,15 @@ class _ExclusiveAccessPaywallScreenState
   String _expiryLabel() {
     final exp = _status?.expiresAt;
     if (exp == null || exp.isEmpty) return '30-day access period';
-    final parsed = DateTime.tryParse(exp)?.toLocal();
+    // Try ISO 8601 format first
+    DateTime? parsed = DateTime.tryParse(exp)?.toLocal();
+    // If that fails, try parsing as a millisecond timestamp (backend stores it as a number)
+    if (parsed == null) {
+      final ms = int.tryParse(exp);
+      if (ms != null && ms > 0) {
+        parsed = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true).toLocal();
+      }
+    }
     if (parsed == null) return exp;
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
@@ -678,7 +686,7 @@ class _ExclusiveAccessPaywallScreenState
       decoration: BoxDecoration(
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.inputBorder),
+        border: Border.all(color: AppColors.successGreen.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -705,29 +713,10 @@ class _ExclusiveAccessPaywallScreenState
             style: const TextStyle(color: AppColors.goldText, fontSize: 13),
           ),
           const SizedBox(height: 14),
-          AppTextField(
-            controller: _picController,
-            label: 'VERIFY PIC',
-            hint: 'Enter your current PIC',
-            prefixIcon: Icons.pin_rounded,
-            onChanged: (_) {
-              if (_error != null) setState(() => _error = null);
-              if (_info != null) setState(() => _info = null);
-            },
-          ),
-          const SizedBox(height: 10),
           AppButton(
-            label: _picVerified ? 'PIC Verified' : 'Verify PIC',
-            onPressed: _picVerified ? null : _verifyPic,
-            loading: _verifyingPic,
-            enabled: !_verifyingPic && !_picVerified,
+            label: 'Continue to Channel',
+            onPressed: _continueToChannel,
           ),
-          const SizedBox(height: 14),
-          if (_picVerified)
-            AppButton(
-              label: 'Continue to Channel',
-              onPressed: _continueToChannel,
-            ),
         ],
       ),
     );

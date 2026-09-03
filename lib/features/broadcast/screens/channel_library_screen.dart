@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_pagination_controls.dart';
 import '../models/channel_library_models.dart';
 import '../services/channel_library_service.dart';
 
@@ -18,6 +19,8 @@ class _ChannelLibraryScreenState extends State<ChannelLibraryScreen>
   bool _loading = true;
   String? _error;
   List<ChannelLibraryItemModel> _items = <ChannelLibraryItemModel>[];
+  int _currentPage = 0;
+  static const int _pageSize = 10;
 
   late AnimationController _animCtrl;
   late Animation<double> _fadeAnim;
@@ -81,6 +84,7 @@ class _ChannelLibraryScreenState extends State<ChannelLibraryScreen>
       if (!mounted) return;
       setState(() {
         _items = response.items;
+        _currentPage = 0;
         _loading = false;
       });
       _animCtrl.forward(from: 0);
@@ -243,17 +247,20 @@ class _ChannelLibraryScreenState extends State<ChannelLibraryScreen>
         opacity: _fadeAnim,
         child: SlideTransition(
           position: _slideAnim,
-          child: GridView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 0.64,
-            ),
-            itemCount: _items.length,
-            itemBuilder: (_, index) {
-              final item = _items[index];
+          child: Column(
+            children: [
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.64,
+                  ),
+                  itemCount: _pagedItems.length,
+                  itemBuilder: (_, index) {
+                    final item = _pagedItems[index];
               return GestureDetector(
                 onTap: () => _openItem(item),
                 child: Container(
@@ -324,11 +331,37 @@ class _ChannelLibraryScreenState extends State<ChannelLibraryScreen>
                   ),
                 ),
               );
-            },
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                child: AppPaginationControls(
+                  currentPage: _currentPage,
+                  totalPages: _totalPages,
+                  onPrevious: _currentPage > 0
+                      ? () => setState(() => _currentPage -= 1)
+                      : null,
+                  onNext: _currentPage < _totalPages - 1
+                      ? () => setState(() => _currentPage += 1)
+                      : null,
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+
+  List<ChannelLibraryItemModel> get _pagedItems {
+    final start = _currentPage * _pageSize;
+    return _items.skip(start).take(_pageSize).toList();
+  }
+
+  int get _totalPages {
+    if (_items.isEmpty) return 1;
+    return ((_items.length - 1) ~/ _pageSize) + 1;
   }
 
   Widget _coverPlaceholder() {

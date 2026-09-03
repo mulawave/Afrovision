@@ -102,7 +102,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         referralCode: referralCode.isEmpty ? null : referralCode,
       );
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      Navigator.pushNamedAndRemoveUntil(context, '/profile-setup', (_) => false);
     } catch (e) {
       setState(() {
         _error = e.toString();

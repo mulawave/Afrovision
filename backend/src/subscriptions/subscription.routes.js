@@ -7,5 +7,6 @@ const router = Router();
 router.get('/plans', ctrl.getPlans);
 router.post('/subscribe', authenticateToken, ctrl.subscribe);
 router.get('/me', authenticateToken, ctrl.getMySubscription);
+router.get('/wallet-preview', authenticateToken, ctrl.previewWallet);
 
 module.exports = router;

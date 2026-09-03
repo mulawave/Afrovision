@@ -5,6 +5,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/lib/AuthContext";
 import { api, apiFormData, getMeApi, type StoredUser, type ErrorResponse } from "@/lib/api";
+import { LocationSelect } from "@/components/LocationSelect";
+import { referralSources } from "@/lib/locations";
 
 export default function EditProfilePage() {
   const { isAuthenticated, isLoading, refreshUser } = useAuth();
@@ -18,6 +20,15 @@ export default function EditProfilePage() {
   // Form fields
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [country, setCountry] = useState("");
+  const [stateVal, setStateVal] = useState("");
+  const [city, setCity] = useState("");
+  const [address, setAddress] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [referralSource, setReferralSource] = useState("");
+  const [referralSourceDetail, setReferralSourceDetail] = useState("");
 
   const avatarRef = useRef<HTMLInputElement>(null);
 
@@ -36,6 +47,15 @@ export default function EditProfilePage() {
         setProfile(u);
         setName(u.name || "");
         setEmail(u.email || "");
+        setFirstName(u.firstName || "");
+        setLastName(u.lastName || "");
+        setCountry(u.country || "");
+        setStateVal(u.state || "");
+        setCity(u.city || "");
+        setAddress(u.address || "");
+        setPhoneNumber(u.phoneNumber || "");
+        setReferralSource(u.referralSource || "");
+        setReferralSourceDetail(u.referralSourceDetail || "");
       }
       setLoading(false);
     });
@@ -110,9 +130,22 @@ export default function EditProfilePage() {
 
     setSaving(true);
     try {
+      const body: Record<string, string | null> = {
+        name: trimmedName,
+        email: trimmedEmail,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        country,
+        state: stateVal,
+        city,
+        address: address.trim(),
+        phoneNumber: phoneNumber.trim(),
+        referralSource,
+        referralSourceDetail: referralSource === "Other, please specify" ? referralSourceDetail.trim() : null,
+      };
       const res = await api<{ user: StoredUser } | ErrorResponse>("/users/update-profile", {
         method: "PUT",
-        body: { name: trimmedName, email: trimmedEmail },
+        body,
         requireAuth: true,
       });
 
@@ -121,6 +154,15 @@ export default function EditProfilePage() {
         setProfile(u);
         setName(u.name || "");
         setEmail(u.email || "");
+        setFirstName(u.firstName || "");
+        setLastName(u.lastName || "");
+        setCountry(u.country || "");
+        setStateVal(u.state || "");
+        setCity(u.city || "");
+        setAddress(u.address || "");
+        setPhoneNumber(u.phoneNumber || "");
+        setReferralSource(u.referralSource || "");
+        setReferralSourceDetail(u.referralSourceDetail || "");
         setSuccess("Profile updated successfully");
         refreshUser();
       } else {
@@ -242,11 +284,105 @@ export default function EditProfilePage() {
               </div>
             </section>
 
+            {/* Personal Details */}
+            <section className="rounded-2xl border border-av-input-border/30 bg-av-card p-6 space-y-5 mt-6">
+              <h2 className="text-sm font-semibold text-av-white">Personal Details</h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">First Name</label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-3 text-sm text-av-white placeholder-av-hint focus:border-av-orange/50 focus:outline-none"
+                    placeholder="John"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Last Name</label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-3 text-sm text-av-white placeholder-av-hint focus:border-av-orange/50 focus:outline-none"
+                    placeholder="Doe"
+                  />
+                </div>
+              </div>
+
+              <LocationSelect
+                country={country}
+                state={stateVal}
+                city={city}
+                onCountryChange={setCountry}
+                onStateChange={setStateVal}
+                onCityChange={setCity}
+              />
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Address</label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-3 text-sm text-av-white placeholder-av-hint focus:border-av-orange/50 focus:outline-none"
+                  placeholder="Street address, building, etc."
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">Phone Number</label>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-3 text-sm text-av-white placeholder-av-hint focus:border-av-orange/50 focus:outline-none"
+                  placeholder="+234 800 000 0000"
+                />
+              </div>
+            </section>
+
+            {/* Referral Source */}
+            <section className="rounded-2xl border border-av-input-border/30 bg-av-card p-6 space-y-5 mt-6">
+              <h2 className="text-sm font-semibold text-av-white">How Did You Hear About AfroVision?</h2>
+              <div>
+                <select
+                  value={referralSource}
+                  onChange={(e) => setReferralSource(e.target.value)}
+                  className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-3 text-sm text-av-white focus:border-av-orange/50 focus:outline-none"
+                >
+                  <option value="">Select an option</option>
+                  {referralSources.map((src) => (
+                    <option key={src} value={src}>
+                      {src}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {referralSource === "Other, please specify" && (
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-av-light-orange mb-1.5">
+                    Tell us how you heard about AfroVision
+                  </label>
+                  <input
+                    type="text"
+                    value={referralSourceDetail}
+                    onChange={(e) => setReferralSourceDetail(e.target.value)}
+                    className="w-full rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-3 text-sm text-av-white placeholder-av-hint focus:border-av-orange/50 focus:outline-none"
+                    placeholder="Please specify..."
+                  />
+                </div>
+              )}
+            </section>
+
             <button
               type="submit"
               disabled={saving}
-              className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold bg-gradient-to-r from-av-orange to-av-light-orange text-av-dark-blue transition-all hover:shadow-lg hover:shadow-av-orange/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none"
+              className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold bg-gradient-to-r from-av-orange to-av-light-orange text-av-dark-blue transition-all hover:shadow-lg hover:shadow-av-orange/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
             >
+              {saving && (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-av-dark-blue/30 border-t-av-dark-blue" />
+              )}
               {saving ? "Saving..." : "Save Changes"}
             </button>
           </form>

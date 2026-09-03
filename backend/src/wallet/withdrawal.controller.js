@@ -57,6 +57,24 @@ async function requestWithdrawal(req, res) {
       return res.status(404).json({ error: 'Your account could not be found. Please sign in again.' });
     }
 
+    if (user.wallet_frozen) {
+      return res.status(403).json({ error: 'WALLET_FROZEN', message: 'Your wallet has been frozen by admin. Contact support.' });
+    }
+
+    if (user.withdrawal_banned) {
+      return res.status(403).json({ error: 'WITHDRAWAL_BANNED', message: 'Withdrawals on your account have been disabled. Contact support.' });
+    }
+
+    let withdrawalsDisabled = false;
+    try {
+      const SettingsService = require('../admin/settings.service');
+      const raw = await SettingsService.get('withdrawals_disabled');
+      withdrawalsDisabled = raw === true || raw === 'true';
+    } catch {}
+    if (withdrawalsDisabled) {
+      return res.status(403).json({ error: 'WITHDRAWALS_DISABLED', message: 'Withdrawals are temporarily disabled. Please try again later.' });
+    }
+
     if (!user.bank_details) {
       return res.status(400).json({
         error: 'Please add your bank account details before requesting a withdrawal.',
@@ -705,6 +723,141 @@ async function getSystemTotals(req, res) {
   }
 }
 
+// ─── Channel Owner Transactions ─────────────────────────
+
+async function getMyChannelTransactions(req, res) {
+  try {
+    const { channelId } = req.params;
+    const caller = User.findById(req.userId);
+    if (!caller) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const Channel = require('../channels/channel.model');
+    const channel = await Channel.findById(channelId);
+    if (!channel) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+
+    // Only channel owner or admin can view transactions
+    if (channel.owner_id !== req.userId && caller.role !== 'admin') {
+      return res.status(403).json({ error: 'Only the channel owner or admin can view transactions' });
+    }
+
+    // Fetch all ledger entries for the channel
+    const entries = await LedgerModel.getByChannel(channelId);
+
+    // Fetch exclusive channel subscribers
+    const ExclusiveAccess = require('../channels/exclusive_access.model');
+    const ChannelAccess = require('../channels/channel_access.model');
+
+    const [exclusiveAccesses, regularAccesses] = await Promise.all([
+      ExclusiveAccess.listActiveAccesses(),
+      ChannelAccess.getByChannel(channelId),
+    ]);
+
+    const exclusiveSubs = exclusiveAccesses.filter(
+      (a) => String(a.channel_id) === String(channelId)
+    );
+    const regularSubs = regularAccesses;
+
+    // Collect all user UIDs to enrich
+    const subscriberUids = new Set();
+    for (const sub of [...exclusiveSubs, ...regularSubs]) {
+      if (sub.user_uid) subscriberUids.add(sub.user_uid);
+    }
+
+    // Enrich subscriber user info
+    const userMap = {};
+    for (const uid of subscriberUids) {
+      try {
+        const u = await User.findById(uid);
+        if (u) {
+          userMap[uid] = {
+            id: u.id,
+            display_name: u.display_name || u.username || 'Unknown',
+            avatar_url: u.avatar_url || null,
+          };
+        }
+      } catch {}
+    }
+
+    // Build subscribers list
+    const subscribers = [];
+    for (const sub of exclusiveSubs) {
+      const u = userMap[sub.user_uid] || { display_name: 'Unknown', avatar_url: null };
+      subscribers.push({
+        id: sub.id,
+        user_uid: sub.user_uid,
+        display_name: u.display_name,
+        avatar_url: u.avatar_url,
+        type: 'exclusive',
+        status: sub.status || 'active',
+        issued_at: sub.issued_at || null,
+        expires_at: sub.expires_at || null,
+        monthly_fee_ngn: sub.monthly_fee_ngn || 0,
+      });
+    }
+    for (const sub of regularSubs) {
+      const u = userMap[sub.user_uid] || { display_name: 'Unknown', avatar_url: null };
+      subscribers.push({
+        id: sub.id,
+        user_uid: sub.user_uid,
+        display_name: u.display_name,
+        avatar_url: u.avatar_url,
+        type: 'regular',
+        status: 'active',
+        issued_at: sub.granted_at || null,
+        expires_at: sub.expires_at || null,
+        monthly_fee_ngn: 0,
+      });
+    }
+
+    // Build summary
+    const giftEntries = entries.filter(
+      (e) => ['GIFT_RECEIVED_VPT', 'GIFT_RECEIVED_NGN'].includes(e.type) && e.status === 'success'
+    );
+    const totalGiftsVpt = giftEntries
+      .filter((e) => e.type === 'GIFT_RECEIVED_VPT')
+      .reduce((sum, e) => sum + (e.amount_vpt_units || 0), 0);
+    const totalGiftsNgn = giftEntries
+      .filter((e) => e.type === 'GIFT_RECEIVED_NGN')
+      .reduce((sum, e) => sum + (e.amount_ngn || 0), 0);
+    const settlementEntries = entries.filter(
+      (e) => ['VPT_DISTRIBUTION', 'WITHDRAWAL_HOLD', 'WITHDRAWAL_FEE'].includes(e.type) && e.status === 'success'
+    );
+    const totalSettlements = settlementEntries.reduce((sum, e) => sum + (e.amount_ngn || e.amount_vpt_units || 0), 0);
+
+    // Build transactions list
+    const transactions = entries.map((e) => ({
+      id: e.id,
+      type: e.type,
+      direction: e.direction,
+      currency: e.currency,
+      amount_ngn: e.amount_ngn || 0,
+      amount_vpt_units: e.amount_vpt_units || 0,
+      status: e.status,
+      description: e.description || e.meta?.description || null,
+      created_at: e.created_at,
+      reference_id: e.reference_id || null,
+    }));
+
+    res.json({
+      transactions,
+      subscribers,
+      summary: {
+        totalGiftsVpt,
+        totalGiftsNgn,
+        totalSubscriptions: subscribers.length,
+        totalSettlements,
+      },
+    });
+  } catch (err) {
+    console.error('[Withdrawal] getMyChannelTransactions error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch channel transactions' });
+  }
+}
+
 module.exports = {
   requestWithdrawal,
   approveWithdrawal,
@@ -716,4 +869,5 @@ module.exports = {
   getUserTransactions,
   getChannelEarnings,
   getSystemTotals,
+  getMyChannelTransactions,
 };

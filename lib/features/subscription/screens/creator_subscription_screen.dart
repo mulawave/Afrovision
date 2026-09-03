@@ -136,6 +136,8 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
         msg = 'Not enough vPT. Top up your wallet.';
       } else if (e.message.contains('INSUFFICIENT_NGN')) {
         msg = 'Not enough ₦ balance. Top up your gift wallet.';
+      } else if (e.message.contains('INSUFFICIENT_FUNDS')) {
+        msg = 'Your wallet balance is insufficient. Top up your wallet or use a different payment method.';
       } else if (e.message.contains('Already subscribed')) {
         msg = 'You are already subscribed to $_creatorName.';
       } else {
@@ -735,9 +737,9 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    _selectedCurrency == 'ngn'
-                        ? '₦${_ngnPrice.toInt()}'
-                        : '$_vptPrice vPT',
+                    _selectedCurrency == 'vpt'
+                        ? '$_vptPrice vPT'
+                        : '₦${_ngnPrice.toInt()}',
                     style: const TextStyle(
                       color: AppColors.white,
                       fontSize: 36,
@@ -759,7 +761,9 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
 
               Center(
                 child: Text(
-                  _selectedCurrency == 'ngn'
+                  _selectedCurrency == 'wallet'
+                      ? 'Cash + vPT mixed payment'
+                      : _selectedCurrency == 'ngn'
                       ? '≈ $_vptPrice vPT / month'
                       : '≈ ₦${_ngnPrice.toInt()} / month',
                   style: const TextStyle(
@@ -789,6 +793,11 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
                       label: 'vPT Token',
                       selected: _selectedCurrency == 'vpt',
                       onTap: () => setState(() => _selectedCurrency = 'vpt'),
+                    ),
+                    _CurrencyTab(
+                      label: 'Wallet',
+                      selected: _selectedCurrency == 'wallet',
+                      onTap: () => setState(() => _selectedCurrency = 'wallet'),
                     ),
                   ],
                 ),

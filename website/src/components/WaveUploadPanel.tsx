@@ -5,10 +5,19 @@ import {
   getMyChannelsApi,
   getWaveUploadUrlApi,
   registerWaveApi,
+  createWaveResumableSessionApi,
+  completeWaveResumableSessionApi,
   type Channel,
   type Wave,
   type WaveAgeClassification,
 } from "@/lib/api";
+import { ResumableUploader, saveUploadSession, removeUploadSession } from "@/lib/resumable-upload";
+import {
+  CLASSIFICATION_OPTIONS as SHARED_CLASSIFICATION_OPTIONS,
+  PUBLIC_CLASSIFICATION_OPTIONS,
+  GENERAL_CONTENT_FIELDS,
+  ADULT_SENSITIVE_FIELDS,
+} from "@/lib/content-rating";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -36,11 +45,8 @@ function formatDuration(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-const CLASSIFICATION_OPTIONS: Array<{ value: WaveAgeClassification; label: string; hint: string }> = [
-  { value: "minor_safe", label: "MINOR SAFE", hint: "12 and below" },
-  { value: "teen", label: "TEEN", hint: "13 to 17" },
-  { value: "adult", label: "18+", hint: "Adults only" },
-];
+const ALL_CLASSIFICATION_OPTIONS = SHARED_CLASSIFICATION_OPTIONS as Array<{ value: WaveAgeClassification; label: string; hint: string }>;
+const PUBLIC_OPTIONS = PUBLIC_CLASSIFICATION_OPTIONS as Array<{ value: WaveAgeClassification; label: string; hint: string }>;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -65,6 +71,10 @@ interface WaveUploadEntry {
   progress: number; // -1 = pending, 0-100 uploading, 101 done
   error: string | null;
   waveId: string | null;
+  sessionId: string | null;
+  paused: boolean;
+  retrying: boolean;
+  uploadSpeed: number;
 }
 
 // ── Props ──────────────────────────────────────────────────────────────────
@@ -86,19 +96,20 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploaderRefs = useRef<Map<string, ResumableUploader>>(new Map());
 
-  // Load channels only if not locked
+  // Load channels (always — needed for public channel restriction even when locked)
   const ensureChannels = useCallback(async () => {
-    if (lockedChannelId || channelsLoaded) return;
+    if (channelsLoaded) return;
     const res = await getMyChannelsApi();
     if (res.ok && "channels" in res.data) {
       setChannels(res.data.channels);
-      if (res.data.channels.length > 0 && !selectedChannelId) {
+      if (!lockedChannelId && res.data.channels.length > 0 && !selectedChannelId) {
         setSelectedChannelId(res.data.channels[0].id);
       }
     }
     setChannelsLoaded(true);
-  }, [lockedChannelId, channelsLoaded, selectedChannelId]);
+  }, [channelsLoaded, lockedChannelId, selectedChannelId]);
 
   const handleChannelChange = (cid: string) => {
     setSelectedChannelId(cid);
@@ -130,6 +141,10 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
         progress: -1,
         error: null,
         waveId: null,
+        sessionId: null,
+        paused: false,
+        retrying: false,
+        uploadSpeed: 0,
       };
       newEntries.push(entry);
     }
@@ -170,19 +185,17 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
         updateEntry(entry.id, { error: "Age classification is required" });
         continue;
       }
-      updateEntry(entry.id, { progress: 0, error: null });
+      updateEntry(entry.id, { progress: 0, error: null, retrying: false });
 
-      try {
-        const contentType = guessContentType(entry.file);
-        // 1. Get signed upload URL
+      const contentType = guessContentType(entry.file);
+
+      const fallbackToSignedUrlUpload = async () => {
         const urlRes = await getWaveUploadUrlApi(selectedChannelId, contentType);
         if (!urlRes.ok || !("signed_url" in urlRes.data)) {
           updateEntry(entry.id, { error: "Failed to get upload URL", progress: -1 });
-          continue;
+          return null;
         }
         const { signed_url, public_url } = urlRes.data;
-
-        // 2. Upload to GCS via XHR for progress
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.upload.onprogress = (ev) => {
@@ -199,10 +212,7 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
           xhr.setRequestHeader("Content-Type", contentType);
           xhr.send(entry.file);
         });
-
         updateEntry(entry.id, { progress: 95 });
-
-        // 3. Register wave
         const regRes = await registerWaveApi({
           channel_id: selectedChannelId,
           title: entry.title.trim(),
@@ -221,17 +231,89 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
           has_sexual_nature: entry.hasSexualNature,
           has_sex: entry.hasSex,
         });
-
         if (!regRes.ok || !("id" in regRes.data)) {
           updateEntry(entry.id, { error: "Failed to register wave", progress: -1 });
-          continue;
+          return null;
         }
-
         const wave = regRes.data as Wave;
         updateEntry(entry.id, { progress: 101, waveId: wave.id });
         onPublished?.(wave);
-      } catch (err) {
-        updateEntry(entry.id, { error: String(err), progress: -1 });
+        return wave;
+      };
+
+      try {
+        const sessionRes = await createWaveResumableSessionApi({
+          channel_id: selectedChannelId,
+          title: entry.title.trim(),
+          description: entry.description.trim(),
+          duration: entry.duration,
+          file_name: entry.file.name,
+          file_size: entry.file.size,
+          content_type: contentType,
+          age_classification: entry.ageClassification,
+          has_explicit_language: entry.hasExplicitLanguage,
+          has_nudity: entry.hasNudity,
+          has_violence: entry.hasViolence,
+          has_revealing_clothes: entry.hasRevealingClothes,
+          has_partial_nudity: entry.hasPartialNudity,
+          has_explicit_content: entry.hasExplicitContent,
+          has_parental_guidance: entry.hasParentalGuidance,
+          has_erotic_dancing: entry.hasEroticDancing,
+          has_sexual_nature: entry.hasSexualNature,
+          has_sex: entry.hasSex,
+        });
+
+        if (!sessionRes.ok || !("session" in sessionRes.data)) {
+          await fallbackToSignedUrlUpload();
+          continue;
+        }
+
+        const session = sessionRes.data.session;
+        if (!session.upload_url) {
+          await fallbackToSignedUrlUpload();
+          continue;
+        }
+
+        updateEntry(entry.id, { sessionId: session.id });
+        saveUploadSession({
+          sessionId: session.id,
+          sessionUrl: session.upload_url,
+          fileName: entry.file.name,
+          fileSize: entry.file.size,
+          uploadedBytes: 0,
+          channelId: selectedChannelId,
+          title: entry.title.trim(),
+          createdAt: Date.now(),
+        });
+
+        const uploader = new ResumableUploader({
+          file: entry.file,
+          sessionId: session.id,
+          sessionUrl: session.upload_url,
+          onProgress: (pct) => updateEntry(entry.id, { progress: pct, error: null }),
+          onPaused: () => updateEntry(entry.id, { paused: true }),
+          onError: (errMsg) => updateEntry(entry.id, { error: errMsg, retrying: false }),
+          onRetrying: (attempt, maxAttempts) => updateEntry(entry.id, { retrying: true, error: `Retrying… attempt ${attempt}/${maxAttempts}` }),
+          onSpeedUpdate: (bps) => updateEntry(entry.id, { uploadSpeed: bps }),
+        });
+
+        uploaderRefs.current.set(entry.id, uploader);
+        await uploader.start();
+
+        if (uploader.getOffset() >= entry.file.size) {
+          const completeRes = await completeWaveResumableSessionApi(session.id);
+          if (!completeRes.ok || !("wave" in completeRes.data)) {
+            updateEntry(entry.id, { error: "Failed to complete wave upload", progress: -1 });
+            continue;
+          }
+          removeUploadSession(session.id);
+          const wave = completeRes.data.wave;
+          updateEntry(entry.id, { progress: 101, waveId: wave.id, error: null, sessionId: null });
+          onPublished?.(wave);
+        }
+      } catch {
+        uploaderRefs.current.delete(entry.id);
+        await fallbackToSignedUrlUpload();
       }
     }
 
@@ -240,13 +322,43 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
     setTimeout(() => setNotice(null), 4000);
   };
 
-  // Load channels on first render if not locked
-  useEffect(() => {
-    if (!lockedChannelId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      void ensureChannels();
+  function handlePauseUpload(entryId: string) {
+    const uploader = uploaderRefs.current.get(entryId);
+    if (uploader) {
+      uploader.pause();
+      updateEntry(entryId, { paused: true });
     }
-  }, [lockedChannelId, ensureChannels]);
+  }
+
+  async function handleResumeUpload(entryId: string) {
+    const uploader = uploaderRefs.current.get(entryId);
+    if (!uploader) return;
+    updateEntry(entryId, { paused: false, error: null });
+    try {
+      await uploader.resume();
+      const entry = entries.find((e) => e.id === entryId);
+      if (entry && uploader.getOffset() >= entry.file.size) {
+        const completeRes = await completeWaveResumableSessionApi(entry.sessionId!);
+        if (completeRes.ok && "wave" in completeRes.data) {
+          removeUploadSession(entry.sessionId!);
+          updateEntry(entryId, { progress: 101, waveId: completeRes.data.wave.id, error: null, sessionId: null });
+          onPublished?.(completeRes.data.wave);
+        }
+      }
+    } catch {
+      updateEntry(entryId, { error: "Resume failed. Please retry.", progress: -1 });
+    }
+  }
+
+  // Load channels on first render (always — needed for public channel check)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void ensureChannels();
+  }, [ensureChannels]);
+
+  const selectedChannel = channels.find((c) => c.id === selectedChannelId);
+  const isPublicChannel = selectedChannel?.type === "public";
+  const availableClassificationOptions = isPublicChannel ? PUBLIC_OPTIONS : ALL_CLASSIFICATION_OPTIONS;
 
   const allDone = entries.length > 0 && entries.every((e) => e.progress === 101 || e.error);
   const hasPending = entries.some((e) => e.progress === -1);
@@ -333,109 +445,78 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
                       <select
                         className="bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-orange-400"
                         value={entry.ageClassification}
-                        onChange={(e) =>
-                          updateEntry(entry.id, { ageClassification: e.target.value as WaveAgeClassification })
-                        }
+                        onChange={(e) => {
+                          const newAc = e.target.value as WaveAgeClassification;
+                          updateEntry(entry.id, { ageClassification: newAc });
+                          if (newAc !== "adult") {
+                            updateEntry(entry.id, {
+                              ageClassification: newAc,
+                              hasNudity: false,
+                              hasPartialNudity: false,
+                              hasExplicitContent: false,
+                              hasEroticDancing: false,
+                              hasSexualNature: false,
+                              hasSex: false,
+                              hasRevealingClothes: false,
+                            });
+                          }
+                        }}
                         disabled={entry.progress > 0}
                       >
-                        {CLASSIFICATION_OPTIONS.map((option) => (
+                        {availableClassificationOptions.map((option) => (
                           <option key={option.value} value={option.value} style={{ background: "#050A30" }}>
                             {option.label} - {option.hint}
                           </option>
                         ))}
                       </select>
+                      {isPublicChannel && (
+                        <span className="text-[10px] text-white/40">Public channels cannot upload 18+ content.</span>
+                      )}
                     </label>
                     <div className="grid grid-cols-1 gap-1 text-xs text-white/70">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasExplicitLanguage}
-                          onChange={(e) => updateEntry(entry.id, { hasExplicitLanguage: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Explicit Language</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasNudity}
-                          onChange={(e) => updateEntry(entry.id, { hasNudity: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Nudity</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasViolence}
-                          onChange={(e) => updateEntry(entry.id, { hasViolence: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Violence</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasRevealingClothes}
-                          onChange={(e) => updateEntry(entry.id, { hasRevealingClothes: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Revealing Clothes</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasPartialNudity}
-                          onChange={(e) => updateEntry(entry.id, { hasPartialNudity: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Partial Nudity</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasExplicitContent}
-                          onChange={(e) => updateEntry(entry.id, { hasExplicitContent: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Explicit Content</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasParentalGuidance}
-                          onChange={(e) => updateEntry(entry.id, { hasParentalGuidance: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Parental Guidance</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasEroticDancing}
-                          onChange={(e) => updateEntry(entry.id, { hasEroticDancing: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Erotic Dancing</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasSexualNature}
-                          onChange={(e) => updateEntry(entry.id, { hasSexualNature: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Sexual Nature</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={entry.hasSex}
-                          onChange={(e) => updateEntry(entry.id, { hasSex: e.target.checked })}
-                          disabled={entry.progress > 0}
-                        />
-                        <span>Has Sex</span>
-                      </label>
+                      {GENERAL_CONTENT_FIELDS.map((field) => {
+                        const keyMap: Record<string, keyof WaveUploadEntry> = {
+                          has_explicit_language: "hasExplicitLanguage",
+                          has_violence: "hasViolence",
+                          has_parental_guidance: "hasParentalGuidance",
+                        };
+                        const entryKey = keyMap[field.key] ?? (field.key as keyof WaveUploadEntry);
+                        return (
+                          <label key={String(field.key)} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(entry[entryKey])}
+                              onChange={(e) => updateEntry(entry.id, { [entryKey]: e.target.checked } as Partial<WaveUploadEntry>)}
+                              disabled={entry.progress > 0}
+                            />
+                            <span>{field.label}</span>
+                          </label>
+                        );
+                      })}
+                      {entry.ageClassification === "adult" && !isPublicChannel &&
+                        ADULT_SENSITIVE_FIELDS.map((field) => {
+                          const keyMap: Record<string, keyof WaveUploadEntry> = {
+                            has_nudity: "hasNudity",
+                            has_partial_nudity: "hasPartialNudity",
+                            has_explicit_content: "hasExplicitContent",
+                            has_erotic_dancing: "hasEroticDancing",
+                            has_sexual_nature: "hasSexualNature",
+                            has_sex: "hasSex",
+                            has_revealing_clothes: "hasRevealingClothes",
+                          };
+                          const entryKey = keyMap[field.key] ?? (field.key as keyof WaveUploadEntry);
+                          return (
+                            <label key={String(field.key)} className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(entry[entryKey])}
+                                onChange={(e) => updateEntry(entry.id, { [entryKey]: e.target.checked } as Partial<WaveUploadEntry>)}
+                                disabled={entry.progress > 0}
+                              />
+                              <span>{field.label}</span>
+                            </label>
+                          );
+                        })}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-white/40">
@@ -462,14 +543,46 @@ export function WaveUploadPanel({ channelId: lockedChannelId, onPublished }: Wav
 
               {/* Progress bar */}
               {entry.progress >= 0 && entry.progress < 101 && (
-                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-300"
-                    style={{
-                      width: `${entry.progress}%`,
-                      background: "linear-gradient(to right, #F49617, #F5C16C)",
-                    }}
-                  />
+                <div>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${entry.progress}%`,
+                        background: "linear-gradient(to right, #F49617, #F5C16C)",
+                      }}
+                    />
+                  </div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <p className="text-[10px] text-white/50">
+                      {entry.paused
+                        ? "Paused"
+                        : entry.retrying
+                          ? entry.error
+                          : entry.progress < 100
+                            ? `Uploading ${entry.progress}%${entry.uploadSpeed > 0 ? ` · ${(entry.uploadSpeed / 1024 / 1024).toFixed(1)} MB/s` : ""}`
+                            : "Publishing…"}
+                    </p>
+                    {entry.sessionId && (
+                      <div className="flex items-center gap-1.5">
+                        {entry.paused ? (
+                          <button
+                            onClick={() => handleResumeUpload(entry.id)}
+                            className="rounded-md bg-orange-400/20 px-2 py-0.5 text-[10px] font-semibold text-orange-400 transition-all hover:bg-orange-400/30"
+                          >
+                            Resume
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handlePauseUpload(entry.id)}
+                            className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/60 transition-all hover:bg-white/20"
+                          >
+                            Pause
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

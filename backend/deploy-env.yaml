@@ -1,5 +1,6 @@
 FIREBASE_PROJECT_ID: raven-ai-6ff76
 GCS_BUCKET: afrovision-media
+GCS_KYC_BUCKET: afrovision-kyc-docs
 ENVIRONMENT: production
 WEBSITE_URL: https://afrovision.online
 ALLOWED_ORIGINS: "https://afrovision-website-134538542038.us-central1.run.app,https://afrovision-admin-134538542038.us-central1.run.app,https://afrovision.online,https://admin.afrovision.online"

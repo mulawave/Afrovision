@@ -25,9 +25,12 @@ class _KycScreenState extends State<KycScreen>
 
   String _idType = 'national_id';
   String? _gender;
+  DateTime? _dateOfBirth;
   bool _loading = true;
   bool _submitting = false;
   String? _error;
+  bool _isMinor = false;
+  bool _showMinorPrompt = false;
 
   // Existing KYC record
   Map<String, dynamic>? _existing;
@@ -69,6 +72,44 @@ class _KycScreenState extends State<KycScreen>
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickDateOfBirth() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(now.year - 20, 1, 1),
+      firstDate: DateTime(1920, 1, 1),
+      lastDate: now,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.orange,
+              onPrimary: AppColors.darkBlue,
+              surface: AppColors.cardBg,
+              onSurface: AppColors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _dateOfBirth = picked;
+        _isMinor = _computeIsMinor(picked);
+      });
+    }
+  }
+
+  bool _computeIsMinor(DateTime dob) {
+    final now = DateTime.now();
+    int age = now.year - dob.year;
+    if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) {
+      age--;
+    }
+    return age < 18;
   }
 
   Future<void> _loadKycStatus() async {
@@ -149,6 +190,10 @@ class _KycScreenState extends State<KycScreen>
       setState(() => _error = 'Please select your gender');
       return;
     }
+    if (_dateOfBirth == null) {
+      setState(() => _error = 'Date of birth is required');
+      return;
+    }
     if (idNum.isEmpty) {
       setState(() => _error = 'ID number is required');
       return;
@@ -168,6 +213,7 @@ class _KycScreenState extends State<KycScreen>
     });
 
     try {
+      final dobStr = '${_dateOfBirth!.year}-${_dateOfBirth!.month.toString().padLeft(2, '0')}-${_dateOfBirth!.day.toString().padLeft(2, '0')}';
       final body = <String, dynamic>{
         'full_name': name,
         'id_type': _idType,
@@ -175,6 +221,7 @@ class _KycScreenState extends State<KycScreen>
         'id_front_url': _idFrontUrl,
         'selfie_url': _selfieUrl,
         'gender': _gender,
+        'date_of_birth': dobStr,
       };
       if (_phoneCtrl.text.trim().isNotEmpty) {
         body['phone'] = _phoneCtrl.text.trim();
@@ -184,9 +231,21 @@ class _KycScreenState extends State<KycScreen>
       }
       if (_idBackUrl != null) body['id_back_url'] = _idBackUrl;
 
-      await ApiService.post('/kyc/submit', body);
+      final response = await ApiService.post('/kyc/submit', body);
       KycService.invalidate();
       if (!mounted) return;
+
+      // Check if backend detected a minor
+      final isMinorResponse = response['minor'] == true;
+      if (isMinorResponse) {
+        setState(() {
+          _isMinor = true;
+          _showMinorPrompt = true;
+          _submitting = false;
+        });
+        return;
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
@@ -403,6 +462,10 @@ class _KycScreenState extends State<KycScreen>
             ),
             const SizedBox(height: 16),
           ],
+          if (_showMinorPrompt) ...[
+            _buildMinorPrompt(),
+            const SizedBox(height: 16),
+          ],
           if (_error != null) ...[
             Container(
               width: double.infinity,
@@ -422,6 +485,7 @@ class _KycScreenState extends State<KycScreen>
           _sectionCard('Personal Information', [
             _field('Full Legal Name *', _nameCtrl, 'As on your ID'),
             _genderSelector(),
+            _dobField(),
             _field('Phone Number', _phoneCtrl, '+234...'),
             _field('Address', _addressCtrl, 'Residential address'),
           ]),
@@ -767,6 +831,134 @@ class _KycScreenState extends State<KycScreen>
                   ],
                 ),
         ),
+      ),
+    );
+  }
+
+  Widget _dobField() {
+    final dobText = _dateOfBirth != null
+        ? '${_dateOfBirth!.day}/${_dateOfBirth!.month}/${_dateOfBirth!.year}'
+        : null;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Date of Birth *',
+            style: TextStyle(
+              color: AppColors.goldText,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          GestureDetector(
+            onTap: _pickDateOfBirth,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: AppColors.inputFill.withValues(alpha: 0.5),
+                border: Border.all(
+                  color: _isMinor
+                      ? Colors.orange.withValues(alpha: 0.5)
+                      : AppColors.inputBorder,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.calendar_today_rounded,
+                    color: _isMinor ? Colors.orange : AppColors.goldText,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    dobText ?? 'Select date of birth',
+                    style: TextStyle(
+                      color: dobText != null ? AppColors.white : AppColors.goldText,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (_isMinor) ...[
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Under 18',
+                        style: TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMinorPrompt() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.orange.withValues(alpha: 0.08),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.shield_rounded, color: Colors.orange, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Guardian Consent Required',
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'You are under 18. To complete your verification, a parent or legal guardian must submit a consent form with their own ID documents.',
+            style: TextStyle(color: AppColors.goldText, fontSize: 12, height: 1.5),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pushNamed(context, '/guardian-form'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: AppColors.darkBlue,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                elevation: 0,
+              ),
+              child: const Text(
+                'Continue to Guardian Form',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

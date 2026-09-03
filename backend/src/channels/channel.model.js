@@ -646,6 +646,93 @@ async function backfillNativeDefaults() {
   return { total: snapshot.size, updated, skipped: snapshot.size - toUpdate.length };
 }
 
+async function hardDelete(id) {
+  const channel = channelsById.get(id) || await findById(id);
+  if (!channel) return null;
+  const db = getFirestore();
+
+  const [statsSnap, eventsSnap, streamStatsSnap, chatMsgsSnap] = await Promise.all([
+    db.collection('channel_stats').where('channel_id', '==', id).get(),
+    db.collection('channel_events').where('channel_id', '==', id).limit(450).get(),
+    db.collection('stream_stats').where('channel_id', '==', id).limit(450).get(),
+    db.collection('channel_chats').doc(id).collection('messages').limit(450).get().catch(() => ({ docs: [] })),
+  ]);
+
+  const batch = db.batch();
+  batch.delete(db.collection(COLLECTION).doc(id));
+  for (const doc of statsSnap.docs) batch.delete(doc.ref);
+  for (const doc of eventsSnap.docs) batch.delete(doc.ref);
+  for (const doc of streamStatsSnap.docs) batch.delete(doc.ref);
+  for (const doc of chatMsgsSnap.docs) batch.delete(doc.ref);
+  await batch.commit();
+
+  // Paginate remaining events if more than 450
+  if (eventsSnap.size === 450) {
+    const remaining = await db.collection('channel_events').where('channel_id', '==', id).get();
+    for (let i = 0; i < remaining.docs.length; i += 450) {
+      const b = db.batch();
+      for (const doc of remaining.docs.slice(i, i + 450)) b.delete(doc.ref);
+      await b.commit();
+    }
+  }
+
+  // Paginate remaining stream_stats if more than 450
+  if (streamStatsSnap.size === 450) {
+    const remaining = await db.collection('stream_stats').where('channel_id', '==', id).get();
+    for (let i = 0; i < remaining.docs.length; i += 450) {
+      const b = db.batch();
+      for (const doc of remaining.docs.slice(i, i + 450)) b.delete(doc.ref);
+      await b.commit();
+    }
+  }
+
+  // Paginate remaining chat messages if more than 450
+  if (chatMsgsSnap.size === 450) {
+    const remaining = await db.collection('channel_chats').doc(id).collection('messages').get().catch(() => ({ docs: [] }));
+    for (let i = 0; i < remaining.docs.length; i += 450) {
+      const b = db.batch();
+      for (const doc of remaining.docs.slice(i, i + 450)) b.delete(doc.ref);
+      await b.commit();
+    }
+  }
+
+  // Delete the channel_chats document itself
+  await db.collection('channel_chats').doc(id).delete().catch(() => {});
+
+  removeCachedChannel(channel);
+  return channel;
+}
+
+async function banChannel(id, reason) {
+  const channel = channelsById.get(id) || await findById(id);
+  if (!channel) return null;
+  channel.is_banned = true;
+  channel.ban_reason = reason || null;
+  channel.banned_at = new Date().toISOString();
+  const db = getFirestore();
+  await db.collection(COLLECTION).doc(id).set({
+    is_banned: true,
+    ban_reason: reason || null,
+    banned_at: channel.banned_at,
+  }, { merge: true });
+  return cacheChannel(channel);
+}
+
+async function unbanChannel(id) {
+  const channel = channelsById.get(id) || await findById(id);
+  if (!channel) return null;
+  channel.is_banned = false;
+  channel.ban_reason = null;
+  channel.banned_at = null;
+  const db = getFirestore();
+  await db.collection(COLLECTION).doc(id).set({
+    is_banned: false,
+    ban_reason: null,
+    banned_at: null,
+  }, { merge: true });
+  return cacheChannel(channel);
+}
+
 module.exports = {
   init,
   create,
@@ -678,4 +765,7 @@ module.exports = {
   disable,
   enable,
   getEvery,
+  hardDelete,
+  banChannel,
+  unbanChannel,
 };

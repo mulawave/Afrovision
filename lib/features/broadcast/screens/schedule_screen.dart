@@ -19,6 +19,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   late Animation<Offset> _slideUp;
 
   String? _channelId;
+  bool _canManage = false;
   List<ProgramModel> _schedule = [];
   List<VideoModel> _videos = [];
   Map<String, dynamic>? _nowPlaying;
@@ -50,7 +51,14 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_channelId == null) {
-      _channelId = ModalRoute.of(context)?.settings.arguments as String?;
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map<String, dynamic>) {
+        _channelId = args['channelId'] as String?;
+        _canManage = args['canManage'] as bool? ?? false;
+      } else if (args is String) {
+        _channelId = args;
+        _canManage = false;
+      }
       if (_channelId != null) _loadData();
     }
   }
@@ -71,7 +79,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
       if (!mounted) return;
       setState(() {
         _schedule = results[0] as List<ProgramModel>;
-        _videos = results[1] as List<VideoModel>;
+        _videos = (results[1] as ({List<VideoModel> videos, int? totalPages, int? page, int? total})).videos;
         final npData = results[2] as Map<String, dynamic>;
         _nowPlaying = npData['now_playing'] as Map<String, dynamic>?;
         _schedulerState = npData['scheduler_state'] as Map<String, dynamic>?;
@@ -417,74 +425,76 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                             ),
                           ),
                         ),
-                        GestureDetector(
-                          onTap: _showSequentialSheet,
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.cardBg,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: AppColors.lightOrange.withValues(
-                                  alpha: 0.4,
+                        if (_canManage) ...[
+                          GestureDetector(
+                            onTap: _showSequentialSheet,
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.cardBg,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.lightOrange.withValues(
+                                    alpha: 0.4,
+                                  ),
                                 ),
                               ),
-                            ),
-                            child: const Icon(
-                              Icons.queue,
-                              color: AppColors.lightOrange,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        GestureDetector(
-                          onTap: _schedule.isEmpty
-                              ? null
-                              : _toggleSelectionMode,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 160),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: _selectionMode
-                                  ? AppColors.orange.withValues(alpha: 0.2)
-                                  : AppColors.cardBg,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: _selectionMode
-                                    ? AppColors.orange.withValues(alpha: 0.5)
-                                    : AppColors.inputBorder.withValues(
-                                        alpha: 0.35,
-                                      ),
+                              child: const Icon(
+                                Icons.queue,
+                                color: AppColors.lightOrange,
+                                size: 20,
                               ),
                             ),
-                            child: Icon(
-                              _selectionMode
-                                  ? Icons.checklist_rtl_rounded
-                                  : Icons.select_all_rounded,
-                              color: _selectionMode
-                                  ? AppColors.orange
-                                  : AppColors.goldText,
-                              size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          GestureDetector(
+                            onTap: _schedule.isEmpty
+                                ? null
+                                : _toggleSelectionMode,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: _selectionMode
+                                    ? AppColors.orange.withValues(alpha: 0.2)
+                                    : AppColors.cardBg,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: _selectionMode
+                                      ? AppColors.orange.withValues(alpha: 0.5)
+                                      : AppColors.inputBorder.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                ),
+                              ),
+                              child: Icon(
+                                _selectionMode
+                                    ? Icons.checklist_rtl_rounded
+                                    : Icons.select_all_rounded,
+                                color: _selectionMode
+                                    ? AppColors.orange
+                                    : AppColors.goldText,
+                                size: 20,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        GestureDetector(
-                          onTap: _showAddProgramSheet,
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              gradient: AppColors.buttonGradient,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.add,
-                              color: AppColors.white,
-                              size: 20,
+                          const SizedBox(width: 10),
+                          GestureDetector(
+                            onTap: _showAddProgramSheet,
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                gradient: AppColors.buttonGradient,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.add,
+                                color: AppColors.white,
+                                size: 20,
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
@@ -523,7 +533,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                             ),
                           ),
                   ),
-                  if (_selectionMode) _buildBulkActionBar(),
+                  if (_selectionMode && _canManage) _buildBulkActionBar(),
                 ],
               ),
             ),
@@ -627,10 +637,11 @@ class _ScheduleScreenState extends State<ScheduleScreen>
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            'Tap + to schedule a broadcast',
-            style: TextStyle(color: AppColors.goldText, fontSize: 13),
-          ),
+          if (_canManage)
+            Text(
+              'Tap + to schedule a broadcast',
+              style: TextStyle(color: AppColors.goldText, fontSize: 13),
+            ),
         ],
       ),
     );
@@ -732,7 +743,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                 ],
               ),
             ),
-            if (_selectionMode && selectable)
+            if (_canManage && _selectionMode && selectable)
               Padding(
                 padding: const EdgeInsets.all(8),
                 child: Icon(
@@ -743,7 +754,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                   size: 20,
                 ),
               )
-            else if (status != 'LIVE')
+            else if (_canManage && status != 'LIVE')
               status == 'ENDED'
                   ? Padding(
                       padding: const EdgeInsets.all(8),

@@ -1,4 +1,5 @@
 const User = require('../users/user.model');
+const crypto = require('crypto');
 const Plan = require('../subscriptions/plan.model');
 const Category = require('../channels/category.model');
 const SettingsService = require('./settings.service');
@@ -19,7 +20,7 @@ const {
 } = require('../utils/maintenance');
 
 const VALID_ROLES = ['viewer', 'creator', 'admin'];
-const VALID_KYC = ['none', 'pending', 'verified'];
+const VALID_KYC = ['none', 'pending', 'verified', 'rejected', 'minor_pending'];
 
 function sanitize(str) {
   if (typeof str !== 'string') return str;
@@ -345,15 +346,35 @@ async function listUsers(req, res) {
   const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100;
   const cursor = String(req.query.cursor || '').trim();
   const includeDeleted = req.query.include_deleted === 'true';
+  const sort = String(req.query.sort || 'created_at_desc');
 
   const db = getFirestore();
-  let query = db.collection('users').orderBy('__name__').limit(limit);
-  if (cursor) {
-    query = query.startAfter(cursor);
+
+  let orderField = '__name__';
+  let orderDir = 'asc';
+  if (sort === 'created_at_desc') {
+    orderField = 'created_at';
+    orderDir = 'desc';
+  } else if (sort === 'created_at_asc') {
+    orderField = 'created_at';
+    orderDir = 'asc';
   }
 
-  const snapshot = await query.get();
-  let users = snapshot.docs
+  // Get total count of non-deleted users in parallel with the page fetch
+  const [totalSnap, pageSnap] = await Promise.all([
+    includeDeleted
+      ? db.collection('users').count().get()
+      : db.collection('users').where('deleted_at', '==', null).count().get(),
+    (async () => {
+      let q = db.collection('users').orderBy(orderField, orderDir).limit(limit);
+      if (cursor) q = q.startAfter(cursor);
+      return q.get();
+    })(),
+  ]);
+
+  const totalUsers = totalSnap.data().count || 0;
+
+  let users = pageSnap.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
     .filter((user) => includeDeleted || !user.deleted_at)
     .map((u) => ({
@@ -366,8 +387,50 @@ async function listUsers(req, res) {
     users = users.slice(0, limit);
   }
 
-  const next_cursor = snapshot.size === limit ? snapshot.docs[snapshot.docs.length - 1].id : null;
-  res.json({ users, limit, next_cursor, has_more: Boolean(next_cursor) });
+  const next_cursor = pageSnap.size === limit ? (orderField === '__name__' ? pageSnap.docs[pageSnap.docs.length - 1].id : pageSnap.docs[pageSnap.docs.length - 1].get(orderField)) : null;
+  res.json({ users, limit, total: totalUsers, next_cursor, has_more: Boolean(next_cursor) });
+}
+
+async function searchUsers(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  const q = String(req.query.q || '').trim().toLowerCase();
+  if (!q || q.length < 2) {
+    return res.json({ users: [], query: q });
+  }
+
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+
+  try {
+    const db = getFirestore();
+    const snapshot = await db.collection('users').limit(1000).get();
+
+    const matches = [];
+    for (const doc of snapshot.docs) {
+      const u = { id: doc.id, ...doc.data() };
+      if (u.deleted_at) continue;
+
+      const searchableFields = [
+        u.email, u.emailLower, u.name, u.firstName, u.middleName, u.lastName,
+        u.vpinId, u.mobile, u.refCode, u.role, u.nickname, u.displayName,
+        u.handle, u.username,
+        [u.firstName, u.lastName].filter(Boolean).join(' '),
+      ].filter(Boolean).map((v) => String(v).toLowerCase());
+
+      if (searchableFields.some((v) => v.includes(q))) {
+        matches.push({
+          ...User.toSafeUser(u),
+          deviceToken: u.deviceToken || null,
+          fcm_tokens: Array.isArray(u.fcm_tokens) ? u.fcm_tokens : [],
+        });
+        if (matches.length >= limit) break;
+      }
+    }
+
+    res.json({ users: matches, query: q, total: matches.length });
+  } catch (error) {
+    res.status(getAdminDataErrorStatus(error)).json({ error: error.message });
+  }
 }
 
 async function deleteUser(req, res) {
@@ -901,8 +964,19 @@ async function listWallets(req, res) {
 
 async function listAllChannels(req, res) {
   if (!requireAdmin(req, res)) return;
-  const channels = (await Channel.getEvery()).map((channel) => serializeChannelForAdmin(channel));
-  res.json({ channels });
+  const db = getFirestore();
+  const [channels, totalSnap, activeSnap] = await Promise.all([
+    Channel.getEvery(),
+    db.collection('channels').count().get(),
+    db.collection('channels').where('is_active', '==', true).count().get(),
+  ]);
+  const serialized = channels.map((channel) => serializeChannelForAdmin(channel));
+  res.json({
+    channels: serialized,
+    total: totalSnap.data().count || 0,
+    active: activeSnap.data().count || 0,
+    disabled: Math.max(0, (totalSnap.data().count || 0) - (activeSnap.data().count || 0)),
+  });
 }
 
 async function adminDisableChannel(req, res) {
@@ -1353,6 +1427,7 @@ async function setFeatureFlag(req, res) {
 async function getDashboard(req, res) {
   if (!requireAdmin(req, res)) return;
 
+  try {
   const db = getFirestore();
   const [
     totalUsersSnap,
@@ -1392,6 +1467,10 @@ async function getDashboard(req, res) {
   const pendingWithdrawals = await Withdrawal.getPending();
   const totals = await User.getBalanceSummary();
 
+  const now = Date.now();
+  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+  const planRevenue30d = await Ledger.getPlanRevenueInRange({ startMs: thirtyDaysAgo, endMs: now });
+
   res.json({
     dashboard: {
       users: {
@@ -1410,6 +1489,7 @@ async function getDashboard(req, res) {
       },
       financial: {
         ...ledgerStats,
+        plan_revenue_30d: planRevenue30d,
         total_vpt: totals.total_vpt,
         total_cash: totals.total_cash,
         total_ravens: totals.total_coins,
@@ -1417,6 +1497,10 @@ async function getDashboard(req, res) {
       },
     },
   });
+  } catch (error) {
+    console.error('[getDashboard]', error);
+    res.status(500).json({ error: error.message });
+  }
 }
 
 async function getDashboardTrend(req, res) {
@@ -2332,6 +2416,7 @@ module.exports = {
   resetSetting,
   testSmtpSettings,
   listUsers,
+  searchUsers,
   deleteUser,
   cleanupDuplicates,
   cleanupEmpty,
@@ -2375,6 +2460,517 @@ module.exports = {
   deleteViewerPlan,
   toggleViewerPlanActive,
 };
+
+// ─── Registration Analytics ──────────────────────────────────────────────────
+
+async function getRegistrationAnalytics(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+
+  try {
+    const period = String(req.query.period || 'daily');
+    const requestedDays = parseInt(req.query.days, 10);
+    const days = Number.isFinite(requestedDays) ? Math.min(Math.max(requestedDays, 7), 90) : 30;
+
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+    const start = new Date(now);
+    start.setDate(start.getDate() - (days - 1));
+    start.setHours(0, 0, 0, 0);
+
+    const db = getFirestore();
+    const snapshot = await db.collection('users')
+      .where('created_at', '>=', start.toISOString())
+      .get();
+
+    const allUsers = snapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((u) => !u.deleted_at);
+
+    let dateKeyFn;
+    if (period === 'weekly') {
+      dateKeyFn = (d) => {
+        const date = new Date(d);
+        const day = date.getDay();
+        date.setDate(date.getDate() - day);
+        return date.toISOString().slice(0, 10);
+      };
+    } else if (period === 'monthly') {
+      dateKeyFn = (d) => d.slice(0, 7);
+    } else {
+      dateKeyFn = (d) => d.slice(0, 10);
+    }
+
+    const counts = new Map();
+    for (const u of allUsers) {
+      const ca = u.created_at;
+      if (!ca) continue;
+      const key = dateKeyFn(ca);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+
+    const trend = Array.from(counts.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => ({ date, count }));
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const today = allUsers.filter((u) => u.created_at && u.created_at.slice(0, 10) === todayKey).length;
+    const thisWeek = allUsers.filter((u) => u.created_at && new Date(u.created_at) >= weekStart).length;
+    const thisMonth = allUsers.filter((u) => u.created_at && new Date(u.created_at) >= monthStart).length;
+
+    const totalSnap = await db.collection('users').where('deleted_at', '==', null).count().get();
+    const total = totalSnap.data().count || 0;
+
+    res.json({
+      period,
+      totals: { today, this_week: thisWeek, this_month: thisMonth, total },
+      trend,
+    });
+  } catch (error) {
+    console.error('[getRegistrationAnalytics]', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ─── User Ban / Unban ────────────────────────────────────────────────────────
+
+async function banUser(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  const { reason } = req.body;
+  try {
+    const user = await User.banUser(uid, reason);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await AuditService.logAction(caller.id, 'ban_user', uid, { reason: reason || null });
+    res.json({ user: User.toSafeUser(user), message: 'User banned successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function unbanUser(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  try {
+    const user = await User.unbanUser(uid);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await AuditService.logAction(caller.id, 'unban_user', uid, {});
+    res.json({ user: User.toSafeUser(user), message: 'User unbanned successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ─── Wallet Freeze / Withdrawal Ban ──────────────────────────────────────────
+
+async function freezeWallet(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  try {
+    const user = await User.freezeWallet(uid);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await AuditService.logAction(caller.id, 'freeze_wallet', uid, {});
+    res.json({ user: User.toSafeUser(user), message: 'Wallet frozen successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function unfreezeWallet(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  try {
+    const user = await User.unfreezeWallet(uid);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await AuditService.logAction(caller.id, 'unfreeze_wallet', uid, {});
+    res.json({ user: User.toSafeUser(user), message: 'Wallet unfrozen successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function banWithdrawal(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  try {
+    const user = await User.banWithdrawal(uid);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await AuditService.logAction(caller.id, 'ban_withdrawal', uid, {});
+    res.json({ user: User.toSafeUser(user), message: 'Withdrawals banned successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function unbanWithdrawal(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  try {
+    const user = await User.unbanWithdrawal(uid);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await AuditService.logAction(caller.id, 'unban_withdrawal', uid, {});
+    res.json({ user: User.toSafeUser(user), message: 'Withdrawals unbanned successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function toggleWithdrawalsSiteWide(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { enabled } = req.body;
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled (boolean) is required' });
+  }
+  try {
+    await SettingsService.set('withdrawals_disabled', !enabled);
+    await AuditService.logAction(caller.id, 'toggle_withdrawals', 'system', { enabled });
+    res.json({ withdrawals_enabled: enabled, message: enabled ? 'Withdrawals enabled site-wide' : 'Withdrawals disabled site-wide' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ─── Channel Creation Ban ────────────────────────────────────────────────────
+
+async function banChannelCreation(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  const { reason } = req.body;
+  try {
+    const user = await User.banChannelCreation(uid, reason);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await AuditService.logAction(caller.id, 'ban_channel_creation', uid, { reason: reason || null });
+    res.json({ user: User.toSafeUser(user), message: 'Channel creation banned successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function unbanChannelCreation(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  try {
+    const user = await User.unbanChannelCreation(uid);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await AuditService.logAction(caller.id, 'unban_channel_creation', uid, {});
+    res.json({ user: User.toSafeUser(user), message: 'Channel creation unbanned successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ─── Admin Debit User Assets ─────────────────────────────────────────────────
+
+async function debitUserAssets(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { uid } = req.params;
+  const { amount, currency, reason } = req.body;
+
+  if (!amount || typeof amount !== 'number' || amount <= 0) {
+    return res.status(400).json({ error: 'amount (positive number) is required' });
+  }
+  if (!currency || !['ngn', 'vpt', 'coins'].includes(currency)) {
+    return res.status(400).json({ error: 'currency must be one of: ngn, vpt, coins' });
+  }
+
+  try {
+    const db = getFirestore();
+    const userRef = db.collection('users').doc(uid);
+    const fieldMap = { ngn: 'cash', vpt: 'vpt', coins: 'coins' };
+    const fieldName = fieldMap[currency];
+
+    let result;
+    await db.runTransaction(async (tx) => {
+      const doc = await tx.get(userRef);
+      if (!doc.exists) throw new Error('USER_NOT_FOUND');
+      const data = doc.data();
+      if (data.deleted_at) throw new Error('USER_DELETED');
+      const current = Number(data[fieldName] || 0);
+      if (current < amount) throw new Error('INSUFFICIENT_BALANCE');
+      const after = current - amount;
+      tx.update(userRef, { [fieldName]: after });
+      result = { before: current, after, field: fieldName };
+    });
+
+    const entry = {
+      id: crypto.randomUUID(),
+      uid,
+      type: 'ADMIN_DEBIT',
+      direction: 'debit',
+      currency,
+      amount_ngn: currency === 'ngn' ? amount : 0,
+      amount_vpt: currency === 'vpt' ? amount : 0,
+      amount_coins: currency === 'coins' ? amount : 0,
+      status: 'success',
+      created_at: Date.now(),
+      meta: { reason: reason || null, admin_id: caller.id, field: result.field },
+    };
+    await Ledger.create(entry);
+
+    const cachedUser = User.findById(uid);
+    if (cachedUser) cachedUser[fieldName] = result.after;
+
+    await AuditService.logAction(caller.id, 'debit_user_assets', uid, {
+      amount, currency, reason: reason || null,
+      before: result.before, after: result.after,
+    });
+
+    try {
+      const NotificationService = require('../notifications/notification.service');
+      const unit = currency === 'ngn' ? '₦' : currency === 'vpt' ? ' VPT' : ' coins';
+      await NotificationService.notifyUser(uid, {
+        title: 'Account Debited',
+        body: `Your account has been debited ${unit}${Number(amount).toLocaleString()} by admin. Reason: ${reason || 'Not specified'}`,
+        type: 'admin_debit',
+        data: { amount: String(amount), currency, reason: reason || '' },
+      });
+    } catch {}
+
+    res.json({
+      message: 'Debit applied successfully',
+      debit: { amount, currency, reason: reason || null, before: result.before, after: result.after },
+    });
+  } catch (error) {
+    if (error.message === 'USER_NOT_FOUND') return res.status(404).json({ error: 'User not found' });
+    if (error.message === 'USER_DELETED') return res.status(400).json({ error: 'Cannot debit a deleted user' });
+    if (error.message === 'INSUFFICIENT_BALANCE') return res.status(400).json({ error: 'Insufficient balance for debit' });
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ─── Channel Hard Delete / Ban / Analytics ───────────────────────────────────
+
+async function adminHardDeleteChannel(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { id } = req.params;
+  const { confirm } = req.body;
+  if (confirm !== 'DELETE') {
+    return res.status(400).json({ error: 'Send { confirm: "DELETE" } in body to confirm hard delete' });
+  }
+  try {
+    const channel = await Channel.hardDelete(id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    await AuditService.logAction(caller.id, 'hard_delete_channel', id, {
+      channel_name: channel.name || null,
+      channel_number: channel.channel_number || null,
+    });
+    res.json({ message: 'Channel permanently deleted', channel: { id, name: channel.name || null } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function adminBanChannel(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { id } = req.params;
+  const { reason } = req.body;
+  try {
+    const channel = await Channel.banChannel(id, reason);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    await AuditService.logAction(caller.id, 'ban_channel', id, { reason: reason || null });
+    res.json({ channel: serializeChannelForAdmin(channel), message: 'Channel banned successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function adminUnbanChannel(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { id } = req.params;
+  try {
+    const channel = await Channel.unbanChannel(id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    await AuditService.logAction(caller.id, 'unban_channel', id, {});
+    res.json({ channel: serializeChannelForAdmin(channel), message: 'Channel unbanned successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ─── Channel Analytics ───────────────────────────────────────────────────────
+
+async function adminChannelAnalytics(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const { id } = req.params;
+  const period = String(req.query.period || '30d');
+  const days = period === '7d' ? 7 : period === '90d' ? 90 : period === '365d' ? 365 : 30;
+
+  try {
+    const channel = Channel.findCachedById(id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const ownerUid = channel.owner_id;
+    const now = Date.now();
+    const sinceMs = now - days * 24 * 60 * 60 * 1000;
+    const db = getFirestore();
+
+    const [channelStats, dailySnap, eventCountSnap, giftCountSnap, reactionCountSnap, subCountSnap] = await Promise.all([
+      (async () => {
+        try {
+          const ChannelStats = require('../channels/channel_stats.model');
+          return await ChannelStats.getStats(id);
+        } catch { return null; }
+      })(),
+      ownerUid
+        ? db.collection('creator_daily_stats').where('creator_uid', '==', ownerUid).orderBy('date', 'desc').limit(days).get().catch(() => ({ docs: [] }))
+        : Promise.resolve({ docs: [] }),
+      db.collection('channel_events').where('channel_id', '==', id).where('created_at', '>=', sinceMs).count().get().catch(() => ({ data: { count: 0 } })),
+      db.collection('channel_events').where('channel_id', '==', id).where('type', '==', 'gift').where('created_at', '>=', sinceMs).count().get().catch(() => ({ data: { count: 0 } })),
+      db.collection('channel_events').where('channel_id', '==', id).where('type', '==', 'reaction').where('created_at', '>=', sinceMs).count().get().catch(() => ({ data: { count: 0 } })),
+      db.collection('channel_subscriptions').where('channel_id', '==', id).where('status', '==', 'active').count().get().catch(() => ({ data: { count: 0 } })),
+    ]);
+
+    const dailyMap = {};
+    dailySnap.docs.forEach((doc) => { dailyMap[doc.data().date] = doc.data(); });
+
+    const timeline = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const dt = new Date(now - i * 24 * 60 * 60 * 1000);
+      const key = dt.toISOString().split('T')[0];
+      const d = dailyMap[key] || {};
+      timeline.push({
+        date: key,
+        views: d.total_viewers || 0,
+        unique_viewers: d.unique_viewers || 0,
+        gifts_ngn: d.gifts_ngn || 0,
+        gifts_vpt: d.gifts_vpt || 0,
+        streams: d.streams_count || 0,
+        new_subscribers: d.new_subscribers || 0,
+        earnings_ngn: d.total_earnings_ngn || 0,
+        earnings_vpt: d.total_earnings_vpt || 0,
+      });
+    }
+
+    const totalViews = timeline.reduce((s, d) => s + d.views, 0);
+    const totalGiftsNgn = timeline.reduce((s, d) => s + d.gifts_ngn, 0);
+    const totalGiftsVpt = timeline.reduce((s, d) => s + d.gifts_vpt, 0);
+    const totalEarningsNgn = timeline.reduce((s, d) => s + d.earnings_ngn, 0);
+    const totalEarningsVpt = timeline.reduce((s, d) => s + d.earnings_vpt, 0);
+    const totalNewSubs = timeline.reduce((s, d) => s + d.new_subscribers, 0);
+    const last7Views = timeline.slice(-7).reduce((s, d) => s + d.views, 0);
+    const last30Views = timeline.slice(-30).reduce((s, d) => s + d.views, 0);
+
+    res.json({
+      channel_id: id,
+      channel_name: channel.name || null,
+      owner_id: ownerUid || null,
+      period,
+      overview: {
+        subscriber_count: channelStats?.subscriber_count || 0,
+        active_subscriptions: subCountSnap.data().count || 0,
+        total_events: eventCountSnap.data().count || 0,
+        total_gifts_count: giftCountSnap.data().count || 0,
+        total_reactions: reactionCountSnap.data().count || 0,
+        total_gifts_ngn: Math.round(totalGiftsNgn),
+        total_gifts_vpt: Math.round(totalGiftsVpt),
+        total_earnings_ngn: Math.round(totalEarningsNgn),
+        total_earnings_vpt: Math.round(totalEarningsVpt),
+        total_views: totalViews,
+        weekly_views: last7Views,
+        monthly_views: last30Views,
+        new_subscribers: totalNewSubs,
+      },
+      timeline,
+    });
+  } catch (error) {
+    console.error('[adminChannelAnalytics]', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ─── Communication Audience Preview ──────────────────────────────────────────
+
+/**
+ * GET /admin/communication/audience-preview
+ * Returns a breakdown of all users showing whether they have an email address
+ * and/or registered push tokens. This lets the admin understand why broadcast
+ * counts may be lower than the total user count.
+ */
+async function getCommunicationAudiencePreview(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    const fcm = require('../utils/fcm');
+    const targets = await fcm.collectBroadcastTargets();
+    const targetUserIds = new Set(targets.userIds);
+
+    const db = getFirestore();
+    const snapshot = await db.collection('users').get();
+
+    const emailRecipients = [];
+    const pushRecipients = [];
+    let noEmailCount = 0;
+    let noPushCount = 0;
+
+    for (const doc of snapshot.docs) {
+      const u = { id: doc.id, ...doc.data() };
+      if (u.deleted_at) continue;
+
+      const name = u.name || [u.firstName, u.lastName].filter(Boolean).join(' ') || null;
+      const email = u.email || null;
+      const tokens = [];
+      if (Array.isArray(u.fcm_tokens)) tokens.push(...u.fcm_tokens);
+      if (u.afroDeviceToken) tokens.push(u.afroDeviceToken);
+      const cleanTokens = tokens.map(t => String(t || '').trim()).filter(Boolean);
+      const hasPush = cleanTokens.length > 0 || targetUserIds.has(u.id);
+
+      if (email) {
+        emailRecipients.push({ id: u.id, name, email });
+      } else {
+        noEmailCount++;
+      }
+
+      if (hasPush) {
+        pushRecipients.push({
+          id: u.id,
+          name,
+          email,
+          tokenCount: cleanTokens.length,
+          tokens: cleanTokens,
+        });
+      } else {
+        noPushCount++;
+      }
+    }
+
+    res.json({
+      totalUsers: emailRecipients.length + noEmailCount,
+      emailRecipients,
+      pushRecipients,
+      summary: {
+        totalUsers: emailRecipients.length + noEmailCount,
+        withEmail: emailRecipients.length,
+        withoutEmail: noEmailCount,
+        withPush: pushRecipients.length,
+        withoutPush: noPushCount,
+        totalPushTokens: targets.tokens.length,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to load audience preview' });
+  }
+}
 
 // ─── Email Send / Broadcast ──────────────────────────────────────────────────
 
@@ -2429,18 +3025,20 @@ async function broadcastEmail(req, res) {
 
     let sent = 0;
     let failed = 0;
-    const errors = [];
+    const recipients = [];
 
     for (const user of users) {
       const personalised = html
         .replace(/\{\{name\}\}/g,  user.displayName || user.name || user.email.split('@')[0])
         .replace(/\{\{email\}\}/g, user.email);
+      const name = user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || null;
       try {
         await SmtpService.sendRawHtmlEmail({ toEmail: user.email, subject, html: personalised });
         sent++;
+        recipients.push({ id: user.id, name, email: user.email, status: 'sent' });
       } catch (err) {
         failed++;
-        errors.push({ email: user.email, error: err.message });
+        recipients.push({ id: user.id, name, email: user.email, status: 'failed', error: err.message });
       }
     }
 
@@ -2451,7 +3049,7 @@ async function broadcastEmail(req, res) {
       total: users.length,
     });
 
-    res.json({ sent, failed, total: users.length, errors: errors.slice(0, 10) });
+    res.json({ sent, failed, total: users.length, recipients });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Broadcast failed' });
   }
@@ -2459,3 +3057,610 @@ async function broadcastEmail(req, res) {
 
 module.exports.sendEmailToUser  = sendEmailToUser;
 module.exports.broadcastEmail   = broadcastEmail;
+module.exports.getCommunicationAudiencePreview = getCommunicationAudiencePreview;
+
+// ─── Channel Events Cleanup ──────────────────────────────────────────────────
+
+/**
+ * POST /admin/channels/cleanup-orphaned-events
+ * Scans channel_events for documents whose channel_id does not correspond to
+ * any real channel (e.g. reactions/gifts sent to a user UID instead of a
+ * channel ID). Deletes those orphaned events.
+ * Returns { scanned, deleted, remaining }.
+ */
+async function adminCleanupOrphanedChannelEvents(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  try {
+    const db = getFirestore();
+
+    // Load all channel IDs into a Set for O(1) lookup
+    const allChannels = await Channel.getEvery();
+    const validChannelIds = new Set(allChannels.map((c) => c.id));
+
+    // Scan channel_events in batches (Firestore limit per query is 500 for batch writes)
+    const snapshot = await db.collection('channel_events').get();
+    const orphanIds = [];
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      if (!data.channel_id || !validChannelIds.has(data.channel_id)) {
+        orphanIds.push(doc.id);
+      }
+    }
+
+    // Delete in batches of 450
+    let deleted = 0;
+    for (let i = 0; i < orphanIds.length; i += 450) {
+      const chunk = orphanIds.slice(i, i + 450);
+      const batch = db.batch();
+      for (const id of chunk) {
+        batch.delete(db.collection('channel_events').doc(id));
+      }
+      await batch.commit();
+      deleted += chunk.length;
+    }
+
+    await AuditService.logAction(caller.id, 'cleanup_orphaned_channel_events', 'system', {
+      scanned: snapshot.size,
+      deleted,
+      remaining: snapshot.size - deleted,
+    });
+
+    res.json({
+      scanned: snapshot.size,
+      deleted,
+      remaining: snapshot.size - deleted,
+    });
+  } catch (err) {
+    console.error('[adminCleanupOrphanedChannelEvents]', err);
+    res.status(500).json({ error: 'Cleanup failed', detail: err.message });
+  }
+}
+
+module.exports.adminCleanupOrphanedChannelEvents = adminCleanupOrphanedChannelEvents;
+
+module.exports.getRegistrationAnalytics = getRegistrationAnalytics;
+module.exports.banUser = banUser;
+module.exports.unbanUser = unbanUser;
+module.exports.freezeWallet = freezeWallet;
+module.exports.unfreezeWallet = unfreezeWallet;
+module.exports.banWithdrawal = banWithdrawal;
+module.exports.unbanWithdrawal = unbanWithdrawal;
+module.exports.toggleWithdrawalsSiteWide = toggleWithdrawalsSiteWide;
+module.exports.banChannelCreation = banChannelCreation;
+module.exports.unbanChannelCreation = unbanChannelCreation;
+module.exports.debitUserAssets = debitUserAssets;
+module.exports.adminHardDeleteChannel = adminHardDeleteChannel;
+module.exports.adminBanChannel = adminBanChannel;
+module.exports.adminUnbanChannel = adminUnbanChannel;
+module.exports.adminChannelAnalytics = adminChannelAnalytics;
+
+// ─── Channel Audit Endpoints ─────────────────────────────────────────────────
+
+const GIFT_SPLIT = { creator: 0.5, operations: 0.3, community: 0.2 };
+
+function _periodSinceMs(period) {
+  const days = period === '7d' ? 7 : period === '90d' ? 90 : period === '365d' ? 365 : 30;
+  return { days, sinceMs: Date.now() - days * 24 * 60 * 60 * 1000 };
+}
+
+async function _enrichUsersByUids(uids) {
+  const uniq = [...new Set(uids.filter(Boolean))];
+  const map = new Map();
+  await Promise.all(uniq.map(async (uid) => {
+    try {
+      const u = await User.findById(uid);
+      if (u) {
+        map.set(uid, {
+          uid: u.id,
+          name: u.name || null,
+          email: u.email || null,
+          avatar_url: u.avatar_url || null,
+        });
+      }
+    } catch { /* ignore */ }
+  }));
+  return map;
+}
+
+/**
+ * GET /admin/channels/:id/audit/gifts?period=30d&cursor=&limit=50
+ * Returns per-gift transactions with sender info, catalog details, and 50/30/20 split.
+ */
+async function adminChannelAuditGifts(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const { id } = req.params;
+  const { sinceMs } = _periodSinceMs(String(req.query.period || '30d'));
+  const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 200);
+  const cursor = req.query.cursor ? Number(req.query.cursor) : null;
+  const currencyFilter = req.query.currency; // 'vpt' | 'ngn' | undefined
+
+  try {
+    const channel = await Channel.findById(id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const db = getFirestore();
+    const snap = await db.collection('gift_stats')
+      .where('channel_id', '==', id)
+      .where('created_at', '>=', sinceMs)
+      .get()
+      .catch(async (err) => {
+        if (String(err.message || '').includes('index')) {
+          return db.collection('gift_stats')
+            .where('channel_id', '==', id)
+            .get();
+        }
+        throw err;
+      });
+
+    let docs = snap.docs.map((d) => d.data());
+    docs = docs.filter((d) => (d.created_at || 0) >= sinceMs);
+    if (currencyFilter === 'vpt') docs = docs.filter((d) => (d.vpt_units || 0) > 0);
+    if (currencyFilter === 'ngn') docs = docs.filter((d) => (d.naira || 0) > 0);
+    docs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    if (cursor) docs = docs.filter((d) => (d.created_at || 0) < cursor);
+    const hasMore = docs.length > limit;
+    const page = docs.slice(0, limit);
+    const nextCursor = hasMore && page.length ? page[page.length - 1].created_at : null;
+
+    const GiftModel = require('../interactions/gift.model');
+    const giftIds = [...new Set(page.map((d) => d.gift_id).filter(Boolean))];
+    const giftsById = await GiftModel.findManyByIds(giftIds);
+    const senderUids = page.map((d) => d.sender_uid);
+    const usersByUid = await _enrichUsersByUids(senderUids);
+
+    // Fetch matching ledger entries for balance_before/after (best-effort, batched by reference_id+channel_id)
+    const ledgerSenderQ = db.collection('ledger')
+      .where('channel_id', '==', id)
+      .where('type', 'in', ['GIFT_SENT_VPT', 'GIFT_SENT_NGN'])
+      .where('created_at', '>=', sinceMs)
+      .orderBy('created_at', 'desc')
+      .limit(500);
+    const ledgerReceiverQ = db.collection('ledger')
+      .where('channel_id', '==', id)
+      .where('type', 'in', ['GIFT_RECEIVED_VPT', 'GIFT_RECEIVED_NGN'])
+      .where('created_at', '>=', sinceMs)
+      .orderBy('created_at', 'desc')
+      .limit(500);
+    const [senderLedgerSnap, receiverLedgerSnap] = await Promise.all([
+      ledgerSenderQ.get().catch(() => ({ docs: [] })),
+      ledgerReceiverQ.get().catch(() => ({ docs: [] })),
+    ]);
+    const senderLedger = senderLedgerSnap.docs.map((d) => d.data());
+    const receiverLedger = receiverLedgerSnap.docs.map((d) => d.data());
+
+    const findLedger = (arr, uid, giftId, ts) => {
+      // best-match by uid + reference_id + closest timestamp
+      let best = null;
+      let bestDelta = Infinity;
+      for (const e of arr) {
+        if (e.uid !== uid || e.reference_id !== giftId) continue;
+        const delta = Math.abs((e.created_at || 0) - ts);
+        if (delta < bestDelta) { best = e; bestDelta = delta; }
+      }
+      return best;
+    };
+
+    const gifts = page.map((stat) => {
+      const gift = giftsById.get(stat.gift_id) || null;
+      const currency = (stat.vpt_units || 0) > 0 ? 'vpt' : 'ngn';
+      const grossAmount = currency === 'vpt' ? (stat.vpt_units || 0) : (stat.naira || 0);
+      const creatorShare = currency === 'vpt'
+        ? Math.floor(grossAmount * GIFT_SPLIT.creator)
+        : grossAmount * GIFT_SPLIT.creator;
+      const opsShare = currency === 'vpt'
+        ? Math.floor(grossAmount * GIFT_SPLIT.operations)
+        : grossAmount * GIFT_SPLIT.operations;
+      const communityShare = grossAmount - creatorShare - opsShare;
+
+      const senderLed = findLedger(senderLedger, stat.sender_uid, stat.gift_id, stat.created_at);
+      const receiverLed = findLedger(receiverLedger, channel.owner_id, stat.gift_id, stat.created_at);
+      const senderInfo = usersByUid.get(stat.sender_uid) || null;
+
+      return {
+        id: senderLed?.id || `${stat.channel_id}_${stat.gift_id}_${stat.created_at}`,
+        created_at: stat.created_at,
+        gift_id: stat.gift_id,
+        gift_name: gift?.name || 'Gift',
+        gift_icon: gift?.icon || '🎁',
+        currency,
+        gross_amount: grossAmount,
+        creator_share: creatorShare,
+        ops_share: opsShare,
+        community_share: communityShare,
+        sender_uid: stat.sender_uid,
+        sender_name: senderInfo?.name || null,
+        sender_email: senderInfo?.email || null,
+        sender_avatar_url: senderInfo?.avatar_url || null,
+        sender_alias: stat.sender_alias || null,
+        sender_balance_before: senderLed?.balance_before ?? null,
+        sender_balance_after: senderLed?.balance_after ?? null,
+        creator_balance_before: receiverLed?.balance_before ?? null,
+        creator_balance_after: receiverLed?.balance_after ?? null,
+        ledger_ref: senderLed?.id || null,
+      };
+    });
+
+    res.json({ gifts, has_more: hasMore, next_cursor: nextCursor });
+  } catch (err) {
+    console.error('[adminChannelAuditGifts]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /admin/channels/:id/audit/subscriptions?status=&cursor=&limit=
+ */
+async function adminChannelAuditSubscriptions(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const { id } = req.params;
+  const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 200);
+  const cursor = req.query.cursor ? Number(req.query.cursor) : null;
+  const statusFilter = req.query.status; // 'active' | 'cancelled' | undefined
+
+  try {
+    const db = getFirestore();
+    const snap = await db.collection('channel_subscriptions')
+      .where('channel_id', '==', id)
+      .get();
+
+    let docs = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+
+    if (statusFilter) docs = docs.filter((d) => d.status === statusFilter);
+
+    docs.sort((a, b) => (b.subscribed_at || 0) - (a.subscribed_at || 0));
+
+    if (cursor) docs = docs.filter((d) => (d.subscribed_at || 0) < cursor);
+
+    const hasMore = docs.length > limit;
+    const page = docs.slice(0, limit);
+    const nextCursor = hasMore && page.length ? page[page.length - 1].subscribed_at : null;
+
+    const usersByUid = await _enrichUsersByUids(page.map((s) => s.subscriber_uid));
+    const enriched = page.map((s) => {
+      const u = usersByUid.get(s.subscriber_uid) || {};
+      return {
+        ...s,
+        subscriber_name: u.name || null,
+        subscriber_email: u.email || null,
+        subscriber_avatar_url: u.avatar_url || null,
+      };
+    });
+
+    res.json({ subscriptions: enriched, has_more: hasMore, next_cursor: nextCursor });
+  } catch (err) {
+    console.error('[adminChannelAuditSubscriptions]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /admin/channels/:id/audit/events?period=30d&type=&cursor=&limit=
+ */
+async function adminChannelAuditEvents(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const { id } = req.params;
+  const { sinceMs } = _periodSinceMs(String(req.query.period || '30d'));
+  const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 200);
+  const cursor = req.query.cursor ? Number(req.query.cursor) : null;
+  const typeFilter = req.query.type;
+
+  try {
+    const db = getFirestore();
+    const snap = await db.collection('channel_events')
+      .where('channel_id', '==', id)
+      .where('created_at', '>=', sinceMs)
+      .get()
+      .catch(async (err) => {
+        if (String(err.message || '').includes('index')) {
+          return db.collection('channel_events')
+            .where('channel_id', '==', id)
+            .get();
+        }
+        throw err;
+      });
+
+    let docs = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    docs = docs.filter((d) => (d.created_at || 0) >= sinceMs);
+    if (typeFilter) docs = docs.filter((d) => d.type === typeFilter);
+    docs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    if (cursor) docs = docs.filter((d) => (d.created_at || 0) < cursor);
+    const hasMore = docs.length > limit;
+    const page = docs.slice(0, limit);
+    const nextCursor = hasMore && page.length ? page[page.length - 1].created_at : null;
+
+    const GiftModel = require('../interactions/gift.model');
+    const giftIds = [...new Set(page.filter((e) => e.type === 'gift').map((e) => e.gift_id).filter(Boolean))];
+    const giftsById = await GiftModel.findManyByIds(giftIds);
+    const usersByUid = await _enrichUsersByUids(page.map((e) => e.sender_uid).filter(Boolean));
+
+    const events = page.map((e) => {
+      const u = usersByUid.get(e.sender_uid) || {};
+      const g = e.type === 'gift' ? giftsById.get(e.gift_id) : null;
+      return {
+        id: e.id,
+        type: e.type,
+        created_at: e.created_at,
+        sender_uid: e.sender_uid || null,
+        sender_name: e.sender_alias || u.name || null,
+        sender_email: u.email || null,
+        emoji: e.emoji || null,
+        gift_id: e.gift_id || null,
+        gift_name: g?.name || null,
+        gift_icon: g?.icon || null,
+      };
+    });
+
+    res.json({ events, has_more: hasMore, next_cursor: nextCursor });
+  } catch (err) {
+    console.error('[adminChannelAuditEvents]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /admin/channels/:id/audit/asset-flow?period=30d
+ * Aggregates ledger entries for this channel into a full asset flow summary.
+ */
+async function adminChannelAuditAssetFlow(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const { id } = req.params;
+  const { days, sinceMs } = _periodSinceMs(String(req.query.period || '30d'));
+
+  try {
+    const db = getFirestore();
+    const snap = await db.collection('ledger')
+      .where('channel_id', '==', id)
+      .where('created_at', '>=', sinceMs)
+      .orderBy('created_at', 'desc')
+      .limit(5000)
+      .get()
+      .catch(async (err) => {
+        // Fallback without orderBy if index missing
+        if (String(err.message || '').includes('index')) {
+          return db.collection('ledger')
+            .where('channel_id', '==', id)
+            .where('created_at', '>=', sinceMs)
+            .limit(5000)
+            .get();
+        }
+        throw err;
+      });
+
+    const entries = snap.docs.map((d) => d.data());
+
+    const summary = {
+      total_gifts_gross_vpt: 0,
+      total_gifts_gross_ngn: 0,
+      creator_share_vpt: 0,
+      creator_share_ngn: 0,
+      ops_pool_vpt: 0,
+      ops_pool_ngn: 0,
+      community_pool_vpt: 0,
+      community_pool_ngn: 0,
+      subscription_revenue_ngn: 0,
+      subscription_revenue_vpt: 0,
+      stream_entry_revenue_vpt: 0,
+      stream_entry_revenue_ngn: 0,
+      total_withdrawals_ngn: 0,
+      total_withdrawals_vpt: 0,
+      net_creator_earnings_vpt: 0,
+      net_creator_earnings_ngn: 0,
+    };
+    const byType = {};
+
+    const timelineMap = {}; // date -> { vpt_in, ngn_in }
+    for (const e of entries) {
+      const type = e.type || 'UNKNOWN';
+      byType[type] = byType[type] || { count: 0, vpt: 0, ngn: 0 };
+      byType[type].count += 1;
+      byType[type].vpt += Number(e.amount_vpt_units || 0);
+      byType[type].ngn += Number(e.amount_ngn || 0);
+
+      const dateKey = new Date(e.created_at || Date.now()).toISOString().split('T')[0];
+      timelineMap[dateKey] = timelineMap[dateKey] || { date: dateKey, vpt_in: 0, ngn_in: 0, vpt_out: 0, ngn_out: 0 };
+
+      if (type === 'GIFT_SENT_VPT') {
+        const gross = Number(e.amount_vpt_units || 0);
+        summary.total_gifts_gross_vpt += gross;
+        summary.creator_share_vpt += Math.floor(gross * GIFT_SPLIT.creator);
+        summary.ops_pool_vpt += Math.floor(gross * GIFT_SPLIT.operations);
+        summary.community_pool_vpt += gross - Math.floor(gross * GIFT_SPLIT.creator) - Math.floor(gross * GIFT_SPLIT.operations);
+      } else if (type === 'GIFT_SENT_NGN') {
+        const gross = Number(e.amount_ngn || 0);
+        summary.total_gifts_gross_ngn += gross;
+        summary.creator_share_ngn += gross * GIFT_SPLIT.creator;
+        summary.ops_pool_ngn += gross * GIFT_SPLIT.operations;
+        summary.community_pool_ngn += gross * GIFT_SPLIT.community;
+      } else if (type === 'GIFT_RECEIVED_VPT') {
+        timelineMap[dateKey].vpt_in += Number(e.amount_vpt_units || 0);
+      } else if (type === 'GIFT_RECEIVED_NGN') {
+        timelineMap[dateKey].ngn_in += Number(e.amount_ngn || 0);
+      } else if (type === 'SUBSCRIPTION_PAYMENT' || type === 'CHANNEL_SUBSCRIPTION_RENEWAL') {
+        summary.subscription_revenue_ngn += Number(e.amount_ngn || 0);
+        summary.subscription_revenue_vpt += Number(e.amount_vpt_units || 0);
+      } else if (type === 'STREAM_ENTRY_VPT') {
+        summary.stream_entry_revenue_vpt += Number(e.amount_vpt_units || 0);
+      } else if (type === 'STREAM_ENTRY_NGN') {
+        summary.stream_entry_revenue_ngn += Number(e.amount_ngn || 0);
+      } else if (type === 'WITHDRAWAL') {
+        summary.total_withdrawals_ngn += Number(e.amount_ngn || 0);
+        summary.total_withdrawals_vpt += Number(e.amount_vpt_units || 0);
+        timelineMap[dateKey].vpt_out += Number(e.amount_vpt_units || 0);
+        timelineMap[dateKey].ngn_out += Number(e.amount_ngn || 0);
+      }
+    }
+
+    summary.net_creator_earnings_vpt = summary.creator_share_vpt - summary.total_withdrawals_vpt;
+    summary.net_creator_earnings_ngn = summary.creator_share_ngn - summary.total_withdrawals_ngn;
+
+    // Build ordered timeline for the full period
+    const timeline = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const dt = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const key = dt.toISOString().split('T')[0];
+      timeline.push(timelineMap[key] || { date: key, vpt_in: 0, ngn_in: 0, vpt_out: 0, ngn_out: 0 });
+    }
+
+    res.json({ summary, by_type: byType, timeline, entry_count: entries.length });
+  } catch (err) {
+    console.error('[adminChannelAuditAssetFlow]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /admin/channels/:id/audit/logs?limit=50
+ * Fetches admin audit log entries relevant to this channel (target or meta.channel_id).
+ */
+async function adminChannelAuditLogs(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const { id } = req.params;
+  const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 200);
+
+  try {
+    const db = getFirestore();
+    const [byTarget, byMeta] = await Promise.all([
+      db.collection('audit_logs')
+        .where('targetId', '==', id)
+        .orderBy('timestamp', 'desc')
+        .limit(limit)
+        .get()
+        .catch(() => ({ docs: [] })),
+      db.collection('audit_logs')
+        .where('meta.channel_id', '==', id)
+        .orderBy('timestamp', 'desc')
+        .limit(limit)
+        .get()
+        .catch(() => ({ docs: [] })),
+    ]);
+
+    const merged = new Map();
+    for (const doc of [...byTarget.docs, ...byMeta.docs]) {
+      merged.set(doc.id, { id: doc.id, ...doc.data() });
+    }
+    const rows = [...merged.values()]
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, limit);
+
+    const uids = rows.map((r) => r.performedBy || r.actor_uid || r.admin_uid).filter(Boolean);
+    const usersByUid = await _enrichUsersByUids(uids);
+    const logs = rows.map((r) => {
+      const performedBy = r.performedBy || r.actor_uid || r.admin_uid || null;
+      const u = performedBy ? usersByUid.get(performedBy) : null;
+      return {
+        id: r.id,
+        action: r.action,
+        performedBy,
+        performedBy_name: u?.name || null,
+        performedBy_email: u?.email || null,
+        targetId: r.targetId || null,
+        meta: r.meta || {},
+        timestamp: r.timestamp,
+      };
+    });
+
+    res.json({ logs });
+  } catch (err) {
+    console.error('[adminChannelAuditLogs]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports.adminChannelAuditGifts = adminChannelAuditGifts;
+module.exports.adminChannelAuditSubscriptions = adminChannelAuditSubscriptions;
+module.exports.adminChannelAuditEvents = adminChannelAuditEvents;
+module.exports.adminChannelAuditAssetFlow = adminChannelAuditAssetFlow;
+module.exports.adminChannelAuditLogs = adminChannelAuditLogs;
+
+/**
+ * POST /admin/channels/migrate-follows-to-subscriptions
+ * One-time migration: creates channel_subscriptions entries for users who have
+ * following_channel_ids but no corresponding subscription.
+ */
+async function adminMigrateFollowsToSubscriptions(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    const db = getFirestore();
+    const ChannelSub = require('../subscriptions/channel_subscription.model');
+    const ChannelStats = require('../channels/channel_stats.model');
+
+    const snapshot = await db.collection('users')
+      .where('following_channel_ids', '!=', null)
+      .get();
+
+    let migrated = 0;
+    let skipped = 0;
+    let errors = 0;
+    const errorDetails = [];
+
+    for (const doc of snapshot.docs) {
+      const userData = doc.data();
+      const followingIds = userData.following_channel_ids;
+      if (!Array.isArray(followingIds) || followingIds.length === 0) {
+        skipped += 1;
+        continue;
+      }
+
+      const userUid = doc.id;
+
+      for (const channelId of followingIds) {
+        if (!channelId) continue;
+
+        try {
+          const existing = await ChannelSub.findActive(userUid, channelId);
+          if (existing) {
+            skipped += 1;
+            continue;
+          }
+
+          const channel = await Channel.findById(channelId);
+          if (!channel) {
+            skipped += 1;
+            continue;
+          }
+
+          await ChannelSub.create({
+            subscriberUid: userUid,
+            channelId,
+            channelName: channel.name || '',
+            ownerId: channel.owner_id,
+            plan: 'channel_subscription',
+            currency: null,
+            amount: 0,
+            vptEquivalent: 0,
+            isPremium: false,
+            intervalCount: 0,
+            intervalUnit: 'month',
+            nextBilling: null,
+          });
+
+          try {
+            await ChannelStats.incrementSubscribers(channelId);
+          } catch (e) { /* non-fatal */ }
+
+          migrated += 1;
+        } catch (err) {
+          errors += 1;
+          if (errorDetails.length < 10) {
+            errorDetails.push({ userUid, channelId, error: err.message });
+          }
+        }
+      }
+    }
+
+    res.json({
+      message: 'Migration complete',
+      migrated,
+      skipped,
+      errors,
+      error_details: errorDetails,
+    });
+  } catch (err) {
+    console.error('[adminMigrateFollowsToSubscriptions]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports.adminMigrateFollowsToSubscriptions = adminMigrateFollowsToSubscriptions;

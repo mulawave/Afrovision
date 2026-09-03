@@ -71,7 +71,11 @@ export function LivePlayer({
   }, []);
 
   const [elapsed, setElapsed] = useState(0);
-  const [volume, setVolume] = useState(100);
+  const [volume, setVolume] = useState(() => {
+    if (typeof window === "undefined") return 100;
+    const saved = localStorage.getItem("av_player_volume");
+    return saved !== null ? Number(saved) : 100;
+  });
   const [showControls, setShowControls] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncRequestInFlightRef = useRef(false);
@@ -196,10 +200,20 @@ export function LivePlayer({
   }, [isLive]);
 
   // TV mode: no play/pause — only volume and quality for YouTube, mute for video
+  // Volume sync + persistence
+  useEffect(() => {
+    if (!videoRef.current) return;
+    videoRef.current.volume = Math.max(0, Math.min(1, volume / 100));
+    videoRef.current.muted = volume === 0;
+    try { localStorage.setItem("av_player_volume", String(volume)); } catch {}
+  }, [volume]);
+
   const toggleMute = () => {
     if (!videoRef.current) return;
     videoRef.current.muted = !videoRef.current.muted;
-    setVolume(videoRef.current.muted ? 0 : 100);
+    const newVol = videoRef.current.muted ? 0 : (Number(localStorage.getItem("av_player_volume")) || 100);
+    setVolume(newVol);
+    try { localStorage.setItem("av_player_volume", String(newVol)); } catch {}
   };
 
   const toggleFullscreen = () => {
@@ -318,7 +332,7 @@ export function LivePlayer({
             {channelName}
           </p>
           <p className="text-sm text-av-light-orange max-w-xs text-center leading-relaxed">
-            This channel is currently not transmitting any show now, check back later.
+            We&apos;ll be right back — brief intermission, stay tuned.
           </p>
 
           {/* Pulsing dot */}

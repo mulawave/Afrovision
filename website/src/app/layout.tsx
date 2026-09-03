@@ -11,10 +11,10 @@ import { KycAlertBanner } from "@/components/KycAlertBanner";
 import { DevApiIndicator } from "@/components/DevApiIndicator";
 import { AndroidAppBanner } from "@/components/AndroidAppBanner";
 import { AuthProvider } from "@/lib/AuthContext";
+import { ProfileGuard } from "@/components/ProfileGuard";
 import { getBranding } from "@/lib/homepage";
 import { CookieConsentProvider } from "@/lib/cookie-consent/CookieConsentProvider";
 import { CookieBanner } from "@/components/CookieBanner";
-import { GoogleAdSenseConsent } from "@/lib/cookie-consent/GoogleAdSenseConsent";
 
 const geistSans = localFont({
   src: "../fonts/GeistVF.woff2",
@@ -88,7 +88,7 @@ fbq('track', 'PageView');`,
       <body className="min-h-full flex flex-col">
         <CookieConsentProvider>
           <AuthProvider>
-            <GoogleAdSenseConsent />
+            <ProfileGuard />
             <Navbar logoUrl={branding.logo_url} />
             <div className="h-16 lg:h-20" />
             <MarqueeTicker />

@@ -6,7 +6,6 @@ import Link from "next/link";
 import {
   archiveCreatorChannelLibraryItemApi,
   Channel,
-  createCreatorLibraryAssetUploadUrlApi,
   generateCreatorLibraryReaderManifestApi,
   createCreatorChannelLibraryItemApi,
   updateCreatorChannelLibraryItemApi,
@@ -19,8 +18,69 @@ import {
   LibrarySeries,
   publishCreatorChannelLibraryItemApi,
   reorderCreatorChannelLibraryContentApi,
-  uploadFileToGCS,
+  uploadCreatorLibraryAssetApi,
 } from "@/lib/api";
+
+/**
+ * Convert every page of a PDF into JPEG image files, entirely in the browser.
+ * The PDF itself is never uploaded or stored — library content is strictly
+ * non-downloadable and is always served to the reader as page images.
+ */
+async function convertPdfToPageImages(
+  file: File,
+  onProgress: (percent: number) => void,
+): Promise<File[]> {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
+
+  const data = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data }).promise;
+  const total = pdf.numPages;
+  if (total <= 0) {
+    throw new Error("PDF contains no pages");
+  }
+
+  const MAX_DIMENSION = 2000;
+  const images: File[] = [];
+
+  for (let pageNum = 1; pageNum <= total; pageNum += 1) {
+    const page = await pdf.getPage(pageNum);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = Math.min(3, Math.max(1, MAX_DIMENSION / Math.max(baseViewport.width, baseViewport.height)));
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Canvas 2D context unavailable");
+    }
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    await page.render({ canvas, canvasContext: context, viewport }).promise;
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.88);
+    });
+    page.cleanup();
+    canvas.width = 0;
+    canvas.height = 0;
+    if (!blob) {
+      throw new Error(`Failed to render page ${pageNum} of the PDF`);
+    }
+
+    const pageIndex = String(pageNum).padStart(4, "0");
+    images.push(new File([blob], `page-${pageIndex}.jpg`, { type: "image/jpeg" }));
+    onProgress(Math.round((pageNum / total) * 100));
+  }
+
+  return images;
+}
 
 type ContentType = "book" | "comic" | "magazine" | "other";
 type ItemStatus = "all" | "draft" | "published" | "archived";
@@ -72,6 +132,10 @@ export default function CreatorStudioLibraryPage() {
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [series, setSeries] = useState<LibrarySeries[]>([]);
   const [items, setItems] = useState<LibraryItem[]>([]);
+  const [itemsPage, setItemsPage] = useState(1);
+  const [itemsTotalPages, setItemsTotalPages] = useState(1);
+  const [itemsTotal, setItemsTotal] = useState(0);
+  const itemsLimit = 12;
   const [statusFilter, setStatusFilter] = useState<ItemStatus>("all");
 
   const [seriesTitle, setSeriesTitle] = useState("");
@@ -124,10 +188,10 @@ export default function CreatorStudioLibraryPage() {
     }
   }, []);
 
-  const loadLibraryData = useCallback(async (channelId: string) => {
+  const loadLibraryData = useCallback(async (channelId: string, page: number = 1) => {
     const [seriesRes, itemsRes] = await Promise.all([
       getCreatorChannelLibrarySeriesApi(channelId),
-      getCreatorChannelLibraryItemsApi(channelId),
+      getCreatorChannelLibraryItemsApi(channelId, { page, limit: itemsLimit }),
     ]);
 
     if (!seriesRes.ok || !("success" in seriesRes.data)) {
@@ -139,6 +203,11 @@ export default function CreatorStudioLibraryPage() {
 
     setSeries(seriesRes.data.data);
     setItems(itemsRes.data.data);
+    if (itemsRes.data.pagination) {
+      setItemsPage(itemsRes.data.pagination.page);
+      setItemsTotalPages(itemsRes.data.pagination.totalPages);
+      setItemsTotal(itemsRes.data.pagination.total);
+    }
   }, []);
 
   const loadAll = useCallback(async () => {
@@ -161,13 +230,16 @@ export default function CreatorStudioLibraryPage() {
     if (!selectedChannelId) {
       setSeries([]);
       setItems([]);
+      setItemsPage(1);
+      setItemsTotalPages(1);
+      setItemsTotal(0);
       return;
     }
 
     const fetchData = async () => {
       try {
         setError(null);
-        await loadLibraryData(selectedChannelId);
+        await loadLibraryData(selectedChannelId, 1);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Failed to load channel library");
       }
@@ -178,7 +250,17 @@ export default function CreatorStudioLibraryPage() {
 
   const refreshActiveChannel = useCallback(async () => {
     if (!selectedChannelId) return;
-    await loadLibraryData(selectedChannelId);
+    await loadLibraryData(selectedChannelId, itemsPage);
+  }, [loadLibraryData, selectedChannelId, itemsPage]);
+
+  const handleItemsPageChange = useCallback(async (newPage: number) => {
+    if (!selectedChannelId) return;
+    try {
+      setError(null);
+      await loadLibraryData(selectedChannelId, newPage);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load channel library");
+    }
   }, [loadLibraryData, selectedChannelId]);
 
   const handleCreateSeries = async () => {
@@ -208,28 +290,19 @@ export default function CreatorStudioLibraryPage() {
   };
 
   const uploadLibraryAsset = useCallback(
-    async (file: File, assetType: "cover" | "reader_pdf" | "reader_page", onProgress: (value: number) => void) => {
+    async (file: File, assetType: "cover" | "reader_page", onProgress: (value: number) => void) => {
       if (!selectedChannelId) {
         throw new Error("Select a channel first");
       }
 
-      const uploadUrlRes = await createCreatorLibraryAssetUploadUrlApi(selectedChannelId, {
-        assetType,
-        contentType: file.type,
-        fileName: file.name,
-      });
-
-      if (!uploadUrlRes.ok) {
-        throw new Error(`Failed to prepare ${assetType} upload`);
+      // Direct upload through the backend (browser -> proxy -> backend -> GCS).
+      // Same-origin from the browser's perspective; no GCS CORS involvement.
+      const res = await uploadCreatorLibraryAssetApi(selectedChannelId, file, assetType, onProgress);
+      if (!res.ok || !res.data?.public_url) {
+        const detail = res.data?.message || res.data?.error || `status ${res.status}`;
+        throw new Error(`Failed to upload ${assetType === "cover" ? "cover image" : "page image"} (${detail})`);
       }
-
-      const uploadPayload = uploadUrlRes.data;
-      if (!uploadPayload?.signed_url || !uploadPayload?.public_url) {
-        throw new Error(`Upload URL response missing required fields for ${assetType}`);
-      }
-
-      await uploadFileToGCS(uploadPayload.signed_url, file, onProgress);
-      return uploadPayload.public_url;
+      return res.data.public_url;
     },
     [selectedChannelId],
   );
@@ -241,27 +314,45 @@ export default function CreatorStudioLibraryPage() {
         setManifestUploading(true);
         setManifestUploadProgress(0);
 
-        const pdfUrl = await uploadLibraryAsset(file, "reader_pdf", (value) => {
-          setManifestUploadProgress(value);
+        // Convert the PDF to page images entirely in the browser. The PDF is
+        // never uploaded or stored, so library content can never be downloaded.
+        setNotice("Converting PDF pages to reader images…");
+        const pageFiles = await convertPdfToPageImages(file, (value) => {
+          // Conversion occupies the first 30% of the progress bar.
+          setManifestUploadProgress(Math.round(value * 0.3));
         });
 
-        setItemReaderPdfUrl(pdfUrl);
+        setNotice(`Uploading ${pageFiles.length} page image${pageFiles.length === 1 ? "" : "s"}…`);
+        const uploadedPages: Array<{ url: string; name: string; size: number }> = [];
+        for (let i = 0; i < pageFiles.length; i += 1) {
+          const pageFile = pageFiles[i];
+          const pageUrl = await uploadLibraryAsset(pageFile, "reader_page", (value) => {
+            // Uploads occupy the remaining 70% of the progress bar.
+            const base = 30 + (i / pageFiles.length) * 70;
+            const scaled = base + (value / 100) * (70 / pageFiles.length);
+            setManifestUploadProgress(Math.min(100, Math.round(scaled)));
+          });
+          uploadedPages.push({ url: pageUrl, name: pageFile.name, size: pageFile.size });
+        }
+
+        setReaderPageImages(uploadedPages);
         setItemPdfFileName(file.name);
         setItemPdfFileSize(file.size);
+
         const manifestRes = await generateCreatorLibraryReaderManifestApi(selectedChannelId, {
-          pdfUrl,
-          pageImageUrls: [],
+          pageImageUrls: uploadedPages.map((page) => page.url),
         });
         if (!manifestRes.ok || !manifestRes.data.manifest_url) {
-          throw new Error("Failed to generate manifest from PDF");
+          throw new Error("Failed to generate reader manifest from PDF pages");
         }
         setItemManifestUrl(manifestRes.data.manifest_url);
+        setManifestUploadProgress(100);
         if (manifestRes.data.total_pages > 0) {
           setItemPages(String(manifestRes.data.total_pages));
         }
-        setNotice("PDF uploaded and reader manifest generated");
+        setNotice(`PDF converted to ${uploadedPages.length} reader pages and manifest generated`);
       } catch (uploadError) {
-        setError(uploadError instanceof Error ? uploadError.message : "Failed to upload PDF");
+        setError(uploadError instanceof Error ? uploadError.message : "Failed to process PDF");
       } finally {
         setManifestUploading(false);
       }
@@ -1202,6 +1293,33 @@ export default function CreatorStudioLibraryPage() {
                       </div>
                     </article>
                   ))}
+                </div>
+              )}
+
+              {/* Pagination controls */}
+              {itemsTotalPages > 1 && (
+                <div className="mt-6 flex items-center justify-between border-t border-av-input-border/20 pt-4">
+                  <p className="text-xs text-av-light-orange/70">
+                    {itemsTotal} item{itemsTotal !== 1 ? "s" : ""} • Page {itemsPage} of {itemsTotalPages}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleItemsPageChange(itemsPage - 1)}
+                      disabled={itemsPage <= 1}
+                      className="rounded-lg border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white transition hover:border-av-orange/40 hover:bg-av-orange/5 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      ← Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleItemsPageChange(itemsPage + 1)}
+                      disabled={itemsPage >= itemsTotalPages}
+                      className="rounded-lg border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-white transition hover:border-av-orange/40 hover:bg-av-orange/5 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Next →
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

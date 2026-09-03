@@ -10,8 +10,6 @@ interface FlashScreenProps {
   onComplete: () => void;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
-
 /**
  * AfroVision branded flash screen overlay.
  * Shows "Coming Up Next" or "Now Playing" text with optional ElevenLabs TTS.
@@ -28,7 +26,7 @@ export function FlashScreen({ type, title, channelName, durationMs = 5000, onCom
     const enterTimer = setTimeout(() => setPhase('show'), 400);
 
     // Try to play TTS audio
-    const audioUrl = `${API_BASE}/broadcast/flash-audio?type=${type}&title=${encodeURIComponent(title)}&channel_name=${encodeURIComponent(channelName)}`;
+    const audioUrl = `/api/proxy/broadcast/flash-audio?type=${type}&title=${encodeURIComponent(title)}&channel_name=${encodeURIComponent(channelName)}`;
     const audio = new Audio(audioUrl);
     audioRef.current = audio;
     audio.play().catch(() => { /* TTS not available — silent flash */ });

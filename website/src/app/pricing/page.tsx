@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import PaymentCheckoutDialog from "@/components/PaymentCheckoutDialog";
@@ -8,8 +8,11 @@ import {
   getCheckoutProvidersApi,
   getPlansApi,
   initializeCheckoutApi,
+  previewWalletPaymentApi,
+  subscribeWithWalletApi,
   type CheckoutProvider,
   type Plan,
+  type WalletPaymentPreview,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -26,6 +29,12 @@ export default function PricingPage() {
   const [checkoutPlan, setCheckoutPlan] = useState<{ plan: Plan; billingCycle: "monthly" | "yearly" } | null>(null);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [walletModal, setWalletModal] = useState<{ plan: Plan; billingCycle: "monthly" | "yearly" } | null>(null);
+  const [walletPreview, setWalletPreview] = useState<WalletPaymentPreview | null>(null);
+  const [walletPreviewLoading, setWalletPreviewLoading] = useState(false);
+  const [walletPaying, setWalletPaying] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [walletSuccess, setWalletSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -95,6 +104,48 @@ export default function PricingPage() {
 
     setCheckoutError(null);
     setCheckoutPlan({ plan, billingCycle });
+  }
+
+  const openWalletModal = useCallback(async (plan: Plan, billingCycle: "monthly" | "yearly") => {
+    if (!isAuthenticated) {
+      router.push(`/login?redirect=${encodeURIComponent("/pricing")}`);
+      return;
+    }
+    setWalletModal({ plan, billingCycle });
+    setWalletPreview(null);
+    setWalletError(null);
+    setWalletSuccess(null);
+    setWalletPreviewLoading(true);
+
+    const amount = billingCycle === "yearly" ? (plan.yearly_price ?? plan.price) : plan.price;
+    const res = await previewWalletPaymentApi(amount);
+    if (res.ok && "preview" in res.data) {
+      setWalletPreview(res.data.preview);
+    } else {
+      setWalletError("Failed to load wallet balance. Please try again.");
+    }
+    setWalletPreviewLoading(false);
+  }, [isAuthenticated, router]);
+
+  async function handleWalletPay() {
+    if (!walletModal) return;
+    setWalletPaying(true);
+    setWalletError(null);
+
+    const res = await subscribeWithWalletApi(walletModal.plan.id, walletModal.billingCycle);
+    if (res.ok) {
+      setWalletSuccess(`Successfully subscribed to ${walletModal.plan.name.replace(/_/g, " ")} plan!`);
+      setWalletPaying(false);
+      setTimeout(() => {
+        setWalletModal(null);
+        setWalletSuccess(null);
+        window.location.reload();
+      }, 2000);
+    } else {
+      const errData = res.data as { error?: string; message?: string };
+      setWalletError(errData.message || errData.error || "Wallet payment failed. Please try again.");
+      setWalletPaying(false);
+    }
   }
 
   async function handleCheckoutConfirm() {
@@ -342,6 +393,14 @@ export default function PricingPage() {
                             : "Get Started"}
                         </button>
                       )}
+                        {!viewerPlanDisabled && isAuthenticated && user?.subscription_plan !== plan.name && (
+                          <button
+                            onClick={() => openWalletModal(plan, yearly ? "yearly" : "monthly")}
+                            className="mt-2 block w-full rounded-xl border border-emerald-400/30 bg-emerald-400/10 py-2.5 text-center text-xs font-semibold text-emerald-300 transition-all hover:bg-emerald-400/20 hover:scale-[1.02] active:scale-[0.98]"
+                          >
+                            💎 Pay with Wallet
+                          </button>
+                        )}
                     </div>
                   );
                 })}
@@ -435,6 +494,14 @@ export default function PricingPage() {
                           ? "Go Pro"
                           : "Get Started"}
                       </button>
+                      {isAuthenticated && user?.subscription_plan !== plan.name && (
+                        <button
+                          onClick={() => openWalletModal(plan, "monthly")}
+                          className="mt-2 block w-full rounded-xl border border-emerald-400/30 bg-emerald-400/10 py-2.5 text-center text-xs font-semibold text-emerald-300 transition-all hover:bg-emerald-400/20 hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                          💎 Pay with Wallet
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -547,6 +614,144 @@ export default function PricingPage() {
         error={checkoutError}
         amountNgn={checkoutPlan ? checkoutPlan.billingCycle === "yearly" ? checkoutPlan.plan.yearly_price ?? checkoutPlan.plan.price : checkoutPlan.plan.price : undefined}
       />
+
+      {/* Wallet Payment Modal */}
+      {walletModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => { if (!walletPaying) { setWalletModal(null); setWalletSuccess(null); } }}
+        >
+          <div
+            className="relative w-full max-w-md rounded-2xl border border-av-input-border bg-av-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {walletSuccess ? (
+              <div className="text-center py-8">
+                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                  <svg className="w-7 h-7 text-emerald-400" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-semibold text-emerald-300">{walletSuccess}</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-av-white">Pay with Wallet</h3>
+                  <button
+                    onClick={() => { if (!walletPaying) setWalletModal(null); }}
+                    className="text-av-light-orange hover:text-av-white transition-colors"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+                  </button>
+                </div>
+
+                <div className="mb-4 rounded-xl border border-av-input-border bg-av-input-fill p-4">
+                  <p className="text-xs text-av-light-orange mb-1">Plan</p>
+                  <p className="text-sm font-bold text-av-white capitalize">{walletModal.plan.name.replace(/_/g, " ")}</p>
+                  <p className="text-xs text-av-light-orange mt-2 mb-1">Amount Due</p>
+                  <p className="text-2xl font-extrabold text-av-orange">₦{formatPrice(walletModal.billingCycle === "yearly" ? (walletModal.plan.yearly_price ?? walletModal.plan.price) : walletModal.plan.price)}</p>
+                </div>
+
+                {walletPreviewLoading && (
+                  <div className="flex justify-center py-6">
+                    <div className="w-6 h-6 rounded-full border-2 border-av-orange border-t-transparent animate-spin" />
+                  </div>
+                )}
+
+                {walletPreview && !walletPreviewLoading && (
+                  <>
+                    <div className="mb-4 space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-av-light-orange">Cash Balance</span>
+                        <span className="text-av-white font-semibold">₦{formatPrice(walletPreview.cashBalance)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-av-light-orange">vPT Balance</span>
+                        <span className="text-av-white font-semibold">{walletPreview.vptBalance.toFixed(2)} vPT (₦{formatPrice(walletPreview.vptBalance * walletPreview.vptPriceNgn)})</span>
+                      </div>
+                      <div className="border-t border-av-input-border pt-2 mt-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-av-light-orange">vPT Equivalent</span>
+                          <span className="text-av-white font-semibold">{walletPreview.vptEquivalent.toFixed(2)} vPT</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {walletPreview.sufficient ? (
+                      <div className="mb-4 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4">
+                        <p className="text-xs font-semibold text-emerald-300 mb-2">Payment Breakdown</p>
+                        {walletPreview.cashToDeduct > 0 && (
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-emerald-300/80">Cash Deducted</span>
+                            <span className="text-emerald-300 font-bold">₦{formatPrice(walletPreview.cashToDeduct)}</span>
+                          </div>
+                        )}
+                        {walletPreview.vptToDeduct > 0 && (
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-emerald-300/80">vPT Deducted</span>
+                            <span className="text-emerald-300 font-bold">{walletPreview.vptToDeduct.toFixed(2)} vPT</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                        <p className="text-xs font-semibold text-red-300 mb-1">Insufficient Balance</p>
+                        <p className="text-xs text-red-300/80">
+                          Your combined wallet balance is not enough. Top up your wallet or pay with card.
+                        </p>
+                        <Link href="/wallet" className="inline-block mt-2 text-xs font-semibold text-av-orange hover:text-av-light-orange">
+                          Top up wallet →
+                        </Link>
+                      </div>
+                    )}
+
+                    {walletError && (
+                      <p className="mb-3 text-xs text-red-400">{walletError}</p>
+                    )}
+
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setWalletModal(null)}
+                        disabled={walletPaying}
+                        className="flex-1 rounded-xl border border-av-input-border bg-av-input-fill py-3 text-sm font-semibold text-av-light-orange transition-all hover:bg-av-white/5 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => void handleWalletPay()}
+                        disabled={!walletPreview.sufficient || walletPaying}
+                        className="flex-1 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 py-3 text-sm font-bold text-white transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100"
+                      >
+                        {walletPaying ? (
+                          <span className="inline-flex items-center gap-2">
+                            <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                            Processing...
+                          </span>
+                        ) : (
+                          "Confirm Payment"
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {walletError && !walletPreviewLoading && !walletPreview && (
+                  <>
+                    <p className="mb-3 text-xs text-red-400">{walletError}</p>
+                    <button
+                      onClick={() => setWalletModal(null)}
+                      className="w-full rounded-xl border border-av-input-border bg-av-input-fill py-3 text-sm font-semibold text-av-light-orange transition-all hover:bg-av-white/5"
+                    >
+                      Close
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

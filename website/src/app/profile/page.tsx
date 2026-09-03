@@ -131,6 +131,31 @@ export default function ProfilePage() {
                 <InfoCard label="Plan" value={profile.subscription_plan || "No active plan"} />
                 <InfoCard label="Member Since" value={formatDate(profile.created_at)} />
               </section>
+
+              {(profile.firstName || profile.lastName || profile.country || profile.phoneNumber) && (
+                <section className="rounded-2xl border border-av-input-border/30 bg-av-card p-6">
+                  <h3 className="text-sm font-semibold text-av-white mb-4">Personal Details</h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {profile.firstName && <InfoCard label="First Name" value={profile.firstName} />}
+                    {profile.lastName && <InfoCard label="Last Name" value={profile.lastName} />}
+                    {profile.country && (
+                      <InfoCard label="Location" value={[profile.city, profile.state, profile.country].filter(Boolean).join(", ")} />
+                    )}
+                    {profile.address && <InfoCard label="Address" value={profile.address} />}
+                    {profile.phoneNumber && <InfoCard label="Phone" value={profile.phoneNumber} />}
+                    {profile.referralSource && (
+                      <InfoCard
+                        label="How You Found Us"
+                        value={
+                          profile.referralSource === "Other, please specify" && profile.referralSourceDetail
+                            ? profile.referralSourceDetail
+                            : profile.referralSource
+                        }
+                      />
+                    )}
+                  </div>
+                </section>
+              )}
             </div>
 
             <div className="space-y-6">

@@ -17,12 +17,15 @@ function calculateAge(dateOfBirth) {
 
 async function isAdultKycVerified(userId) {
   const user = await User.findById(userId);
-  if (!user || user.kyc_status !== 'verified') return false;
+  if (!user || user.kyc_status !== 'verified') return { isVerified: false, isMinor: false };
+
+  // Minors with verified guardian consent are still blocked from exclusive channels
+  if (user.is_minor === true) return { isVerified: false, isMinor: true };
 
   const kyc = await KycModel.findByUserId(userId);
-  if (!kyc || kyc.status !== 'verified') return false;
+  if (!kyc || kyc.status !== 'verified') return { isVerified: false, isMinor: false };
 
-  return true;
+  return { isVerified: true, isMinor: false };
 }
 
 module.exports = {

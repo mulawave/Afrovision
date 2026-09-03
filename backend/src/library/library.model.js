@@ -36,6 +36,7 @@ const CHANNEL_LIBRARY_ITEMS_SCHEMA = {
   updatedBy: 'string', // userId of last editor
   createdAt: 'timestamp',
   updatedAt: 'timestamp',
+  isPublic: 'boolean', // opt-in visibility in the public Library feed (exclusive/private channels only; public channels are always implicitly public)
   // Engagement counters (denormalized, updated by jobs)
   totalReads: 'number', // count of distinct users who opened
   totalFavorites: 'number', // count of current favorites

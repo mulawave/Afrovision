@@ -229,12 +229,23 @@ class BroadcastService {
         .toList();
   }
 
-  static Future<List<VideoModel>> getChannelVideos(String channelId) async {
-    final data = await ApiService.get('/broadcast/videos/channel/$channelId');
+  static Future<({List<VideoModel> videos, int? totalPages, int? page, int? total})>
+      getChannelVideos(String channelId, {int? page, int? limit}) async {
+    final query = StringBuffer('/broadcast/videos/channel/$channelId');
+    if (page != null) query.write('?page=$page');
+    if (limit != null) query.write('${page != null ? '&' : '?'}limit=$limit');
+    final data = await ApiService.get(query.toString());
     final list = data['videos'] as List<dynamic>;
-    return list
+    final videos = list
         .map((e) => VideoModel.fromJson(e as Map<String, dynamic>))
         .toList();
+    final pagination = data['pagination'] as Map<String, dynamic>?;
+    return (
+      videos: videos,
+      totalPages: pagination?['totalPages'] as int?,
+      page: pagination?['page'] as int?,
+      total: pagination?['total'] as int?,
+    );
   }
 
   static Future<void> deleteVideo(String videoId) async {

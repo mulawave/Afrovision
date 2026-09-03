@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:media_kit/media_kit.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/deep_link_service.dart';
 import 'core/services/floating_player_service.dart';
@@ -76,6 +77,9 @@ import 'features/channel/screens/my_pics_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize media_kit before any Player/VideoController is created.
+  MediaKit.ensureInitialized();
 
   // Initialize Firebase and FCM
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);

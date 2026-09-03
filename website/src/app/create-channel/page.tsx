@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   createChannelWithMediaApi,
@@ -42,7 +42,7 @@ const SOURCE_MODES: { value: StreamSourceMode; label: string; desc: string }[] =
 ];
 
 export default function CreateChannelPage() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isMinor } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -67,6 +67,13 @@ export default function CreateChannelPage() {
   const [detectedMode, setDetectedMode] = useState<StreamSourceMode | null>(
     null,
   );
+  const lastValidationResult = useRef<null | {
+    stream_status: string;
+    resolved_playback_url: string;
+    external_provider: string;
+    provider_metadata: unknown;
+    last_checked_at: string;
+  }>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +119,13 @@ export default function CreateChannelPage() {
       const mode = res.data.stream_source_mode as StreamSourceMode;
       setDetectedMode(mode);
       setStreamSourceMode(mode);
+      lastValidationResult.current = {
+        stream_status: res.data.stream_status,
+        resolved_playback_url: res.data.resolved_playback_url,
+        external_provider: res.data.external_provider,
+        provider_metadata: res.data.provider_metadata,
+        last_checked_at: res.data.last_checked_at,
+      };
       setUrlValidation({
         ok: true,
         message: `Valid ${sourceModeLabel(mode)} · Status: ${res.data.stream_status}`,
@@ -176,10 +190,20 @@ export default function CreateChannelPage() {
     }
 
     if (externalUrl.trim()) {
-      const extRes = await updateExternalSourceApi(channelId, {
-        stream_source_mode: streamSourceMode,
-        external_url: externalUrl.trim(),
-      });
+      const lv = lastValidationResult.current;
+      const extRes = await updateExternalSourceApi(channelId,
+        lv && lv.stream_status
+          ? {
+              stream_source_mode: streamSourceMode,
+              external_url: externalUrl.trim(),
+              stream_status: lv.stream_status,
+              resolved_playback_url: lv.resolved_playback_url,
+              external_provider: lv.external_provider,
+              provider_metadata: lv.provider_metadata as Record<string, unknown> | null,
+              last_checked_at: lv.last_checked_at,
+            }
+          : { stream_source_mode: streamSourceMode, external_url: externalUrl.trim() },
+      );
       if (!extRes.ok) {
         setError(
           "Channel created but stream URL could not be saved. Edit it later in Creator Studio.",
@@ -211,6 +235,21 @@ export default function CreateChannelPage() {
             className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange"
           >
             Sign in →
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (isMinor) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-6 pt-24">
+        <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
+          <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Create Channel</p>
+          <h1 className="mt-3 text-2xl font-bold text-av-white">Not available for minors</h1>
+          <p className="mt-4 text-sm text-av-light-orange">Channel creation is restricted to users aged 18 and above.</p>
+          <Link href="/" className="mt-6 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange">
+            ← Back to Home
           </Link>
         </div>
       </main>
@@ -406,6 +445,7 @@ export default function CreateChannelPage() {
                           setExternalUrl(e.target.value);
                           setUrlValidation(null);
                           setDetectedMode(null);
+                          lastValidationResult.current = null;
                         }}
                         placeholder={
                           streamSourceMode === "external_url"

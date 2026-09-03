@@ -13,7 +13,6 @@
  *
  * Rejected inputs (return error, never persisted):
  *   - Non-https URLs
- *   - Private/localhost addresses (SSRF guard)
  *   - Generic webpages that are not a recognized provider
  *   - Sources whose host is not on the approved list
  */
@@ -31,34 +30,6 @@ const YOUTUBE_HOSTS = new Set([
   'm.youtube.com',
   'youtu.be',
 ]);
-
-// ── SSRF guard: private / reserved IP ranges ────────────────────────────────
-// Checked against resolved hostnames to block server-side request forgery.
-const PRIVATE_IP_PREFIXES = [
-  '10.',
-  '172.16.',
-  '172.17.',
-  '172.18.',
-  '172.19.',
-  '172.20.',
-  '172.21.',
-  '172.22.',
-  '172.23.',
-  '172.24.',
-  '172.25.',
-  '172.26.',
-  '172.27.',
-  '172.28.',
-  '172.29.',
-  '172.30.',
-  '172.31.',
-  '192.168.',
-  '127.',
-  '169.254.',
-  '::1',
-  'fc00:',
-  'fe80:',
-];
 
 const PROBE_TIMEOUT_MS = 8000;
 const PROBE_MAX_REDIRECTS = 3;
@@ -128,14 +99,7 @@ function classifyUrl(rawUrl) {
     );
   }
 
-  // Block IP-address hostnames (SSRF guard — hostname level)
   const hostname = parsed.hostname.toLowerCase();
-  if (isPrivateHostname(hostname)) {
-    throw new ResolverError(
-      'Private or reserved network addresses are not permitted',
-      'SSRF_BLOCKED',
-    );
-  }
 
   // ── YouTube ──
   if (YOUTUBE_HOSTS.has(hostname)) {
@@ -195,21 +159,6 @@ function classifyUrl(rawUrl) {
   );
 }
 
-// ── SSRF guard helper ────────────────────────────────────────────────────────
-
-function isPrivateHostname(hostname) {
-  // Block localhost and bare IP patterns at the string level.
-  // Full DNS resolution is not performed here but private-range prefixes
-  // and localhost variants are blocked.
-  if (hostname === 'localhost' || hostname === '0.0.0.0') return true;
-  for (const prefix of PRIVATE_IP_PREFIXES) {
-    if (hostname.startsWith(prefix)) return true;
-  }
-  // Block numeric IPv4 addresses that resolve to any range
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
-  return false;
-}
-
 // ── URL probing ──────────────────────────────────────────────────────────────
 
 /**
@@ -265,10 +214,11 @@ function extractVideoIdFromEmbedUrl(embedUrl) {
 
 /**
  * Perform a HEAD request to a URL and return reachability metadata.
+ * Falls back to GET when the server rejects HEAD with 405 (common for HLS origins).
  * Never follows more than PROBE_MAX_REDIRECTS redirects.
  * Returns { reachable, httpStatus, latencyMs, error }.
  */
-function probeUrl(url, redirectsRemaining = PROBE_MAX_REDIRECTS) {
+function probeUrl(url, redirectsRemaining = PROBE_MAX_REDIRECTS, methodOverride = null) {
   return new Promise((resolve) => {
     const startMs = Date.now();
 
@@ -279,18 +229,14 @@ function probeUrl(url, redirectsRemaining = PROBE_MAX_REDIRECTS) {
       return resolve({ reachable: false, httpStatus: null, latencyMs: 0, error: 'Invalid URL' });
     }
 
-    // SSRF guard on the probe target as well
-    if (isPrivateHostname(parsed.hostname.toLowerCase())) {
-      return resolve({ reachable: false, httpStatus: null, latencyMs: 0, error: 'SSRF_BLOCKED' });
-    }
-
+    const method = methodOverride || 'HEAD';
     const lib = parsed.protocol === 'https:' ? https : http;
     const req = lib.request(
       {
         hostname: parsed.hostname,
         port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
         path: parsed.pathname + parsed.search,
-        method: 'HEAD',
+        method,
         headers: {
           'User-Agent': 'AfroVision-StreamValidator/1.0',
           Accept: '*/*',
@@ -312,12 +258,14 @@ function probeUrl(url, redirectsRemaining = PROBE_MAX_REDIRECTS) {
           } catch {
             return resolve({ reachable: false, httpStatus: status, latencyMs, error: 'Bad redirect location' });
           }
-          // SSRF guard on redirect target
-          const nextParsed = new URL(next);
-          if (isPrivateHostname(nextParsed.hostname.toLowerCase())) {
-            return resolve({ reachable: false, httpStatus: null, latencyMs, error: 'SSRF_BLOCKED' });
-          }
-          probeUrl(next, redirectsRemaining - 1).then(resolve);
+          probeUrl(next, redirectsRemaining - 1, methodOverride).then(resolve);
+          return;
+        }
+
+        // 405 Method Not Allowed or 403 Forbidden: retry with GET
+        // (common for HLS origins that only accept GET requests)
+        if ((status === 405 || status === 403) && !methodOverride) {
+          probeUrl(url, redirectsRemaining, 'GET').then(resolve);
           return;
         }
 
@@ -405,9 +353,7 @@ async function resolveSource(rawUrl) {
   const probe = await probeUrl(classification.resolvedPlaybackUrl);
 
   let streamStatus;
-  if (probe.error === 'SSRF_BLOCKED') {
-    streamStatus = 'invalid';
-  } else if (!probe.reachable && probe.httpStatus === null) {
+  if (!probe.reachable && probe.httpStatus === null) {
     // Network failure / timeout — treat as offline, not invalid
     streamStatus = 'offline';
   } else if (probe.httpStatus === 403 || probe.httpStatus === 401) {

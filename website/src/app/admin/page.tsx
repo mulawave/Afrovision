@@ -11,6 +11,7 @@ import {
   getAdminUsersApi,
   getAuditLogsApi,
   getFeatureFlagsApi,
+  regenerateWaveThumbnailsApi,
   sendUserNotificationApi,
   setFeatureFlagApi,
   updateAdminChannelNumberApi,
@@ -61,6 +62,8 @@ export default function AdminPage() {
   const [channelNumberSavingId, setChannelNumberSavingId] = useState<string | null>(null);
   const [channelNumberMessage, setChannelNumberMessage] = useState<string | null>(null);
   const [channelSearch, setChannelSearch] = useState("");
+  const [thumbBusy, setThumbBusy] = useState(false);
+  const [thumbMessage, setThumbMessage] = useState<string | null>(null);
 
   const loadAdmin = useCallback(async () => {
     setLoading(true);
@@ -146,6 +149,19 @@ export default function AdminPage() {
 
     setChannelNumberSavingId(null);
     setBusy(false);
+  }
+
+  async function handleRegenerateThumbnails() {
+    setThumbBusy(true);
+    setError(null);
+    setThumbMessage(null);
+    const res = await regenerateWaveThumbnailsApi();
+    if (!res.ok) {
+      setError("error" in res.data ? res.data.error : "Could not regenerate thumbnails.");
+    } else if ("message" in res.data) {
+      setThumbMessage(res.data.message);
+    }
+    setThumbBusy(false);
   }
 
   async function handleSendNotice(event: React.FormEvent) {
@@ -284,6 +300,23 @@ export default function AdminPage() {
                       ))}
                     </div>
                   )}
+                </div>
+
+                <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+                  <h2 className="text-lg font-semibold text-av-white">Wave thumbnails</h2>
+                  <p className="mt-2 text-xs text-av-light-orange">Regenerate missing thumbnails for all active waves. Runs synchronously and may take a while.</p>
+                  {thumbMessage && (
+                    <div className="mt-3 rounded-xl border border-av-orange/30 bg-av-orange/10 px-3 py-2 text-xs text-av-orange">
+                      {thumbMessage}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleRegenerateThumbnails}
+                    disabled={thumbBusy}
+                    className="mt-4 rounded-full border border-av-orange/30 bg-av-orange/10 px-5 py-2.5 text-sm font-semibold text-av-orange disabled:opacity-60"
+                  >
+                    {thumbBusy ? "Regenerating..." : "Backfill Missing Thumbnails"}
+                  </button>
                 </div>
               </section>
 

@@ -26,9 +26,9 @@ class LibraryPolicyService {
 
     // KYC policy follows existing exclusive policy source of truth.
     const isKycAllowed = await isAdultKycVerified(userId);
-    if (!isKycAllowed) {
+    if (!isKycAllowed.isVerified) {
       // Log denial for audit
-      await this._logPolicyDenial(userId, channelId, 'kyc_not_verified_adult', {});
+      await this._logPolicyDenial(userId, channelId, isKycAllowed.isMinor ? 'minor_blocked' : 'kyc_not_verified_adult', {});
       return false;
     }
 

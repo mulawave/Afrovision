@@ -111,51 +111,62 @@ export default function MySubscriptionsPage() {
             {activeSubs.map((sub) => (
               <div
                 key={sub.id}
-                className="flex items-center gap-4 p-4 rounded-xl bg-av-card border border-av-input-border/20 hover:border-av-orange/30 transition-all"
+                className="rounded-xl bg-av-card border border-av-input-border/20 hover:border-av-orange/30 transition-all overflow-hidden"
               >
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-xl font-bold text-av-dark-blue flex-shrink-0">
-                  {sub.channel_name?.charAt(0).toUpperCase() || "📺"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-semibold text-av-white truncate">
-                      {sub.channel_name || "Unknown Channel"}
-                    </h3>
-                    {sub.is_premium ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold text-av-orange bg-av-orange/10 border border-av-orange/20">
-                        PREMIUM
-                      </span>
+                <div className="flex items-center gap-4 p-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-xl font-bold text-av-dark-blue flex-shrink-0 overflow-hidden">
+                    {sub.channel_logo_url ? (
+                      <img src={sub.channel_logo_url} alt={sub.channel_name} className="w-full h-full object-cover" />
                     ) : (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold text-emerald-300 bg-emerald-400/10 border border-emerald-400/20">
-                        FREE
-                      </span>
+                      sub.channel_name?.charAt(0).toUpperCase() || "📺"
                     )}
                   </div>
-                  <p className="text-xs text-av-light-orange mt-0.5">
-                    Subscribed {formatDate(sub.subscribed_at)}
-                    {sub.is_premium && sub.next_billing && (
-                      <> · Next billing {formatDate(sub.next_billing)}</>
-                    )}
-                    {sub.is_premium && sub.amount > 0 && (
-                      <> · ₦{sub.amount.toLocaleString()} / {sub.interval_count} {sub.interval_unit}{sub.interval_count > 1 ? "s" : ""}</>
-                    )}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold text-av-white truncate">
+                        {sub.channel_name || "Unknown Channel"}
+                      </h3>
+                      {sub.is_premium ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold text-av-orange bg-av-orange/10 border border-av-orange/20">
+                          PREMIUM
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold text-emerald-300 bg-emerald-400/10 border border-emerald-400/20">
+                          FREE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-av-light-orange mt-0.5">
+                      Subscribed {formatDate(sub.subscribed_at)}
+                      {sub.is_premium && sub.next_billing && (
+                        <> · Next billing {formatDate(sub.next_billing)}</>
+                      )}
+                      {sub.is_premium && sub.amount > 0 && (
+                        <> · ₦{sub.amount.toLocaleString()} / {sub.interval_count} {sub.interval_unit}{sub.interval_count > 1 ? "s" : ""}</>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <Link
+                      href={`/channel/${sub.channel_id}`}
+                      className="px-4 py-2 rounded-full text-xs font-semibold text-av-orange border border-av-orange/40 hover:bg-av-orange/10 transition-all"
+                    >
+                      View Channel
+                    </Link>
+                    <button
+                      onClick={() => handleCancel(sub)}
+                      disabled={cancellingId === sub.id}
+                      className="px-4 py-2 rounded-full text-xs font-semibold text-av-error border border-av-error/40 hover:bg-av-error/10 transition-all disabled:opacity-60"
+                    >
+                      {cancellingId === sub.id ? "Cancelling..." : "Unsubscribe"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <Link
-                    href={`/channel/${sub.channel_id}`}
-                    className="px-4 py-2 rounded-full text-xs font-semibold text-av-orange border border-av-orange/40 hover:bg-av-orange/10 transition-all"
-                  >
-                    View Channel
-                  </Link>
-                  <button
-                    onClick={() => handleCancel(sub)}
-                    disabled={cancellingId === sub.id}
-                    className="px-4 py-2 rounded-full text-xs font-semibold text-av-error border border-av-error/40 hover:bg-av-error/10 transition-all disabled:opacity-60"
-                  >
-                    {cancellingId === sub.id ? "Cancelling..." : "Unsubscribe"}
-                  </button>
-                </div>
+                {sub.channel_description && (
+                  <div className="px-4 pb-3 pt-1 border-t border-av-input-border/10">
+                    <p className="text-xs text-av-light-orange/80 line-clamp-2">{sub.channel_description}</p>
+                  </div>
+                )}
               </div>
             ))}
           </div>

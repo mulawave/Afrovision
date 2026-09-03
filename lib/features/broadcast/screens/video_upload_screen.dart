@@ -249,9 +249,9 @@ class _VideoUploadScreenState extends State<VideoUploadScreen>
     if (_channelId == null) return;
     setState(() => _loadingExisting = true);
     try {
-      final videos = await BroadcastService.getChannelVideos(_channelId!);
+      final result = await BroadcastService.getChannelVideos(_channelId!);
       if (!mounted) return;
-      setState(() => _existingVideos = videos);
+      setState(() => _existingVideos = result.videos);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

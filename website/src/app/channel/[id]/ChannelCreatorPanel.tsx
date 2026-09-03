@@ -14,20 +14,39 @@ import {
   uploadFileToGCS,
   registerUploadedVideoApi,
   uploadVideoApi,
+  createVideoResumableSessionApi,
+  completeVideoResumableSessionApi,
   scheduleProgramApi,
   scheduleSequentialApi,
   resolveSourceApi,
   uploadChannelMediaApi,
   updateChannelApi,
+  updateExclusiveSettingsApi,
   updateExternalSourceApi,
   recheckStreamHealthApi,
   deleteProgramApi,
   deleteChannelApi,
+  getChannelSubscribersApi,
+  banChannelSubscriberApi,
+  unbanChannelSubscriberApi,
+  updateVideoContentRatingApi,
+  retryVideoTranscodeApi,
   type Channel,
   type ChannelVideo,
+  type ChannelSubscriber,
   type ScheduleProgram,
   type VideoUploadSession,
 } from "@/lib/api";
+import { ResumableUploader, saveUploadSession, removeUploadSession } from "@/lib/resumable-upload";
+import { MediaUploadPanel } from "./MediaUploadPanel";
+import {
+  CLASSIFICATION_OPTIONS,
+  PUBLIC_CLASSIFICATION_OPTIONS,
+  GENERAL_CONTENT_FIELDS,
+  ADULT_SENSITIVE_FIELDS,
+  getClassificationMeta,
+  type AgeClassification,
+} from "@/lib/content-rating";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
 import { useRouter } from "next/navigation";
 import { WaveUploadPanel } from "@/components/WaveUploadPanel";
@@ -135,6 +154,21 @@ interface UploadEntry {
   progress: number; // -1 = pending, 0-100 = uploading, 101 = registered
   error: string | null;
   registeredVideoId: string | null;
+  sessionId: string | null;
+  paused: boolean;
+  retrying: boolean;
+  uploadSpeed: number;
+  ageClassification: AgeClassification;
+  hasExplicitLanguage: boolean;
+  hasNudity: boolean;
+  hasViolence: boolean;
+  hasRevealingClothes: boolean;
+  hasPartialNudity: boolean;
+  hasExplicitContent: boolean;
+  hasParentalGuidance: boolean;
+  hasEroticDancing: boolean;
+  hasSexualNature: boolean;
+  hasSex: boolean;
 }
 
 /* ── component ─────────────────────────────────────────────────────── */
@@ -165,6 +199,7 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
   const [cancelingSessionId, setCancelingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploaderRefs = useRef<Map<string, ResumableUploader>>(new Map());
 
   /* ── auto-schedule state ─────────────────────────────── */
   const [showAutoSchedule, setShowAutoSchedule] = useState(false);
@@ -190,6 +225,7 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
   const [extSourceUrl, setExtSourceUrl] = useState(channel.external_url ?? "");
   const [extValidating, setExtValidating] = useState(false);
   const [extUrlValidation, setExtUrlValidation] = useState<{ ok: boolean; message: string } | null>(null);
+  const lastValidationResult = useRef<null | { stream_status: string; resolved_playback_url: string; external_provider: string; provider_metadata: unknown; last_checked_at: string }>(null);
   const [extSaving, setExtSaving] = useState(false);
   const [extRechecking, setExtRechecking] = useState(false);
 
@@ -201,6 +237,35 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
   const [editChannelLogoFile, setEditChannelLogoFile] = useState<File | null>(null);
   const [editChannelBannerFile, setEditChannelBannerFile] = useState<File | null>(null);
   const [savingChannelEdit, setSavingChannelEdit] = useState(false);
+
+  /* ── exclusive fee state ─────────────────────────────── */
+  const isExclusiveChannel = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+  const [exclusiveFeeDraft, setExclusiveFeeDraft] = useState(String(channel.exclusive_monthly_fee_ngn || 0));
+  const [savingExclusiveFee, setSavingExclusiveFee] = useState(false);
+  const [exclusiveFeeMessage, setExclusiveFeeMessage] = useState<string | null>(null);
+
+  /* ── subscriber management state ─────────────────────── */
+  const [subscribers, setSubscribers] = useState<ChannelSubscriber[]>([]);
+  const [subscribersLoading, setSubscribersLoading] = useState(false);
+  const [subscribersLoaded, setSubscribersLoaded] = useState(false);
+  const [subscriberActionUid, setSubscriberActionUid] = useState<string | null>(null);
+  const [subscriberFilter, setSubscriberFilter] = useState<"all" | "active" | "banned" | "cancelled">("all");
+  const [subscriberSearch, setSubscriberSearch] = useState("");
+
+  /* ── content rating editor for legacy videos ─────────── */
+  const [ratingEditorVideo, setRatingEditorVideo] = useState<ChannelVideo | null>(null);
+  const [ratingEditorAge, setRatingEditorAge] = useState<AgeClassification>("teen");
+  const [ratingEditorFields, setRatingEditorFields] = useState<Record<string, boolean>>({});
+  const [ratingEditorSaving, setRatingEditorSaving] = useState(false);
+  const [batchRatingSaving, setBatchRatingSaving] = useState(false);
+  const [retryingTranscodeId, setRetryingTranscodeId] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<
+    { type: "single"; videoId: string; title: string } |
+    { type: "selected"; count: number } |
+    { type: "all"; count: number } |
+    null
+  >(null);
+  const [deletingConfirmed, setDeletingConfirmed] = useState(false);
 
   /* ── derived ─────────────────────────────────────────── */
   const isContinuousUrlChannel = channel.stream_source_mode === "external_url";
@@ -241,6 +306,46 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
     setLoadingUploadSessions(false);
   }, [channelId]);
 
+  const loadSubscribers = useCallback(async () => {
+    setSubscribersLoading(true);
+    const res = await getChannelSubscribersApi(channelId);
+    if (res.ok && "subscribers" in res.data) {
+      setSubscribers(res.data.subscribers);
+    }
+    setSubscribersLoading(false);
+    setSubscribersLoaded(true);
+  }, [channelId]);
+
+  async function handleBanSubscriber(uid: string) {
+    setSubscriberActionUid(uid);
+    setError(null);
+    const res = await banChannelSubscriberApi(channelId, uid);
+    if (res.ok && "subscription" in res.data) {
+      const updated = res.data.subscription;
+      setSubscribers((prev) =>
+        prev.map((s) => s.id === updated.id ? { ...s, status: updated.status } : s)
+      );
+    } else {
+      setError("Failed to ban subscriber. Please try again.");
+    }
+    setSubscriberActionUid(null);
+  }
+
+  async function handleUnbanSubscriber(uid: string) {
+    setSubscriberActionUid(uid);
+    setError(null);
+    const res = await unbanChannelSubscriberApi(channelId, uid);
+    if (res.ok && "subscription" in res.data) {
+      const updated = res.data.subscription;
+      setSubscribers((prev) =>
+        prev.map((s) => s.id === updated.id ? { ...s, status: updated.status } : s)
+      );
+    } else {
+      setError("Failed to unban subscriber. Please try again.");
+    }
+    setSubscriberActionUid(null);
+  }
+
   /* ── initial load ─────────────────────────────────────── */
   useEffect(() => {
     let cancelled = false;
@@ -252,6 +357,11 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
     void load();
     return () => { cancelled = true; };
   }, [loadVideos, loadSchedule, loadUploadSessions]);
+
+  /* ── auto-load subscribers ─────────────────────────────── */
+  useEffect(() => {
+    void loadSubscribers();
+  }, [loadSubscribers]);
 
   /* ── auto-refresh upload sessions ───────────────────── */
   useEffect(() => {
@@ -280,6 +390,21 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
         progress: -1,
         error: supported ? null : "Unsupported format. Upload MP4 (H.264/AAC) or WebM (VP9/Opus).",
         registeredVideoId: null,
+        sessionId: null,
+        paused: false,
+        retrying: false,
+        uploadSpeed: 0,
+        ageClassification: "teen",
+        hasExplicitLanguage: false,
+        hasNudity: false,
+        hasViolence: false,
+        hasRevealingClothes: false,
+        hasPartialNudity: false,
+        hasExplicitContent: false,
+        hasParentalGuidance: false,
+        hasEroticDancing: false,
+        hasSexualNature: false,
+        hasSex: false,
       });
     }
     setUploadEntries((prev) => [...prev, ...newEntries]);
@@ -359,24 +484,108 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
         updateEntry(entry.id, { progress: 101, registeredVideoId: directRes.data.video.id, error: null });
       };
 
-      try {
+      const fallbackToSignedUrlUpload = async () => {
         updateEntry(entry.id, { progress: 0, error: null });
         const signedRes = await getVideoUploadUrlApi({ contentType: getVideoContentType(entry.file), fileName: entry.file.name });
         if (!signedRes.ok || !("signed_url" in signedRes.data)) {
           await fallbackToLegacyUpload();
-          continue;
+          return;
         }
         await uploadFileToGCS(signedRes.data.signed_url, entry.file, (pct) => {
           updateEntry(entry.id, { progress: pct, error: null });
         });
-        const registerRes = await registerUploadedVideoApi({ channelId, title, description, duration: resolvedDuration, videoUrl: signedRes.data.public_url });
+        const registerRes = await registerUploadedVideoApi({ channelId, title, description, duration: resolvedDuration, videoUrl: signedRes.data.public_url, ageClassification: entry.ageClassification, hasExplicitLanguage: entry.hasExplicitLanguage, hasNudity: entry.hasNudity, hasViolence: entry.hasViolence, hasRevealingClothes: entry.hasRevealingClothes, hasPartialNudity: entry.hasPartialNudity, hasExplicitContent: entry.hasExplicitContent, hasParentalGuidance: entry.hasParentalGuidance, hasEroticDancing: entry.hasEroticDancing, hasSexualNature: entry.hasSexualNature, hasSex: entry.hasSex });
         if (!registerRes.ok || !("video" in registerRes.data)) {
           updateEntry(entry.id, { error: "error" in registerRes.data ? registerRes.data.error : "Registration failed", progress: -1 });
-          continue;
+          return;
         }
         updateEntry(entry.id, { progress: 101, registeredVideoId: registerRes.data.video.id, error: null });
+      };
+
+      try {
+        updateEntry(entry.id, { progress: 0, error: null, retrying: false });
+
+        const sessionRes = await createVideoResumableSessionApi({
+          channelId,
+          title,
+          description,
+          duration: resolvedDuration,
+          fileName: entry.file.name,
+          fileSize: entry.file.size,
+          contentType: getVideoContentType(entry.file),
+          ageClassification: entry.ageClassification,
+          hasExplicitLanguage: entry.hasExplicitLanguage,
+          hasNudity: entry.hasNudity,
+          hasViolence: entry.hasViolence,
+          hasRevealingClothes: entry.hasRevealingClothes,
+          hasPartialNudity: entry.hasPartialNudity,
+          hasExplicitContent: entry.hasExplicitContent,
+          hasParentalGuidance: entry.hasParentalGuidance,
+          hasEroticDancing: entry.hasEroticDancing,
+          hasSexualNature: entry.hasSexualNature,
+          hasSex: entry.hasSex,
+        });
+
+        if (!sessionRes.ok || !("session" in sessionRes.data)) {
+          await fallbackToSignedUrlUpload();
+          continue;
+        }
+
+        const session = sessionRes.data.session;
+        if (!session.upload_url) {
+          await fallbackToSignedUrlUpload();
+          continue;
+        }
+
+        updateEntry(entry.id, { sessionId: session.id });
+
+        saveUploadSession({
+          sessionId: session.id,
+          sessionUrl: session.upload_url,
+          fileName: entry.file.name,
+          fileSize: entry.file.size,
+          uploadedBytes: 0,
+          channelId,
+          title,
+          createdAt: Date.now(),
+        });
+
+        const uploader = new ResumableUploader({
+          file: entry.file,
+          sessionId: session.id,
+          sessionUrl: session.upload_url,
+          onProgress: (pct) => {
+            updateEntry(entry.id, { progress: pct, error: null });
+          },
+          onPaused: () => {
+            updateEntry(entry.id, { paused: true });
+          },
+          onError: (errMsg) => {
+            updateEntry(entry.id, { error: errMsg, retrying: false });
+          },
+          onRetrying: (attempt, maxAttempts) => {
+            updateEntry(entry.id, { retrying: true, error: `Retrying… attempt ${attempt}/${maxAttempts}` });
+          },
+          onSpeedUpdate: (bps) => {
+            updateEntry(entry.id, { uploadSpeed: bps });
+          },
+        });
+
+        uploaderRefs.current.set(entry.id, uploader);
+        await uploader.start();
+
+        if (uploader.getOffset() >= entry.file.size) {
+          const completeRes = await completeVideoResumableSessionApi(session.id);
+          if (!completeRes.ok || !("video" in completeRes.data)) {
+            updateEntry(entry.id, { error: "error" in completeRes.data ? completeRes.data.error : "Failed to complete upload session", progress: -1 });
+            continue;
+          }
+          removeUploadSession(session.id);
+          updateEntry(entry.id, { progress: 101, registeredVideoId: completeRes.data.video.id, error: null, sessionId: null });
+        }
       } catch {
-        await fallbackToLegacyUpload();
+        uploaderRefs.current.delete(entry.id);
+        await fallbackToSignedUrlUpload();
       }
     }
 
@@ -388,6 +597,35 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
 
     const updated = uploadEntries.filter((e) => e.progress === 101 && e.registeredVideoId);
     if (updated.length > 0) setShowAutoSchedule(true);
+  }
+
+  /* ── Pause / Resume individual uploads ─────────────── */
+
+  function handlePauseUpload(entryId: string) {
+    const uploader = uploaderRefs.current.get(entryId);
+    if (uploader) {
+      uploader.pause();
+      updateEntry(entryId, { paused: true });
+    }
+  }
+
+  async function handleResumeUpload(entryId: string) {
+    const uploader = uploaderRefs.current.get(entryId);
+    if (!uploader) return;
+    updateEntry(entryId, { paused: false, error: null });
+    try {
+      await uploader.resume();
+      const entry = uploadEntries.find((e) => e.id === entryId);
+      if (entry && uploader.getOffset() >= entry.file.size) {
+        const completeRes = await completeVideoResumableSessionApi(entry.sessionId!);
+        if (completeRes.ok && "video" in completeRes.data) {
+          removeUploadSession(entry.sessionId!);
+          updateEntry(entryId, { progress: 101, registeredVideoId: completeRes.data.video.id, error: null, sessionId: null });
+        }
+      }
+    } catch {
+      updateEntry(entryId, { error: "Resume failed. Please retry.", progress: -1 });
+    }
   }
 
   /* ── auto-schedule uploads ───────────────────────────── */
@@ -449,17 +687,39 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
   }
 
   /* ── delete video ─────────────────────────────────────── */
-  async function handleDeleteVideo(videoId: string) {
-    setBusy(true);
+  function handleDeleteVideo(videoId: string, title: string) {
+    setDeleteConfirm({ type: "single", videoId, title });
+  }
+  async function confirmDeleteVideo() {
+    if (!deleteConfirm) return;
+    setDeletingConfirmed(true);
     setError(null);
-    const res = await deleteVideoApi(videoId);
-    if (!res.ok) {
-      setError("error" in res.data ? res.data.error : "Could not delete video.");
-    } else {
-      await loadVideos();
-      await loadSchedule();
+    if (deleteConfirm.type === "single") {
+      const res = await deleteVideoApi(deleteConfirm.videoId);
+      if (!res.ok) {
+        setError("error" in res.data ? res.data.error : "Could not delete video.");
+      }
+    } else if (deleteConfirm.type === "selected") {
+      let failed = 0;
+      for (const id of selectedVideoIds) {
+        const res = await deleteVideoApi(id);
+        if (!res.ok) failed++;
+      }
+      if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
+      setSelectedVideoIds(new Set());
+    } else if (deleteConfirm.type === "all") {
+      let failed = 0;
+      for (const v of channelVideos) {
+        const res = await deleteVideoApi(v.id);
+        if (!res.ok) failed++;
+      }
+      if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
+      setSelectedVideoIds(new Set());
     }
-    setBusy(false);
+    await loadVideos();
+    await loadSchedule();
+    setDeletingConfirmed(false);
+    setDeleteConfirm(null);
   }
 
   /* ── delete program ──────────────────────────────────── */
@@ -490,37 +750,108 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
       setSelectedVideoIds(new Set(channelVideos.map((v) => v.id)));
     }
   }
-  async function handleDeleteSelectedVideos() {
+  function handleDeleteSelectedVideos() {
     if (selectedVideoIds.size === 0) return;
-    if (!window.confirm(`Delete ${selectedVideoIds.size} selected video${selectedVideoIds.size > 1 ? "s" : ""}? This cannot be undone.`)) return;
-    setDeletingBulk(true);
-    setError(null);
-    let failed = 0;
-    for (const id of selectedVideoIds) {
-      const res = await deleteVideoApi(id);
-      if (!res.ok) failed++;
-    }
-    if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
-    setSelectedVideoIds(new Set());
-    await loadVideos();
-    await loadSchedule();
-    setDeletingBulk(false);
+    setDeleteConfirm({ type: "selected", count: selectedVideoIds.size });
   }
-  async function handleDeleteAllVideos() {
+  function handleDeleteAllVideos() {
     if (channelVideos.length === 0) return;
-    if (!window.confirm(`Delete ALL ${channelVideos.length} videos in this channel? This cannot be undone.`)) return;
-    setDeletingBulk(true);
+    setDeleteConfirm({ type: "all", count: channelVideos.length });
+  }
+
+  /* ── content rating editor for legacy videos ─────────── */
+
+  function openRatingEditor(video: ChannelVideo) {
+    setRatingEditorVideo(video);
+    setRatingEditorAge((video.age_classification as AgeClassification) ?? "teen");
+    setRatingEditorFields({
+      has_explicit_language: video.has_explicit_language ?? false,
+      has_violence: video.has_violence ?? false,
+      has_parental_guidance: video.has_parental_guidance ?? false,
+      has_nudity: video.has_nudity ?? false,
+      has_partial_nudity: video.has_partial_nudity ?? false,
+      has_explicit_content: video.has_explicit_content ?? false,
+      has_erotic_dancing: video.has_erotic_dancing ?? false,
+      has_sexual_nature: video.has_sexual_nature ?? false,
+      has_sex: video.has_sex ?? false,
+      has_revealing_clothes: video.has_revealing_clothes ?? false,
+    });
+  }
+
+  function closeRatingEditor() {
+    setRatingEditorVideo(null);
+    setRatingEditorSaving(false);
+  }
+
+  async function handleSaveContentRating() {
+    if (!ratingEditorVideo) return;
+    setRatingEditorSaving(true);
+    setError(null);
+    const res = await updateVideoContentRatingApi(ratingEditorVideo.id, {
+      age_classification: ratingEditorAge,
+      has_explicit_language: ratingEditorFields.has_explicit_language ?? false,
+      has_nudity: ratingEditorFields.has_nudity ?? false,
+      has_violence: ratingEditorFields.has_violence ?? false,
+      has_revealing_clothes: ratingEditorFields.has_revealing_clothes ?? false,
+      has_partial_nudity: ratingEditorFields.has_partial_nudity ?? false,
+      has_explicit_content: ratingEditorFields.has_explicit_content ?? false,
+      has_parental_guidance: ratingEditorFields.has_parental_guidance ?? false,
+      has_erotic_dancing: ratingEditorFields.has_erotic_dancing ?? false,
+      has_sexual_nature: ratingEditorFields.has_sexual_nature ?? false,
+      has_sex: ratingEditorFields.has_sex ?? false,
+    });
+    setRatingEditorSaving(false);
+    if (!res.ok || !("video" in res.data)) {
+      setError("error" in res.data ? res.data.error : "Failed to update content rating");
+      return;
+    }
+    closeRatingEditor();
+    await loadVideos();
+  }
+
+  async function handleBatchSetContentRating() {
+    const unrated = channelVideos.filter(
+      (v) => selectedVideoIds.has(v.id) && (!v.age_classification || v.age_classification === null),
+    );
+    if (unrated.length === 0) {
+      setError("No unrated videos selected.");
+      return;
+    }
+    setBatchRatingSaving(true);
     setError(null);
     let failed = 0;
-    for (const v of channelVideos) {
-      const res = await deleteVideoApi(v.id);
+    for (const v of unrated) {
+      const res = await updateVideoContentRatingApi(v.id, {
+        age_classification: "teen",
+        has_explicit_language: false,
+        has_nudity: false,
+        has_violence: false,
+        has_revealing_clothes: false,
+        has_partial_nudity: false,
+        has_explicit_content: false,
+        has_parental_guidance: false,
+        has_erotic_dancing: false,
+        has_sexual_nature: false,
+        has_sex: false,
+      });
       if (!res.ok) failed++;
     }
-    if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
+    if (failed > 0) setError(`${failed} video(s) could not be updated.`);
     setSelectedVideoIds(new Set());
     await loadVideos();
-    await loadSchedule();
-    setDeletingBulk(false);
+    setBatchRatingSaving(false);
+  }
+
+  async function handleRetryTranscode(videoId: string) {
+    setRetryingTranscodeId(videoId);
+    setError(null);
+    const res = await retryVideoTranscodeApi(videoId);
+    setRetryingTranscodeId(null);
+    if (!res.ok || !("video" in res.data)) {
+      setError("error" in res.data ? res.data.error : "Failed to retry transcoding.");
+      return;
+    }
+    await loadVideos();
   }
 
   /* ── bulk program operations ─────────────────────────── */
@@ -609,6 +940,13 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
     setExtValidating(false);
     if (res.ok && "stream_source_mode" in res.data) {
       setExtSourceMode(res.data.stream_source_mode);
+      lastValidationResult.current = {
+        stream_status: res.data.stream_status,
+        resolved_playback_url: res.data.resolved_playback_url,
+        external_provider: res.data.external_provider,
+        provider_metadata: res.data.provider_metadata,
+        last_checked_at: res.data.last_checked_at,
+      };
       setExtUrlValidation({ ok: true, message: `Valid · ${res.data.stream_source_mode.replace("external_", "").toUpperCase()} · Status: ${res.data.stream_status}` });
     } else {
       const msg = "error" in res.data ? res.data.error : "URL could not be resolved.";
@@ -619,12 +957,21 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
   async function handleExtSave() {
     setExtSaving(true);
     setError(null);
-    const res = await updateExternalSourceApi(
-      channelId,
-      extSourceMode === "native"
-        ? { stream_source_mode: "native", external_url: null, external_provider: null, resolved_playback_url: null, stream_status: "unknown", last_checked_at: null, provider_metadata: null }
-        : { stream_source_mode: extSourceMode, external_url: extSourceUrl.trim() },
-    );
+    const lv = lastValidationResult.current;
+    const savedMode = extSourceMode === "native"
+      ? { stream_source_mode: "native", external_url: null, external_provider: null, resolved_playback_url: null, stream_status: "unknown", last_checked_at: null, provider_metadata: null }
+      : lv && lv.stream_status
+        ? {
+            stream_source_mode: extSourceMode,
+            external_url: extSourceUrl.trim(),
+            stream_status: lv.stream_status,
+            resolved_playback_url: lv.resolved_playback_url,
+            external_provider: lv.external_provider,
+            provider_metadata: lv.provider_metadata as Record<string, unknown> | null,
+            last_checked_at: lv.last_checked_at,
+          }
+        : { stream_source_mode: extSourceMode, external_url: extSourceUrl.trim() };
+    const res = await updateExternalSourceApi(channelId, savedMode);
     setExtSaving(false);
     if (res.ok && "channel" in res.data) {
       onChannelUpdated?.(res.data.channel);
@@ -692,9 +1039,28 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
     onChannelUpdated?.(latestChannel);
   }
 
+  /* ── exclusive fee handler ────────────────────────────── */
+  async function saveExclusiveFee() {
+    const fee = Number(exclusiveFeeDraft);
+    if (!Number.isFinite(fee) || fee <= 0) {
+      setExclusiveFeeMessage("Fee must be greater than 0.");
+      return;
+    }
+    setSavingExclusiveFee(true);
+    setExclusiveFeeMessage(null);
+    const res = await updateExclusiveSettingsApi(channelId, { monthly_fee_ngn: fee });
+    if (!res.ok) {
+      setExclusiveFeeMessage("error" in res.data ? res.data.error : "Failed to update fee.");
+    } else if ("channel" in res.data) {
+      onChannelUpdated?.(res.data.channel);
+      setExclusiveFeeMessage("Monthly fee updated successfully.");
+    }
+    setSavingExclusiveFee(false);
+  }
+
   /* ── delete channel ──────────────────────────────────── */
   async function handleDeleteChannel() {
-    const confirmed = window.confirm(`Delete channel "${channel.name}"? This will disable the channel and remove it from discovery.`);
+    const confirmed = window.confirm(`Permanently delete channel "${channel.name}"? This will completely remove the channel and all associated data (stats, events, chat). This action CANNOT be undone.`);
     if (!confirmed) return;
     setDeleting(true);
     const res = await deleteChannelApi(channelId);
@@ -849,6 +1215,218 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* ── EXCLUSIVE MEMBERSHIP FEE ──────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {isExclusiveChannel && (
+        <div className="rounded-3xl border border-av-orange/20 bg-av-card p-6">
+          <h2 className="text-lg font-semibold text-av-white">Exclusive Membership Fee</h2>
+          <p className="mt-2 text-xs text-av-light-orange">Set the monthly subscription fee (in NGN) that viewers pay to access this channel's exclusive content.</p>
+          {exclusiveFeeMessage && (
+            <div className={`mt-3 rounded-xl border px-3 py-2 text-xs ${
+              exclusiveFeeMessage.includes("successfully")
+                ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-300"
+                : "border-av-error/30 bg-av-error/5 text-av-error"
+            }`}>
+              {exclusiveFeeMessage}
+            </div>
+          )}
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-av-light-orange mb-1.5">Monthly Fee (NGN)</label>
+              <input
+                value={exclusiveFeeDraft}
+                onChange={(e) => setExclusiveFeeDraft(e.target.value.replace(/[^0-9]/g, ""))}
+                inputMode="numeric"
+                placeholder="5000"
+                className="h-12 w-full rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={saveExclusiveFee}
+              disabled={savingExclusiveFee || exclusiveFeeDraft === String(channel.exclusive_monthly_fee_ngn || 0)}
+              className="rounded-xl bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-3 text-sm font-semibold text-av-dark-blue disabled:opacity-60"
+            >
+              {savingExclusiveFee ? "Saving…" : "Update Fee"}
+            </button>
+          </div>
+          <p className="mt-3 text-[11px] text-av-light-orange/70">
+            Current fee: ₦{Number(channel.exclusive_monthly_fee_ngn || 0).toLocaleString()} / month
+          </p>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* ── MOVIES & SERIES MANAGEMENT ─────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+        <h2 className="text-lg font-semibold text-av-white mb-4">Movies &amp; Series</h2>
+        <MediaUploadPanel channelId={channelId} isPublic={channel.type === "public" && !isExclusiveChannel} />
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* ── SUBSCRIBER MANAGEMENT ─────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-av-white">Subscriber Management</h2>
+            <p className="mt-1 text-xs text-av-light-orange">View, filter, and manage all subscribers to your channel.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadSubscribers()}
+            disabled={subscribersLoading}
+            className="rounded-full border border-av-orange/30 bg-av-orange/10 px-4 py-2 text-xs font-semibold text-av-orange disabled:opacity-50"
+          >
+            {subscribersLoading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+
+        {/* Stats row */}
+        <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-av-input-border/20 bg-av-input-fill/30 p-3 text-center">
+            <p className="text-2xl font-bold text-av-white">{subscribers.length}</p>
+            <p className="text-[10px] uppercase tracking-wider text-av-light-orange mt-1">Total</p>
+          </div>
+          <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-center">
+            <p className="text-2xl font-bold text-emerald-300">{subscribers.filter((s) => s.status === "active").length}</p>
+            <p className="text-[10px] uppercase tracking-wider text-emerald-300/70 mt-1">Active</p>
+          </div>
+          <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-center">
+            <p className="text-2xl font-bold text-red-300">{subscribers.filter((s) => s.status === "banned").length}</p>
+            <p className="text-[10px] uppercase tracking-wider text-red-300/70 mt-1">Banned</p>
+          </div>
+          <div className="rounded-xl border border-av-input-border/20 bg-av-input-fill/30 p-3 text-center">
+            <p className="text-2xl font-bold text-av-light-orange">{subscribers.filter((s) => s.status === "cancelled").length}</p>
+            <p className="text-[10px] uppercase tracking-wider text-av-light-orange/70 mt-1">Cancelled</p>
+          </div>
+        </div>
+
+        {/* Filter + Search */}
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {(["all", "active", "banned", "cancelled"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setSubscriberFilter(f)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                  subscriberFilter === f
+                    ? "bg-av-orange text-av-dark-blue"
+                    : "border border-av-input-border/30 bg-av-input-fill/40 text-av-light-orange"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            value={subscriberSearch}
+            onChange={(e) => setSubscriberSearch(e.target.value)}
+            placeholder="Search by name or email…"
+            className="w-full sm:w-64 rounded-xl border border-av-input-border/30 bg-av-input-fill/50 px-4 py-2 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
+          />
+        </div>
+
+        {/* Subscriber list */}
+        {subscribersLoading && !subscribersLoaded ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
+          </div>
+        ) : (() => {
+          const filtered = subscribers
+            .filter((s) => subscriberFilter === "all" || s.status === subscriberFilter)
+            .filter((s) => {
+              if (!subscriberSearch.trim()) return true;
+              const q = subscriberSearch.toLowerCase();
+              return (
+                (s.subscriber_name || "").toLowerCase().includes(q) ||
+                (s.subscriber_email || "").toLowerCase().includes(q)
+              );
+            });
+          if (filtered.length === 0) {
+            return (
+              <div className="py-12 text-center">
+                <p className="text-sm text-av-light-orange">
+                  {subscribers.length === 0 ? "No subscribers yet." : "No subscribers match your filter."}
+                </p>
+              </div>
+            );
+          }
+          return (
+            <div className="space-y-2">
+              {filtered.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex flex-col gap-3 rounded-xl border border-av-input-border/20 bg-av-input-fill/20 p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {s.subscriber_avatar_url ? (
+                      <img
+                        src={s.subscriber_avatar_url}
+                        alt={s.subscriber_name}
+                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-av-orange to-av-light-orange flex items-center justify-center text-sm font-bold text-av-dark-blue flex-shrink-0">
+                        {(s.subscriber_name || "?")[0]?.toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-av-white truncate">{s.subscriber_name}</p>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          s.status === "active"
+                            ? "text-emerald-300 bg-emerald-400/10 border border-emerald-400/20"
+                            : s.status === "banned"
+                            ? "text-red-300 bg-red-400/10 border border-red-400/20"
+                            : "text-av-light-orange bg-av-input-fill/40 border border-av-input-border/20"
+                        }`}>
+                          {s.status.toUpperCase()}
+                        </span>
+                        {s.is_premium && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold text-av-orange bg-av-orange/10 border border-av-orange/20">
+                            PREMIUM
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-av-light-orange mt-0.5 truncate">
+                        {s.subscriber_email || "No email"}
+                        {s.amount > 0 && <> · ₦{s.amount.toLocaleString()} / {s.interval_count} {s.interval_unit}{s.interval_count > 1 ? "s" : ""}</>}
+                        {s.subscribed_at && <> · Joined {formatTimestamp(s.subscribed_at)}</>}
+                        {s.next_billing && s.status === "active" && <> · Next billing {formatTimestamp(s.next_billing)}</>}
+                        {s.renewal_count > 0 && <> · {s.renewal_count} renewal{s.renewal_count > 1 ? "s" : ""}</>}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {s.status === "banned" ? (
+                      <button
+                        onClick={() => void handleUnbanSubscriber(s.subscriber_uid)}
+                        disabled={subscriberActionUid === s.subscriber_uid}
+                        className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-400/20 transition-all disabled:opacity-50"
+                      >
+                        {subscriberActionUid === s.subscriber_uid ? "Unbanning…" : "Unban"}
+                      </button>
+                    ) : s.status === "active" ? (
+                      <button
+                        onClick={() => void handleBanSubscriber(s.subscriber_uid)}
+                        disabled={subscriberActionUid === s.subscriber_uid}
+                        className="rounded-full border border-red-400/30 bg-red-400/10 px-4 py-2 text-xs font-semibold text-red-300 hover:bg-red-400/20 transition-all disabled:opacity-50"
+                      >
+                        {subscriberActionUid === s.subscriber_uid ? "Banning…" : "Ban"}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
       {/* ── STREAM SOURCE ──────────────────────────────────────────────── */}
       {/* ══════════════════════════════════════════════════════════════════ */}
       <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-6">
@@ -857,7 +1435,7 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
         {/* Status badge */}
         {channel.stream_source_mode && channel.stream_source_mode !== "native" && (
           <div className={`mb-4 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${
-            channel.stream_status === "live" ? "border-green-500/40 bg-green-500/10 text-green-400"
+            channel.stream_status === "live" || channel.stream_status === "valid" ? "border-green-500/40 bg-green-500/10 text-green-400"
             : channel.stream_status === "offline" || channel.stream_status === "invalid" ? "border-red-500/40 bg-red-500/10 text-red-400"
             : "border-av-orange/30 bg-av-orange/10 text-av-orange"
           }`}>
@@ -880,6 +1458,7 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
                 setExtSourceMode(mode);
                 if (mode === "native") setExtSourceUrl("");
                 setExtUrlValidation(null);
+                lastValidationResult.current = null;
               }}
               className={`rounded-xl border px-3 py-2 text-left text-xs transition-all ${
                 extSourceMode === mode
@@ -906,7 +1485,7 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
               <div className="flex gap-2">
                 <input
                   value={extSourceUrl}
-                  onChange={(e) => { setExtSourceUrl(e.target.value); setExtUrlValidation(null); }}
+                  onChange={(e) => { setExtSourceUrl(e.target.value); setExtUrlValidation(null); lastValidationResult.current = null; }}
                   placeholder={extSourceMode === "external_url" ? "https://example.com/live/channel-link" : extSourceMode === "external_youtube" ? "https://www.youtube.com/watch?v=..." : "https://example.com/stream.m3u8"}
                   className="h-10 flex-1 rounded-xl border border-av-input-border/30 bg-av-input-fill px-4 text-sm text-av-white placeholder:text-av-light-orange/50 focus:border-av-orange/50 focus:outline-none"
                 />
@@ -1132,14 +1711,122 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
                             <span className="text-[11px] text-av-light-orange/70">Required for auto scheduling</span>
                           </div>
                         )}
+                        {entry.progress === -1 && (
+                          <div className="mt-2 rounded-lg border border-av-input-border/20 bg-av-input-fill/20 p-2.5">
+                            <label className="text-[11px] font-semibold text-av-light-orange/90">Content Rating</label>
+                            <select
+                              value={entry.ageClassification}
+                              onChange={(e) => {
+                                const newAc = e.target.value as AgeClassification;
+                                updateEntry(entry.id, { ageClassification: newAc });
+                                if (newAc !== "adult") {
+                                  updateEntry(entry.id, {
+                                    ageClassification: newAc,
+                                    hasNudity: false,
+                                    hasPartialNudity: false,
+                                    hasExplicitContent: false,
+                                    hasEroticDancing: false,
+                                    hasSexualNature: false,
+                                    hasSex: false,
+                                    hasRevealingClothes: false,
+                                  });
+                                }
+                              }}
+                              className="mt-1 h-8 w-full rounded-md border border-av-input-border/35 bg-av-input-fill/40 px-2 text-xs text-av-white focus:border-av-orange/40 focus:outline-none"
+                            >
+                              {(channel.type === "public" ? PUBLIC_CLASSIFICATION_OPTIONS : CLASSIFICATION_OPTIONS).map((opt) => (
+                                <option key={opt.value} value={opt.value} style={{ background: "#050A30" }}>
+                                  {opt.label} - {opt.hint}
+                                </option>
+                              ))}
+                            </select>
+                            {channel.type === "public" && (
+                              <p className="mt-1 text-[10px] text-av-light-orange/60">
+                                Public channels cannot upload 18+ content.
+                              </p>
+                            )}
+                            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                              {GENERAL_CONTENT_FIELDS.map((field) => {
+                                const keyMap: Record<string, keyof UploadEntry> = {
+                                  has_explicit_language: "hasExplicitLanguage",
+                                  has_violence: "hasViolence",
+                                  has_parental_guidance: "hasParentalGuidance",
+                                };
+                                const entryKey = keyMap[field.key] ?? (field.key as keyof UploadEntry);
+                                return (
+                                <label key={String(field.key)} className="flex items-center gap-1.5 text-[11px] text-av-white/70">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(entry[entryKey])}
+                                    onChange={(e) => updateEntry(entry.id, { [entryKey]: e.target.checked } as Partial<UploadEntry>)}
+                                    className="h-3 w-3 accent-av-orange"
+                                  />
+                                  {field.label}
+                                </label>
+                                );
+                              })}
+                              {entry.ageClassification === "adult" &&
+                                ADULT_SENSITIVE_FIELDS.map((field) => {
+                                  const keyMap: Record<string, keyof UploadEntry> = {
+                                    has_nudity: "hasNudity",
+                                    has_partial_nudity: "hasPartialNudity",
+                                    has_explicit_content: "hasExplicitContent",
+                                    has_erotic_dancing: "hasEroticDancing",
+                                    has_sexual_nature: "hasSexualNature",
+                                    has_sex: "hasSex",
+                                    has_revealing_clothes: "hasRevealingClothes",
+                                  };
+                                  const entryKey = keyMap[field.key] ?? (field.key as keyof UploadEntry);
+                                  return (
+                                  <label key={String(field.key)} className="flex items-center gap-1.5 text-[11px] text-av-white/70">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(entry[entryKey])}
+                                      onChange={(e) => updateEntry(entry.id, { [entryKey]: e.target.checked } as Partial<UploadEntry>)}
+                                      className="h-3 w-3 accent-av-orange"
+                                    />
+                                    {field.label}
+                                  </label>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
                         {entry.progress >= 0 && entry.progress <= 100 && (
                           <div className="mt-2">
                             <div className="h-1.5 w-full overflow-hidden rounded-full bg-av-input-fill">
                               <div className="h-full rounded-full bg-gradient-to-r from-av-orange to-av-light-orange transition-all duration-200 ease-out" style={{ width: `${entry.progress}%` }} />
                             </div>
-                            <p className="mt-1 text-[10px] text-av-light-orange">
-                              {entry.progress < 100 ? `Uploading ${entry.progress}%` : "Registering…"}
-                            </p>
+                            <div className="mt-1 flex items-center justify-between">
+                              <p className="text-[10px] text-av-light-orange">
+                                {entry.paused
+                                  ? "Paused"
+                                  : entry.retrying
+                                    ? entry.error
+                                    : entry.progress < 100
+                                      ? `Uploading ${entry.progress}%${entry.uploadSpeed > 0 ? ` · ${(entry.uploadSpeed / 1024 / 1024).toFixed(1)} MB/s` : ""}`
+                                      : "Registering…"}
+                              </p>
+                              {entry.sessionId && (
+                                <div className="flex items-center gap-1.5">
+                                  {entry.paused ? (
+                                    <button
+                                      onClick={() => handleResumeUpload(entry.id)}
+                                      className="rounded-md bg-av-orange/20 px-2 py-0.5 text-[10px] font-semibold text-av-orange transition-all hover:bg-av-orange/30"
+                                    >
+                                      Resume
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handlePauseUpload(entry.id)}
+                                      className="rounded-md bg-av-input-fill/40 px-2 py-0.5 text-[10px] font-semibold text-av-light-orange transition-all hover:bg-av-input-fill/60"
+                                    >
+                                      Pause
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1473,7 +2160,17 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
             >
               Delete all
             </button>
-            {deletingBulk && <div className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />}
+            {selectedVideoIds.size > 0 && channelVideos.some((v) => selectedVideoIds.has(v.id) && !v.age_classification) && (
+              <button
+                type="button"
+                onClick={handleBatchSetContentRating}
+                disabled={batchRatingSaving || deletingBulk}
+                className="rounded-lg border border-av-orange/30 bg-av-orange/10 px-3 py-1 text-[11px] font-semibold text-av-orange transition-all hover:bg-av-orange/20 disabled:opacity-50"
+              >
+                {batchRatingSaving ? "Setting…" : "Set unrated to TEEN"}
+              </button>
+            )}
+            {(deletingBulk || batchRatingSaving) && <div className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />}
           </div>
         )}
 
@@ -1504,14 +2201,75 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
                       <p className="mt-0.5 text-xs text-av-light-orange">
                         {formatDuration(video.duration)} · Added {formatTimestamp(video.created_at)}
                       </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                          video.transcoding_status === "ready"
+                            ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                            : video.transcoding_status === "failed"
+                              ? "border-av-error/30 bg-av-error/10 text-av-error"
+                              : "border-av-orange/30 bg-av-orange/10 text-av-orange"
+                        }`}>
+                          {video.transcoding_status === "ready"
+                            ? "Adaptive ready"
+                            : video.transcoding_status === "failed"
+                              ? "Adaptive failed"
+                              : video.transcoding_status === "unavailable"
+                                ? "Original quality"
+                                : "Preparing adaptive quality"}
+                        </span>
+                        {video.transcoding_status === "failed" && (
+                          <button
+                            onClick={() => handleRetryTranscode(video.id)}
+                            disabled={retryingTranscodeId === video.id || busy || deletingBulk}
+                            className="rounded-full border border-av-orange/40 bg-av-orange/10 px-2 py-0.5 text-[10px] font-bold text-av-orange transition-all hover:bg-av-orange/20 disabled:opacity-50"
+                          >
+                            {retryingTranscodeId === video.id ? "Retrying…" : "↻ Retry transcode"}
+                          </button>
+                        )}
+                        {video.transcoding_status === "failed" && video.transcoding_error && (
+                          <span className="w-full text-[10px] text-av-error/70 truncate" title={video.transcoding_error}>
+                            {video.transcoding_error}
+                          </span>
+                        )}
+                        {video.age_classification ? (
+                          <span
+                            className="rounded-full border px-2 py-0.5 text-[10px] font-bold"
+                            style={{
+                              background: getClassificationMeta(video.age_classification as AgeClassification).bg,
+                              border: getClassificationMeta(video.age_classification as AgeClassification).border,
+                              color: getClassificationMeta(video.age_classification as AgeClassification).color,
+                            }}
+                          >
+                            {getClassificationMeta(video.age_classification as AgeClassification).label}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => openRatingEditor(video)}
+                            className="rounded-full border border-av-orange/40 bg-av-orange/10 px-2 py-0.5 text-[10px] font-bold text-av-orange transition-all hover:bg-av-orange/20"
+                          >
+                            ⚠ Set Content Rating
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <button
-                      onClick={() => handleDeleteVideo(video.id)}
-                      disabled={busy || deletingBulk}
-                      className="flex-shrink-0 rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
-                    >
-                      Delete
-                    </button>
+                    <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                      {video.age_classification && (
+                        <button
+                          onClick={() => openRatingEditor(video)}
+                          disabled={busy || deletingBulk}
+                          className="rounded-full border border-av-input-border/30 bg-av-input-fill/30 px-2.5 py-1 text-[10px] font-semibold text-av-light-orange opacity-0 transition-all hover:bg-av-input-fill/50 group-hover:opacity-100 disabled:opacity-50"
+                        >
+                          Edit Rating
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteVideo(video.id, video.title)}
+                        disabled={busy || deletingBulk || deletingConfirmed}
+                        className="rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1559,6 +2317,144 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
           {deleting ? "Deleting…" : "Delete this channel"}
         </button>
       </div>
+
+      {/* ── Content Rating Editor Modal ── */}
+      {ratingEditorVideo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closeRatingEditor}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-av-white">Set Content Rating</h3>
+              <button onClick={closeRatingEditor} className="text-av-light-orange hover:text-av-white">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+              </button>
+            </div>
+            <p className="mb-3 truncate text-xs text-av-light-orange">{ratingEditorVideo.title}</p>
+            <label className="text-[11px] font-semibold text-av-light-orange/90">Audience Classification</label>
+            <select
+              value={ratingEditorAge}
+              onChange={(e) => setRatingEditorAge(e.target.value as AgeClassification)}
+              className="mt-1 h-9 w-full rounded-md border border-av-input-border/35 bg-av-input-fill/40 px-2 text-xs text-av-white focus:border-av-orange/40 focus:outline-none"
+            >
+              {(channel.type === "public" ? PUBLIC_CLASSIFICATION_OPTIONS : CLASSIFICATION_OPTIONS).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label} — {opt.hint}
+                </option>
+              ))}
+            </select>
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5">
+              {GENERAL_CONTENT_FIELDS.map((field) => (
+                <label key={String(field.key)} className="flex items-center gap-1.5 text-[11px] text-av-white/70">
+                  <input
+                    type="checkbox"
+                    checked={ratingEditorFields[field.key] ?? false}
+                    onChange={(e) => setRatingEditorFields((prev) => ({ ...prev, [field.key]: e.target.checked }))}
+                    className="h-3 w-3 accent-av-orange"
+                  />
+                  {field.label}
+                </label>
+              ))}
+              {ratingEditorAge === "adult" &&
+                ADULT_SENSITIVE_FIELDS.map((field) => (
+                  <label key={String(field.key)} className="flex items-center gap-1.5 text-[11px] text-av-white/70">
+                    <input
+                      type="checkbox"
+                      checked={ratingEditorFields[field.key] ?? false}
+                      onChange={(e) => setRatingEditorFields((prev) => ({ ...prev, [field.key]: e.target.checked }))}
+                      className="h-3 w-3 accent-av-orange"
+                    />
+                    {field.label}
+                  </label>
+                ))}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={closeRatingEditor}
+                className="rounded-lg border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange transition-all hover:bg-av-input-fill/30"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveContentRating}
+                disabled={ratingEditorSaving}
+                className="rounded-lg bg-gradient-to-r from-av-orange to-av-light-orange px-4 py-1.5 text-xs font-semibold text-av-dark-blue disabled:opacity-50"
+              >
+                {ratingEditorSaving ? "Saving…" : "Save Rating"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => !deletingConfirmed && setDeleteConfirm(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="mx-4 max-w-md rounded-2xl border border-av-error/20 bg-av-card p-6 shadow-2xl"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-av-error/10">
+                <svg className="h-5 w-5 text-av-error" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-bold text-av-white">
+                  {deleteConfirm.type === "single"
+                    ? "Delete this video?"
+                    : deleteConfirm.type === "selected"
+                      ? `Delete ${deleteConfirm.count} selected video${deleteConfirm.count > 1 ? "s" : ""}?`
+                      : `Delete ALL ${deleteConfirm.count} videos?`}
+                </h3>
+                {deleteConfirm.type === "single" && (
+                  <p className="mt-1 text-sm text-av-light-orange">
+                    &ldquo;{deleteConfirm.title}&rdquo;
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-av-error/20 bg-av-error/5 p-3">
+              <p className="text-xs leading-relaxed text-av-error/80">
+                <strong className="font-bold text-av-error">Warning:</strong> Deleted content can never be seen or used again. It will be permanently deleted from our servers forever. This action cannot be undone.
+              </p>
+            </div>
+
+            <p className="mt-3 text-xs text-av-light-orange/60">
+              If this was a mistake, simply close this dialog.
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deletingConfirmed}
+                className="rounded-lg border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-light-orange transition-all hover:bg-av-input-fill/30 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteVideo}
+                disabled={deletingConfirmed}
+                className="rounded-lg bg-av-error px-4 py-2 text-xs font-bold text-white transition-all hover:bg-av-error/90 disabled:opacity-50"
+              >
+                {deletingConfirmed ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Deleting…
+                  </span>
+                ) : (
+                  "Yes, delete forever"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

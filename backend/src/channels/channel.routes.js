@@ -3,12 +3,13 @@ const { authenticateToken, optionalAuth } = require('../utils/jwt');
 const ctrl = require('./channel.controller');
 const premiumCtrl = require('./premium_stream.controller');
 const exclusiveCtrl = require('./exclusive_channel.controller');
+const { blockMinors, blockChannelCreationBan } = require('../users/restriction.middleware');
 const { upload, uploadSingleToGCS, uploadFieldsToGCS } = require('../utils/upload');
 
 const router = Router();
 
-router.post('/', authenticateToken, ctrl.createChannel);
-router.post('/create-with-media', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), uploadFieldsToGCS, ctrl.createChannelWithMedia);
+router.post('/', authenticateToken, blockMinors, blockChannelCreationBan, ctrl.createChannel);
+router.post('/create-with-media', authenticateToken, blockMinors, blockChannelCreationBan, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), uploadFieldsToGCS, ctrl.createChannelWithMedia);
 router.get('/', optionalAuth, ctrl.getPublicChannels);
 router.get('/featured', optionalAuth, ctrl.getFeaturedChannels);
 router.get('/me', authenticateToken, ctrl.getMyChannels);
@@ -19,7 +20,7 @@ router.get('/subscriber-feed', authenticateToken, ctrl.getSubscriberFeed);
 router.post('/resolve-source', authenticateToken, ctrl.resolveStreamSource);
 router.patch('/admin/:id/featured', authenticateToken, ctrl.adminSetFeatured);
 router.get('/:id/exclusive/access-status', authenticateToken, exclusiveCtrl.checkExclusiveAccessStatus);
-router.post('/:id/exclusive/purchase', authenticateToken, exclusiveCtrl.purchaseExclusiveAccess);
+router.post('/:id/exclusive/purchase', authenticateToken, blockMinors, exclusiveCtrl.purchaseExclusiveAccess);
 router.post('/:id/exclusive/verify-pic', authenticateToken, exclusiveCtrl.verifyExclusivePic);
 router.post('/:id/exclusive/renew', authenticateToken, exclusiveCtrl.renewExclusiveAccess);
 router.patch('/:id/exclusive-settings', authenticateToken, exclusiveCtrl.updateExclusiveSettings);

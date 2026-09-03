@@ -8,6 +8,7 @@ const { getFirestore } = require('../utils/firestore');
 const crypto = require('crypto');
 const StreamResolver = require('./stream_resolver.service');
 const SettingsService = require('../admin/settings.service');
+const ChannelSub = require('../subscriptions/channel_subscription.model');
 
 async function getOwnerSafely(ownerId) {
   try {
@@ -73,15 +74,33 @@ async function createChannel(req, res) {
 
 async function getPublicChannels(req, res) {
   const channels = await Channel.getAll();
-  let canSeeExclusive = false;
+
+  // If user is authenticated, fetch their active exclusive channel accesses
+  let exclusiveChannelIds = new Set();
   if (req.userId) {
-    canSeeExclusive = await isAdultKycVerified(req.userId);
+    try {
+      const db = getFirestore();
+      const snapshot = await db.collection('exclusive_channel_access')
+        .where('user_uid', '==', req.userId)
+        .where('status', '==', 'active')
+        .get();
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        if (data.channel_id) exclusiveChannelIds.add(data.channel_id);
+      });
+    } catch (err) {
+      console.error('[Channels] Failed to fetch exclusive accesses:', err.message);
+    }
   }
 
   const visibleChannels = channels.filter((channel) => {
-    if (channel.type === 'public') return true;
-    if (channel.type === 'exclusive') return canSeeExclusive;
-    return false;
+    if (channel.is_banned) return false;
+    if (channel.type !== 'public') return false;
+    // Include exclusive channels only if the user has active access
+    if (Number(channel.exclusive_monthly_fee_ngn || 0) > 0) {
+      return exclusiveChannelIds.has(channel.id);
+    }
+    return true;
   });
 
   const enriched = await Promise.all(visibleChannels.map(async (ch) => {
@@ -95,10 +114,12 @@ async function getFeaturedChannels(req, res) {
   const channels = await Channel.getFeaturedChannels(5);
   let canSeeExclusive = false;
   if (req.userId) {
-    canSeeExclusive = await isAdultKycVerified(req.userId);
+    const kycResult = await isAdultKycVerified(req.userId);
+    canSeeExclusive = kycResult.isVerified;
   }
 
   const visibleChannels = channels.filter((channel) => {
+    if (channel.is_banned) return false;
     if (channel.type === 'public') return true;
     if (channel.type === 'exclusive') return canSeeExclusive;
     return false;
@@ -115,6 +136,10 @@ async function getChannelById(req, res) {
   const channel = await Channel.findById(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
+  if (channel.is_banned) {
+    return res.status(403).json({ error: 'CHANNEL_BANNED', message: 'This channel has been banned.' });
+  }
+
   if (channel.type === 'exclusive') {
     if (!req.userId) {
       return res.status(403).json({
@@ -124,12 +149,16 @@ async function getChannelById(req, res) {
     }
 
     const isOwner = channel.owner_id === req.userId;
-    if (!isOwner) {
+    const caller = await User.findById(req.userId);
+    const isAdmin = caller && caller.role === 'admin';
+    if (!isOwner && !isAdmin) {
       const eligibleByKyc = await isAdultKycVerified(req.userId);
-      if (!eligibleByKyc) {
+      if (!eligibleByKyc.isVerified) {
         return res.status(403).json({
-          error: 'KYC verification is required for exclusive channels',
-          requires_kyc: true,
+          error: eligibleByKyc.isMinor
+            ? 'Exclusive channels are not available for users under 18'
+            : 'KYC verification is required for exclusive channels',
+          requires_kyc: !eligibleByKyc.isMinor,
         });
       }
     }
@@ -142,6 +171,10 @@ async function getChannelById(req, res) {
 async function getChannelByNumber(req, res) {
   const channel = await Channel.findByNumber(req.params.channelNumber);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+  if (channel.is_banned) {
+    return res.status(403).json({ error: 'CHANNEL_BANNED', message: 'This channel has been banned.' });
+  }
 
   const owner = await getOwnerSafely(channel.owner_id);
   res.json({ channel: await safeEnrichChannel(channel, owner, req.userId) });
@@ -186,7 +219,7 @@ async function updateChannel(req, res) {
 }
 
 async function deleteChannel(req, res) {
-  const channel = await Channel.findById(req.params.id);
+  const channel = await Channel.findAnyById(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
   const user = req.user || await User.findById(req.userId);
   const isOwner = channel.owner_id === req.userId;
@@ -196,8 +229,8 @@ async function deleteChannel(req, res) {
     return res.status(403).json({ error: 'Only channel owner or admin can delete this channel' });
   }
 
-  await Channel.disable(req.params.id);
-  res.json({ message: 'Channel disabled' });
+  await Channel.hardDelete(req.params.id);
+  res.json({ message: 'Channel permanently deleted' });
 }
 
 async function getMyChannels(req, res) {
@@ -401,7 +434,8 @@ async function enrichChannel(channel, owner, requesterId) {
     created_at: channel.created_at,
     owner_id: channel.owner_id,
     owner_name: publicOwnerName,
-    followers_count: await User.countChannelFollowers(channel.id),
+    followers_count: await ChannelSub.countActiveByChannel(channel.id),
+    subscriber_count: await ChannelSub.countActiveByChannel(channel.id),
     owner_display_mode: ownerDisplayMode,
     owner_brand_name: ownerBrandName,
     owner_details_visible: ownerDetailsVisible,
@@ -450,6 +484,7 @@ async function safeEnrichChannel(channel, owner, requesterId) {
       owner_id: channel.owner_id,
       owner_name: publicOwnerName,
       followers_count: 0,
+      subscriber_count: 0,
       owner_display_mode: ownerDisplayMode,
       owner_brand_name: ownerBrandName,
       owner_details_visible: ownerDisplayMode === 'show_owner',

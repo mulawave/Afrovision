@@ -276,6 +276,14 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                           ),
                         ),
                       )
+                    : _user?.isMinor == true
+                    ? _buildSubscriptionOverlay(
+                        icon: Icons.block_rounded,
+                        title: 'Not Available for Minors',
+                        message:
+                            'Channel creation is not available for users under 18. You can still enjoy general content and subscribe to viewer plans.',
+                        buttonLabel: 'Back',
+                      )
                     : _needsSubscription
                     ? _buildSubscriptionOverlay(
                         icon: Icons.lock_rounded,

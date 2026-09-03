@@ -117,11 +117,38 @@ async function broadcast(payload) {
     targets,
   );
 
+  // Build per-user recipient details for the admin response
+  const recipients = [];
+  for (const userId of userIds) {
+    let user = null;
+    try {
+      user = await User.findById(userId);
+    } catch (_) {}
+    const name = user
+      ? (user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || null)
+      : null;
+    const email = user ? (user.email || null) : null;
+    const tokens = [];
+    if (user) {
+      if (Array.isArray(user.fcm_tokens)) tokens.push(...user.fcm_tokens);
+      if (user.afroDeviceToken) tokens.push(user.afroDeviceToken);
+    }
+    const cleanTokens = tokens.map(t => String(t || '').trim()).filter(Boolean);
+    recipients.push({
+      id: userId,
+      name,
+      email,
+      tokenCount: cleanTokens.length,
+      tokens: cleanTokens,
+    });
+  }
+
   return {
     targeted: userIds.length,
     persisted,
     successCount: pushResult.successCount,
     failureCount: pushResult.failureCount,
+    recipients,
   };
 }
 

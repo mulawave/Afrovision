@@ -10,7 +10,6 @@
 
 const CreatorSub = require('./creator_subscription.model');
 const ChannelSub = require('./channel_subscription.model');
-const GiftWallet = require('../interactions/gift-wallet.model');
 const Ledger = require('../vpt/ledger.model');
 const User = require('../users/user.model');
 const Channel = require('../channels/channel.model');
@@ -18,6 +17,7 @@ const ReferralModel = require('../referrals/referral.model');
 const { distributeReferralEarnings } = require('../referrals/referral.controller');
 const PoolService = require('../vpt/pool.service');
 const { getFirestore } = require('../utils/firestore');
+const { chargeWallet } = require('./wallet_payment.helper');
 
 const RENEWAL_LOCK_COLLECTION = 'ops_locks';
 const RENEWAL_LOCK_DOC = 'subscription_renewals';
@@ -115,25 +115,28 @@ async function processRenewals() {
 
   for (const sub of due) {
     try {
-      const wallet = await GiftWallet.ensureWallet(sub.subscriber_uid);
       const amount = sub.amount || 0;
 
-      if (sub.currency === 'vpt') {
-        if (wallet.vpt_units < amount) {
-          await CreatorSub.markCancelledOnFailure(sub.id, 'insufficient_vpt');
+      // Try mixed wallet payment (cash first, vPT for remainder)
+      try {
+        await chargeWallet(sub.subscriber_uid, amount, {
+          type: 'SUBSCRIPTION_RENEWAL',
+          description: `Creator subscription renewal — ${sub.creator_uid}`,
+          meta: {
+            creator_uid: sub.creator_uid,
+            subscription_id: sub.id,
+            renewal: true,
+            renewal_count: sub.renewal_count,
+          },
+        });
+      } catch (chargeErr) {
+        if (chargeErr.code === 'INSUFFICIENT_FUNDS') {
+          await CreatorSub.markCancelledOnFailure(sub.id, 'insufficient_wallet');
           summary.creator_cancelled += 1;
-          console.log(`[RenewalWorker] Cancelled ${sub.id} — insufficient vPT`);
+          console.log(`[RenewalWorker] Cancelled ${sub.id} — insufficient wallet balance`);
           continue;
         }
-        await GiftWallet.adjustVptUnits(sub.subscriber_uid, -amount);
-      } else {
-        if (wallet.ngn_balance < amount) {
-          await CreatorSub.markCancelledOnFailure(sub.id, 'insufficient_ngn');
-          summary.creator_cancelled += 1;
-          console.log(`[RenewalWorker] Cancelled ${sub.id} — insufficient NGN`);
-          continue;
-        }
-        await GiftWallet.adjustNgnBalance(sub.subscriber_uid, -amount);
+        throw chargeErr;
       }
 
       // Correct payout split: 50% ops, 15% subscriber vPT, 15% referral, 20% community
@@ -202,19 +205,22 @@ async function processRenewals() {
       await CreatorSub.markRenewed(sub.id);
 
       const creator = await User.findById(sub.creator_uid);
+      // chargeWallet already recorded the debit ledger entries.
+      // Record a summary SUBSCRIPTION_RENEWAL entry for tracking.
       await Ledger.create({
         uid: sub.subscriber_uid,
         type: 'SUBSCRIPTION_RENEWAL',
         direction: 'debit',
-        currency: sub.currency,
-        amount_ngn: sub.currency === 'ngn' ? sub.amount : 0,
-        amount_vpt_units: sub.currency === 'vpt' ? sub.amount : 0,
+        currency: 'ngn',
+        amount_ngn: amount,
+        amount_vpt_units: 0,
         status: 'success',
         meta: {
           creator_uid: sub.creator_uid,
           creator_name: creator ? creator.name : sub.creator_uid,
           subscription_id: sub.id,
           renewal_count: sub.renewal_count,
+          payment_method: 'wallet',
         },
         description: `Creator subscription renewal — ${creator ? creator.name : sub.creator_uid}`,
       });
@@ -235,16 +241,30 @@ async function processRenewals() {
         continue;
       }
 
-      const wallet = await GiftWallet.ensureWallet(sub.subscriber_uid);
       const amount = sub.amount || 0;
 
-      if (wallet.ngn_balance < amount) {
-        await ChannelSub.markCancelledOnFailure(sub.id, 'insufficient_ngn');
-        summary.channel_cancelled += 1;
-        console.log(`[RenewalWorker] Cancelled channel sub ${sub.id} — insufficient NGN`);
-        continue;
+      // Try mixed wallet payment (cash first, vPT for remainder)
+      try {
+        await chargeWallet(sub.subscriber_uid, amount, {
+          type: 'CHANNEL_SUBSCRIPTION_RENEWAL',
+          description: `Channel subscription renewal — ${sub.channel_name || sub.channel_id}`,
+          meta: {
+            channel_id: sub.channel_id,
+            channel_name: sub.channel_name,
+            subscription_id: sub.id,
+            renewal: true,
+            renewal_count: sub.renewal_count,
+          },
+        });
+      } catch (chargeErr) {
+        if (chargeErr.code === 'INSUFFICIENT_FUNDS') {
+          await ChannelSub.markCancelledOnFailure(sub.id, 'insufficient_wallet');
+          summary.channel_cancelled += 1;
+          console.log(`[RenewalWorker] Cancelled channel sub ${sub.id} — insufficient wallet balance`);
+          continue;
+        }
+        throw chargeErr;
       }
-      await GiftWallet.adjustNgnBalance(sub.subscriber_uid, -amount);
 
       // Correct payout split: 50% ops, 15% subscriber vPT, 15% referral, 20% community
       const opsPool = Math.floor(amount * 0.50);
@@ -315,19 +335,22 @@ async function processRenewals() {
       await ChannelSub.markRenewed(sub.id);
 
       const channel = await Channel.findById(sub.channel_id);
+      // chargeWallet already recorded the debit ledger entries.
+      // Record a summary CHANNEL_SUBSCRIPTION_RENEWAL entry for tracking.
       await Ledger.create({
         uid: sub.subscriber_uid,
         type: 'CHANNEL_SUBSCRIPTION_RENEWAL',
         direction: 'debit',
-        currency: sub.currency,
-        amount_ngn: sub.currency === 'ngn' ? sub.amount : 0,
-        amount_vpt_units: sub.currency === 'vpt' ? sub.amount : 0,
+        currency: 'ngn',
+        amount_ngn: amount,
+        amount_vpt_units: 0,
         status: 'success',
         meta: {
           channel_id: sub.channel_id,
           channel_name: channel ? channel.name : sub.channel_name,
           subscription_id: sub.id,
           renewal_count: sub.renewal_count,
+          payment_method: 'wallet',
         },
         description: `Channel subscription renewal — ${channel ? channel.name : sub.channel_name || sub.channel_id}`,
       });

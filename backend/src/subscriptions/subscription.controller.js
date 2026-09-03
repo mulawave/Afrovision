@@ -10,6 +10,7 @@ const ReferralModel = require('../referrals/referral.model');
 const { distributeReferralEarnings } = require('../referrals/referral.controller');
 const NotificationService = require('../notifications/notification.service');
 const ReputationService = require('../reputation/reputation.service');
+const { previewWalletPayment, chargeWallet } = require('./wallet_payment.helper');
 
 async function getPlans(req, res) {
   const plans = await Plan.getAll();
@@ -223,20 +224,45 @@ async function subscribe(req, res) {
     }
   }
 
-  // Payment rules: first subscription = fiat only, renewals for creators can use vPT
-  const isRenewal = user.first_subscription_at !== null;
   const method = paymentMethod || 'fiat';
 
-  if (method !== 'vpt') {
-    return res.status(400).json({
-      error: 'Fiat subscriptions now require the checkout flow. Initialize payment from the client checkout screen.',
-    });
+  if (method === 'wallet') {
+    // Pay with internal cash + vPT wallets (mixed if necessary)
+    try {
+      const chargeResult = await chargeWallet(req.userId, plan.price, {
+        type: 'PLAN_PAYMENT',
+        description: `${plan.name} plan subscription via wallet`,
+        meta: {
+          plan_id: plan.id,
+          plan_name: plan.name,
+          plan_type: plan.type,
+          method: 'wallet',
+        },
+      });
+
+      const result = await activatePlatformPlan({
+        userId: req.userId,
+        planId: plan.id,
+        billingCycle: 'monthly',
+        paymentMethod: 'wallet',
+        amountNgn: plan.price,
+      });
+
+      res.json({ ...result, wallet_payment: chargeResult });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_FUNDS') {
+        return res.status(402).json({
+          error: 'INSUFFICIENT_FUNDS',
+          message: 'Your wallet balance is insufficient. Top up your wallet or pay with card.',
+          details: err.details,
+        });
+      }
+      return res.status(500).json({ error: err.message || 'Wallet payment failed' });
+    }
+    return;
   }
 
   if (method === 'vpt') {
-    if (!isRenewal) {
-      return res.status(400).json({ error: 'First subscription must be paid with fiat' });
-    }
     if (user.vpt < plan.price) {
       return res.status(400).json({ error: 'Insufficient vPT balance' });
     }
@@ -248,17 +274,23 @@ async function subscribe(req, res) {
       amount: -plan.price,
       description: `${plan.name} plan subscription via vPT`,
     });
+
+    const result = await activatePlatformPlan({
+      userId: req.userId,
+      planId: plan.id,
+      billingCycle: 'monthly',
+      paymentMethod: method,
+      amountNgn: plan.price,
+    });
+
+    res.json(result);
+    return;
   }
 
-  const result = await activatePlatformPlan({
-    userId: req.userId,
-    planId: plan.id,
-    billingCycle: 'monthly',
-    paymentMethod: method,
-    amountNgn: plan.price,
+  // Fiat — redirect to checkout flow
+  return res.status(400).json({
+    error: 'Fiat subscriptions now require the checkout flow. Initialize payment from the client checkout screen.',
   });
-
-  res.json(result);
 }
 
 async function getMySubscription(req, res) {
@@ -282,10 +314,26 @@ async function getMySubscription(req, res) {
   });
 }
 
+async function previewWallet(req, res) {
+  try {
+    const amountNgn = Number(req.query.amount);
+    if (!Number.isFinite(amountNgn) || amountNgn <= 0) {
+      return res.status(400).json({ error: 'amount query parameter must be a positive number' });
+    }
+
+    const preview = await previewWalletPayment(req.userId, amountNgn);
+    res.json({ preview });
+  } catch (err) {
+    console.error('[Subscriptions] previewWallet error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to preview wallet payment' });
+  }
+}
+
 module.exports = {
   getPlans,
   subscribe,
   getMySubscription,
   activatePlatformPlan,
   getPlanEligibilityError,
+  previewWallet,
 };

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../../core/theme/app_colors.dart';
+import 'broadcast_player.dart';
 
 /// Draggable, pinch-resizable floating mini-player.
 ///
@@ -12,7 +12,7 @@ import '../../../core/theme/app_colors.dart';
 class FloatingPlayerWidget extends StatefulWidget {
   const FloatingPlayerWidget({
     super.key,
-    this.videoController,
+    this.broadcastPlayer,
     this.ytController,
     required this.channelName,
     required this.externalMode,
@@ -22,14 +22,14 @@ class FloatingPlayerWidget extends StatefulWidget {
     this.onOpenChannelSurfer,
   });
 
-  final VideoPlayerController? videoController;
-  final WebViewController?      ytController;
-  final String                  channelName;
-  final String                  externalMode;
-  final VoidCallback            onClose;
-  final VoidCallback            onExpand;
-  final VoidCallback?           onReturnToApp;
-  final VoidCallback?           onOpenChannelSurfer;
+  final BroadcastPlayer? broadcastPlayer;
+  final WebViewController? ytController;
+  final String channelName;
+  final String externalMode;
+  final VoidCallback onClose;
+  final VoidCallback onExpand;
+  final VoidCallback? onReturnToApp;
+  final VoidCallback? onOpenChannelSurfer;
 
   @override
   State<FloatingPlayerWidget> createState() => _FloatingPlayerWidgetState();
@@ -202,13 +202,18 @@ class _FloatingPlayerWidgetState extends State<FloatingPlayerWidget> {
         child: WebViewWidget(controller: widget.ytController!),
       );
     }
-    final ctrl = widget.videoController;
-    if (ctrl != null && ctrl.value.isInitialized) {
-      return Center(
-        child: AspectRatio(
-          aspectRatio: ctrl.value.aspectRatio,
-          child: VideoPlayer(ctrl),
-        ),
+    final player = widget.broadcastPlayer;
+    if (player != null && player.value.isInitialized) {
+      return AnimatedBuilder(
+        animation: player,
+        builder: (_, __) {
+          return Center(
+            child: AspectRatio(
+              aspectRatio: player.value.aspectRatio,
+              child: player.buildVideo(fit: BoxFit.contain),
+            ),
+          );
+        },
       );
     }
     return Container(

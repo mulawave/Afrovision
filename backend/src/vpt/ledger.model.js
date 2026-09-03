@@ -200,6 +200,40 @@ async function getSuccessfulDebitsInRange({ currency = 'ngn', startMs = 0, endMs
     .sort((a, b) => b.created_at - a.created_at);
 }
 
+async function getPlanRevenueInRange({ startMs = 0, endMs = Date.now() } = {}) {
+  const db = getFirestore();
+  try {
+    const snapshot = await db.collection(COLLECTION)
+      .where('type', '==', 'PLAN_PAYMENT')
+      .where('status', '==', 'success')
+      .where('direction', '==', 'debit')
+      .where('currency', '==', 'ngn')
+      .where('created_at', '>=', startMs)
+      .where('created_at', '<=', endMs)
+      .get();
+
+    return snapshot.docs.reduce((sum, doc) => sum + Number(doc.data().amount_ngn || 0), 0);
+  } catch (err) {
+    if (_isIndexError(err)) {
+      const snapshot = await db.collection(COLLECTION)
+        .where('type', '==', 'PLAN_PAYMENT')
+        .where('status', '==', 'success')
+        .where('created_at', '>=', startMs)
+        .where('created_at', '<=', endMs)
+        .get();
+      return snapshot.docs
+        .filter((d) => d.data().direction === 'debit' && d.data().currency === 'ngn')
+        .reduce((sum, doc) => sum + Number(doc.data().amount_ngn || 0), 0);
+    }
+    throw err;
+  }
+}
+
+function _isIndexError(err) {
+  const msg = String(err?.message || err || '');
+  return msg.includes('index') || msg.includes('Index') || msg.includes('FAILED_PRECONDITION');
+}
+
 function removeFromCache(id) {
   return id;
 }
@@ -219,5 +253,6 @@ module.exports = {
   getRecent,
   getStats,
   getSuccessfulDebitsInRange,
+  getPlanRevenueInRange,
   removeFromCache,
 };

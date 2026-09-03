@@ -774,7 +774,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                           ),
                           const SizedBox(width: 3),
                           Text(
-                            '${channel.followersCount}',
+                            '${channel.subscriberCount}',
                             style: TextStyle(
                               color: AppColors.goldText,
                               fontSize: 10,
@@ -1208,7 +1208,7 @@ class _SearchModalState extends State<_SearchModal> {
                                         ),
                                         const SizedBox(width: 3),
                                         Text(
-                                          '${ch.followersCount}',
+                                          '${ch.subscriberCount}',
                                           style: TextStyle(
                                             color: AppColors.hintText
                                                 .withValues(alpha: 0.7),

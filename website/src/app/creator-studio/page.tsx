@@ -18,6 +18,8 @@ import {
   uploadFileToGCS,
   registerUploadedVideoApi,
   uploadVideoApi,
+  createVideoResumableSessionApi,
+  completeVideoResumableSessionApi,
   scheduleProgramApi,
   scheduleSequentialApi,
   resolveSourceApi,
@@ -26,12 +28,23 @@ import {
   updateExternalSourceApi,
   recheckStreamHealthApi,
   getNowPlayingApi,
+  updateVideoContentRatingApi,
+  retryVideoTranscodeApi,
   type Channel,
   type ChannelVideo,
   type ScheduleProgram,
   type VideoUploadSession,
   type NowPlaying,
 } from "@/lib/api";
+import { ResumableUploader, saveUploadSession, removeUploadSession, getStoredUploadSessions } from "@/lib/resumable-upload";
+import {
+  CLASSIFICATION_OPTIONS,
+  PUBLIC_CLASSIFICATION_OPTIONS,
+  GENERAL_CONTENT_FIELDS,
+  ADULT_SENSITIVE_FIELDS,
+  getClassificationMeta,
+  type AgeClassification,
+} from "@/lib/content-rating";
 import { useAuth } from "@/lib/AuthContext";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
 import { WaveUploadPanel } from "@/components/WaveUploadPanel";
@@ -146,6 +159,21 @@ interface UploadEntry {
   progress: number; // -1 = pending, 0-100 = uploading, 101 = registered
   error: string | null;
   registeredVideoId: string | null;
+  sessionId: string | null;
+  paused: boolean;
+  retrying: boolean;
+  uploadSpeed: number;
+  ageClassification: AgeClassification;
+  hasExplicitLanguage: boolean;
+  hasNudity: boolean;
+  hasViolence: boolean;
+  hasRevealingClothes: boolean;
+  hasPartialNudity: boolean;
+  hasExplicitContent: boolean;
+  hasParentalGuidance: boolean;
+  hasEroticDancing: boolean;
+  hasSexualNature: boolean;
+  hasSex: boolean;
 }
 
 function parseDurationInput(value: string): number {
@@ -168,7 +196,7 @@ function Spinner({ size = "sm" }: { size?: "sm" | "xs" }) {
 
 export default function CreatorStudioPage() {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isMinor } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [videos, setVideos] = useState<ChannelVideo[]>([]);
   const [schedule, setSchedule] = useState<ScheduleProgram[]>([]);
@@ -200,6 +228,10 @@ export default function CreatorStudioPage() {
   const [cancelingSessionId, setCancelingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploaderRefs = useRef<Map<string, ResumableUploader>>(new Map());
+  const resumeFileInputRef = useRef<HTMLInputElement>(null);
+  const resumeTargetRef = useRef<{ sessionId: string; sessionUrl: string; fileName: string; fileSize: number; channelId: string; title: string } | null>(null);
+  const [interruptedSessions, setInterruptedSessions] = useState<Array<{ sessionId: string; sessionUrl: string; fileName: string; fileSize: number; channelId: string; title: string; createdAt: number }>>([]);
 
   // ── Auto-schedule state
   const [showAutoSchedule, setShowAutoSchedule] = useState(false);
@@ -234,6 +266,21 @@ export default function CreatorStudioPage() {
   const [extUrlValidation, setExtUrlValidation] = useState<{ ok: boolean; message: string } | null>(null);
   const [extSaving, setExtSaving] = useState(false);
   const [extRechecking, setExtRechecking] = useState(false);
+
+  // ── Content rating editor for legacy videos
+  const [ratingEditorVideo, setRatingEditorVideo] = useState<ChannelVideo | null>(null);
+  const [ratingEditorAge, setRatingEditorAge] = useState<AgeClassification>("teen");
+  const [ratingEditorFields, setRatingEditorFields] = useState<Record<string, boolean>>({});
+  const [ratingEditorSaving, setRatingEditorSaving] = useState(false);
+  const [batchRatingSaving, setBatchRatingSaving] = useState(false);
+  const [retryingTranscodeId, setRetryingTranscodeId] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<
+    { type: "single"; videoId: string; title: string } |
+    { type: "selected"; count: number } |
+    { type: "all"; count: number } |
+    null
+  >(null);
+  const [deletingConfirmed, setDeletingConfirmed] = useState(false);
 
   const handleSelectChannel = useCallback((channelId: string) => {
     setSelectedChannelId(channelId);
@@ -348,6 +395,96 @@ export default function CreatorStudioPage() {
     return () => window.clearInterval(intervalId);
   }, [selectedChannelId, uploadingAll, recentUploadSessions, loadUploadSessions]);
 
+  // ── Phase 3: Scan localStorage for interrupted upload sessions on mount
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const stored = getStoredUploadSessions();
+    const now = Date.now();
+    const valid = stored.filter((s) => now - s.createdAt < 24 * 60 * 60 * 1000);
+    const expired = stored.filter((s) => now - s.createdAt >= 24 * 60 * 60 * 1000);
+    for (const ex of expired) {
+      removeUploadSession(ex.sessionId);
+    }
+    if (valid.length > 0) {
+      setInterruptedSessions(valid);
+    }
+  }, [isAuthenticated]);
+
+  // ── Phase 3: Handle re-selecting file for interrupted upload resume
+  async function handleResumeFileSelected(files: FileList | null) {
+    if (!files || files.length === 0 || !resumeTargetRef.current) return;
+    const target = resumeTargetRef.current;
+    resumeTargetRef.current = null;
+
+    const file = files[0];
+    if (!isSupportedVideoFile(file)) {
+      setError("Unsupported file format for resume.");
+      return;
+    }
+
+    const entryId = `${Date.now()}-resume`;
+    const newEntry: UploadEntry = {
+      id: entryId,
+      file,
+      title: target.title,
+      description: "",
+      duration: 0,
+      detecting: true,
+      progress: 0,
+      error: null,
+      registeredVideoId: null,
+      sessionId: target.sessionId,
+      paused: false,
+      retrying: false,
+      uploadSpeed: 0,
+      ageClassification: "teen",
+      hasExplicitLanguage: false,
+      hasNudity: false,
+      hasViolence: false,
+      hasRevealingClothes: false,
+      hasPartialNudity: false,
+      hasExplicitContent: false,
+      hasParentalGuidance: false,
+      hasEroticDancing: false,
+      hasSexualNature: false,
+      hasSex: false,
+    };
+
+    setUploadEntries((prev) => [...prev, newEntry]);
+    setInterruptedSessions((prev) => prev.filter((s) => s.sessionId !== target.sessionId));
+
+    const dur = await detectDuration(file);
+    setUploadEntries((prev) => prev.map((e) => e.id === entryId ? { ...e, duration: dur, detecting: false } : e));
+
+    setUploadingAll(true);
+    try {
+      const uploader = new ResumableUploader({
+        file,
+        sessionId: target.sessionId,
+        sessionUrl: target.sessionUrl,
+        onProgress: (pct) => updateEntry(entryId, { progress: pct, error: null }),
+        onPaused: () => updateEntry(entryId, { paused: true }),
+        onError: (errMsg) => updateEntry(entryId, { error: errMsg, retrying: false }),
+        onRetrying: (attempt, maxAttempts) => updateEntry(entryId, { retrying: true, error: `Retrying… attempt ${attempt}/${maxAttempts}` }),
+        onSpeedUpdate: (bps) => updateEntry(entryId, { uploadSpeed: bps }),
+      });
+
+      uploaderRefs.current.set(entryId, uploader);
+      await uploader.start();
+
+      if (uploader.getOffset() >= file.size) {
+        const completeRes = await completeVideoResumableSessionApi(target.sessionId);
+        if (completeRes.ok && "video" in completeRes.data) {
+          removeUploadSession(target.sessionId);
+          updateEntry(entryId, { progress: 101, registeredVideoId: completeRes.data.video.id, error: null, sessionId: null });
+        }
+      }
+    } catch {
+      updateEntry(entryId, { error: "Resume failed. Please try uploading again.", progress: -1 });
+    }
+    setUploadingAll(false);
+  }
+
   // Sync stream source fields when selected channel changes
   useEffect(() => {
     const ch = channels.find((c) => c.id === selectedChannelId);
@@ -423,6 +560,21 @@ export default function CreatorStudioPage() {
         progress: -1,
         error: supported ? null : "Unsupported format. Upload MP4 (H.264/AAC) or WebM (VP9/Opus).",
         registeredVideoId: null,
+        sessionId: null,
+        paused: false,
+        retrying: false,
+        uploadSpeed: 0,
+        ageClassification: "teen",
+        hasExplicitLanguage: false,
+        hasNudity: false,
+        hasViolence: false,
+        hasRevealingClothes: false,
+        hasPartialNudity: false,
+        hasExplicitContent: false,
+        hasParentalGuidance: false,
+        hasEroticDancing: false,
+        hasSexualNature: false,
+        hasSex: false,
       });
     }
     setUploadEntries((prev) => [...prev, ...newEntries]);
@@ -561,50 +713,143 @@ export default function CreatorStudioPage() {
         });
       };
 
-      try {
-        // Fast one-shot flow: signed URL upload + register.
+      const fallbackToSignedUrlUpload = async () => {
         updateEntry(entry.id, { progress: 0, error: null });
-
         const signedRes = await getVideoUploadUrlApi({
           contentType: getVideoContentType(entry.file),
           fileName: entry.file.name,
         });
-
         if (!signedRes.ok || !("signed_url" in signedRes.data)) {
           await fallbackToLegacyUpload();
-          continue;
+          return;
         }
-
         await uploadFileToGCS(signedRes.data.signed_url, entry.file, (pct) => {
           updateEntry(entry.id, { progress: pct, error: null });
         });
-
         const registerRes = await registerUploadedVideoApi({
           channelId: selectedChannelId,
           title,
           description,
           duration: resolvedDuration,
           videoUrl: signedRes.data.public_url,
+          ageClassification: entry.ageClassification,
+          hasExplicitLanguage: entry.hasExplicitLanguage,
+          hasNudity: entry.hasNudity,
+          hasViolence: entry.hasViolence,
+          hasRevealingClothes: entry.hasRevealingClothes,
+          hasPartialNudity: entry.hasPartialNudity,
+          hasExplicitContent: entry.hasExplicitContent,
+          hasParentalGuidance: entry.hasParentalGuidance,
+          hasEroticDancing: entry.hasEroticDancing,
+          hasSexualNature: entry.hasSexualNature,
+          hasSex: entry.hasSex,
         });
-
         if (!registerRes.ok || !("video" in registerRes.data)) {
           updateEntry(entry.id, {
-            error:
-              "error" in registerRes.data
-                ? registerRes.data.error
-                : "Registration failed",
+            error: "error" in registerRes.data ? registerRes.data.error : "Registration failed",
             progress: -1,
           });
-          continue;
+          return;
         }
-
         updateEntry(entry.id, {
           progress: 101,
           registeredVideoId: registerRes.data.video.id,
           error: null,
         });
+      };
+
+      try {
+        updateEntry(entry.id, { progress: 0, error: null, retrying: false });
+
+        const sessionRes = await createVideoResumableSessionApi({
+          channelId: selectedChannelId,
+          title,
+          description,
+          duration: resolvedDuration,
+          fileName: entry.file.name,
+          fileSize: entry.file.size,
+          contentType: getVideoContentType(entry.file),
+          ageClassification: entry.ageClassification,
+          hasExplicitLanguage: entry.hasExplicitLanguage,
+          hasNudity: entry.hasNudity,
+          hasViolence: entry.hasViolence,
+          hasRevealingClothes: entry.hasRevealingClothes,
+          hasPartialNudity: entry.hasPartialNudity,
+          hasExplicitContent: entry.hasExplicitContent,
+          hasParentalGuidance: entry.hasParentalGuidance,
+          hasEroticDancing: entry.hasEroticDancing,
+          hasSexualNature: entry.hasSexualNature,
+          hasSex: entry.hasSex,
+        });
+
+        if (!sessionRes.ok || !("session" in sessionRes.data)) {
+          await fallbackToSignedUrlUpload();
+          continue;
+        }
+
+        const session = sessionRes.data.session;
+        if (!session.upload_url) {
+          await fallbackToSignedUrlUpload();
+          continue;
+        }
+
+        updateEntry(entry.id, { sessionId: session.id });
+
+        saveUploadSession({
+          sessionId: session.id,
+          sessionUrl: session.upload_url,
+          fileName: entry.file.name,
+          fileSize: entry.file.size,
+          uploadedBytes: 0,
+          channelId: selectedChannelId,
+          title,
+          createdAt: Date.now(),
+        });
+
+        const uploader = new ResumableUploader({
+          file: entry.file,
+          sessionId: session.id,
+          sessionUrl: session.upload_url,
+          onProgress: (pct) => {
+            updateEntry(entry.id, { progress: pct, error: null });
+          },
+          onPaused: () => {
+            updateEntry(entry.id, { paused: true });
+          },
+          onError: (errMsg) => {
+            updateEntry(entry.id, { error: errMsg, retrying: false });
+          },
+          onRetrying: (attempt, maxAttempts) => {
+            updateEntry(entry.id, { retrying: true, error: `Retrying… attempt ${attempt}/${maxAttempts}` });
+          },
+          onSpeedUpdate: (bps) => {
+            updateEntry(entry.id, { uploadSpeed: bps });
+          },
+        });
+
+        uploaderRefs.current.set(entry.id, uploader);
+        await uploader.start();
+
+        if (uploader.getOffset() >= entry.file.size) {
+          const completeRes = await completeVideoResumableSessionApi(session.id);
+          if (!completeRes.ok || !("video" in completeRes.data)) {
+            updateEntry(entry.id, {
+              error: "error" in completeRes.data ? completeRes.data.error : "Failed to complete upload session",
+              progress: -1,
+            });
+            continue;
+          }
+          removeUploadSession(session.id);
+          updateEntry(entry.id, {
+            progress: 101,
+            registeredVideoId: completeRes.data.video.id,
+            error: null,
+            sessionId: null,
+          });
+        }
       } catch {
-        await fallbackToLegacyUpload();
+        uploaderRefs.current.delete(entry.id);
+        await fallbackToSignedUrlUpload();
       }
     }
 
@@ -620,6 +865,40 @@ export default function CreatorStudioPage() {
     );
     if (updated.length > 0) {
       setShowAutoSchedule(true);
+    }
+  }
+
+  /* ── Pause / Resume individual uploads ─────────────── */
+
+  function handlePauseUpload(entryId: string) {
+    const uploader = uploaderRefs.current.get(entryId);
+    if (uploader) {
+      uploader.pause();
+      updateEntry(entryId, { paused: true });
+    }
+  }
+
+  async function handleResumeUpload(entryId: string) {
+    const uploader = uploaderRefs.current.get(entryId);
+    if (!uploader) return;
+    updateEntry(entryId, { paused: false, error: null });
+    try {
+      await uploader.resume();
+      const entry = uploadEntries.find((e) => e.id === entryId);
+      if (entry && uploader.getOffset() >= entry.file.size) {
+        const completeRes = await completeVideoResumableSessionApi(entry.sessionId!);
+        if (completeRes.ok && "video" in completeRes.data) {
+          removeUploadSession(entry.sessionId!);
+          updateEntry(entryId, {
+            progress: 101,
+            registeredVideoId: completeRes.data.video.id,
+            error: null,
+            sessionId: null,
+          });
+        }
+      }
+    } catch {
+      updateEntry(entryId, { error: "Resume failed. Please retry.", progress: -1 });
     }
   }
 
@@ -715,19 +994,39 @@ export default function CreatorStudioPage() {
     setBusy(false);
   }
 
-  async function handleDeleteVideo(videoId: string) {
-    setBusy(true);
+  function handleDeleteVideo(videoId: string, title: string) {
+    setDeleteConfirm({ type: "single", videoId, title });
+  }
+  async function confirmDeleteVideo() {
+    if (!deleteConfirm) return;
+    setDeletingConfirmed(true);
     setError(null);
-    const res = await deleteVideoApi(videoId);
-    if (!res.ok) {
-      setError(
-        "error" in res.data ? res.data.error : "Could not delete video.",
-      );
-    } else {
-      await loadStudio();
-      await loadSchedule(selectedChannelId);
+    if (deleteConfirm.type === "single") {
+      const res = await deleteVideoApi(deleteConfirm.videoId);
+      if (!res.ok) {
+        setError("error" in res.data ? res.data.error : "Could not delete video.");
+      }
+    } else if (deleteConfirm.type === "selected") {
+      let failed = 0;
+      for (const id of selectedVideoIds) {
+        const res = await deleteVideoApi(id);
+        if (!res.ok) failed++;
+      }
+      if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
+      setSelectedVideoIds(new Set());
+    } else if (deleteConfirm.type === "all") {
+      let failed = 0;
+      for (const v of selectedChannelVideos) {
+        const res = await deleteVideoApi(v.id);
+        if (!res.ok) failed++;
+      }
+      if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
+      setSelectedVideoIds(new Set());
     }
-    setBusy(false);
+    await loadStudio();
+    await loadSchedule(selectedChannelId);
+    setDeletingConfirmed(false);
+    setDeleteConfirm(null);
   }
 
   async function handleDeleteProgram(programId: string) {
@@ -765,48 +1064,109 @@ export default function CreatorStudioPage() {
     }
   }
 
-  async function handleDeleteSelectedVideos() {
+  function handleDeleteSelectedVideos() {
     if (selectedVideoIds.size === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${selectedVideoIds.size} selected video${selectedVideoIds.size > 1 ? "s" : ""}? This cannot be undone.`,
-      )
-    )
-      return;
-    setDeletingBulk(true);
-    setError(null);
-    let failed = 0;
-    for (const id of selectedVideoIds) {
-      const res = await deleteVideoApi(id);
-      if (!res.ok) failed++;
-    }
-    if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
-    setSelectedVideoIds(new Set());
-    await loadStudio();
-    await loadSchedule(selectedChannelId);
-    setDeletingBulk(false);
+    setDeleteConfirm({ type: "selected", count: selectedVideoIds.size });
   }
 
-  async function handleDeleteAllVideos() {
+  function handleDeleteAllVideos() {
     if (selectedChannelVideos.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ALL ${selectedChannelVideos.length} videos in this channel? This cannot be undone.`,
-      )
-    )
+    setDeleteConfirm({ type: "all", count: selectedChannelVideos.length });
+  }
+
+  /* ── Content rating editor for legacy videos ─────────── */
+
+  function openRatingEditor(video: ChannelVideo) {
+    setRatingEditorVideo(video);
+    setRatingEditorAge((video.age_classification as AgeClassification) ?? "teen");
+    setRatingEditorFields({
+      has_explicit_language: video.has_explicit_language ?? false,
+      has_violence: video.has_violence ?? false,
+      has_parental_guidance: video.has_parental_guidance ?? false,
+      has_nudity: video.has_nudity ?? false,
+      has_partial_nudity: video.has_partial_nudity ?? false,
+      has_explicit_content: video.has_explicit_content ?? false,
+      has_erotic_dancing: video.has_erotic_dancing ?? false,
+      has_sexual_nature: video.has_sexual_nature ?? false,
+      has_sex: video.has_sex ?? false,
+      has_revealing_clothes: video.has_revealing_clothes ?? false,
+    });
+  }
+
+  function closeRatingEditor() {
+    setRatingEditorVideo(null);
+    setRatingEditorSaving(false);
+  }
+
+  async function handleSaveContentRating() {
+    if (!ratingEditorVideo) return;
+    setRatingEditorSaving(true);
+    setError(null);
+    const res = await updateVideoContentRatingApi(ratingEditorVideo.id, {
+      age_classification: ratingEditorAge,
+      has_explicit_language: ratingEditorFields.has_explicit_language ?? false,
+      has_nudity: ratingEditorFields.has_nudity ?? false,
+      has_violence: ratingEditorFields.has_violence ?? false,
+      has_revealing_clothes: ratingEditorFields.has_revealing_clothes ?? false,
+      has_partial_nudity: ratingEditorFields.has_partial_nudity ?? false,
+      has_explicit_content: ratingEditorFields.has_explicit_content ?? false,
+      has_parental_guidance: ratingEditorFields.has_parental_guidance ?? false,
+      has_erotic_dancing: ratingEditorFields.has_erotic_dancing ?? false,
+      has_sexual_nature: ratingEditorFields.has_sexual_nature ?? false,
+      has_sex: ratingEditorFields.has_sex ?? false,
+    });
+    setRatingEditorSaving(false);
+    if (!res.ok || !("video" in res.data)) {
+      setError("error" in res.data ? res.data.error : "Failed to update content rating");
       return;
-    setDeletingBulk(true);
+    }
+    closeRatingEditor();
+    await loadStudio();
+  }
+
+  async function handleBatchSetContentRating() {
+    const unrated = selectedChannelVideos.filter(
+      (v) => selectedVideoIds.has(v.id) && (!v.age_classification || v.age_classification === null),
+    );
+    if (unrated.length === 0) {
+      setError("No unrated videos selected.");
+      return;
+    }
+    setBatchRatingSaving(true);
     setError(null);
     let failed = 0;
-    for (const v of selectedChannelVideos) {
-      const res = await deleteVideoApi(v.id);
+    for (const v of unrated) {
+      const res = await updateVideoContentRatingApi(v.id, {
+        age_classification: "teen",
+        has_explicit_language: false,
+        has_nudity: false,
+        has_violence: false,
+        has_revealing_clothes: false,
+        has_partial_nudity: false,
+        has_explicit_content: false,
+        has_parental_guidance: false,
+        has_erotic_dancing: false,
+        has_sexual_nature: false,
+        has_sex: false,
+      });
       if (!res.ok) failed++;
     }
-    if (failed > 0) setError(`${failed} video(s) could not be deleted.`);
+    if (failed > 0) setError(`${failed} video(s) could not be updated.`);
     setSelectedVideoIds(new Set());
     await loadStudio();
-    await loadSchedule(selectedChannelId);
-    setDeletingBulk(false);
+    setBatchRatingSaving(false);
+  }
+
+  async function handleRetryTranscode(videoId: string) {
+    setRetryingTranscodeId(videoId);
+    setError(null);
+    const res = await retryVideoTranscodeApi(videoId);
+    setRetryingTranscodeId(null);
+    if (!res.ok || !("video" in res.data)) {
+      setError("error" in res.data ? res.data.error : "Failed to retry transcoding.");
+      return;
+    }
+    await loadStudio();
   }
 
   /* ── Bulk selection & delete — Scheduled Lineup ────── */
@@ -1091,6 +1451,30 @@ export default function CreatorStudioPage() {
             className="mt-4 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange"
           >
             Sign in →
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (isMinor) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-6 pt-24">
+        <div className="max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-8 text-center">
+          <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">
+            Creator Studio
+          </p>
+          <h1 className="mt-3 text-2xl font-bold text-av-white">
+            Not available for minors
+          </h1>
+          <p className="mt-4 text-sm text-av-light-orange">
+            Creator tools are restricted to users aged 18 and above. You can still enjoy general content and subscribe to viewer plans.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 inline-block text-sm font-semibold text-av-orange hover:text-av-light-orange"
+          >
+            ← Back to Home
           </Link>
         </div>
       </main>
@@ -1734,6 +2118,53 @@ export default function CreatorStudioPage() {
                       </div>
                     )}
 
+                    {/* Interrupted upload sessions — resume banner */}
+                    {interruptedSessions.length > 0 && (
+                      <div className="mb-4 rounded-2xl border border-av-orange/30 bg-av-orange/10 p-4">
+                        <p className="text-sm font-semibold text-av-white">Interrupted uploads detected</p>
+                        <p className="mt-1 text-xs text-av-light-orange">Re-select the original file to resume from where it left off.</p>
+                        <div className="mt-3 space-y-2">
+                          {interruptedSessions.map((s) => (
+                            <div key={s.sessionId} className="flex items-center justify-between rounded-lg border border-av-input-border/20 bg-av-input-fill/30 px-3 py-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-semibold text-av-white">{s.title || s.fileName}</p>
+                                <p className="text-[10px] text-av-light-orange/70">{(s.fileSize / 1024 / 1024).toFixed(1)} MB · {new Date(s.createdAt).toLocaleString()}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    resumeTargetRef.current = s;
+                                    resumeFileInputRef.current?.click();
+                                  }}
+                                  className="rounded-md bg-av-orange/20 px-3 py-1 text-[11px] font-semibold text-av-orange transition-all hover:bg-av-orange/30"
+                                >
+                                  Resume
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    removeUploadSession(s.sessionId);
+                                    setInterruptedSessions((prev) => prev.filter((x) => x.sessionId !== s.sessionId));
+                                  }}
+                                  className="rounded-md bg-av-error/10 px-2 py-1 text-[11px] text-av-error transition-all hover:bg-av-error/20"
+                                >
+                                  Discard
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <input
+                          ref={resumeFileInputRef}
+                          type="file"
+                          accept="video/mp4,video/webm"
+                          className="hidden"
+                          onChange={(e) => handleResumeFileSelected(e.target.files)}
+                        />
+                      </div>
+                    )}
+
                     {/* File picker */}
                     {!isContinuousUrlChannel && (
                       <>
@@ -1894,6 +2325,89 @@ export default function CreatorStudioPage() {
                                   </div>
                                 )}
 
+                                {/* Content rating */}
+                                {entry.progress === -1 && (
+                                  <div className="mt-2 rounded-lg border border-av-input-border/20 bg-av-input-fill/20 p-2.5">
+                                    <label className="text-[11px] font-semibold text-av-light-orange/90">Content Rating</label>
+                                    <select
+                                      value={entry.ageClassification}
+                                      onChange={(e) => {
+                                        const newAc = e.target.value as AgeClassification;
+                                        updateEntry(entry.id, { ageClassification: newAc });
+                                        if (newAc !== "adult") {
+                                          updateEntry(entry.id, {
+                                            ageClassification: newAc,
+                                            hasNudity: false,
+                                            hasPartialNudity: false,
+                                            hasExplicitContent: false,
+                                            hasEroticDancing: false,
+                                            hasSexualNature: false,
+                                            hasSex: false,
+                                            hasRevealingClothes: false,
+                                          });
+                                        }
+                                      }}
+                                      className="mt-1 h-8 w-full rounded-md border border-av-input-border/35 bg-av-input-fill/40 px-2 text-xs text-av-white focus:border-av-orange/40 focus:outline-none"
+                                    >
+                                      {(selectedChannel?.type === "public" ? PUBLIC_CLASSIFICATION_OPTIONS : CLASSIFICATION_OPTIONS).map((opt) => (
+                                        <option key={opt.value} value={opt.value} style={{ background: "#050A30" }}>
+                                          {opt.label} - {opt.hint}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    {selectedChannel?.type === "public" && (
+                                      <p className="mt-1 text-[10px] text-av-light-orange/60">
+                                        Public channels cannot upload 18+ content.
+                                      </p>
+                                    )}
+                                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                                      {GENERAL_CONTENT_FIELDS.map((field) => {
+                                        const keyMap: Record<string, keyof UploadEntry> = {
+                                          has_explicit_language: "hasExplicitLanguage",
+                                          has_violence: "hasViolence",
+                                          has_parental_guidance: "hasParentalGuidance",
+                                        };
+                                        const entryKey = keyMap[field.key] ?? (field.key as keyof UploadEntry);
+                                        return (
+                                        <label key={String(field.key)} className="flex items-center gap-1.5 text-[11px] text-av-white/70">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(entry[entryKey])}
+                                            onChange={(e) => updateEntry(entry.id, { [entryKey]: e.target.checked } as Partial<UploadEntry>)}
+                                            className="h-3 w-3 accent-av-orange"
+                                          />
+                                          {field.label}
+                                        </label>
+                                        );
+                                      })}
+                                      {entry.ageClassification === "adult" &&
+                                        ADULT_SENSITIVE_FIELDS.map((field) => {
+                                          const keyMap: Record<string, keyof UploadEntry> = {
+                                            has_nudity: "hasNudity",
+                                            has_partial_nudity: "hasPartialNudity",
+                                            has_explicit_content: "hasExplicitContent",
+                                            has_erotic_dancing: "hasEroticDancing",
+                                            has_sexual_nature: "hasSexualNature",
+                                            has_sex: "hasSex",
+                                            has_revealing_clothes: "hasRevealingClothes",
+                                          };
+                                          const entryKey = keyMap[field.key] ?? (field.key as keyof UploadEntry);
+                                          return (
+                                          <label key={String(field.key)} className="flex items-center gap-1.5 text-[11px] text-av-white/70">
+                                            <input
+                                              type="checkbox"
+                                              checked={Boolean(entry[entryKey])}
+                                              onChange={(e) => updateEntry(entry.id, { [entryKey]: e.target.checked } as Partial<UploadEntry>)}
+                                              className="h-3 w-3 accent-av-orange"
+                                            />
+                                            {field.label}
+                                          </label>
+                                          );
+                                        })}
+                                    </div>
+                                  </div>
+                                )}
+
                                 {/* Progress bar */}
                                 {entry.progress >= 0 &&
                                   entry.progress <= 100 && (
@@ -1906,11 +2420,36 @@ export default function CreatorStudioPage() {
                                           }}
                                         />
                                       </div>
-                                      <p className="mt-1 text-[10px] text-av-light-orange">
-                                        {entry.progress < 100
-                                          ? `Uploading ${entry.progress}%`
-                                          : "Registering..."}
-                                      </p>
+                                      <div className="mt-1 flex items-center justify-between">
+                                        <p className="text-[10px] text-av-light-orange">
+                                          {entry.paused
+                                            ? "Paused"
+                                            : entry.retrying
+                                              ? entry.error
+                                              : entry.progress < 100
+                                                ? `Uploading ${entry.progress}%${entry.uploadSpeed > 0 ? ` · ${(entry.uploadSpeed / 1024 / 1024).toFixed(1)} MB/s` : ""}`
+                                                : "Registering..."}
+                                        </p>
+                                        {entry.sessionId && (
+                                          <div className="flex items-center gap-1.5">
+                                            {entry.paused ? (
+                                              <button
+                                                onClick={() => handleResumeUpload(entry.id)}
+                                                className="rounded-md bg-av-orange/20 px-2 py-0.5 text-[10px] font-semibold text-av-orange transition-all hover:bg-av-orange/30"
+                                              >
+                                                Resume
+                                              </button>
+                                            ) : (
+                                              <button
+                                                onClick={() => handlePauseUpload(entry.id)}
+                                                className="rounded-md bg-av-input-fill/40 px-2 py-0.5 text-[10px] font-semibold text-av-light-orange transition-all hover:bg-av-input-fill/60"
+                                              >
+                                                Pause
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   )}
                               </div>
@@ -2358,7 +2897,17 @@ export default function CreatorStudioPage() {
                     >
                       Delete all
                     </button>
-                    {deletingBulk && (
+                    {selectedVideoIds.size > 0 && selectedChannelVideos.some((v) => selectedVideoIds.has(v.id) && !v.age_classification) && (
+                      <button
+                        type="button"
+                        onClick={handleBatchSetContentRating}
+                        disabled={batchRatingSaving || deletingBulk}
+                        className="rounded-lg border border-av-orange/30 bg-av-orange/10 px-3 py-1 text-[11px] font-semibold text-av-orange transition-all hover:bg-av-orange/20 disabled:opacity-50"
+                      >
+                        {batchRatingSaving ? "Setting…" : "Set unrated to TEEN"}
+                      </button>
+                    )}
+                    {(deletingBulk || batchRatingSaving) && (
                       <div className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-av-orange border-t-transparent" />
                     )}
                   </div>
@@ -2413,20 +2962,64 @@ export default function CreatorStudioPage() {
                                         ? "Original quality"
                                         : "Preparing adaptive quality"}
                                 </span>
+                                {video.transcoding_status === "failed" && (
+                                  <button
+                                    onClick={() => handleRetryTranscode(video.id)}
+                                    disabled={retryingTranscodeId === video.id || busy || deletingBulk}
+                                    className="rounded-full border border-av-orange/40 bg-av-orange/10 px-2 py-0.5 text-[10px] font-bold text-av-orange transition-all hover:bg-av-orange/20 disabled:opacity-50"
+                                  >
+                                    {retryingTranscodeId === video.id ? "Retrying…" : "↻ Retry transcode"}
+                                  </button>
+                                )}
+                                {video.transcoding_status === "failed" && video.transcoding_error && (
+                                  <span className="w-full text-[10px] text-av-error/70 truncate" title={video.transcoding_error}>
+                                    {video.transcoding_error}
+                                  </span>
+                                )}
                                 {video.available_renditions?.map((height) => (
                                   <span key={height} className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-av-light-orange">
                                     {height}p
                                   </span>
                                 ))}
+                                {video.age_classification ? (
+                                  <span
+                                    className="rounded-full border px-2 py-0.5 text-[10px] font-bold"
+                                    style={{
+                                      background: getClassificationMeta(video.age_classification as AgeClassification).bg,
+                                      border: getClassificationMeta(video.age_classification as AgeClassification).border,
+                                      color: getClassificationMeta(video.age_classification as AgeClassification).color,
+                                    }}
+                                  >
+                                    {getClassificationMeta(video.age_classification as AgeClassification).label}
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => openRatingEditor(video)}
+                                    className="rounded-full border border-av-orange/40 bg-av-orange/10 px-2 py-0.5 text-[10px] font-bold text-av-orange transition-all hover:bg-av-orange/20"
+                                  >
+                                    ⚠ Set Content Rating
+                                  </button>
+                                )}
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleDeleteVideo(video.id)}
-                              disabled={busy || deletingBulk}
-                              className="flex-shrink-0 rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
-                            >
-                              Delete
-                            </button>
+                            <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                              {video.age_classification && (
+                                <button
+                                  onClick={() => openRatingEditor(video)}
+                                  disabled={busy || deletingBulk}
+                                  className="rounded-full border border-av-input-border/30 bg-av-input-fill/30 px-2.5 py-1 text-[10px] font-semibold text-av-light-orange opacity-0 transition-all hover:bg-av-input-fill/50 group-hover:opacity-100 disabled:opacity-50"
+                                >
+                                  Edit Rating
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDeleteVideo(video.id, video.title)}
+                                disabled={busy || deletingBulk || deletingConfirmed}
+                                className="rounded-full border border-av-error/30 bg-av-error/5 px-3 py-1.5 text-xs font-semibold text-av-error opacity-0 transition-all hover:bg-av-error/20 group-hover:opacity-100 disabled:opacity-50"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -2462,6 +3055,144 @@ export default function CreatorStudioPage() {
           )}
         </div>
       </main>
+
+      {/* ── Content Rating Editor Modal ── */}
+      {ratingEditorVideo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closeRatingEditor}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-av-input-border/30 bg-av-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-av-white">Set Content Rating</h3>
+              <button onClick={closeRatingEditor} className="text-av-light-orange hover:text-av-white">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+              </button>
+            </div>
+            <p className="mb-3 truncate text-xs text-av-light-orange">{ratingEditorVideo.title}</p>
+            <label className="text-[11px] font-semibold text-av-light-orange/90">Audience Classification</label>
+            <select
+              value={ratingEditorAge}
+              onChange={(e) => setRatingEditorAge(e.target.value as AgeClassification)}
+              className="mt-1 h-9 w-full rounded-md border border-av-input-border/35 bg-av-input-fill/40 px-2 text-xs text-av-white focus:border-av-orange/40 focus:outline-none"
+            >
+              {(selectedChannel?.type === "public" ? PUBLIC_CLASSIFICATION_OPTIONS : CLASSIFICATION_OPTIONS).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label} — {opt.hint}
+                </option>
+              ))}
+            </select>
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5">
+              {GENERAL_CONTENT_FIELDS.map((field) => (
+                <label key={String(field.key)} className="flex items-center gap-1.5 text-[11px] text-av-white/70">
+                  <input
+                    type="checkbox"
+                    checked={ratingEditorFields[field.key] ?? false}
+                    onChange={(e) => setRatingEditorFields((prev) => ({ ...prev, [field.key]: e.target.checked }))}
+                    className="h-3 w-3 accent-av-orange"
+                  />
+                  {field.label}
+                </label>
+              ))}
+              {ratingEditorAge === "adult" &&
+                ADULT_SENSITIVE_FIELDS.map((field) => (
+                  <label key={String(field.key)} className="flex items-center gap-1.5 text-[11px] text-av-white/70">
+                    <input
+                      type="checkbox"
+                      checked={ratingEditorFields[field.key] ?? false}
+                      onChange={(e) => setRatingEditorFields((prev) => ({ ...prev, [field.key]: e.target.checked }))}
+                      className="h-3 w-3 accent-av-orange"
+                    />
+                    {field.label}
+                  </label>
+                ))}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={closeRatingEditor}
+                className="rounded-lg border border-av-input-border/30 px-3 py-1.5 text-xs font-semibold text-av-light-orange transition-all hover:bg-av-input-fill/30"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveContentRating}
+                disabled={ratingEditorSaving}
+                className="rounded-lg bg-gradient-to-r from-av-orange to-av-light-orange px-4 py-1.5 text-xs font-semibold text-av-dark-blue disabled:opacity-50"
+              >
+                {ratingEditorSaving ? "Saving…" : "Save Rating"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => !deletingConfirmed && setDeleteConfirm(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="mx-4 max-w-md rounded-2xl border border-av-error/20 bg-av-card p-6 shadow-2xl"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-av-error/10">
+                <svg className="h-5 w-5 text-av-error" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-bold text-av-white">
+                  {deleteConfirm.type === "single"
+                    ? "Delete this video?"
+                    : deleteConfirm.type === "selected"
+                      ? `Delete ${deleteConfirm.count} selected video${deleteConfirm.count > 1 ? "s" : ""}?`
+                      : `Delete ALL ${deleteConfirm.count} videos?`}
+                </h3>
+                {deleteConfirm.type === "single" && (
+                  <p className="mt-1 text-sm text-av-light-orange">
+                    &ldquo;{deleteConfirm.title}&rdquo;
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-av-error/20 bg-av-error/5 p-3">
+              <p className="text-xs leading-relaxed text-av-error/80">
+                <strong className="font-bold text-av-error">Warning:</strong> Deleted content can never be seen or used again. It will be permanently deleted from our servers forever. This action cannot be undone.
+              </p>
+            </div>
+
+            <p className="mt-3 text-xs text-av-light-orange/60">
+              If this was a mistake, simply close this dialog.
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deletingConfirmed}
+                className="rounded-lg border border-av-input-border/30 px-4 py-2 text-xs font-semibold text-av-light-orange transition-all hover:bg-av-input-fill/30 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteVideo}
+                disabled={deletingConfirmed}
+                className="rounded-lg bg-av-error px-4 py-2 text-xs font-bold text-white transition-all hover:bg-av-error/90 disabled:opacity-50"
+              >
+                {deletingConfirmed ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Deleting…
+                  </span>
+                ) : (
+                  "Yes, delete forever"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
