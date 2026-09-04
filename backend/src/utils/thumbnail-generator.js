@@ -4,7 +4,7 @@ const { pipeline } = require('stream/promises');
 
 const ffmpeg = require('fluent-ffmpeg');
 const { Storage } = require('@google-cloud/storage');
-const { extractGCSPath, generateSignedReadUrl } = require('./gcs');
+const { extractGCSPath, getPublicUrl } = require('./gcs');
 
 const storage = new Storage();
 const BUCKET_NAME = process.env.GCS_BUCKET || 'afrovision-media';
@@ -82,16 +82,15 @@ async function generateThumbnail(videoUrl, waveId) {
       throw new Error(`Invalid GCS URL: ${videoUrl}`);
     }
 
-    // Short-lived signed URL for FFmpeg input. 5 minutes is more than enough
-    // for a single-frame seek/read.
-    const signedVideoUrl = await generateSignedReadUrl(gcsPath, 5);
+    // Public GCS URL for FFmpeg input. The bucket is public, so no signing.
+    const publicVideoUrl = getPublicUrl(gcsPath);
 
     const thumbnailFileName = getThumbnailPath(waveId);
     const thumbnailFile = storage.bucket(BUCKET_NAME).file(thumbnailFileName);
 
     await Promise.race([
       new Promise((resolve, reject) => {
-        ffmpeg(signedVideoUrl)
+        ffmpeg(publicVideoUrl)
           .inputOptions(['-ss', '1'])
           .outputOptions([
             '-vf', 'scale=540:-2',

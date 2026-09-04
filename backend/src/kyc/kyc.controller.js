@@ -13,7 +13,7 @@
 const KycModel = require('./kyc.model');
 const UserModel = require('../users/user.model');
 const ReputationService = require('../reputation/reputation.service');
-const { extractKycGCSPath, generateKycSignedReadUrl } = require('../utils/gcs');
+const { extractKycGCSPath, getKycPublicUrl } = require('../utils/gcs');
 
 /* ── User-facing ──────────────────────────────────────────────── */
 
@@ -161,7 +161,7 @@ async function updateMyGender(req, res) {
 const KYC_IMAGE_FIELDS = ['id_front_url', 'id_back_url', 'selfie_url'];
 
 /**
- * Replace raw KYC bucket URLs with signed read URLs for admin display.
+ * Replace raw KYC bucket URLs with public URLs for admin display.
  * Non-KYC URLs (e.g. older public-bucket uploads) are left as-is.
  */
 async function signKycImageUrls(record) {
@@ -172,7 +172,7 @@ async function signKycImageUrls(record) {
     const path = extractKycGCSPath(rawUrl);
     if (!path) continue;
     try {
-      record[field] = await generateKycSignedReadUrl(path, 60);
+      record[field] = getKycPublicUrl(path);
     } catch (err) {
       console.error(`[KYC] Failed to sign ${field}:`, err.message);
       // Keep the original URL as a fallback.

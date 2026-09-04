@@ -9,7 +9,7 @@ const admin = require('firebase-admin');
 const LibraryService = require('./library.service');
 const LibraryPolicyService = require('./library-policy.service');
 const { isLibraryRolloutEnabledForUser } = require('./library-rollout.service');
-const { extractGCSPath, generateSignedReadUrl, getGCSObjectMetadata } = require('../utils/gcs');
+const { extractGCSPath, getPublicUrl, getGCSObjectMetadata } = require('../utils/gcs');
 const Channel = require('../channels/channel.model');
 
 const db = {
@@ -378,8 +378,8 @@ exports.getReaderManifest = async (req, res) => {
       });
     }
 
-    // Get signed URL with 1-hour expiry (helper wraps GCS file.getSignedUrl)
-    const signedUrl = await generateSignedReadUrl(objectPath, 60);
+    // Return public GCS URL (bucket is public; no signing needed)
+    const publicUrl = getPublicUrl(objectPath);
 
     // Record engagement event
     await libraryService.recordEngagementEvent(userId, channelId, itemId, 'read-start', {
@@ -389,7 +389,7 @@ exports.getReaderManifest = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: {
-        manifestUrl: signedUrl,
+        manifestUrl: publicUrl,
         itemId,
         totalPages: item.totalPages,
       },

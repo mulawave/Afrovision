@@ -103,22 +103,13 @@ function extractKycGCSPath(url) {
 }
 
 /**
- * Generate a signed URL for reading a KYC identity document from the
- * dedicated, private KYC bucket. The main media bucket helper is not reused
- * because the KYC bucket is a separate, non-public bucket.
+ * Return the public URL for a KYC identity document.
+ * The KYC bucket must allow public read for this URL to work.
  * @param {string} filename - Object path in the KYC bucket
- * @param {number} [expiresMinutes=60] - URL validity in minutes
- * @returns {Promise<string>} Signed read URL
+ * @returns {string} Public read URL
  */
-async function generateKycSignedReadUrl(filename, expiresMinutes = 60) {
-  const bucket = getKycBucket();
-  const blob = bucket.file(filename);
-  const [url] = await blob.getSignedUrl({
-    version: 'v4',
-    action: 'read',
-    expires: Date.now() + expiresMinutes * 60 * 1000,
-  });
-  return url;
+function getKycPublicUrl(filename) {
+  return `https://storage.googleapis.com/${KYC_BUCKET_NAME}/${filename}`;
 }
 
 /**
@@ -203,65 +194,13 @@ async function setGCSObjectMetadata(filename, metadata) {
 }
 
 /**
- * Generate a signed URL for direct client read/download.
+ * Return the public URL for a media object.
+ * The bucket is public, so no signing is needed.
  * @param {string} filename - Object path in bucket (e.g. "videos/uuid.mp4")
- * @param {number} [expiresMinutes=60] - URL validity in minutes
- * @returns {Promise<string>} Signed read URL
+ * @returns {string} Public read URL
  */
-async function generateSignedReadUrl(filename, expiresMinutes = 60) {
-  const bucket = getBucket();
-  const blob = bucket.file(filename);
-  const [url] = await blob.getSignedUrl({
-    version: 'v4',
-    action: 'read',
-    expires: Date.now() + expiresMinutes * 60 * 1000,
-  });
-  return url;
-}
-
-// ─── Signed read-URL cache ───────────────────────────────────────────────────
-// generateSignedReadUrl() calls GCS's IAM signBlob API (network round-trip)
-// under Application Default Credentials. For live HLS segments, every viewer
-// re-signing the same segment causes massive duplicate latency. This cache
-// lets concurrent viewers reuse one signed URL per object until it's close
-// to expiry.
-const SIGNED_URL_CACHE_MAX_ENTRIES = 5000;
-const SIGNED_URL_CACHE_SAFETY_MS = 2 * 60 * 1000; // refresh 2 min before real expiry
-const signedUrlCache = new Map(); // objectPath -> { url, expiresAt }
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of signedUrlCache) {
-    if (entry.expiresAt <= now) signedUrlCache.delete(key);
-  }
-}, 5 * 60 * 1000).unref?.();
-
-/**
- * Same as generateSignedReadUrl, but caches the result in-memory so that
- * concurrent requests for the same object (e.g. many viewers watching the
- * same live channel segment) reuse a single signed URL instead of each
- * triggering a separate IAM signBlob call.
- * @param {string} filename - Object path in bucket
- * @param {number} [expiresMinutes=30] - URL validity in minutes
- * @returns {Promise<string>} Signed read URL
- */
-async function getCachedSignedReadUrl(filename, expiresMinutes = 30) {
-  const now = Date.now();
-  const cached = signedUrlCache.get(filename);
-  if (cached && cached.expiresAt - SIGNED_URL_CACHE_SAFETY_MS > now) {
-    return cached.url;
-  }
-
-  const url = await generateSignedReadUrl(filename, expiresMinutes);
-  const expiresAt = now + expiresMinutes * 60 * 1000;
-
-  if (signedUrlCache.size >= SIGNED_URL_CACHE_MAX_ENTRIES && !signedUrlCache.has(filename)) {
-    const oldestKey = signedUrlCache.keys().next().value;
-    if (oldestKey !== undefined) signedUrlCache.delete(oldestKey);
-  }
-  signedUrlCache.set(filename, { url, expiresAt });
-
-  return url;
+function getPublicUrl(filename) {
+  return `https://storage.googleapis.com/${BUCKET_NAME}/${filename}`;
 }
 
 /**
@@ -298,9 +237,8 @@ module.exports = {
   extractKycGCSPath,
   downloadFromGCS,
   generateSignedUploadUrl,
-  generateSignedReadUrl,
-  generateKycSignedReadUrl,
-  getCachedSignedReadUrl,
+  getPublicUrl,
+  getKycPublicUrl,
   resolvePlayableUrl,
   createResumableUploadSession,
   getGCSObjectMetadata,
