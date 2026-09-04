@@ -32,7 +32,9 @@ import '../models/wave_model.dart';
 import '../services/wave_service.dart';
 
 class WaveScreen extends StatefulWidget {
-  const WaveScreen({super.key});
+  final bool isActive;
+
+  const WaveScreen({super.key, this.isActive = true});
 
   @override
   State<WaveScreen> createState() => _WaveScreenState();
@@ -62,8 +64,10 @@ class _WaveScreenState extends State<WaveScreen> {
   final Map<String, String> _channelTypes = <String, String>{};
   final Map<String, bool> _channelCardVisible = <String, bool>{};
   // Static caches so brand-card data survives leaving and re-entering WaveScreen
-  static final Map<String, ChannelModel> _channelCache = <String, ChannelModel>{};
-  static final Map<String, List<WaveModel>> _channelWavesCache = <String, List<WaveModel>>{};
+  static final Map<String, ChannelModel> _channelCache =
+      <String, ChannelModel>{};
+  static final Map<String, List<WaveModel>> _channelWavesCache =
+      <String, List<WaveModel>>{};
   // Library uploads (books/comics/magazines) preview per channel
   static final Map<String, List<ChannelLibraryItemModel>> _channelLibraryCache =
       <String, List<ChannelLibraryItemModel>>{};
@@ -122,8 +126,10 @@ class _WaveScreenState extends State<WaveScreen> {
     super.initState();
     _pageController = PageController();
     VideoCacheService.instance.initialize();
-    _loadInitial();
-    _loadWaveAd();
+    if (widget.isActive) {
+      _loadInitial();
+      _loadWaveAd();
+    }
   }
 
   @override
@@ -149,6 +155,22 @@ class _WaveScreenState extends State<WaveScreen> {
 
     if (!_loading) {
       _applyChannelContextIfNeeded();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant WaveScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isActive && widget.isActive) {
+      if (_waves.isEmpty) {
+        _loadInitial();
+        _loadWaveAd();
+      } else {
+        _onPageChanged(_activeWaveIndex + _adCountBeforePage(_activeWaveIndex));
+      }
+    } else if (oldWidget.isActive && !widget.isActive) {
+      _pauseAll();
+      _disposeWaveControllers();
     }
   }
 
@@ -315,12 +337,15 @@ class _WaveScreenState extends State<WaveScreen> {
       final isCreator = results[1] as bool;
       final token = results[2] as String?;
       final currentUserId = results[3] as String?;
-      
+
       // If a channel context is provided, load that channel's waves first
-      if (_pendingChannelContextId != null && _pendingChannelContextId!.isNotEmpty) {
-        final channelWaves = await WaveService.getChannelWaves(_pendingChannelContextId!);
+      if (_pendingChannelContextId != null &&
+          _pendingChannelContextId!.isNotEmpty) {
+        final channelWaves = await WaveService.getChannelWaves(
+          _pendingChannelContextId!,
+        );
         if (!mounted) return;
-        
+
         if (channelWaves.isNotEmpty) {
           final filteredWaves = await _filterWaves(channelWaves);
           if (!mounted) return;
@@ -373,7 +398,8 @@ class _WaveScreenState extends State<WaveScreen> {
         // preloading of indices 0-3 since _applyChannelContextIfNeeded or
         // _applySharedWaveIfNeeded will jump to a different index anyway.
         // Preloading the wrong indices wastes bandwidth and controller slots.
-        final hasPendingNavigation = _pendingChannelContextId != null || _pendingWaveId != null;
+        final hasPendingNavigation =
+            _pendingChannelContextId != null || _pendingWaveId != null;
         if (!hasPendingNavigation) {
           _preloadWave(_waves.first);
           _loadPulseMoments(_waves.first.id);
@@ -480,7 +506,7 @@ class _WaveScreenState extends State<WaveScreen> {
         // Apply filtering logic to shared wave
         final filteredWaves = await _filterWaves([sharedWave]);
         if (!mounted) return;
-        
+
         if (filteredWaves.isEmpty) {
           // Wave was filtered out (e.g., non-member of exclusive channel)
           _pendingWaveId = null;
@@ -556,7 +582,9 @@ class _WaveScreenState extends State<WaveScreen> {
       if (!mounted) return;
 
       final existing = _waves.map((wave) => wave.id).toSet();
-      final newWaves = filteredWaves.where((wave) => !existing.contains(wave.id)).toList();
+      final newWaves = filteredWaves
+          .where((wave) => !existing.contains(wave.id))
+          .toList();
 
       if (newWaves.isNotEmpty) {
         setState(() {
@@ -630,7 +658,8 @@ class _WaveScreenState extends State<WaveScreen> {
     // farthest non-active wave's controller to make room.
     const maxConcurrentControllers = 3;
     final isActive = _isActiveWave(wave.id);
-    if ((_videoControllers.length + _initializingControllerCount) >= maxConcurrentControllers) {
+    if ((_videoControllers.length + _initializingControllerCount) >=
+        maxConcurrentControllers) {
       if (isActive) {
         // Evict the farthest non-active wave controller to make room for active wave
         String? farthestId;
@@ -668,16 +697,20 @@ class _WaveScreenState extends State<WaveScreen> {
     } catch (e) {
       _initializingControllerCount--;
       _failedWaveIds.add(wave.id);
-      debugPrint('[WaveScreen] Failed to create video controller for ${wave.id}: $e');
+      debugPrint(
+        '[WaveScreen] Failed to create video controller for ${wave.id}: $e',
+      );
       return;
     }
-    
+
     controller
         .initialize()
         .timeout(
           const Duration(seconds: 12),
           onTimeout: () {
-            debugPrint('[WaveScreen] Video initialization timeout for ${wave.id}');
+            debugPrint(
+              '[WaveScreen] Video initialization timeout for ${wave.id}',
+            );
             throw TimeoutException('Video initialization timeout');
           },
         )
@@ -718,7 +751,10 @@ class _WaveScreenState extends State<WaveScreen> {
               _endHandled[wave.id] = true;
               // Track the replay locally AND persist to backend
               if (_isActiveWave(wave.id)) {
-                _updateWave(wave.id, (w) => w.copyWith(repeatPlayCount: w.repeatPlayCount + 1));
+                _updateWave(
+                  wave.id,
+                  (w) => w.copyWith(repeatPlayCount: w.repeatPlayCount + 1),
+                );
                 // Persist rewatch count to backend - this ensures counts survive app restarts
                 WaveService.trackView(wave.id);
                 if (_autoscroll) {
@@ -737,7 +773,8 @@ class _WaveScreenState extends State<WaveScreen> {
           _videoListeners[wave.id] = listener;
           controller.addListener(listener);
 
-          if (_isActiveWave(wave.id) &&
+          if (widget.isActive &&
+              _isActiveWave(wave.id) &&
               (_accessDecisions[wave.id]?.allowed ?? false)) {
             controller.play();
           }
@@ -757,7 +794,9 @@ class _WaveScreenState extends State<WaveScreen> {
           if (!mounted) return;
           _initializingControllerCount--;
           _initializingWaveIds.remove(wave.id);
-          debugPrint('[WaveScreen] Failed to initialize video for ${wave.id}: $error');
+          debugPrint(
+            '[WaveScreen] Failed to initialize video for ${wave.id}: $error',
+          );
 
           final retries = (_initRetryCount[wave.id] ?? 0) + 1;
           _initRetryCount[wave.id] = retries;
@@ -769,7 +808,7 @@ class _WaveScreenState extends State<WaveScreen> {
           // come back, at which point _onPageChanged clears the failed state.
           if (isActive) {
             Future.delayed(const Duration(milliseconds: 800), () async {
-              if (!mounted || !_isActiveWave(wave.id)) return;
+              if (!mounted || !_isActiveWave(wave.id) || !widget.isActive) return;
               try {
                 final refreshed = await WaveService.getWave(wave.id);
                 if (!mounted || !_isActiveWave(wave.id)) return;
@@ -875,7 +914,9 @@ class _WaveScreenState extends State<WaveScreen> {
         .toSet();
     for (final channelId in uniqueExclusiveIds) {
       try {
-        result[channelId] = await ChannelService.getExclusiveAccessStatus(channelId);
+        result[channelId] = await ChannelService.getExclusiveAccessStatus(
+          channelId,
+        );
       } catch (_) {
         // If fetch fails, treat as non-exclusive to avoid blocking content
         result[channelId] = ExclusiveAccessStatusModel(
@@ -900,7 +941,7 @@ class _WaveScreenState extends State<WaveScreen> {
     try {
       final user = await AuthService.getCurrentUser();
       final filteredWaves = <WaveModel>[];
-      
+
       // Batch-fetch exclusive access status for all exclusive waves at once
       // instead of N+1 sequential API calls per wave
       final exclusiveAccessCache = await _fetchExclusiveAccessBatch(waves);
@@ -910,7 +951,7 @@ class _WaveScreenState extends State<WaveScreen> {
         // This avoids fetching each channel individually via getChannelById
         if (wave.belongsToExclusiveChannel) {
           final accessStatus = exclusiveAccessCache[wave.channelId];
-          
+
           if (accessStatus == null || !accessStatus.eligibleByKyc) {
             // Non-members must never know the content exists - HIDE_WAVE_COMPLETELY
             continue;
@@ -931,7 +972,8 @@ class _WaveScreenState extends State<WaveScreen> {
             _accessDecisions[wave.id] = const WaveAccessDecision(
               allowed: false,
               requiresConsent: false,
-              reason: 'Your subscription has expired. Renew to continue viewing this content.',
+              reason:
+                  'Your subscription has expired. Renew to continue viewing this content.',
               code: 'EXCLUSIVE_SUBSCRIPTION_EXPIRED',
             );
           }
@@ -1106,11 +1148,12 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   Future<void> _ensureWaveAccessAndPlay({bool force = false}) async {
+    if (!widget.isActive) return;
     if (_activeWaveIndex < 0 || _activeWaveIndex >= _waves.length) return;
 
     final active = _waves[_activeWaveIndex];
     final existing = _accessDecisions[active.id];
-    
+
     // Exclusive active subscribers bypass all gating including age restrictions
     // Always preserve client-side decision for exclusive active subscribers
     // This check must happen BEFORE any backend call to prevent override
@@ -1118,7 +1161,7 @@ class _WaveScreenState extends State<WaveScreen> {
       _playActiveWave();
       return;
     }
-    
+
     if (!force && existing != null && existing.allowed) {
       _playActiveWave();
       return;
@@ -1192,6 +1235,7 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   void _playActiveWave() {
+    if (!widget.isActive) return;
     if (_activeWaveIndex < 0 || _activeWaveIndex >= _waves.length) return;
     final active = _waves[_activeWaveIndex];
     final decision = _accessDecisions[active.id];
@@ -1204,9 +1248,10 @@ class _WaveScreenState extends State<WaveScreen> {
       // Retry after 2s to catch the case where preload succeeded but
       // _playActiveWave was called before it completed.
       Future.delayed(const Duration(milliseconds: 2000), () {
-        if (!mounted || !_isActiveWave(active.id)) return;
+        if (!mounted || !_isActiveWave(active.id) || !widget.isActive) return;
         final retryController = _videoControllers[active.id];
-        if (retryController != null && retryController.value.isInitialized &&
+        if (retryController != null &&
+            retryController.value.isInitialized &&
             (_accessDecisions[active.id]?.allowed ?? false)) {
           retryController.play();
         }
@@ -1219,7 +1264,7 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   Future<void> _onPageChanged(int index) async {
-    if (!mounted) return;
+    if (!mounted || !widget.isActive) return;
     if (index < 0 || index >= _pageCountWithAds()) return;
     _pauseAll();
 
@@ -1283,7 +1328,7 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   void _advanceWave() {
-    if (!mounted) return;
+    if (!mounted || !widget.isActive) return;
     if (_activeWaveIndex >= _waves.length - 1) return;
     if (!_pageController.hasClients) return;
     _pageController.nextPage(
@@ -1295,8 +1340,9 @@ class _WaveScreenState extends State<WaveScreen> {
   Future<void> _toggleAutoscroll() async {
     setState(() {
       _autoscroll = !_autoscroll;
-      _autoscrollBadgeLabel =
-          _autoscroll ? 'Autoscroll enabled' : 'Autoscroll disabled';
+      _autoscrollBadgeLabel = _autoscroll
+          ? 'Autoscroll enabled'
+          : 'Autoscroll disabled';
       _autoscrollBadgeKey = DateTime.now().microsecondsSinceEpoch;
     });
     for (final controller in _videoControllers.values) {
@@ -1326,7 +1372,9 @@ class _WaveScreenState extends State<WaveScreen> {
 
   Future<void> _loadChannelFollowStatus(WaveModel wave) async {
     try {
-      final status = await ChannelService.getChannelFollowStatus(wave.channelId);
+      final status = await ChannelService.getChannelFollowStatus(
+        wave.channelId,
+      );
       if (!mounted) return;
       setState(() => _isFollowingChannel = status.followed);
     } catch (_) {
@@ -1369,7 +1417,8 @@ class _WaveScreenState extends State<WaveScreen> {
     try {
       final androidPlugin = FlutterLocalNotificationsPlugin()
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       await androidPlugin?.createNotificationChannel(
         const AndroidNotificationChannel(
           channelId,
@@ -1469,9 +1518,7 @@ class _WaveScreenState extends State<WaveScreen> {
       _updateWave(wave.id, (w) => w.copyWith(bookmarked: bookmarked));
       if (bookmarked) _floatingOverlayKey.currentState?.showSave();
       _showSnack(
-        bookmarked
-            ? 'Saved to your library'
-            : 'Removed from your saves',
+        bookmarked ? 'Saved to your library' : 'Removed from your saves',
       );
     } catch (e) {
       _showSnack(e.toString());
@@ -1539,7 +1586,8 @@ class _WaveScreenState extends State<WaveScreen> {
           _updateWave(wave.id, (w) => w.copyWith(commentCount: newCount));
         },
         onCommentPosted: () => _floatingOverlayKey.currentState?.showComment(),
-        onReactionToggled: () => _floatingOverlayKey.currentState?.showReaction(),
+        onReactionToggled: () =>
+            _floatingOverlayKey.currentState?.showReaction(),
       ),
     );
   }
@@ -1608,7 +1656,9 @@ class _WaveScreenState extends State<WaveScreen> {
                   child: const DecoratedBox(
                     decoration: BoxDecoration(
                       color: Color(0x5E0A1E3A),
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(28),
+                      ),
                       border: Border(
                         top: BorderSide(color: Color(0x99FFD700), width: 0.9),
                         left: BorderSide(color: Color(0x28FFD700), width: 0.5),
@@ -1619,24 +1669,30 @@ class _WaveScreenState extends State<WaveScreen> {
                 ),
               ),
               SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       Container(
                         width: 40,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFD700).withValues(alpha: 0.45),
+                          color: const Color(
+                            0xFFFFD700,
+                          ).withValues(alpha: 0.45),
                           borderRadius: BorderRadius.circular(999),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Row(
                         children: [
-                          const Icon(Icons.share_rounded, color: Color(0xFFFFD700), size: 18),
+                          const Icon(
+                            Icons.share_rounded,
+                            color: Color(0xFFFFD700),
+                            size: 18,
+                          ),
                           const SizedBox(width: 8),
                           const Text(
                             'Share Wave',
@@ -1651,7 +1707,9 @@ class _WaveScreenState extends State<WaveScreen> {
                           Text(
                             wave.channelName,
                             style: TextStyle(
-                              color: const Color(0xFFFFD700).withValues(alpha: 0.55),
+                              color: const Color(
+                                0xFFFFD700,
+                              ).withValues(alpha: 0.55),
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
                             ),
@@ -1696,15 +1754,21 @@ class _WaveScreenState extends State<WaveScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFFD700).withValues(alpha: 0.12),
+                            color: const Color(
+                              0xFFFFD700,
+                            ).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: const Color(0xFFFFD700).withValues(alpha: 0.80),
+                              color: const Color(
+                                0xFFFFD700,
+                              ).withValues(alpha: 0.80),
                               width: 1,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFFFD700).withValues(alpha: 0.18),
+                                color: const Color(
+                                  0xFFFFD700,
+                                ).withValues(alpha: 0.18),
                                 blurRadius: 12,
                                 offset: const Offset(0, 3),
                               ),
@@ -1713,7 +1777,11 @@ class _WaveScreenState extends State<WaveScreen> {
                           child: const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.chat_rounded, size: 16, color: Color(0xFFFFD700)),
+                              Icon(
+                                Icons.chat_rounded,
+                                size: 16,
+                                color: Color(0xFFFFD700),
+                              ),
                               SizedBox(width: 8),
                               Text(
                                 'WhatsApp Contact',
@@ -1744,22 +1812,34 @@ class _WaveScreenState extends State<WaveScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF010D1A).withValues(alpha: 0.70),
+                            color: const Color(
+                              0xFF010D1A,
+                            ).withValues(alpha: 0.70),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: const Color(0xFFFFD700).withValues(alpha: 0.35),
+                              color: const Color(
+                                0xFFFFD700,
+                              ).withValues(alpha: 0.35),
                               width: 0.8,
                             ),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.more_horiz_rounded, size: 16, color: const Color(0xFFFFD700).withValues(alpha: 0.70)),
+                              Icon(
+                                Icons.more_horiz_rounded,
+                                size: 16,
+                                color: const Color(
+                                  0xFFFFD700,
+                                ).withValues(alpha: 0.70),
+                              ),
                               const SizedBox(width: 8),
                               Text(
                                 'WhatsApp Status / More',
                                 style: TextStyle(
-                                  color: const Color(0xFFFFD700).withValues(alpha: 0.70),
+                                  color: const Color(
+                                    0xFFFFD700,
+                                  ).withValues(alpha: 0.70),
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 0.2,
@@ -1780,22 +1860,34 @@ class _WaveScreenState extends State<WaveScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0C2142).withValues(alpha: 0.85),
+                            color: const Color(
+                              0xFF0C2142,
+                            ).withValues(alpha: 0.85),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: const Color(0xFFFFD700).withValues(alpha: 0.50),
+                              color: const Color(
+                                0xFFFFD700,
+                              ).withValues(alpha: 0.50),
                               width: 1,
                             ),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.link_rounded, size: 16, color: const Color(0xFFFFD700).withValues(alpha: 0.70)),
+                              Icon(
+                                Icons.link_rounded,
+                                size: 16,
+                                color: const Color(
+                                  0xFFFFD700,
+                                ).withValues(alpha: 0.70),
+                              ),
                               const SizedBox(width: 8),
                               Text(
                                 'Share to Myngul',
                                 style: TextStyle(
-                                  color: const Color(0xFFFFD700).withValues(alpha: 0.70),
+                                  color: const Color(
+                                    0xFFFFD700,
+                                  ).withValues(alpha: 0.70),
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 0.2,
@@ -2044,9 +2136,7 @@ class _WaveScreenState extends State<WaveScreen> {
               ),
             ),
           ),
-        Positioned.fill(
-          child: _LocalFloatingOverlay(key: _floatingOverlayKey),
-        ),
+        Positioned.fill(child: _LocalFloatingOverlay(key: _floatingOverlayKey)),
       ],
     );
   }
@@ -2062,8 +2152,10 @@ class _WaveScreenState extends State<WaveScreen> {
     final fullMediaUrl = mediaUrl.startsWith('http')
         ? mediaUrl
         : AppConfig.mediaUrl(mediaUrl);
-    final isVideo = RegExp(r'\.(mp4|webm|mov)(\?.*)?$', caseSensitive: false)
-        .hasMatch(mediaUrl);
+    final isVideo = RegExp(
+      r'\.(mp4|webm|mov)(\?.*)?$',
+      caseSensitive: false,
+    ).hasMatch(mediaUrl);
 
     Future<void> openAd() async {
       final adId = ad['id'] as String? ?? '';
@@ -2074,7 +2166,10 @@ class _WaveScreenState extends State<WaveScreen> {
         ).catchError((_) => <String, dynamic>{});
       }
       if (clickUrl.isNotEmpty) {
-        await launchUrl(Uri.parse(clickUrl), mode: LaunchMode.externalApplication);
+        await launchUrl(
+          Uri.parse(clickUrl),
+          mode: LaunchMode.externalApplication,
+        );
       }
     }
 
@@ -2107,7 +2202,10 @@ class _WaveScreenState extends State<WaveScreen> {
               top: 48,
               left: 16,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.orange,
                   borderRadius: BorderRadius.circular(999),
@@ -2133,7 +2231,10 @@ class _WaveScreenState extends State<WaveScreen> {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Colors.black.withValues(alpha: 0.9)],
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.9),
+                    ],
                   ),
                 ),
                 child: Column(
@@ -2216,13 +2317,15 @@ class _WaveScreenState extends State<WaveScreen> {
                     Positioned.fill(
                       child: ClipRect(
                         child: ImageFiltered(
-                          imageFilter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                          imageFilter: ui.ImageFilter.blur(
+                            sigmaX: 22,
+                            sigmaY: 22,
+                          ),
                           child: CachedNetworkImage(
                             imageUrl: wave.thumbnailUrl,
                             fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => Container(
-                              color: AppColors.darkBlue,
-                            ),
+                            errorWidget: (_, __, ___) =>
+                                Container(color: AppColors.darkBlue),
                           ),
                         ),
                       ),
@@ -2237,7 +2340,8 @@ class _WaveScreenState extends State<WaveScreen> {
                         duration: const Duration(milliseconds: 220),
                         child: Center(
                           child: AspectRatio(
-                            aspectRatio: controller.value.aspectRatio > 0 &&
+                            aspectRatio:
+                                controller.value.aspectRatio > 0 &&
                                     !controller.value.aspectRatio.isNaN &&
                                     !controller.value.aspectRatio.isInfinite
                                 ? controller.value.aspectRatio
@@ -2285,10 +2389,7 @@ class _WaveScreenState extends State<WaveScreen> {
               top: 46,
               left: 12,
               right: 12,
-              child: SafeArea(
-                bottom: false,
-                child: _buildPlaybackSpeedBar(),
-              ),
+              child: SafeArea(bottom: false, child: _buildPlaybackSpeedBar()),
             ),
           if (!_hideAllUI)
             Positioned(
@@ -2316,7 +2417,9 @@ class _WaveScreenState extends State<WaveScreen> {
                             color: AppColors.white,
                           ),
                           style: IconButton.styleFrom(
-                            backgroundColor: Colors.black.withValues(alpha: 0.35),
+                            backgroundColor: Colors.black.withValues(
+                              alpha: 0.35,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -2430,7 +2533,12 @@ class _WaveScreenState extends State<WaveScreen> {
               child: _buildContentOverlay(wave),
             ),
           if (!_hideAllUI)
-            Positioned(right: 0, top: 0, bottom: 0, child: _buildRightRail(wave)),
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: _buildRightRail(wave),
+            ),
           // Brand/Channel card overlay (slides up from bottom)
           if (!_hideAllUI)
             Positioned(
@@ -2445,12 +2553,12 @@ class _WaveScreenState extends State<WaveScreen> {
               right: 10,
               bottom: 10,
               child: _EcgTimeline(
-              durationSeconds: duration,
-              currentTimeSeconds: current,
-              moments: moments,
-              onSeek: (seconds) => _seekWave(wave, seconds),
+                durationSeconds: duration,
+                currentTimeSeconds: current,
+                moments: moments,
+                onSeek: (seconds) => _seekWave(wave, seconds),
+              ),
             ),
-          ),
           if (isActive && checking)
             const Center(
               child: CircularProgressIndicator(color: AppColors.orange),
@@ -2468,55 +2576,55 @@ class _WaveScreenState extends State<WaveScreen> {
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: ClipRRect(
-        borderRadius: BorderRadius.circular(999),
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0A1E3A).withValues(alpha: 0.62),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: kGold.withValues(alpha: 0.45),
-                width: 0.8,
+          borderRadius: BorderRadius.circular(999),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A1E3A).withValues(alpha: 0.62),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: kGold.withValues(alpha: 0.45),
+                  width: 0.8,
+                ),
               ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final speed in speeds)
-                  GestureDetector(
-                    onTap: () => _setPlaybackSpeed(speed),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      margin: const EdgeInsets.symmetric(horizontal: 2),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _playbackSpeed == speed
-                            ? kGold.withValues(alpha: 0.95)
-                            : Colors.white.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        speed == 1.0 ? '1x' : '${speed}x',
-                        style: TextStyle(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final speed in speeds)
+                    GestureDetector(
+                      onTap: () => _setPlaybackSpeed(speed),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
                           color: _playbackSpeed == speed
-                              ? AppColors.darkBlue
-                              : AppColors.white.withValues(alpha: 0.86),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
+                              ? kGold.withValues(alpha: 0.95)
+                              : Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          speed == 1.0 ? '1x' : '${speed}x',
+                          style: TextStyle(
+                            color: _playbackSpeed == speed
+                                ? AppColors.darkBlue
+                                : AppColors.white.withValues(alpha: 0.86),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -2559,7 +2667,7 @@ class _WaveScreenState extends State<WaveScreen> {
         future: _getChannelType(wave.channelId),
         builder: (context, snapshot) {
           final channelType = snapshot.data ?? 'public';
-          
+
           // Skip age blocker if channel is exclusive
           if (channelType == 'exclusive') {
             return const SizedBox.shrink();
@@ -2753,7 +2861,8 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   Widget _buildRightRail(WaveModel wave) {
-    final channelLogoUrl = wave.channelLogoUrl != null && wave.channelLogoUrl!.isNotEmpty
+    final channelLogoUrl =
+        wave.channelLogoUrl != null && wave.channelLogoUrl!.isNotEmpty
         ? AppConfig.mediaUrl(wave.channelLogoUrl!)
         : null;
     return SizedBox(
@@ -2806,7 +2915,9 @@ class _WaveScreenState extends State<WaveScreen> {
               // Follow channel button (hidden for channel owner)
               if (wave.ownerId == null || wave.ownerId != _currentUserId) ...[
                 GestureDetector(
-                  onTap: _channelFollowLoading ? null : () => _toggleChannelFollow(wave),
+                  onTap: _channelFollowLoading
+                      ? null
+                      : () => _toggleChannelFollow(wave),
                   child: Container(
                     width: 42,
                     height: 42,
@@ -2826,7 +2937,9 @@ class _WaveScreenState extends State<WaveScreen> {
                       _isFollowingChannel
                           ? Icons.notifications_active_rounded
                           : Icons.add_circle_rounded,
-                      color: _isFollowingChannel ? AppColors.orange : AppColors.white,
+                      color: _isFollowingChannel
+                          ? AppColors.orange
+                          : AppColors.white,
                       size: 22,
                     ),
                   ),
@@ -2882,7 +2995,10 @@ class _WaveScreenState extends State<WaveScreen> {
   /// Content overlay: title (1 line) + description (1 line) + See more + colored hashtags
   Widget _buildContentOverlay(WaveModel wave) {
     final hashtags = _extractHashtags(wave.description);
-    final hasContent = wave.title.isNotEmpty || wave.description.isNotEmpty || hashtags.isNotEmpty;
+    final hasContent =
+        wave.title.isNotEmpty ||
+        wave.description.isNotEmpty ||
+        hashtags.isNotEmpty;
     if (!hasContent) return const SizedBox.shrink();
 
     const kBlueTint = Color(0xFF1A73E8);
@@ -2945,7 +3061,9 @@ class _WaveScreenState extends State<WaveScreen> {
                             color: AppColors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
-                            shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
+                            shadows: [
+                              Shadow(color: Colors.black54, blurRadius: 6),
+                            ],
                           ),
                         ),
                       ),
@@ -3087,7 +3205,9 @@ class _WaveScreenState extends State<WaveScreen> {
         });
       } catch (_) {
         if (!mounted) return;
-        setState(() => _channelLibraryCache[cid] = const <ChannelLibraryItemModel>[]);
+        setState(
+          () => _channelLibraryCache[cid] = const <ChannelLibraryItemModel>[],
+        );
       }
     }
   }
@@ -3099,17 +3219,17 @@ class _WaveScreenState extends State<WaveScreen> {
     const kGold = Color(0xFFFFD700);
 
     Widget goldDivider() => Container(
-          height: 1,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                kGold.withValues(alpha: 0.0),
-                kGold.withValues(alpha: 0.65),
-                kGold.withValues(alpha: 0.0),
-              ],
-            ),
-          ),
-        );
+      height: 1,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            kGold.withValues(alpha: 0.0),
+            kGold.withValues(alpha: 0.65),
+            kGold.withValues(alpha: 0.0),
+          ],
+        ),
+      ),
+    );
 
     return AnimatedSlide(
       offset: visible ? Offset.zero : const Offset(0, 1),
@@ -3183,7 +3303,10 @@ class _WaveScreenState extends State<WaveScreen> {
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.3,
                                   shadows: [
-                                    Shadow(color: Color(0x99000000), blurRadius: 8),
+                                    Shadow(
+                                      color: Color(0x99000000),
+                                      blurRadius: 8,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -3235,7 +3358,10 @@ class _WaveScreenState extends State<WaveScreen> {
                                 ),
                                 decoration: BoxDecoration(
                                   gradient: const LinearGradient(
-                                    colors: [Color(0xFFFFD700), Color(0xFFFF8C00)],
+                                    colors: [
+                                      Color(0xFFFFD700),
+                                      Color(0xFFFF8C00),
+                                    ],
                                   ),
                                   borderRadius: BorderRadius.circular(20),
                                   boxShadow: [
@@ -3248,7 +3374,11 @@ class _WaveScreenState extends State<WaveScreen> {
                                 child: const Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.workspace_premium_rounded, color: Colors.black, size: 9),
+                                    Icon(
+                                      Icons.workspace_premium_rounded,
+                                      color: Colors.black,
+                                      size: 9,
+                                    ),
                                     SizedBox(width: 3),
                                     Text(
                                       'EXCLUSIVE',
@@ -3305,24 +3435,42 @@ class _WaveScreenState extends State<WaveScreen> {
                           label: 'Visit Channel',
                           isPrimary: true,
                           onTap: () {
-                            setState(() => _channelCardVisible[wave.id] = false);
-                            Navigator.pushNamed(context, '/channel', arguments: wave.channelId);
+                            setState(
+                              () => _channelCardVisible[wave.id] = false,
+                            );
+                            Navigator.pushNamed(
+                              context,
+                              '/channel',
+                              arguments: wave.channelId,
+                            );
                           },
                         ),
                         _channelCardButton(
                           icon: Icons.live_tv_rounded,
                           label: 'Tune In',
                           onTap: () {
-                            setState(() => _channelCardVisible[wave.id] = false);
-                            Navigator.pushNamed(context, '/channel-live', arguments: wave.channelId);
+                            setState(
+                              () => _channelCardVisible[wave.id] = false,
+                            );
+                            Navigator.pushNamed(
+                              context,
+                              '/channel-live',
+                              arguments: wave.channelId,
+                            );
                           },
                         ),
                         _channelCardButton(
                           icon: Icons.library_books_rounded,
                           label: 'Library',
                           onTap: () {
-                            setState(() => _channelCardVisible[wave.id] = false);
-                            Navigator.pushNamed(context, '/channel-library', arguments: wave.channelId);
+                            setState(
+                              () => _channelCardVisible[wave.id] = false,
+                            );
+                            Navigator.pushNamed(
+                              context,
+                              '/channel-library',
+                              arguments: wave.channelId,
+                            );
                           },
                         ),
                       ],
@@ -3338,7 +3486,8 @@ class _WaveScreenState extends State<WaveScreen> {
                     const SizedBox(height: 8),
                     _buildLibraryPreview(wave.channelId),
                     // ── Library uploads (books / comics) ──
-                    if ((_channelLibraryCache[wave.channelId]?.isNotEmpty) == true) ...[
+                    if ((_channelLibraryCache[wave.channelId]?.isNotEmpty) ==
+                        true) ...[
                       const SizedBox(height: 12),
                       goldDivider(),
                       const SizedBox(height: 10),
@@ -3351,7 +3500,9 @@ class _WaveScreenState extends State<WaveScreen> {
                           const Spacer(),
                           GestureDetector(
                             onTap: () {
-                              setState(() => _channelCardVisible[wave.id] = false);
+                              setState(
+                                () => _channelCardVisible[wave.id] = false,
+                              );
                               Navigator.pushNamed(
                                 context,
                                 '/channel-library',
@@ -3517,11 +3668,7 @@ class _WaveScreenState extends State<WaveScreen> {
     return GestureDetector(
       onTap: () {
         setState(() => _channelCardVisible[channelId] = false);
-        Navigator.pushNamed(
-          context,
-          '/channel-library',
-          arguments: channelId,
-        );
+        Navigator.pushNamed(context, '/channel-library', arguments: channelId);
       },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3542,13 +3689,19 @@ class _WaveScreenState extends State<WaveScreen> {
                         imageUrl: cover,
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => const Center(
-                          child: Icon(Icons.menu_book_rounded,
-                              color: Color(0xFF1E3A60), size: 18),
+                          child: Icon(
+                            Icons.menu_book_rounded,
+                            color: Color(0xFF1E3A60),
+                            size: 18,
+                          ),
                         ),
                       )
                     : const Center(
-                        child: Icon(Icons.menu_book_rounded,
-                            color: Color(0xFF1E3A60), size: 18),
+                        child: Icon(
+                          Icons.menu_book_rounded,
+                          color: Color(0xFF1E3A60),
+                          size: 18,
+                        ),
                       ),
               ),
             ),
@@ -3636,11 +3789,16 @@ class _WaveScreenState extends State<WaveScreen> {
                       CachedNetworkImage(
                         imageUrl: thumbUrl,
                         fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => const ColoredBox(color: Color(0xFF0A1528)),
+                        errorWidget: (_, __, ___) =>
+                            const ColoredBox(color: Color(0xFF0A1528)),
                       )
                     else
                       const Center(
-                        child: Icon(Icons.movie_rounded, color: Color(0xFF1E3A60), size: 18),
+                        child: Icon(
+                          Icons.movie_rounded,
+                          color: Color(0xFF1E3A60),
+                          size: 18,
+                        ),
                       ),
                     Positioned(
                       bottom: 0,
@@ -3671,7 +3829,9 @@ class _WaveScreenState extends State<WaveScreen> {
                     Container(
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: const Color(0xFFFFD700).withValues(alpha: 0.18),
+                          color: const Color(
+                            0xFFFFD700,
+                          ).withValues(alpha: 0.18),
                         ),
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -3725,7 +3885,8 @@ class _WaveScreenState extends State<WaveScreen> {
                 ? CachedNetworkImage(
                     imageUrl: logoUrl,
                     fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => _buildLogoFallback(isExclusive),
+                    errorWidget: (_, __, ___) =>
+                        _buildLogoFallback(isExclusive),
                   )
                 : _buildLogoFallback(isExclusive),
           ),
@@ -3756,9 +3917,7 @@ class _WaveScreenState extends State<WaveScreen> {
 
   Widget _buildLogoFallback(bool isExclusive) {
     return Container(
-      color: isExclusive
-          ? const Color(0xFF2A1200)
-          : AppColors.darkBlue,
+      color: isExclusive ? const Color(0xFF2A1200) : AppColors.darkBlue,
       child: Icon(
         Icons.tv_rounded,
         color: isExclusive ? AppColors.lightOrange : AppColors.orange,
@@ -3800,11 +3959,7 @@ class _WaveScreenState extends State<WaveScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 13,
-              color: kGold,
-            ),
+            Icon(icon, size: 13, color: kGold),
             const SizedBox(width: 5),
             Text(
               label,
@@ -3837,9 +3992,7 @@ class _WaveScreenState extends State<WaveScreen> {
             icon,
             color: iconColor,
             size: 28,
-            shadows: const [
-              Shadow(color: Color(0xAA000000), blurRadius: 6),
-            ],
+            shadows: const [Shadow(color: Color(0xAA000000), blurRadius: 6)],
           ),
           if (label.isNotEmpty) ...[
             const SizedBox(height: 1),
@@ -3851,9 +4004,7 @@ class _WaveScreenState extends State<WaveScreen> {
                 color: AppColors.white,
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
-                shadows: [
-                  Shadow(color: Color(0xAA000000), blurRadius: 5),
-                ],
+                shadows: [Shadow(color: Color(0xAA000000), blurRadius: 5)],
               ),
             ),
           ],
@@ -4199,9 +4350,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
       });
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to post comment')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to post comment')));
     } finally {
       if (mounted) setState(() => _posting = false);
     }
@@ -4225,7 +4376,11 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
     if (text.isEmpty || _postingReply) return;
     setState(() => _postingReply = true);
     try {
-      final created = await WaveService.postReply(widget.waveId, parent.id, text);
+      final created = await WaveService.postReply(
+        widget.waveId,
+        parent.id,
+        text,
+      );
       if (!mounted) return;
       setState(() {
         _repliesCache[parent.id] = [
@@ -4246,9 +4401,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
       });
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to post reply')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to post reply')));
     } finally {
       if (mounted) setState(() => _postingReply = false);
     }
@@ -4338,8 +4493,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
           // Remove from replies cache and decrement parent reply count
           final parentId = c.parentCommentId!;
           if (_repliesCache.containsKey(parentId)) {
-            _repliesCache[parentId] =
-                _repliesCache[parentId]!.where((r) => r.id != c.id).toList();
+            _repliesCache[parentId] = _repliesCache[parentId]!
+                .where((r) => r.id != c.id)
+                .toList();
           }
           _comments = _comments.map((p) {
             if (p.id == parentId) {
@@ -4352,9 +4508,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
       widget.onCountChanged?.call(_liveCount);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to delete comment')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to delete comment')));
     }
   }
 
@@ -4368,16 +4524,14 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
       final updated = await WaveService.editComment(widget.waveId, c.id, text);
       if (!mounted) return;
       setState(() {
-        _comments = _comments
-            .map((x) => x.id == c.id ? updated : x)
-            .toList();
+        _comments = _comments.map((x) => x.id == c.id ? updated : x).toList();
         _editingCommentId = null;
       });
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to edit comment')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to edit comment')));
     }
   }
 
@@ -4493,7 +4647,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
                 child: const DecoratedBox(
                   decoration: BoxDecoration(
                     color: Color(0x5E0A1E3A),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
                     border: Border(
                       top: BorderSide(color: Color(0x99FFD700), width: 0.9),
                       left: BorderSide(color: Color(0x28FFD700), width: 0.5),
@@ -4504,121 +4660,140 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
               ),
             ),
             Column(
-        children: [
-          const SizedBox(height: 10),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFD700).withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(10),
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFD700).withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 8, 6),
-                child: Row(
-                  children: [
-                    const Icon(Icons.chat_bubble_rounded, size: 14, color: Color(0xFFFFD700)),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Comments',
-                      style: const TextStyle(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 8, 6),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.chat_bubble_rounded,
+                        size: 14,
                         color: Color(0xFFFFD700),
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.1,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFD700).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.40)),
-                      ),
-                      child: Text(
-                        '$_liveCount',
+                      const SizedBox(width: 8),
+                      Text(
+                        'Comments',
                         style: const TextStyle(
                           color: Color(0xFFFFD700),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.1,
                         ),
                       ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: Icon(
-                        Icons.close_rounded,
-                        color: const Color(0xFFFFD700).withValues(alpha: 0.80),
-                        size: 22,
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(
+                            0xFFFFD700,
+                          ).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: const Color(
+                              0xFFFFD700,
+                            ).withValues(alpha: 0.40),
+                          ),
+                        ),
+                        child: Text(
+                          '$_liveCount',
+                          style: const TextStyle(
+                            color: Color(0xFFFFD700),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      const Spacer(),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: const Color(
+                            0xFFFFD700,
+                          ).withValues(alpha: 0.80),
+                          size: 22,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Container(
-                  height: 1,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFFFFD700).withValues(alpha: 0.0),
-                        const Color(0xFFFFD700).withValues(alpha: 0.60),
-                        const Color(0xFFFFD700).withValues(alpha: 0.0),
-                      ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Container(
+                    height: 1,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFFFFD700).withValues(alpha: 0.0),
+                          const Color(0xFFFFD700).withValues(alpha: 0.60),
+                          const Color(0xFFFFD700).withValues(alpha: 0.0),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Expanded(
-                child: _loading
-                    ? const Center(
-                        child: CircularProgressIndicator(
-                          color: AppColors.orange,
-                        ),
-                      )
-                    : _comments.where((c) => !c.isReply).isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.chat_bubble_outline_rounded,
-                              color: AppColors.hintText.withValues(alpha: 0.4),
-                              size: 40,
-                            ),
-                            const SizedBox(height: 10),
-                            const Text(
-                              'No comments yet. Be first!',
-                              style: TextStyle(
-                                color: AppColors.hintText,
-                                fontSize: 14,
+                const SizedBox(height: 4),
+                Expanded(
+                  child: _loading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.orange,
+                          ),
+                        )
+                      : _comments.where((c) => !c.isReply).isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.chat_bubble_outline_rounded,
+                                color: AppColors.hintText.withValues(
+                                  alpha: 0.4,
+                                ),
+                                size: 40,
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 10),
+                              const Text(
+                                'No comments yet. Be first!',
+                                style: TextStyle(
+                                  color: AppColors.hintText,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scrollCtrl,
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                          itemCount: _comments.where((c) => !c.isReply).length,
+                          itemBuilder: (_, index) {
+                            final topLevel = _comments
+                                .where((c) => !c.isReply)
+                                .toList();
+                            final c = topLevel[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _buildCommentBubble(c),
+                            );
+                          },
                         ),
-                      )
-                    : ListView.builder(
-                        controller: _scrollCtrl,
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                        itemCount: _comments.where((c) => !c.isReply).length,
-                        itemBuilder: (_, index) {
-                          final topLevel = _comments.where((c) => !c.isReply).toList();
-                          final c = topLevel[index];
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _buildCommentBubble(c),
-                          );
-                        },
-                      ),
-              ),
-              _buildInputBar(),
-            ],
-          ),
+                ),
+                _buildInputBar(),
+              ],
+            ),
           ],
         ),
       ),
@@ -4916,7 +5091,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
                           Text(
                             '${c.reactionCount}',
                             style: TextStyle(
-                              color: const Color(0xFFFFD700).withValues(alpha: 0.55),
+                              color: const Color(
+                                0xFFFFD700,
+                              ).withValues(alpha: 0.55),
                               fontSize: 11,
                             ),
                           ),
@@ -5007,10 +5184,14 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
                     Expanded(
                       child: Container(
                         decoration: BoxDecoration(
-                          color: const Color(0xFF010A14).withValues(alpha: 0.75),
+                          color: const Color(
+                            0xFF010A14,
+                          ).withValues(alpha: 0.75),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: const Color(0xFFFFD700).withValues(alpha: 0.30),
+                            color: const Color(
+                              0xFFFFD700,
+                            ).withValues(alpha: 0.30),
                           ),
                         ),
                         child: TextField(
@@ -5024,7 +5205,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
                             counterText: '',
                             hintText: 'Reply to ${c.displayName}...',
                             hintStyle: TextStyle(
-                              color: const Color(0xFFFFD700).withValues(alpha: 0.35),
+                              color: const Color(
+                                0xFFFFD700,
+                              ).withValues(alpha: 0.35),
                               fontSize: 13,
                             ),
                             border: InputBorder.none,
@@ -5042,7 +5225,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          gradient: _postingReply ? null : AppColors.buttonGradient,
+                          gradient: _postingReply
+                              ? null
+                              : AppColors.buttonGradient,
                           color: _postingReply ? AppColors.hintText : null,
                           shape: BoxShape.circle,
                         ),
@@ -5080,8 +5265,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
               // Expanded replies
               if (_expandedReplies.contains(c.id)) ...[
                 const SizedBox(height: 6),
-                ...(_repliesCache[c.id] ?? const <WaveCommentModel>[])
-                    .map((reply) => _buildReplyBubble(reply)),
+                ...(_repliesCache[c.id] ?? const <WaveCommentModel>[]).map(
+                  (reply) => _buildReplyBubble(reply),
+                ),
               ],
             ],
           ),
@@ -5233,7 +5419,9 @@ class _WaveCommentsSheetState extends State<_WaveCommentsSheet> {
                     ),
                     if (isOwn || (_viewerIsOwner && !reply.isChannelOwner)) ...[
                       const Spacer(),
-                      if (_viewerIsOwner && !isOwn && !reply.isChannelOwner) ...[
+                      if (_viewerIsOwner &&
+                          !isOwn &&
+                          !reply.isChannelOwner) ...[
                         GestureDetector(
                           onTap: () => _toggleBan(reply),
                           child: Icon(
@@ -5338,8 +5526,8 @@ class _WaveOptionsSheetState extends State<_WaveOptionsSheet> {
           SafeArea(
             top: false,
             child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 const SizedBox(height: 10),
                 Container(
                   width: 40,
@@ -5701,10 +5889,11 @@ class _WaveReportSheetState extends State<_WaveReportSheet>
                           style: ElevatedButton.styleFrom(
                             backgroundColor: kGold,
                             foregroundColor: AppColors.darkBlue,
-                            disabledBackgroundColor:
-                                kGold.withValues(alpha: 0.25),
-                            disabledForegroundColor:
-                                AppColors.darkBlue.withValues(alpha: 0.40),
+                            disabledBackgroundColor: kGold.withValues(
+                              alpha: 0.25,
+                            ),
+                            disabledForegroundColor: AppColors.darkBlue
+                                .withValues(alpha: 0.40),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -5765,7 +5954,9 @@ class _WaveDescriptionSheet extends StatelessWidget {
                 child: const DecoratedBox(
                   decoration: BoxDecoration(
                     color: Color(0x5E0A1E3A),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
                     border: Border(
                       top: BorderSide(color: Color(0x99FFD700), width: 0.9),
                       left: BorderSide(color: Color(0x28FFD700), width: 0.5),
@@ -5777,7 +5968,10 @@ class _WaveDescriptionSheet extends StatelessWidget {
             ),
             SafeArea(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -5787,7 +5981,9 @@ class _WaveDescriptionSheet extends StatelessWidget {
                         width: 40,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFD700).withValues(alpha: 0.45),
+                          color: const Color(
+                            0xFFFFD700,
+                          ).withValues(alpha: 0.45),
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
@@ -5951,18 +6147,20 @@ class _AutoscrollConfirmationBadgeState
       duration: const Duration(milliseconds: 800),
     );
 
-    _riseY = Tween<double>(begin: 0.0, end: -120.0).animate(
-      CurvedAnimation(parent: _rise, curve: Curves.easeOutCubic),
-    );
+    _riseY = Tween<double>(
+      begin: 0.0,
+      end: -120.0,
+    ).animate(CurvedAnimation(parent: _rise, curve: Curves.easeOutCubic));
     _opacity = Tween<double>(begin: 1.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _rise,
         curve: const Interval(0.55, 1.0, curve: Curves.easeIn),
       ),
     );
-    _scale = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _rise, curve: Curves.easeOutBack),
-    );
+    _scale = Tween<double>(
+      begin: 0.85,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _rise, curve: Curves.easeOutBack));
 
     _rise.forward().whenComplete(() {
       _burn.forward().whenComplete(() => widget.onDone());
@@ -6010,9 +6208,9 @@ class _AutoscrollConfirmationBadgeState
                       spreadRadius: 2,
                     ),
                     BoxShadow(
-                      color: const Color(0xFF0A3A7A).withValues(
-                        alpha: 0.25 - 0.25 * burnT,
-                      ),
+                      color: const Color(
+                        0xFF0A3A7A,
+                      ).withValues(alpha: 0.25 - 0.25 * burnT),
                       blurRadius: 28,
                       offset: const Offset(0, 6),
                     ),
@@ -6067,7 +6265,9 @@ class _AutoplayStatusIcon extends StatelessWidget {
               : Colors.black.withValues(alpha: 0.45),
           shape: BoxShape.circle,
           border: Border.all(
-            color: enabled ? const Color(0xFF4ADE80) : Colors.white.withValues(alpha: 0.15),
+            color: enabled
+                ? const Color(0xFF4ADE80)
+                : Colors.white.withValues(alpha: 0.15),
             width: enabled ? 1.5 : 0.8,
           ),
           boxShadow: enabled
@@ -6089,7 +6289,9 @@ class _AutoplayStatusIcon extends StatelessWidget {
           child: Icon(
             enabled ? Icons.repeat_rounded : Icons.pause_rounded,
             size: 14,
-            color: enabled ? Colors.white : Colors.white.withValues(alpha: 0.45),
+            color: enabled
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.45),
           ),
         ),
       ),
@@ -6138,7 +6340,9 @@ class _WaveMiniControl extends StatelessWidget {
         child: Icon(
           icon,
           size: 14,
-          color: active ? AppColors.darkBlue : Colors.white.withValues(alpha: 0.70),
+          color: active
+              ? AppColors.darkBlue
+              : Colors.white.withValues(alpha: 0.70),
         ),
       ),
     );
@@ -6186,9 +6390,7 @@ class _LocalFloatingOverlayState extends State<_LocalFloatingOverlay> {
   @override
   Widget build(BuildContext context) {
     return Stack(
-      children: [
-        for (final item in _items) _FloatingIndicatorItem(item: item),
-      ],
+      children: [for (final item in _items) _FloatingIndicatorItem(item: item)],
     );
   }
 }
@@ -6228,9 +6430,10 @@ class _FloatingIndicatorItemState extends State<_FloatingIndicatorItem>
       vsync: this,
       duration: const Duration(milliseconds: 2400),
     );
-    _y = Tween<double>(begin: 0.0, end: 180.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutQuad),
-    );
+    _y = Tween<double>(
+      begin: 0.0,
+      end: 180.0,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutQuad));
     _opacity = Tween<double>(begin: 1.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _ctrl,
@@ -6264,11 +6467,7 @@ class _FloatingIndicatorItemState extends State<_FloatingIndicatorItem>
             opacity: _opacity.value,
             child: Transform.scale(
               scale: _scale.value,
-              child: Icon(
-                widget.item.icon,
-                color: widget.item.color,
-                size: 22,
-              ),
+              child: Icon(widget.item.icon, color: widget.item.color, size: 22),
             ),
           ),
         );
@@ -6304,9 +6503,10 @@ class _ToastOverlayState extends State<_ToastOverlay>
       reverseDuration: const Duration(milliseconds: 350),
     );
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
-    _slide = Tween<double>(begin: -20.0, end: 0.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack),
-    );
+    _slide = Tween<double>(
+      begin: -20.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
     _ctrl.forward();
     Future.delayed(const Duration(milliseconds: 2200), () async {
       if (!mounted) return;

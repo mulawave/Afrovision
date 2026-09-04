@@ -29,6 +29,10 @@ import '../../challenge/services/challenge_service.dart';
 import '../../challenge/models/challenge_model.dart';
 import '../../announcements/services/announcement_service.dart';
 import '../../../core/widgets/marquee_ticker_widget.dart';
+import '../../vod/screens/media_center_screen.dart';
+import '../../channel/screens/channel_list_screen.dart';
+import '../../wave/screens/wave_screen.dart';
+import '../../wallet/screens/digital_assets_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -61,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen>
   late ScrollController _recentScrollController;
   Timer? _recentScrollTimer;
   int _adBannerIndex = 0;
+  int _currentIndex = 0;
   Timer? _adBannerTimer;
 
   @override
@@ -180,19 +185,25 @@ class _HomeScreenState extends State<HomeScreen>
                     orElse: () => null,
                   )
                   as Map<String, dynamic>?);
-        final featuredChannelsItems = featuredChannelsSection?['items'] as List?;
+        final featuredChannelsItems =
+            featuredChannelsSection?['items'] as List?;
         _featuredChannels = (featuredChannelsItems ?? [])
-            .map((item) => PromotedChannel(
-                  // Use the real channel_id for navigation; the `id` field is the
-                  // homepage section-item id (e.g. "featured-xxx") and must NOT
-                  // be used to resolve a channel.
-                  id: item['channel_id'] as String? ?? item['id'] as String? ?? '',
-                  name: item['name'] as String? ?? '',
-                  category: item['category'] as String?,
-                  channelNumber: item['channel_id'] as String? ?? '',
-                  logoUrl: item['logo_url'] as String?,
-                  bannerUrl: item['banner_url'] as String?,
-                ))
+            .map(
+              (item) => PromotedChannel(
+                // Use the real channel_id for navigation; the `id` field is the
+                // homepage section-item id (e.g. "featured-xxx") and must NOT
+                // be used to resolve a channel.
+                id:
+                    item['channel_id'] as String? ??
+                    item['id'] as String? ??
+                    '',
+                name: item['name'] as String? ?? '',
+                category: item['category'] as String?,
+                channelNumber: item['channel_id'] as String? ?? '',
+                logoUrl: item['logo_url'] as String?,
+                bannerUrl: item['banner_url'] as String?,
+              ),
+            )
             .toList();
 
         _loading = false;
@@ -446,12 +457,24 @@ class _HomeScreenState extends State<HomeScreen>
         recentChannelId1: recent.isNotEmpty ? _ws(recent[0].id) : '',
         recentChannelId2: recent.length > 1 ? _ws(recent[1].id) : '',
         recentChannelId3: recent.length > 2 ? _ws(recent[2].id) : '',
-        recentChannelLogo1: recent.isNotEmpty ? resolveMedia(recent[0].logo) : '',
-        recentChannelLogo2: recent.length > 1 ? resolveMedia(recent[1].logo) : '',
-        recentChannelLogo3: recent.length > 2 ? resolveMedia(recent[2].logo) : '',
-        recentChannelCover1: recent.isNotEmpty ? resolveMedia(recent[0].banner) : '',
-        recentChannelCover2: recent.length > 1 ? resolveMedia(recent[1].banner) : '',
-        recentChannelCover3: recent.length > 2 ? resolveMedia(recent[2].banner) : '',
+        recentChannelLogo1: recent.isNotEmpty
+            ? resolveMedia(recent[0].logo)
+            : '',
+        recentChannelLogo2: recent.length > 1
+            ? resolveMedia(recent[1].logo)
+            : '',
+        recentChannelLogo3: recent.length > 2
+            ? resolveMedia(recent[2].logo)
+            : '',
+        recentChannelCover1: recent.isNotEmpty
+            ? resolveMedia(recent[0].banner)
+            : '',
+        recentChannelCover2: recent.length > 1
+            ? resolveMedia(recent[1].banner)
+            : '',
+        recentChannelCover3: recent.length > 2
+            ? resolveMedia(recent[2].banner)
+            : '',
         notification1: notifs.isNotEmpty ? _ws(notifs[0].title) : '',
         notification2: notifs.length > 1 ? _ws(notifs[1].title) : '',
         notification3: notifs.length > 2 ? _ws(notifs[2].title) : '',
@@ -475,86 +498,139 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildTopBar(),
-              const MarqueeTickerWidget(),
-              Expanded(
-                child: _loading
-                    ? const Center(
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            AppColors.orange,
-                          ),
-                        ),
-                      )
-                    : RefreshIndicator(
-                        color: AppColors.orange,
-                        backgroundColor: AppColors.inputFill,
-                        onRefresh: _loadData,
-                        child: FadeTransition(
-                          opacity: _fadeAnim,
-                          child: SlideTransition(
-                            position: _slideAnim,
-                            child: SingleChildScrollView(
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.only(bottom: 40),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const ActiveFloatingPlayerBanner(),
-                                  _buildAdvertsSection(),
-                                  const SizedBox(height: 16),
-                                  _buildUserAssetsSection(),
-                                  const SizedBox(height: 16),
-                                  _buildThemeDivider(),
-                                  const SizedBox(height: 16),
-                                  _buildAnnouncementsCard(),
-                                  const SizedBox(height: 16),
-                                  _buildThemeDivider(),
-                                  const SizedBox(height: 16),
-                                  if ((_stats?.promotedChannels.isNotEmpty ??
-                                          false) ||
-                                      _allChannels.isNotEmpty) ...[
-                                    _buildFeaturedChannelsSlider(),
-                                    const SizedBox(height: 16),
-                                    _buildThemeDivider(),
-                                    const SizedBox(height: 16),
-                                  ],
-                                  _buildActionCards(),
-                                  const SizedBox(height: 16),
-                                  _buildThemeDivider(),
-                                  const SizedBox(height: 16),
-                                  _buildCommunityPoolBanner(),
-                                  if (_activeChallenge != null)
-                                    _buildChallengeBanner(),
-                                  if (_user != null &&
-                                      _user!.kycStatus != 'verified' &&
-                                      _user!.kycStatus != 'pending')
-                                    _buildKycAlert(),
-                                  const SizedBox(height: 22),
-                                  _buildMySubscriptionsCard(),
-                                  const SizedBox(height: 16),
-                                  _buildThemeDivider(),
-                                  const SizedBox(height: 16),
-                                  if (_watchHistory.isNotEmpty) ...[
-                                    _buildPublicChannelsSlider(),
-                                    const SizedBox(height: 16),
-                                    _buildThemeDivider(),
-                                    const SizedBox(height: 16),
-                                  ],
-                                  _buildTwoColumnSection(),
-                                ],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          Container(
+            width: double.infinity,
+            height: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: AppColors.primaryGradient,
+            ),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  _buildTopBar(),
+                  const MarqueeTickerWidget(),
+                  Expanded(
+                    child: _loading
+                        ? const Center(
+                            child: CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                AppColors.orange,
+                              ),
+                            ),
+                          )
+                        : RefreshIndicator(
+                            color: AppColors.orange,
+                            backgroundColor: AppColors.inputFill,
+                            onRefresh: _loadData,
+                            child: FadeTransition(
+                              opacity: _fadeAnim,
+                              child: SlideTransition(
+                                position: _slideAnim,
+                                child: SingleChildScrollView(
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.only(bottom: 40),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const ActiveFloatingPlayerBanner(),
+                                      _buildAdvertsSection(),
+                                      const SizedBox(height: 16),
+                                      _buildUserAssetsSection(),
+                                      const SizedBox(height: 16),
+                                      _buildThemeDivider(),
+                                      const SizedBox(height: 16),
+                                      _buildAnnouncementsCard(),
+                                      const SizedBox(height: 16),
+                                      _buildThemeDivider(),
+                                      const SizedBox(height: 16),
+                                      if ((_stats
+                                                  ?.promotedChannels
+                                                  .isNotEmpty ??
+                                              false) ||
+                                          _allChannels.isNotEmpty) ...[
+                                        _buildFeaturedChannelsSlider(),
+                                        const SizedBox(height: 16),
+                                        _buildThemeDivider(),
+                                        const SizedBox(height: 16),
+                                      ],
+                                      _buildActionCards(),
+                                      const SizedBox(height: 16),
+                                      _buildThemeDivider(),
+                                      const SizedBox(height: 16),
+                                      _buildCommunityPoolBanner(),
+                                      if (_activeChallenge != null)
+                                        _buildChallengeBanner(),
+                                      if (_user != null &&
+                                          _user!.kycStatus != 'verified' &&
+                                          _user!.kycStatus != 'pending')
+                                        _buildKycAlert(),
+                                      const SizedBox(height: 22),
+                                      _buildMySubscriptionsCard(),
+                                      const SizedBox(height: 16),
+                                      _buildThemeDivider(),
+                                      const SizedBox(height: 16),
+                                      if (_watchHistory.isNotEmpty) ...[
+                                        _buildPublicChannelsSlider(),
+                                        const SizedBox(height: 16),
+                                        _buildThemeDivider(),
+                                        const SizedBox(height: 16),
+                                      ],
+                                      _buildTwoColumnSection(),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const MediaCenterScreen(),
+          const ChannelListScreen(),
+          WaveScreen(isActive: _currentIndex == 3),
+          const DigitalAssetsScreen(),
+        ],
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          border: Border(top: BorderSide(color: AppColors.inputBorder)),
+        ),
+        child: SafeArea(
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: (index) => setState(() => _currentIndex = index),
+            type: BottomNavigationBarType.fixed,
+            backgroundColor: AppColors.cardBg,
+            selectedItemColor: AppColors.orange,
+            unselectedItemColor: AppColors.hintText,
+            selectedFontSize: 12,
+            unselectedFontSize: 11,
+            elevation: 0,
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.home_rounded),
+                label: 'Home',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.movie),
+                label: 'Media Center',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.live_tv),
+                label: 'Channels',
+              ),
+              BottomNavigationBarItem(icon: Icon(Icons.waves), label: 'Waves'),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.account_balance_wallet),
+                label: 'Assets',
               ),
             ],
           ),
@@ -591,7 +667,8 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 5),
                   RoleBadge(
                     role: _user!.role,
-                    isPremiumCreator: _user!.hasActiveSubscription && _user!.isPremiumCreator,
+                    isPremiumCreator:
+                        _user!.hasActiveSubscription && _user!.isPremiumCreator,
                     subscriptionPlan: _user!.subscriptionPlan,
                   ),
                 ],
@@ -1928,10 +2005,8 @@ class _HomeScreenState extends State<HomeScreen>
             onTap: () => Navigator.pushNamed(context, current.route),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 600),
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: child,
-              ),
+              transitionBuilder: (child, animation) =>
+                  FadeTransition(opacity: animation, child: child),
               child: Container(
                 key: ValueKey<int>(_adBannerIndex),
                 width: double.infinity,
@@ -1958,11 +2033,7 @@ class _HomeScreenState extends State<HomeScreen>
                         color: current.color.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Icon(
-                        current.icon,
-                        color: current.color,
-                        size: 28,
-                      ),
+                      child: Icon(current.icon, color: current.color, size: 28),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -2040,8 +2111,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ],
                 ),
                 GestureDetector(
-                  onTap: () =>
-                      Navigator.pushNamed(context, '/announcements'),
+                  onTap: () => Navigator.pushNamed(context, '/announcements'),
                   child: const Text(
                     'See all',
                     style: TextStyle(
