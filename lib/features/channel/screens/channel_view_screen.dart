@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../../core/widgets/wave_thumbnail.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
@@ -300,27 +300,33 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     final ch = _channel;
     if (ch == null) return;
 
+    // Only show the spinner if there's nothing to paint — a revisit with
+    // any cached waves skips the flash of loading state entirely.
     setState(() {
-      _wavesLoading = true;
+      _wavesLoading = _channelWaves.isEmpty;
       _wavesError = null;
     });
 
-    try {
-      final waves = await WaveService.getChannelWaves(
-        ch.id,
-        includeHidden: _canManage,
-      );
+    void applyWaves(List<WaveModel> waves) {
       if (!mounted) return;
-
-      // Only show waves that have thumbnails. Waves without thumbnails
-      // will appear once the backend regeneration completes.
-      // This prevents broken tiles in the grid.
-      final wavesWithThumbnails = waves.where((w) => w.thumbnailUrl.isNotEmpty).toList();
-
+      // Only show waves with thumbnails — matches the original filter so
+      // partially-processed waves don't leave broken tiles in the grid.
+      final filtered =
+          waves.where((w) => w.thumbnailUrl.isNotEmpty).toList();
       setState(() {
-        _channelWaves = wavesWithThumbnails;
+        _channelWaves = filtered;
         _wavesLoading = false;
       });
+    }
+
+    try {
+      final waves = await WaveService.getChannelWavesCached(
+        ch.id,
+        includeHidden: _canManage,
+        onCached: (cached) => applyWaves(cached),
+      );
+      if (!mounted) return;
+      applyWaves(waves);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1567,18 +1573,13 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              CachedNetworkImage(
-                imageUrl: wave.thumbnailUrl,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => const Center(
-                  child: CircularProgressIndicator(
-                    color: AppColors.orange,
-                    strokeWidth: 2,
-                  ),
-                ),
-                errorWidget: (_, __, ___) => _buildPlaceholder(),
+              WaveThumbnail(
+                thumbnailUrl: wave.thumbnailUrl,
+                videoUrl: wave.videoUrl,
+                waveId: wave.id,
                 memCacheWidth: 400,
                 memCacheHeight: 711,
+                placeholder: _buildPlaceholder(),
               ),
               // Bottom gradient for text readability
               Positioned.fill(

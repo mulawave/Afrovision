@@ -72,14 +72,25 @@ class _ChannelLibraryScreenState extends State<ChannelLibraryScreen>
 
   Future<void> _loadItems() async {
     if (_channelId == null) return;
+    // Only flash the spinner on a truly cold visit — cache-first paint
+    // otherwise so revisits don't lose the grid to a loading state.
     setState(() {
-      _loading = true;
+      _loading = _items.isEmpty;
       _error = null;
     });
 
     try {
-      final response = await ChannelLibraryService.getChannelLibrary(
+      final response = await ChannelLibraryService.getChannelLibraryCached(
         _channelId!,
+        onCached: (cached) {
+          if (!mounted) return;
+          setState(() {
+            _items = cached.items;
+            _currentPage = 0;
+            _loading = false;
+          });
+          _animCtrl.forward(from: 0);
+        },
       );
       if (!mounted) return;
       setState(() {

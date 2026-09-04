@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import '../../../core/api/api_service.dart';
+import '../../../core/services/section_cache.dart';
 
 // Helpers to safely parse backend values which may be numbers or strings.
 double _toDouble(dynamic v, {double fallback = 0}) {
@@ -371,6 +374,35 @@ class HomeService {
     } finally {
       _statsRequestInFlight = null;
     }
+  }
+
+  // ── /home/content — Nocturne home body payload ─────────────────────────
+  static const String _homeContentKey = 'home_content_v1';
+
+  /// GET /home/content — raw payload used by the Nocturne home body
+  /// (updates section, featured channels). Also cached on-disk so the home
+  /// screen paints its updates/featured strip on cold-start before the
+  /// network responds.
+  static Future<Map<String, dynamic>> getHomeContent() async {
+    final data = await ApiService.get('/home/content');
+    await SectionCache.write(_homeContentKey, jsonEncode(data));
+    return data;
+  }
+
+  /// Stale-while-revalidate wrapper for [getHomeContent].
+  static Future<Map<String, dynamic>> getHomeContentCached({
+    void Function(Map<String, dynamic> cached)? onCached,
+  }) async {
+    if (onCached != null) {
+      final raw = await SectionCache.readStale(_homeContentKey);
+      if (raw != null) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map<String, dynamic>) onCached(decoded);
+        } catch (_) {}
+      }
+    }
+    return getHomeContent();
   }
 
   static Future<List<String>> getMarqueeTopics({

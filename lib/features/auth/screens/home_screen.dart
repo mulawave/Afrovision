@@ -7,11 +7,10 @@ import '../models/user_model.dart';
 import '../../notifications/services/notification_inbox_service.dart';
 import '../../notifications/models/notification_item.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/nocturne_theme.dart';
 import '../../../core/config/app_config.dart';
-import '../../../core/widgets/role_badge.dart';
 import '../../../core/widgets/active_floating_player_banner.dart';
 import '../../../core/services/widget_service.dart';
-import '../../../core/api/api_service.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
 import '../../../core/utils/app_rating.dart';
 import '../../../core/utils/kyc_gender_checker.dart';
@@ -67,6 +66,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _adBannerIndex = 0;
   int _currentIndex = 0;
   Timer? _adBannerTimer;
+  String _feedTabValue = 'updates';
 
   @override
   void initState() {
@@ -124,6 +124,43 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (_) {}
   }
 
+  /// Parses the /home/content payload into the updates + featured-channels
+  /// lists. Extracted so cached and fresh loads can apply the same logic.
+  /// Caller wraps in setState.
+  void _applyHomeContent(Map<String, dynamic>? homepageContent) {
+    final sections = homepageContent?['homepage']?['sections'] as List?;
+    final updatesSection = sections == null
+        ? null
+        : (sections.firstWhere(
+                (section) => section['key'] == 'updates',
+                orElse: () => null,
+              ) as Map<String, dynamic>?);
+    final items = updatesSection?['items'] as List?;
+    _updates = (items ?? []).cast<Map<String, dynamic>>();
+
+    final featuredChannelsSection = sections == null
+        ? null
+        : (sections.firstWhere(
+                (section) => section['key'] == 'featured_channels',
+                orElse: () => null,
+              ) as Map<String, dynamic>?);
+    final featuredChannelsItems = featuredChannelsSection?['items'] as List?;
+    _featuredChannels = (featuredChannelsItems ?? [])
+        .map(
+          (item) => PromotedChannel(
+            id: item['channel_id'] as String? ??
+                item['id'] as String? ??
+                '',
+            name: item['name'] as String? ?? '',
+            category: item['category'] as String?,
+            channelNumber: item['channel_id'] as String? ?? '',
+            logoUrl: item['logo_url'] as String?,
+            bannerUrl: item['banner_url'] as String?,
+          ),
+        )
+        .toList();
+  }
+
   Future<void> _loadData() async {
     try {
       final results = await Future.wait([
@@ -153,7 +190,15 @@ class _HomeScreenState extends State<HomeScreen>
         AnnouncementService.getActiveAnnouncements(
           limit: 3,
         ).catchError((_) => <Announcement>[]),
-        ApiService.get('/home/content').catchError((_) => <String, dynamic>{}),
+        HomeService.getHomeContentCached(
+          onCached: (cached) {
+            if (!mounted) return;
+            setState(() {
+              _applyHomeContent(cached);
+              _loading = false;
+            });
+          },
+        ).catchError((_) => <String, dynamic>{}),
       ]);
       if (!mounted) return;
       setState(() {
@@ -163,49 +208,7 @@ class _HomeScreenState extends State<HomeScreen>
         _reputation = results[3] as ReputationModel?;
         _activeChallenge = results[4] as ChallengeModel?;
         _announcements = results[5] as List<Announcement>;
-
-        // Parse updates from homepage content
-        final homepageContent = results[6] as Map<String, dynamic>?;
-        final sections = homepageContent?['homepage']?['sections'] as List?;
-        final updatesSection = sections == null
-            ? null
-            : (sections.firstWhere(
-                    (section) => section['key'] == 'updates',
-                    orElse: () => null,
-                  )
-                  as Map<String, dynamic>?);
-        final items = updatesSection?['items'] as List?;
-        _updates = (items ?? []).cast<Map<String, dynamic>>();
-
-        // Parse featured channels from homepage design
-        final featuredChannelsSection = sections == null
-            ? null
-            : (sections.firstWhere(
-                    (section) => section['key'] == 'featured_channels',
-                    orElse: () => null,
-                  )
-                  as Map<String, dynamic>?);
-        final featuredChannelsItems =
-            featuredChannelsSection?['items'] as List?;
-        _featuredChannels = (featuredChannelsItems ?? [])
-            .map(
-              (item) => PromotedChannel(
-                // Use the real channel_id for navigation; the `id` field is the
-                // homepage section-item id (e.g. "featured-xxx") and must NOT
-                // be used to resolve a channel.
-                id:
-                    item['channel_id'] as String? ??
-                    item['id'] as String? ??
-                    '',
-                name: item['name'] as String? ?? '',
-                category: item['category'] as String?,
-                channelNumber: item['channel_id'] as String? ?? '',
-                logoUrl: item['logo_url'] as String?,
-                bannerUrl: item['banner_url'] as String?,
-              ),
-            )
-            .toList();
-
+        _applyHomeContent(results[6] as Map<String, dynamic>?);
         _loading = false;
       });
       // Sync app icon badge with current unread count
@@ -504,9 +507,7 @@ class _HomeScreenState extends State<HomeScreen>
           Container(
             width: double.infinity,
             height: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: AppColors.primaryGradient,
-            ),
+            color: Nocturne.bg,
             child: SafeArea(
               child: Column(
                 children: [
@@ -538,16 +539,9 @@ class _HomeScreenState extends State<HomeScreen>
                                         CrossAxisAlignment.start,
                                     children: [
                                       const ActiveFloatingPlayerBanner(),
-                                      _buildAdvertsSection(),
-                                      const SizedBox(height: 16),
+                                      const SizedBox(height: 14),
                                       _buildUserAssetsSection(),
-                                      const SizedBox(height: 16),
-                                      _buildThemeDivider(),
-                                      const SizedBox(height: 16),
-                                      _buildAnnouncementsCard(),
-                                      const SizedBox(height: 16),
-                                      _buildThemeDivider(),
-                                      const SizedBox(height: 16),
+                                      const SizedBox(height: 14),
                                       if ((_stats
                                                   ?.promotedChannels
                                                   .isNotEmpty ??
@@ -555,32 +549,31 @@ class _HomeScreenState extends State<HomeScreen>
                                           _allChannels.isNotEmpty) ...[
                                         _buildFeaturedChannelsSlider(),
                                         const SizedBox(height: 16),
-                                        _buildThemeDivider(),
-                                        const SizedBox(height: 16),
                                       ],
                                       _buildActionCards(),
                                       const SizedBox(height: 16),
-                                      _buildThemeDivider(),
-                                      const SizedBox(height: 16),
-                                      _buildCommunityPoolBanner(),
-                                      if (_activeChallenge != null)
+                                      _buildAdvertsSection(),
+                                      const SizedBox(height: 14),
+                                      if (_activeChallenge != null) ...[
                                         _buildChallengeBanner(),
+                                        const SizedBox(height: 10),
+                                      ],
                                       if (_user != null &&
                                           _user!.kycStatus != 'verified' &&
-                                          _user!.kycStatus != 'pending')
+                                          _user!.kycStatus != 'pending') ...[
                                         _buildKycAlert(),
-                                      const SizedBox(height: 22),
+                                        const SizedBox(height: 10),
+                                      ],
+                                      _buildCommunityPoolBanner(),
+                                      const SizedBox(height: 9),
                                       _buildMySubscriptionsCard(),
-                                      const SizedBox(height: 16),
-                                      _buildThemeDivider(),
                                       const SizedBox(height: 16),
                                       if (_watchHistory.isNotEmpty) ...[
                                         _buildPublicChannelsSlider(),
                                         const SizedBox(height: 16),
-                                        _buildThemeDivider(),
-                                        const SizedBox(height: 16),
                                       ],
                                       _buildTwoColumnSection(),
+                                      const SizedBox(height: 20),
                                     ],
                                   ),
                                 ),
@@ -592,46 +585,44 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
           ),
-          const MediaCenterScreen(),
           const ChannelListScreen(),
+          const MediaCenterScreen(),
           WaveScreen(isActive: _currentIndex == 3),
           const DigitalAssetsScreen(),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: AppColors.cardBg,
-          border: Border(top: BorderSide(color: AppColors.inputBorder)),
-        ),
-        child: SafeArea(
-          child: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: (index) => setState(() => _currentIndex = index),
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: AppColors.cardBg,
-            selectedItemColor: AppColors.orange,
-            unselectedItemColor: AppColors.hintText,
-            selectedFontSize: 12,
-            unselectedFontSize: 11,
-            elevation: 0,
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.home_rounded),
-                label: 'Home',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.movie),
-                label: 'Media Center',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.live_tv),
-                label: 'Channels',
-              ),
-              BottomNavigationBarItem(icon: Icon(Icons.waves), label: 'Waves'),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.account_balance_wallet),
-                label: 'Assets',
-              ),
+      bottomNavigationBar: _buildNocturneNav(),
+    );
+  }
+
+  // ───────── BOTTOM NAV (Nocturne) ─────────
+  Widget _buildNocturneNav() {
+    const items = <_NavItem>[
+      _NavItem(label: 'Home', icon: Icons.home_rounded, size: 20),
+      _NavItem(label: 'Channels', icon: Icons.live_tv_rounded, size: 20),
+      _NavItem(label: 'Media', icon: Icons.play_circle_fill_rounded, size: 26),
+      _NavItem(label: 'Waves', icon: Icons.waves_rounded, size: 20),
+      _NavItem(label: 'Assets', icon: Icons.account_balance_wallet_rounded, size: 20),
+    ];
+    return Container(
+      decoration: const BoxDecoration(
+        color: Nocturne.surfaceRail,
+        border: Border(top: BorderSide(color: Nocturne.border, width: 1)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+          child: Row(
+            children: [
+              for (int i = 0; i < items.length; i++)
+                Expanded(
+                  child: _NavButton(
+                    item: items[i],
+                    active: _currentIndex == i,
+                    onTap: () => setState(() => _currentIndex = i),
+                  ),
+                ),
             ],
           ),
         ),
@@ -639,170 +630,208 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ───────── TOP BAR ─────────
+  // ───────── TOP BAR (Nocturne) ─────────
   Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+    final u = _user;
+    final name = u?.name ?? u?.email ?? 'User';
+    final avatarUrl = u?.avatarUrl;
+    final initials = _initialsFor(name);
+    final isCreator = u?.role == 'creator' || u?.role == 'admin';
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: Nocturne.headerGradient,
+        border: Border(
+          bottom: BorderSide(color: Nocturne.border, width: 1),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 13),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          // Avatar tile with gold ring
+          GestureDetector(
+            onTap: _goToProfile,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(13),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF2A3D78), Color(0xFF141F45)],
+                ),
+                border: Border.all(color: Nocturne.gold, width: 1.5),
+                image: (avatarUrl != null && avatarUrl.isNotEmpty)
+                    ? DecorationImage(
+                        image: NetworkImage(avatarUrl),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
+              ),
+              alignment: Alignment.center,
+              child: (avatarUrl == null || avatarUrl.isEmpty)
+                  ? Text(
+                      initials,
+                      style: const TextStyle(
+                        color: Nocturne.goldLight,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 11),
+          // Name + badges
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
+                const Text(
                   'Welcome back,',
-                  style: TextStyle(color: AppColors.lightOrange, fontSize: 13),
+                  style: TextStyle(color: Nocturne.textMuted, fontSize: 11),
                 ),
-                const SizedBox(height: 2),
                 Text(
-                  _user?.name ?? _user?.email ?? 'User',
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  name,
                   overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Nocturne.text,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.15,
+                  ),
                 ),
-                if (_user != null) ...[
-                  const SizedBox(height: 5),
-                  RoleBadge(
-                    role: _user!.role,
-                    isPremiumCreator:
-                        _user!.hasActiveSubscription && _user!.isPremiumCreator,
-                    subscriptionPlan: _user!.subscriptionPlan,
-                  ),
-                ],
-                if (_reputation != null) ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
+                const SizedBox(height: 5),
+                Row(
+                  children: [
+                    if (isCreator) _nocturnePill(
+                      icon: Icons.videocam_rounded,
+                      label: 'CREATOR',
+                      fg: Nocturne.green,
+                      bg: Nocturne.greenWash,
                     ),
-                    decoration: BoxDecoration(
-                      color: AppColors.cardBg,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.inputBorder.withValues(alpha: 0.4),
-                      ),
+                    if (isCreator && _reputation != null) const SizedBox(width: 6),
+                    if (_reputation != null) _nocturnePill(
+                      icon: Icons.star_rounded,
+                      label:
+                          '${_formatNumber(_reputation!.totalReps)} · ${_reputation!.levelName}',
+                      fg: Nocturne.goldLight,
+                      bg: Nocturne.goldWash,
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('⭐', style: TextStyle(fontSize: 14)),
-                        const SizedBox(width: 4),
-                        Text(
-                          _formatNumber(_reputation!.totalReps),
-                          style: const TextStyle(
-                            color: AppColors.lightOrange,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '· ${_reputation!.levelName}',
-                          style: TextStyle(
-                            color: AppColors.hintText,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          _topBarBtn(
-            Icons.notifications_rounded,
-            _goToNotifications,
-            badgeCount: _unreadNotifications,
+          // Bell (with badge)
+          _nocturneHeaderBtn(
+            icon: Icons.notifications_rounded,
+            onTap: _goToNotifications,
+            iconColor: Nocturne.gold,
+            badge: _unreadNotifications,
           ),
-          const SizedBox(width: 8),
-          _buildAvatarButton(),
-          const SizedBox(width: 8),
-          _topBarBtn(Icons.logout_rounded, _logout),
+          const SizedBox(width: 7),
+          // Sign out
+          _nocturneHeaderBtn(
+            icon: Icons.logout_rounded,
+            onTap: _logout,
+            iconColor: Nocturne.textMuted,
+          ),
         ],
       ),
     );
   }
 
-  Widget _topBarBtn(IconData icon, VoidCallback onTap, {int badgeCount = 0}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.inputFill,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.inputBorder),
-        ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Icon(icon, color: AppColors.orange, size: 20),
+  String _initialsFor(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+  }
+
+  Widget _nocturnePill({
+    required IconData icon,
+    required String label,
+    required Color fg,
+    required Color bg,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withValues(alpha: 0.35), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
             ),
-            if (badgeCount > 0)
-              Positioned(
-                right: -4,
-                top: -4,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 5,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.orange,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    badgeCount > 99 ? '99+' : '$badgeCount',
-                    style: const TextStyle(
-                      color: AppColors.darkBlue,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildAvatarButton() {
-    final url = _user?.avatarUrl;
-    final initial = (_user?.name ?? _user?.email ?? 'U')[0].toUpperCase();
+  Widget _nocturneHeaderBtn({
+    required IconData icon,
+    required VoidCallback onTap,
+    required Color iconColor,
+    int badge = 0,
+  }) {
     return GestureDetector(
-      onTap: _goToProfile,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.lightOrange, width: 1.5),
-          image: (url != null && url.isNotEmpty)
-              ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
-              : null,
-          color: (url == null || url.isEmpty) ? AppColors.inputFill : null,
-        ),
-        child: (url == null || url.isEmpty)
-            ? Center(
-                child: Text(
-                  initial,
-                  style: const TextStyle(
-                    color: AppColors.lightOrange,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
+      onTap: onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(11),
+              color: Colors.white.withValues(alpha: 0.03),
+              border: Border.all(color: Nocturne.borderStrong, width: 1),
+            ),
+            child: Icon(icon, color: iconColor, size: 16),
+          ),
+          if (badge > 0)
+            Positioned(
+              top: -4,
+              right: -4,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  color: Nocturne.red,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Nocturne.bgHeader, width: 2),
+                ),
+                child: Center(
+                  child: Text(
+                    badge > 99 ? '99+' : '$badge',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      height: 1,
+                    ),
                   ),
                 ),
-              )
-            : null,
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -814,91 +843,60 @@ class _HomeScreenState extends State<HomeScreen>
     final naira = pool?.totalNgn ?? 0;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(13),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFF0E1A50),
-              AppColors.darkBlue.withValues(alpha: 0.95),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(
-            color: AppColors.lightOrange.withValues(alpha: 0.25),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.lightOrange.withValues(alpha: 0.06),
-              blurRadius: 20,
-              spreadRadius: 2,
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
+          color: Nocturne.surfaceRaised,
+          borderRadius: BorderRadius.circular(Nocturne.radiusLg),
+          border: Border.all(color: Nocturne.borderCard, width: 1),
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  width: 30,
+                  height: 30,
                   decoration: BoxDecoration(
-                    color: AppColors.orange.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
+                    color: Nocturne.gold.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(9),
                   ),
-                  child: const Icon(
-                    Icons.account_balance_rounded,
-                    color: AppColors.lightOrange,
-                    size: 22,
-                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.account_balance_rounded,
+                      color: Nocturne.goldLight, size: 15),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 9),
                 const Expanded(
                   child: Text(
                     'Community Pool',
                     style: TextStyle(
-                      color: AppColors.white,
-                      fontSize: 13,
+                      color: Nocturne.text,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
+                      horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
+                    color: Nocturne.greenWash,
+                    borderRadius: BorderRadius.circular(999),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF4CAF50),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      const Text(
+                    children: const [
+                      _LiveDot(),
+                      SizedBox(width: 5),
+                      Text(
                         'LIVE',
                         style: TextStyle(
-                          color: Color(0xFF4CAF50),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
+                          color: Nocturne.green,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
                           letterSpacing: 0.5,
                         ),
                       ),
@@ -907,120 +905,67 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            // vPT amount
+            const SizedBox(height: 12),
             Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
               children: [
                 Text(
                   '${_formatPoolNumber(displayVpt)} vPT',
                   style: const TextStyle(
-                    color: AppColors.lightOrange,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
+                    color: Nocturne.goldLight,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w600,
                     letterSpacing: -0.5,
                   ),
                 ),
-                const SizedBox(width: 10),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    '(${_formatNaira(naira)})',
-                    style: TextStyle(
-                      color: AppColors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
+                const SizedBox(width: 8),
+                Text(
+                  '(${_formatNaira(naira)})',
+                  style: const TextStyle(
+                    color: Nocturne.textMuted,
+                    fontSize: 12.5,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 3),
             Row(
               children: [
                 Text(
                   '1 vPT = ₦${pool?.vptRate ?? 750}',
-                  style: TextStyle(color: AppColors.white, fontSize: 11),
+                  style: const TextStyle(
+                      color: Nocturne.textFaint, fontSize: 10.5),
                 ),
                 const Spacer(),
                 Text(
                   '${_stats?.totalMembers ?? 0} members · ${_stats?.totalChannels ?? 0} channels',
-                  style: TextStyle(color: AppColors.white, fontSize: 10),
+                  style: const TextStyle(
+                      color: Nocturne.textFaint, fontSize: 10.5),
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 11),
             Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.lightOrange.withValues(alpha: 0.06),
+                color: Colors.white.withValues(alpha: 0.03),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: AppColors.lightOrange.withValues(alpha: 0.12),
-                ),
+                border: Border.all(color: Nocturne.border, width: 1),
               ),
               child: Row(
                 children: [
                   Expanded(
-                    child: Column(
-                      children: [
-                        Text(
-                          '${_formatNumber(pool?.totalDistributedVpt ?? 0)} vPT',
-                          style: const TextStyle(
-                            color: AppColors.lightOrange,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '(${_formatNaira(pool?.totalDistributedNgn ?? 0)})',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 10,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Distributed',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
+                    child: _poolStat(
+                      value: '${_formatNumber(pool?.totalDistributedVpt ?? 0)} vPT',
+                      label:
+                          'Distributed (${_formatNaira(pool?.totalDistributedNgn ?? 0)})',
                     ),
                   ),
-                  Container(
-                    width: 1,
-                    height: 36,
-                    color: AppColors.lightOrange.withValues(alpha: 0.15),
-                  ),
+                  Container(width: 1, height: 36, color: Nocturne.border),
                   Expanded(
-                    child: Column(
-                      children: [
-                        Text(
-                          '${pool?.totalBeneficiaries ?? 0}',
-                          style: const TextStyle(
-                            color: AppColors.lightOrange,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Beneficiaries',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
+                    child: _poolStat(
+                      value: '${pool?.totalBeneficiaries ?? 0}',
+                      label: 'Beneficiaries',
                     ),
                   ),
                 ],
@@ -1032,167 +977,142 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ───────── CHALLENGE BANNER ─────────
+  Widget _poolStat({required String value, required String label}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              color: Nocturne.goldLight,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Nocturne.textFaint, fontSize: 9.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ───────── CHALLENGE BANNER (Nocturne inline alert) ─────────
   Widget _buildChallengeBanner() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      child: GestureDetector(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+      child: _nocturneInlineAlert(
         onTap: () => Navigator.pushNamed(context, '/challenge'),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-              colors: [
-                AppColors.orange.withValues(alpha: 0.22),
-                AppColors.lightBlue.withValues(alpha: 0.5),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+        icon: Icons.emoji_events_rounded,
+        tint: Nocturne.goldLight,
+        title: 'AfroVision Challenge',
+        body: 'Auditions open · Tap to learn more',
+        cta: 'Join',
+      ),
+    );
+  }
+
+  Widget _nocturneInlineAlert({
+    required VoidCallback onTap,
+    required IconData icon,
+    required Color tint,
+    required String title,
+    required String body,
+    required String cta,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(Nocturne.radiusLg),
+          color: tint.withValues(alpha: 0.06),
+          border: Border.all(color: tint.withValues(alpha: 0.28), width: 1),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: tint.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: Icon(icon, color: tint, size: 18),
             ),
-            border: Border.all(color: AppColors.orange.withValues(alpha: 0.3)),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.orange.withValues(alpha: 0.08),
-                blurRadius: 18,
-                spreadRadius: 1,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.orange.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.emoji_events_rounded,
-                  color: AppColors.orange,
-                  size: 26,
-                ),
-              ),
-              const SizedBox(width: 14),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'AfroVision Challenge',
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.2,
-                      ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Nocturne.text,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
                     ),
-                    SizedBox(height: 3),
-                    Text(
-                      'Auditions open \u2022 Tap to learn more',
-                      style: TextStyle(
-                        color: AppColors.lightOrange,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.orange,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Text(
-                  'Join',
-                  style: TextStyle(
-                    color: AppColors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3,
                   ),
+                  const SizedBox(height: 2),
+                  Text(
+                    body,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Nocturne.textMuted,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+              decoration: BoxDecoration(
+                color: tint,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                cta,
+                style: const TextStyle(
+                  color: Color(0xFF241606),
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // ───────── KYC ALERT ─────────
+  // ───────── KYC ALERT (Nocturne inline alert) ─────────
   Widget _buildKycAlert() {
     final isRejected = _user?.kycStatus == 'rejected';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      child: GestureDetector(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+      child: _nocturneInlineAlert(
         onTap: () => Navigator.pushNamed(context, '/kyc'),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            color: isRejected
-                ? Colors.red.withValues(alpha: 0.1)
-                : AppColors.orange.withValues(alpha: 0.1),
-            border: Border.all(
-              color: isRejected
-                  ? Colors.red.withValues(alpha: 0.25)
-                  : AppColors.orange.withValues(alpha: 0.25),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                isRejected
-                    ? Icons.warning_amber_rounded
-                    : Icons.verified_user_outlined,
-                color: isRejected ? Colors.red[400] : AppColors.orange,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  isRejected
-                      ? 'KYC rejected. Tap to re-submit.'
-                      : 'Complete KYC to unlock all features',
-                  style: TextStyle(
-                    color: isRejected ? Colors.red[300] : AppColors.lightOrange,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  color: isRejected ? Colors.red : AppColors.orange,
-                ),
-                child: Text(
-                  isRejected ? 'Re-submit' : 'Complete',
-                  style: const TextStyle(
-                    color: AppColors.darkBlue,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        icon: isRejected
+            ? Icons.warning_amber_rounded
+            : Icons.verified_user_outlined,
+        tint: isRejected ? Nocturne.redSoft : Nocturne.goldLight,
+        title: isRejected ? 'KYC rejected' : 'Complete KYC',
+        body: isRejected
+            ? 'Tap to re-submit your documents.'
+            : 'Unlock all features by verifying your identity.',
+        cta: isRejected ? 'Re-submit' : 'Complete',
       ),
     );
   }
@@ -1234,169 +1154,58 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _sectionLabel(
-            'FEATURED CHANNELS',
-            Icons.featured_play_list_rounded,
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 9),
+          child: Row(
+            children: [
+              _nocturneKicker(
+                label: 'FEATURED CHANNELS',
+                icon: Icons.live_tv_rounded,
+                color: Nocturne.gold,
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => Navigator.pushNamed(context, '/channels'),
+                child: const Text(
+                  'Browse all',
+                  style: TextStyle(
+                    color: Nocturne.textMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 10),
         SizedBox(
-          height: 130,
+          height: 150,
           child: PageView.builder(
             controller: _promoPageController,
             itemCount: items.length,
             onPageChanged: (i) => setState(() => _promoPage = i),
             itemBuilder: (context, index) {
               final ch = items[index];
-              return GestureDetector(
-                onTap: () async {
-                  await Navigator.pushNamed(
-                    context,
-                    '/channel-view',
-                    arguments: ch.id,
-                  );
-                  _loadData();
-                },
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 6),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: AppColors.lightOrange.withValues(alpha: 0.3),
-                    ),
-                    image: (ch.bannerUrl != null && ch.bannerUrl!.isNotEmpty)
-                        ? DecorationImage(
-                            image: NetworkImage(
-                              AppConfig.mediaUrl(ch.bannerUrl!),
-                            ),
-                            fit: BoxFit.cover,
-                          )
-                        : null,
-                    gradient: (ch.bannerUrl == null || ch.bannerUrl!.isEmpty)
-                        ? LinearGradient(
-                            colors: [
-                              AppColors.lightBlue.withValues(alpha: 0.5),
-                              AppColors.darkBlue,
-                            ],
-                          )
-                        : null,
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              AppColors.darkBlue.withValues(alpha: 0.85),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: 12,
-                        left: 14,
-                        right: 14,
-                        child: Row(
-                          children: [
-                            if (ch.logoUrl != null && ch.logoUrl!.isNotEmpty)
-                              Container(
-                                width: 32,
-                                height: 32,
-                                margin: const EdgeInsets.only(right: 10),
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: AppColors.lightOrange.withValues(
-                                      alpha: 0.5,
-                                    ),
-                                  ),
-                                  image: DecorationImage(
-                                    image: NetworkImage(
-                                      AppConfig.mediaUrl(ch.logoUrl!),
-                                    ),
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    ch.name,
-                                    style: const TextStyle(
-                                      color: AppColors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  if (ch.category != null)
-                                    Text(
-                                      ch.category!,
-                                      style: const TextStyle(
-                                        color: AppColors.lightOrange,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Positioned(
-                        top: 8,
-                        right: 10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.orange.withValues(alpha: 0.85),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text(
-                            'FEATURED',
-                            style: TextStyle(
-                              color: AppColors.white,
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: _nocturneFeaturedCard(ch),
               );
             },
           ),
         ),
         if (items.length > 1) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 9),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(items.length, (i) {
               return AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                width: i == _promoPage ? 20 : 6,
-                height: 6,
-                margin: const EdgeInsets.symmetric(horizontal: 2),
+                duration: const Duration(milliseconds: 220),
+                width: i == _promoPage ? 18 : 5,
+                height: 5,
+                margin: const EdgeInsets.symmetric(horizontal: 2.5),
                 decoration: BoxDecoration(
                   color: i == _promoPage
-                      ? AppColors.orange
-                      : AppColors.goldText,
+                      ? Nocturne.gold
+                      : Nocturne.gold.withValues(alpha: 0.32),
                   borderRadius: BorderRadius.circular(3),
                 ),
               );
@@ -1407,7 +1216,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ───────── PUBLIC CHANNELS SLIDER ─────────
+  // ───────── RECENTLY VISITED (Nocturne circular row) ─────────
   Widget _buildPublicChannelsSlider() {
     if (_watchHistory.isEmpty) return const SizedBox.shrink();
     final itemCount = _watchHistory.length > 10 ? 10 : _watchHistory.length;
@@ -1416,16 +1225,15 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _sectionLabel(
-            'RECENTLY VISITED CHANNELS',
-            Icons.history_rounded,
-            color: AppColors.softBlue,
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+          child: _nocturneKicker(
+            label: 'RECENTLY VISITED',
+            icon: Icons.history_rounded,
+            color: Nocturne.blue,
           ),
         ),
-        const SizedBox(height: 10),
         SizedBox(
-          height: 94,
+          height: 88,
           child: ListView.builder(
             controller: _recentScrollController,
             scrollDirection: Axis.horizontal,
@@ -1437,84 +1245,69 @@ class _HomeScreenState extends State<HomeScreen>
               final logoUrl = entry.logo;
               final resolvedLogoUrl = (logoUrl != null && logoUrl.isNotEmpty)
                   ? (logoUrl.startsWith('http')
-                        ? logoUrl
-                        : AppConfig.mediaUrl(logoUrl))
+                      ? logoUrl
+                      : AppConfig.mediaUrl(logoUrl))
                   : null;
+              final palette = _paletteForName(entry.name);
+              final initials = _initialsFor(entry.name);
 
-              return GestureDetector(
-                onTap: () async {
-                  await Navigator.pushNamed(
-                    context,
-                    '/channel-player',
-                    arguments: entry.id,
-                  );
-                  _loadData();
-                },
-                child: Container(
-                  width: 86,
-                  margin: const EdgeInsets.only(right: 10),
-                  decoration: BoxDecoration(
-                    color: AppColors.inputFill,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: AppColors.softBlue.withValues(alpha: 0.25),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Stack(
-                    children: [
-                      Center(
-                        child: Container(
+              return Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: GestureDetector(
+                  onTap: () async {
+                    await Navigator.pushNamed(context, '/channel-player',
+                        arguments: entry.id);
+                    _loadData();
+                  },
+                  child: SizedBox(
+                    width: 66,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
                           width: 58,
                           height: 58,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: AppColors.lightBlue.withValues(alpha: 0.55),
-                            border: Border.all(
-                              color: AppColors.softBlue.withValues(alpha: 0.35),
-                              width: 1.4,
-                            ),
+                            gradient: resolvedLogoUrl == null ? palette.bg : null,
+                            color: resolvedLogoUrl != null
+                                ? Nocturne.surface
+                                : null,
                             image: resolvedLogoUrl != null
                                 ? DecorationImage(
                                     image: NetworkImage(resolvedLogoUrl),
                                     fit: BoxFit.cover,
                                   )
                                 : null,
+                            border: Border.all(
+                                color: Nocturne.borderStrong, width: 1),
                           ),
+                          alignment: Alignment.center,
                           child: resolvedLogoUrl == null
-                              ? Icon(
-                                  Icons.live_tv_rounded,
-                                  color: AppColors.softBlue.withValues(
-                                    alpha: 0.95,
+                              ? Text(
+                                  initials,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
                                   ),
-                                  size: 22,
                                 )
                               : null,
                         ),
-                      ),
-                      Positioned(
-                        bottom: 8,
-                        left: 0,
-                        right: 0,
-                        child: Text(
+                        const SizedBox(height: 6),
+                        Text(
                           entry.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            color: AppColors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
+                            color: Nocturne.textMuted,
+                            fontSize: 9.5,
+                            height: 1.2,
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -1527,257 +1320,124 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ───────── 6 ACTION CARDS ─────────
   Widget _buildActionCards() {
+    final isCreator = _user != null &&
+        (_user!.role == 'creator' || _user!.role == 'admin');
+    final planActive = _user?.hasActiveSubscription == true;
+
+    final tiles = <_ActionTile>[
+      _ActionTile(
+        icon: Icons.explore_rounded,
+        label: 'Browse Channel',
+        tint: Nocturne.gold,
+        onTap: () => Navigator.pushNamed(context, '/channels'),
+      ),
+      _ActionTile(
+        icon: Icons.dialpad_rounded,
+        label: 'Channel Number',
+        tint: Nocturne.gold,
+        onTap: () => Navigator.pushNamed(context, '/channel-access'),
+      ),
+      _ActionTile(
+        icon: Icons.live_tv_rounded,
+        label: 'Live Now',
+        tint: Nocturne.redSoft,
+        onTap: () => Navigator.pushNamed(context, '/live'),
+      ),
+      _ActionTile(
+        icon: Icons.videocam_rounded,
+        label: 'Creator Studio',
+        tint: Nocturne.green,
+        locked: !isCreator,
+        onTap: () => Navigator.pushNamed(context, '/creator-studio'),
+      ),
+      _ActionTile(
+        icon: Icons.campaign_rounded,
+        label: 'Advertise',
+        tint: Nocturne.green,
+        onTap: () => Navigator.pushNamed(context, '/advertiser'),
+      ),
+      _ActionTile(
+        icon: Icons.account_balance_wallet_rounded,
+        label: 'Digital Assets',
+        tint: Nocturne.green,
+        onTap: () => Navigator.pushNamed(context, '/digital-assets'),
+      ),
+      _ActionTile(
+        icon: Icons.verified_rounded,
+        label: 'My Plan',
+        tint: Nocturne.blue,
+        onTap: () => Navigator.pushNamed(context, '/my-plan'),
+        badge: planActive ? '${_planDaysLeft()}d' : 'START HERE',
+        badgeFg: planActive ? Nocturne.blueSoft : Nocturne.blueSoft,
+        badgeBg: planActive
+            ? Nocturne.blue.withValues(alpha: 0.2)
+            : Nocturne.blue.withValues(alpha: 0.2),
+      ),
+      _ActionTile(
+        icon: Icons.notifications_active_rounded,
+        label: 'My Reminders',
+        tint: Nocturne.blue,
+        onTap: () => Navigator.pushNamed(context, '/reminders'),
+        badge: _remindersCount > 0 ? '$_remindersCount' : null,
+        badgeFg: Colors.white,
+        badgeBg: Nocturne.red,
+      ),
+      _ActionTile(
+        icon: Icons.waves_rounded,
+        label: 'Surf Waves',
+        tint: Nocturne.blue,
+        onTap: () => Navigator.pushNamed(context, '/wave'),
+      ),
+      if (_user != null && _user!.isAdmin)
+        _ActionTile(
+          icon: Icons.admin_panel_settings_rounded,
+          label: 'Admin Panel',
+          tint: Nocturne.gold,
+          onTap: () => Navigator.pushNamed(context, '/admin-panel'),
+        ),
+    ];
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _sectionLabel(
-              'INSTANT ACTIONS',
-              Icons.bolt_rounded,
-              color: AppColors.softBlue,
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _nocturneKicker(
+              label: 'INSTANT ACTIONS',
+              icon: Icons.bolt_rounded,
+              color: Nocturne.blue,
             ),
           ),
-          // Row 1
-          Row(
-            children: [
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.explore_rounded,
-                  label: 'Browse Channel',
-                  onTap: () => Navigator.pushNamed(context, '/channels'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.dialpad_rounded,
-                  label: 'Channel Number',
-                  onTap: () => Navigator.pushNamed(context, '/channel-access'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.live_tv_rounded,
-                  label: 'Live Now',
-                  onTap: () => Navigator.pushNamed(context, '/live'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Row 2
-          Row(
-            children: [
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.video_settings_rounded,
-                  label: 'Creator Studio',
-                  onTap: () => Navigator.pushNamed(context, '/creator-studio'),
-                  locked:
-                      _user != null &&
-                      _user!.role != 'creator' &&
-                      _user!.role != 'admin',
-                  accentColor: AppColors.successGreen,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.campaign_rounded,
-                  label: 'Advertise',
-                  onTap: () => Navigator.pushNamed(context, '/advertiser'),
-                  subtle: true,
-                  accentColor: AppColors.successGreen,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.account_balance_wallet_rounded,
-                  label: 'Digital Assets',
-                  onTap: () => Navigator.pushNamed(context, '/digital-assets'),
-                  subtle: true,
-                  accentColor: AppColors.successGreen,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Row 3
-          Row(
-            children: [
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.workspace_premium_rounded,
-                  label: 'My Plan',
-                  onTap: () => Navigator.pushNamed(context, '/my-plan'),
-                  accentColor: AppColors.softBlue,
-                  badgeLabel: _user?.hasActiveSubscription == true
-                      ? '${_planDaysLeft()}d'
-                      : 'Start Here',
-                  badgeIcon: _user?.hasActiveSubscription == true
-                      ? Icons.timer_rounded
-                      : Icons.launch_rounded,
-                  badgeColor: _user?.hasActiveSubscription == true
-                      ? AppColors.softBlue
-                      : AppColors.infoBlue,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.notifications_active_rounded,
-                  label: 'My Reminders',
-                  onTap: () => Navigator.pushNamed(context, '/reminders'),
-                  accentColor: AppColors.softBlue,
-                  badgeLabel: '$_remindersCount',
-                  badgeIcon: Icons.notifications_rounded,
-                  badgeColor: AppColors.softBlue,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _actionCard(
-                  icon: Icons.waves_rounded,
-                  label: 'Surf Waves',
-                  onTap: () => Navigator.pushNamed(context, '/wave'),
-                  accentColor: AppColors.softBlue,
-                ),
-              ),
-            ],
-          ),
-          // Admin Panel (admin only)
-          if (_user != null && _user!.isAdmin) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _actionCard(
-                    icon: Icons.admin_panel_settings_rounded,
-                    label: 'Admin Panel',
-                    onTap: () => Navigator.pushNamed(context, '/admin-panel'),
-                    accentColor: AppColors.orange,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(child: SizedBox()),
-                const SizedBox(width: 12),
-                const Expanded(child: SizedBox()),
-              ],
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            itemCount: tiles.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 0.98,
             ),
-          ],
-          // Subscribe button (subscription-aware)
-          if (_user != null) ...[
-            const SizedBox(height: 18),
-            if (_user!.hasActiveSubscription)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [AppColors.lightOrange, AppColors.orange],
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.workspace_premium_rounded,
-                      color: AppColors.darkBlue,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      (_user!.subscriptionPlan ?? '').toLowerCase() == 'premium'
-                          ? 'Premium Membership'
-                          : 'Upgrade Now',
-                      style: const TextStyle(
-                        color: AppColors.darkBlue,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              GestureDetector(
-                onTap: () async {
-                  final result = await Navigator.pushNamed(context, '/plans');
-                  if (result == true) _loadData();
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    gradient: AppColors.buttonGradient,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.diamond_rounded,
-                        color: AppColors.white,
-                        size: 18,
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        'Subscribe to a Plan',
-                        style: TextStyle(
-                          color: AppColors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
+            itemBuilder: (context, i) => _nocturneActionCell(tiles[i]),
+          ),
         ],
       ),
     );
   }
 
-  Widget _actionCard({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    bool locked = false,
-    bool subtle = false,
-    Color? accentColor,
-    String? badgeLabel,
-    IconData? badgeIcon,
-    Color? badgeColor,
-  }) {
-    final color = accentColor ?? AppColors.orange;
-    final effectiveBadgeColor = badgeColor ?? color;
+  Widget _nocturneActionCell(_ActionTile t) {
     return GestureDetector(
-      onTap: locked ? null : onTap,
+      onTap: t.locked ? null : t.onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
-          color: AppColors.inputFill,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: subtle
-                ? AppColors.inputBorder
-                : AppColors.lightOrange.withValues(alpha: 0.2),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.white.withValues(alpha: 0.02),
+          border: Border.all(color: Nocturne.border, width: 1),
         ),
+        padding: const EdgeInsets.fromLTRB(6, 12, 6, 10),
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -1787,73 +1447,59 @@ class _HomeScreenState extends State<HomeScreen>
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
+                    color: t.tint.withValues(alpha: 0.14),
                   ),
                   child: Icon(
-                    icon,
-                    color: locked ? AppColors.goldText : color,
-                    size: 22,
+                    t.icon,
+                    size: 17,
+                    color: t.locked ? Nocturne.textHint : t.tint,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 7),
                 Text(
-                  label,
+                  t.label,
                   textAlign: TextAlign.center,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  softWrap: false,
                   style: TextStyle(
-                    color: locked ? AppColors.goldText : AppColors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                    color: t.locked ? Nocturne.textHint : Nocturne.textDim,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
                     height: 1.25,
                   ),
                 ),
-                if (locked) ...[
-                  const SizedBox(height: 4),
-                  const Icon(
-                    Icons.lock_rounded,
-                    color: AppColors.goldText,
-                    size: 12,
-                  ),
-                ],
               ],
             ),
-            if (badgeLabel != null)
+            if (t.locked)
+              const Positioned(
+                top: 4,
+                left: 4,
+                child: Icon(Icons.lock_rounded,
+                    size: 11, color: Nocturne.textHint),
+              ),
+            if (t.badge != null)
               Positioned(
-                top: 0,
-                right: 0,
+                top: 4,
+                right: 4,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
+                      horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: effectiveBadgeColor.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: effectiveBadgeColor.withValues(alpha: 0.35),
-                    ),
+                    color: t.badgeBg,
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (badgeIcon != null) ...[
-                        Icon(badgeIcon, color: effectiveBadgeColor, size: 11),
-                        const SizedBox(width: 4),
-                      ],
-                      Text(
-                        badgeLabel,
-                        style: TextStyle(
-                          color: effectiveBadgeColor,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    t.badge!,
+                    style: TextStyle(
+                      color: t.badgeFg,
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                    ),
                   ),
                 ),
               ),
@@ -1870,93 +1516,390 @@ class _HomeScreenState extends State<HomeScreen>
     final cash = user.cash.toDouble();
     final vpt = (user.vptBalance > 0 ? user.vptBalance : user.vpt).toDouble();
     final ravens = user.coins.toDouble();
+    final hasActive = user.hasActiveSubscription;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionLabel('MY ASSETS', Icons.account_balance_wallet_rounded),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _assetCard(
-                  label: 'Cash',
-                  value: '₦${cash.toStringAsFixed(2)}',
-                  icon: Icons.payments_rounded,
-                  color: AppColors.orange,
+          // Segmented wallet strip
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Nocturne.radiusLg),
+              gradient: Nocturne.walletGradient,
+              border: Border.all(color: Nocturne.borderCard, width: 1),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _walletCell(
+                    label: 'CASH',
+                    value: '₦${_formatMoney(cash)}',
+                    icon: Icons.payments_rounded,
+                    tint: Nocturne.goldLight,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _assetCard(
-                  label: 'vPT Offchain',
-                  value: vpt.toStringAsFixed(2),
-                  icon: Icons.token_rounded,
-                  color: const Color(0xFF4CAF50),
+                _walletDivider(),
+                Expanded(
+                  child: _walletCell(
+                    label: 'VPT OFFCHAIN',
+                    value: vpt.toStringAsFixed(2),
+                    icon: Icons.hexagon_rounded,
+                    tint: Nocturne.green,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _assetCard(
-                  label: 'Ravens',
-                  value: ravens.toStringAsFixed(0),
-                  icon: Icons.favorite_rounded,
-                  color: const Color(0xFFE91E63),
+                _walletDivider(),
+                Expanded(
+                  child: _walletCell(
+                    label: 'RAVENS',
+                    value: _formatNumber(ravens),
+                    icon: Icons.favorite_rounded,
+                    tint: Nocturne.redSoft,
+                  ),
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 9),
+          // Plan CTA
+          GestureDetector(
+            onTap: () async {
+              if (hasActive) {
+                await Navigator.pushNamed(context, '/my-plan');
+              } else {
+                final result = await Navigator.pushNamed(context, '/plans');
+                if (result == true) _loadData();
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: Nocturne.goldCta,
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x38EF9615),
+                    blurRadius: 18,
+                    offset: Offset(0, 6),
+                  ),
+                ],
               ),
-            ],
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    hasActive
+                        ? Icons.workspace_premium_rounded
+                        : Icons.diamond_rounded,
+                    color: const Color(0xFF26170A),
+                    size: 15,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    hasActive
+                        ? '${user.subscriptionPlanDisplay} · Manage'
+                        : 'Subscribe to a Plan',
+                    style: const TextStyle(
+                      color: Color(0xFF26170A),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _assetCard({
+  String _formatMoney(double n) {
+    final s = n.toStringAsFixed(2);
+    final parts = s.split('.');
+    final whole = parts[0];
+    final buffer = StringBuffer();
+    for (int i = 0; i < whole.length; i++) {
+      if (i > 0 && (whole.length - i) % 3 == 0) buffer.write(',');
+      buffer.write(whole[i]);
+    }
+    return '${buffer.toString()}.${parts[1]}';
+  }
+
+  Widget _walletCell({
     required String label,
     required String value,
     required IconData icon,
+    required Color tint,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 12, color: tint),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Nocturne.textFaint,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.7,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Nocturne.text,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.1,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _walletDivider() => Container(
+        width: 1,
+        height: 34,
+        color: Nocturne.borderCard,
+      );
+
+  // ── Shared Nocturne bits ──
+  Widget _nocturneKicker({
+    required String label,
+    required IconData icon,
     required Color color,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.inputFill,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 20),
+    return Row(
+      children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 7),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1,
           ),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            style: const TextStyle(
-              color: AppColors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
+        ),
+      ],
+    );
+  }
+
+  Widget _nocturneFeaturedCard(PromotedChannel ch) {
+    final hasBanner = (ch.bannerUrl ?? '').isNotEmpty;
+    final palette = _paletteForName(ch.name);
+    final initials = _initialsFor(ch.name);
+
+    return GestureDetector(
+      onTap: () async {
+        await Navigator.pushNamed(context, '/channel-view', arguments: ch.id);
+        _loadData();
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(Nocturne.radiusLg),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Background — banner or gradient
+            if (hasBanner)
+              Image.network(
+                AppConfig.mediaUrl(ch.bannerUrl!),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) =>
+                    Container(decoration: BoxDecoration(gradient: palette.bg)),
+              )
+            else
+              Container(decoration: BoxDecoration(gradient: palette.bg)),
+            // Inner hairline
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.14), width: 1),
+                borderRadius: BorderRadius.circular(Nocturne.radiusLg),
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              color: AppColors.hintText,
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
+            // Wordmark centered
+            if (!hasBanner)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    ch.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.92),
+                      fontSize: 30,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.6,
+                      shadows: const [
+                        Shadow(
+                            color: Color(0x66000000),
+                            blurRadius: 18,
+                            offset: Offset(0, 2)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            // FEATURED pill
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Nocturne.gold,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'FEATURED',
+                  style: TextStyle(
+                    color: Color(0xFF241606),
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
             ),
-          ),
-        ],
+            // Bottom info row
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      const Color(0xFF060B1C).withValues(alpha: 0.86),
+                    ],
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: palette.mark,
+                        image: (ch.logoUrl ?? '').isNotEmpty
+                            ? DecorationImage(
+                                image: NetworkImage(
+                                    AppConfig.mediaUrl(ch.logoUrl!)),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
+                      ),
+                      alignment: Alignment.center,
+                      child: (ch.logoUrl ?? '').isEmpty
+                          ? Text(
+                              initials,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            ch.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (ch.category != null && ch.category!.isNotEmpty)
+                            Text(
+                              ch.category!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Nocturne.goldLight,
+                                fontSize: 10.5,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.play_circle_outline_rounded,
+                      color: Colors.white.withValues(alpha: 0.85),
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  _ChannelPalette _paletteForName(String name) {
+    const palettes = <_ChannelPalette>[
+      _ChannelPalette(
+        bg: LinearGradient(colors: [Color(0xFFC9CEDE), Color(0xFF3C4266)],
+            begin: Alignment.topLeft, end: Alignment.bottomRight),
+        mark: Color(0xFF6D3FA8),
+      ),
+      _ChannelPalette(
+        bg: LinearGradient(colors: [Color(0xFFC0271F), Color(0xFF7C130F)],
+            begin: Alignment.topLeft, end: Alignment.bottomRight),
+        mark: Color(0xFF1B1B1B),
+      ),
+      _ChannelPalette(
+        bg: LinearGradient(colors: [Color(0xFF1B63C4), Color(0xFF0B2F6B)],
+            begin: Alignment.topLeft, end: Alignment.bottomRight),
+        mark: Color(0xFF0E4FA1),
+      ),
+      _ChannelPalette(
+        bg: LinearGradient(colors: [Color(0xFF8A2FBE), Color(0xFF3D1266)],
+            begin: Alignment.topLeft, end: Alignment.bottomRight),
+        mark: Color(0xFF8A2FBE),
+      ),
+      _ChannelPalette(
+        bg: LinearGradient(colors: [Color(0xFF4A3350), Color(0xFF1D1424)],
+            begin: Alignment.topLeft, end: Alignment.bottomRight),
+        mark: Color(0xFF7A4A63),
+      ),
+    ];
+    if (name.isEmpty) return palettes.first;
+    final idx = name.codeUnits.fold<int>(0, (a, b) => a + b) % palettes.length;
+    return palettes[idx];
   }
 
   // ───────── ADVERTS SECTION (shuffling banner) ─────────
@@ -1990,81 +1933,92 @@ class _HomeScreenState extends State<HomeScreen>
     ];
     final current = ads[_adBannerIndex];
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _sectionLabel('SPOTLIGHT', Icons.campaign_rounded),
-          const SizedBox(height: 4),
           const Padding(
-            padding: EdgeInsets.zero,
+            padding: EdgeInsets.only(bottom: 8),
             child: BannerAdWidget(placement: 'home'),
           ),
-          const SizedBox(height: 10),
           GestureDetector(
             onTap: () => Navigator.pushNamed(context, current.route),
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 600),
+              duration: const Duration(milliseconds: 500),
               transitionBuilder: (child, animation) =>
                   FadeTransition(opacity: animation, child: child),
               child: Container(
                 key: ValueKey<int>(_adBannerIndex),
                 width: double.infinity,
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(13),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(14),
                   gradient: LinearGradient(
-                    colors: [
-                      current.color.withValues(alpha: 0.15),
-                      AppColors.darkBlue.withValues(alpha: 0.9),
-                    ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
+                    colors: [
+                      current.color.withValues(alpha: 0.14),
+                      current.color.withValues(alpha: 0.02),
+                    ],
                   ),
                   border: Border.all(
-                    color: current.color.withValues(alpha: 0.2),
+                    color: const Color(0xFF4A3A1A),
+                    width: 1,
                   ),
                 ),
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      width: 42,
+                      height: 42,
                       decoration: BoxDecoration(
-                        color: current.color.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
+                        color: current.color.withValues(alpha: 0.18),
                       ),
-                      child: Icon(current.icon, color: current.color, size: 28),
+                      child: Icon(current.icon,
+                          color: Nocturne.goldLight, size: 20),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          const Text(
+                            'SPOTLIGHT',
+                            style: TextStyle(
+                              color: Nocturne.gold,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
                           Text(
                             current.title,
                             style: const TextStyle(
-                              color: AppColors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
+                              color: Nocturne.text,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 1),
                           Text(
                             current.subtitle,
-                            style: TextStyle(
-                              color: AppColors.white,
-                              fontSize: 11,
-                              height: 1.4,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Nocturne.textMuted,
+                              fontSize: 11.5,
+                              height: 1.35,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: current.color.withValues(alpha: 0.6),
-                      size: 22,
-                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.chevron_right_rounded,
+                        color: Nocturne.gold, size: 18),
                   ],
                 ),
               ),
@@ -2075,216 +2029,223 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ───────── ANNOUNCEMENTS CARD ─────────
-  Widget _buildAnnouncementsCard() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.inputFill,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.inputBorder),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.campaign_rounded,
-                      color: AppColors.orange.withValues(alpha: 0.8),
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'Announcements',
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                GestureDetector(
-                  onTap: () => Navigator.pushNamed(context, '/announcements'),
-                  child: const Text(
-                    'See all',
-                    style: TextStyle(
-                      color: AppColors.lightOrange,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (_announcements.isEmpty)
-              const Text(
-                'Announcements from Admin will appear here',
-                style: TextStyle(color: AppColors.hintText, fontSize: 12),
-              )
-            else
-              ..._announcements.take(3).map((announcement) {
-                return Column(
-                  children: [
-                    _announcementItem(
-                      announcement.title,
-                      announcement.body,
-                      _getIconForString(announcement.icon),
-                      _getColorFromString(announcement.color),
-                    ),
-                    if (announcement != _announcements.last)
-                      const SizedBox(height: 10),
-                  ],
-                );
-              }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ───────── TWO COLUMN SECTION ─────────
+  // ───────── UPDATES/ANNOUNCEMENTS TABBED CARD + HIGHLIGHTS ─────────
   Widget _buildTwoColumnSection() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Updates Card (existing, from backend)
+          // Updates tabbed card
           Container(
-            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.inputBorder),
+              color: Nocturne.surfaceRaised,
+              borderRadius: BorderRadius.circular(Nocturne.radiusLg),
+              border: Border.all(color: Nocturne.borderCard, width: 1),
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.campaign_rounded,
-                          color: AppColors.orange.withValues(alpha: 0.8),
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'Updates',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(13, 11, 13, 0),
+                  child: Row(
+                    children: [
+                      _feedTab('Updates', _feedTabValue == 'updates',
+                          () => setState(() => _feedTabValue = 'updates')),
+                      const SizedBox(width: 14),
+                      _feedTab('Announcements', _feedTabValue == 'ann',
+                          () => setState(() => _feedTabValue = 'ann')),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => Navigator.pushNamed(
+                            context,
+                            _feedTabValue == 'ann'
+                                ? '/announcements'
+                                : '/updates-list'),
+                        child: const Padding(
+                          padding: EdgeInsets.only(bottom: 9),
+                          child: Text(
+                            'See all',
+                            style: TextStyle(
+                              color: Nocturne.gold,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
-                      ],
-                    ),
-                    GestureDetector(
-                      onTap: () =>
-                          Navigator.pushNamed(context, '/updates-list'),
-                      child: const Text(
-                        'See all',
-                        style: TextStyle(
-                          color: AppColors.lightOrange,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                if (_updates.isEmpty)
-                  const Text(
-                    'No updates yet.',
-                    style: TextStyle(color: AppColors.hintText, fontSize: 12),
-                  )
+                Container(height: 1, color: Nocturne.border),
+                if (_feedTabValue == 'updates')
+                  if (_updates.isEmpty)
+                    _feedEmpty('Product updates will appear here')
+                  else
+                    ..._updates.take(3).map((u) {
+                      final body = (u['body'] as String?) ??
+                          (u['summary'] as String? ?? '');
+                      return _feedItem(
+                        icon: _getIconForString(u['icon'] as String? ?? ''),
+                        title: u['title'] as String? ?? '',
+                        body: body,
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/updates-list'),
+                        cta: 'Read more',
+                        bordered: u != _updates.first || true,
+                      );
+                    })
+                else if (_announcements.isEmpty)
+                  _feedEmpty('Announcements from Admin will appear here')
                 else
-                  ..._updates.take(3).map((update) {
-                    final body = update['body'] as String?;
-                    final summary = update['summary'] as String? ?? '';
-                    final displayBody = body ?? summary;
-                    return Column(
-                      children: [
-                        _announcementItem(
-                          update['title'] as String? ?? '',
-                          displayBody,
-                          update['icon'] as String? ?? '✨',
-                          _getColorForTag(update['tag'] as String? ?? ''),
-                          isTruncated: true,
-                        ),
-                        if (update != _updates.last) const SizedBox(height: 10),
-                      ],
-                    );
-                  }),
+                  ..._announcements.take(3).map((a) => _feedItem(
+                        icon: _getIconForString(a.icon),
+                        title: a.title,
+                        body: a.body,
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/announcements'),
+                        cta: 'Read',
+                        bordered: true,
+                      )),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          // Bottom: Quick Stats & Highlights
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.inputBorder),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.insights_rounded,
-                      color: AppColors.lightOrange.withValues(alpha: 0.8),
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'Highlights',
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _highlightStat(
-                  Icons.people_rounded,
-                  'Members',
-                  '${_stats?.totalMembers ?? 0}',
-                ),
-                const SizedBox(height: 10),
-                _highlightStat(
-                  Icons.tv_rounded,
-                  'Channels',
-                  '${_stats?.totalChannels ?? 0}',
-                ),
-                const SizedBox(height: 10),
-                _highlightStat(
-                  Icons.toll_rounded,
-                  'Your vPT',
-                  _formatNumber(_user?.vpt ?? 0),
-                ),
-                const SizedBox(height: 10),
-                _highlightStat(
+          const SizedBox(height: 14),
+          // Highlights
+          _nocturneKicker(
+            label: 'HIGHLIGHTS',
+            icon: Icons.show_chart_rounded,
+            color: Nocturne.textFaint,
+          ),
+          const SizedBox(height: 9),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 3.4,
+            children: [
+              _highlightStat(Icons.groups_rounded, 'Members',
+                  '${_stats?.totalMembers ?? 0}', Nocturne.text),
+              _highlightStat(Icons.tv_rounded, 'Channels',
+                  '${_stats?.totalChannels ?? 0}', Nocturne.text),
+              _highlightStat(Icons.hexagon_rounded, 'Your vPT',
+                  _formatNumber(_user?.vpt ?? 0), Nocturne.goldLight),
+              _highlightStat(
                   Icons.star_rounded,
                   'Plan',
-                  _user?.subscriptionPlanDisplay ?? 'NONE',
+                  (_user?.subscriptionPlanDisplay ?? 'NONE').toUpperCase(),
+                  Nocturne.goldLight),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _feedTab(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.only(bottom: 9),
+        decoration: active
+            ? const BoxDecoration(
+                border: Border(
+                    bottom: BorderSide(color: Nocturne.gold, width: 2)),
+              )
+            : null,
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? Nocturne.text : Nocturne.textHint,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _feedEmpty(String msg) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 14),
+        child: Text(
+          msg,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Nocturne.textHint, fontSize: 11.5),
+        ),
+      );
+
+  Widget _feedItem({
+    required IconData icon,
+    required String title,
+    required String body,
+    required VoidCallback onTap,
+    required String cta,
+    bool bordered = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+      decoration: bordered
+          ? const BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Color(0xB222325E), width: 1),
+              ),
+            )
+          : null,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            alignment: Alignment.center,
+            child: Icon(icon, size: 15, color: Nocturne.goldLight),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Nocturne.text,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Nocturne.textFaint,
+                    fontSize: 11,
+                    height: 1.35,
+                  ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: onTap,
+            child: Text(
+              cta,
+              style: const TextStyle(
+                color: Nocturne.gold,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -2292,204 +2253,101 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _announcementItem(
-    String title,
-    String body,
-    dynamic icon,
-    Color color, {
-    bool isTruncated = false,
-  }) {
-    final displayBody = isTruncated && body.length > 80
-        ? '${body.substring(0, 80)}...'
-        : body;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(5),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(7),
+  Widget _highlightStat(
+      IconData icon, String label, String value, Color valueColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: Nocturne.border, width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: Nocturne.textFaint),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Nocturne.textMuted, fontSize: 11),
+            ),
           ),
-          child: icon is IconData
-              ? Icon(icon, color: color, size: 12)
-              : Text(
-                  icon is String ? icon : '✨',
-                  style: TextStyle(fontSize: 12),
-                ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: AppColors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      displayBody,
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 9,
-                        height: 1.3,
-                      ),
-                      maxLines: isTruncated ? 2 : null,
-                      overflow: isTruncated ? TextOverflow.ellipsis : null,
-                    ),
-                  ),
-                  if (isTruncated && body.length > 80)
-                    GestureDetector(
-                      onTap: () =>
-                          Navigator.pushNamed(context, '/updates-list'),
-                      child: const Text(
-                        ' Read more',
-                        style: TextStyle(
-                          color: AppColors.lightOrange,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ],
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _highlightStat(IconData icon, String label, String value) {
-    return Row(
-      children: [
-        Icon(icon, color: AppColors.lightOrange, size: 14),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(color: AppColors.white, fontSize: 10),
-          ),
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            color: AppColors.white,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ───────── MY SUBSCRIPTIONS CARD ─────────
+  // ───────── MY SUBSCRIPTIONS CARD (Nocturne row) ─────────
   Widget _buildMySubscriptionsCard() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       child: GestureDetector(
         onTap: () => Navigator.pushNamed(
           context,
           '/my-subscriptions',
         ).then((_) => _loadSubscriptionCount()),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: AppColors.cardBg,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.orange.withValues(alpha: 0.2)),
+            color: Colors.white.withValues(alpha: 0.02),
+            borderRadius: BorderRadius.circular(Nocturne.radiusLg),
+            border: Border.all(color: Nocturne.border, width: 1),
           ),
           child: Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
-                  color: AppColors.orange.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
+                  color: Nocturne.gold.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(
-                  Icons.subscriptions_outlined,
-                  color: AppColors.orange,
-                  size: 20,
-                ),
+                alignment: Alignment.center,
+                child: const Icon(Icons.style_outlined,
+                    color: Nocturne.goldLight, size: 17),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 11),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
                       'My Subscriptions',
                       style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
+                        color: Nocturne.text,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 2),
                     Text(
                       '$_subscriptionCount active subscription${_subscriptionCount == 1 ? '' : 's'}',
-                      style: TextStyle(
-                        color: AppColors.white.withValues(alpha: 0.55),
-                        fontSize: 12,
+                      style: const TextStyle(
+                        color: Nocturne.textMuted,
+                        fontSize: 11.5,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Colors.white54, size: 22),
+              const Icon(Icons.chevron_right_rounded,
+                  color: Nocturne.textHint, size: 18),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  // ───────── HELPERS ─────────
-  Widget _buildThemeDivider() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      height: 1,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.transparent,
-            AppColors.lightOrange.withValues(alpha: 0.45),
-            AppColors.orange.withValues(alpha: 0.55),
-            AppColors.lightOrange.withValues(alpha: 0.45),
-            Colors.transparent,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionLabel(String text, IconData icon, {Color? color}) {
-    final accent = color ?? AppColors.lightOrange;
-    return Row(
-      children: [
-        Icon(icon, color: accent, size: 14),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: TextStyle(
-            color: accent,
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
-          ),
-        ),
-      ],
     );
   }
 
@@ -2529,25 +2387,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Color _getColorFromString(String colorString) {
-    try {
-      return Color(int.parse(colorString.replaceAll('#', '0xFF')));
-    } catch (_) {
-      return AppColors.orange;
-    }
-  }
-
-  Color _getColorForTag(String tag) {
-    final tagMap = {
-      'New Feature': AppColors.lightOrange,
-      'Monetization': const Color(0xFF4CAF50),
-      'Enhancement': AppColors.orange,
-      'Economy': const Color(0xFFFFD700),
-      'Platform': const Color(0xFF2196F3),
-      'Performance': const Color(0xFF9C27B0),
-    };
-    return tagMap[tag] ?? AppColors.lightOrange;
-  }
 }
 
 class _AdBannerData {
@@ -2564,4 +2403,85 @@ class _AdBannerData {
     required this.color,
     required this.route,
   });
+}
+
+class _ActionTile {
+  final IconData icon;
+  final String label;
+  final Color tint;
+  final VoidCallback onTap;
+  final bool locked;
+  final String? badge;
+  final Color badgeFg;
+  final Color badgeBg;
+  const _ActionTile({
+    required this.icon,
+    required this.label,
+    required this.tint,
+    required this.onTap,
+    this.locked = false,
+    this.badge,
+    this.badgeFg = Colors.white,
+    this.badgeBg = Nocturne.gold,
+  });
+}
+
+class _LiveDot extends StatelessWidget {
+  const _LiveDot();
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 5,
+        height: 5,
+        decoration: const BoxDecoration(
+          color: Nocturne.green,
+          shape: BoxShape.circle,
+        ),
+      );
+}
+
+class _ChannelPalette {
+  final LinearGradient bg;
+  final Color mark;
+  const _ChannelPalette({required this.bg, required this.mark});
+}
+
+class _NavItem {
+  final String label;
+  final IconData icon;
+  final double size;
+  const _NavItem({required this.label, required this.icon, required this.size});
+}
+
+class _NavButton extends StatelessWidget {
+  final _NavItem item;
+  final bool active;
+  final VoidCallback onTap;
+  const _NavButton({required this.item, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? Nocturne.gold : Nocturne.textHint;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(item.icon, color: color, size: item.size),
+            const SizedBox(height: 4),
+            Text(
+              item.label,
+              style: TextStyle(
+                color: color,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

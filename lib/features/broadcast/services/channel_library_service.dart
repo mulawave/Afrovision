@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../core/api/api_service.dart';
+import '../../../core/services/section_cache.dart';
 import '../models/channel_library_models.dart';
 
 class ChannelLibraryListResponse {
@@ -22,6 +23,8 @@ class ChannelLibraryListResponse {
 }
 
 class ChannelLibraryService {
+  static String _libraryKey(String channelId) => 'lib_ch_$channelId';
+
   static Future<ChannelLibraryListResponse> getChannelLibrary(
     String channelId, {
     int page = 1,
@@ -30,8 +33,45 @@ class ChannelLibraryService {
     final data = await ApiService.get(
       '/channels/$channelId/library?page=$page&limit=$limit',
     );
-    final root = (data['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    if (page == 1) {
+      // Cache only page 1 — that's what the profile Library tab paints first.
+      await SectionCache.write(_libraryKey(channelId), jsonEncode(data));
+    }
+    return _parseLibrary(data, page: page, limit: limit);
+  }
 
+  /// Stale-while-revalidate wrapper for [getChannelLibrary].
+  ///
+  /// Paints the last-known page-1 items instantly via [onCached], then hits
+  /// the network. Fixes the "loading afresh every visit" behaviour on the
+  /// channel profile Library tab.
+  static Future<ChannelLibraryListResponse> getChannelLibraryCached(
+    String channelId, {
+    int page = 1,
+    int limit = 24,
+    void Function(ChannelLibraryListResponse cached)? onCached,
+  }) async {
+    if (page == 1 && onCached != null) {
+      final raw = await SectionCache.readStale(_libraryKey(channelId));
+      if (raw != null) {
+        try {
+          onCached(_parseLibrary(
+            jsonDecode(raw) as Map<String, dynamic>,
+            page: page,
+            limit: limit,
+          ));
+        } catch (_) {}
+      }
+    }
+    return getChannelLibrary(channelId, page: page, limit: limit);
+  }
+
+  static ChannelLibraryListResponse _parseLibrary(
+    Map<String, dynamic> data, {
+    required int page,
+    required int limit,
+  }) {
+    final root = (data['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
     final rawItems = root['items'];
     final items = rawItems is List
         ? rawItems
@@ -39,10 +79,8 @@ class ChannelLibraryService {
               .map(ChannelLibraryItemModel.fromJson)
               .toList()
         : <ChannelLibraryItemModel>[];
-
     final pagination =
         root['pagination'] as Map<String, dynamic>? ?? <String, dynamic>{};
-
     return ChannelLibraryListResponse(
       items: items,
       page: (pagination['page'] as num?)?.toInt() ?? page,

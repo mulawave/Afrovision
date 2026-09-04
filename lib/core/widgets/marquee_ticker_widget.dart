@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../features/auth/services/home_service.dart';
+import '../theme/nocturne_theme.dart';
 
 class MarqueeTickerWidget extends StatefulWidget {
   const MarqueeTickerWidget({super.key});
@@ -56,26 +57,25 @@ class _MarqueeTickerWidgetState extends State<MarqueeTickerWidget> {
   @override
   Widget build(BuildContext context) {
     if (_topics.isEmpty) return const SizedBox.shrink();
-    final text = _topics.join('   •   ');
-    final fullText = '$text   •   $text';
+    final text = _topics.join('     ·     ');
+    final fullText = '$text     ·     $text';
     return Container(
       width: double.infinity,
-      height: 32,
-      margin: const EdgeInsets.symmetric(vertical: 10),
-      color: Colors.black,
+      color: Nocturne.surfaceDeep,
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: SingleChildScrollView(
         controller: _controller,
         scrollDirection: Axis.horizontal,
         physics: const NeverScrollableScrollPhysics(),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
           child: Text(
             fullText,
             style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.3,
+              color: Nocturne.textFaint,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.1,
             ),
             maxLines: 1,
           ),

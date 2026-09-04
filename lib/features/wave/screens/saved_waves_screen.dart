@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../../core/widgets/wave_thumbnail.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../models/wave_model.dart';
@@ -247,18 +247,13 @@ class _WaveCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              CachedNetworkImage(
-                imageUrl: wave.thumbnailUrl,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => const Center(
-                  child: CircularProgressIndicator(
-                    color: AppColors.orange,
-                    strokeWidth: 2,
-                  ),
-                ),
-                errorWidget: (_, __, ___) => _placeholder(),
+              WaveThumbnail(
+                thumbnailUrl: wave.thumbnailUrl,
+                videoUrl: wave.videoUrl,
+                waveId: wave.id,
                 memCacheWidth: 400,
                 memCacheHeight: 711,
+                placeholder: _placeholder(),
               ),
               // Dark gradient overlay for text readability
               Positioned.fill(

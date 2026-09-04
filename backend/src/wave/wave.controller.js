@@ -12,7 +12,11 @@ const { isAdultKycVerified } = require('../channels/exclusive_policy.service');
 const { isExclusiveRolloutEnabledForUser } = require('../channels/exclusive_rollout.service');
 const { generateSignedUploadUrl, extractGCSPath, getBucket, createResumableUploadSession, getGCSObjectMetadata, BUCKET_NAME } = require('../utils/gcs');
 const { getFirestore } = require('../utils/firestore');
-const { generateThumbnail, generateThumbnailAsync, generateAndStoreThumbnail, getThumbnailUrl } = require('../utils/thumbnail-generator');
+// generateThumbnailAsync intentionally omitted — client-side generation
+// (Flutter ThumbnailService uploading via POST /wave/:id/thumbnail) now
+// handles the fill path. generateThumbnail (synchronous) is kept solely
+// for the admin regenerateMissingThumbnails endpoint.
+const { generateThumbnail, generateAndStoreThumbnail, getThumbnailUrl } = require('../utils/thumbnail-generator');
 const CersService = require('./wave.cers.service');
 const NotificationService = require('../notifications/notification.service');
 const TranscoderService = require('../broadcast/transcoder.service');
@@ -530,12 +534,10 @@ async function registerWave(req, res) {
       hasSex: has_sex || false,
     });
 
-    // Generate thumbnail asynchronously if not provided
-    if (!thumbnail_url && video_url) {
-      generateThumbnailAsync(video_url, wave.id).catch((err) => {
-        console.error('[Wave] Async thumbnail generation failed:', err);
-      });
-    }
+    // Thumbnail generation is now client-side (ThumbnailService in the
+    // Flutter app uploads a JPEG via POST /wave/:id/thumbnail). The old
+    // Cloud Run ffmpeg call was removed here to eliminate its per-create
+    // cost. See cache-restore-plan-aa665b.md §4.
 
     // Kick off HLS transcoding asynchronously — the wave is immediately available
     // via the raw MP4 signed URL while transcoding runs in the background.
@@ -623,12 +625,9 @@ async function updateWave(req, res) {
       has_sex,
     });
 
-    // Generate thumbnail asynchronously if thumbnail was removed and video exists
-    if (thumbnail_url === '' && wave.video_url) {
-      generateThumbnailAsync(wave.video_url, wave.id).catch((err) => {
-        console.error('[Wave] Async thumbnail generation failed:', err);
-      });
-    }
+    // Thumbnail regeneration on update is now client-side (a fresh
+    // ThumbnailService pass runs the next time a viewer opens the wave).
+    // Removed the Cloud Run ffmpeg call here per cache-restore-plan §4.
 
     return res.json({ success: true, wave: updated });
   } catch (err) {
@@ -1517,13 +1516,12 @@ async function getWaveThumbnail(req, res) {
       return res.status(404).json({ error: 'Wave has no video source' });
     }
 
-    // Kick off (or resume) generation without blocking the response.
-    // generateThumbnailAsync uses Firestore status tracking to avoid duplicate
-    // concurrent jobs, keeping Cloud Run CPU usage low.
-    generateThumbnailAsync(wave.video_url, wave.id).catch((err) => {
-      console.error('[Wave] Thumbnail prefetch failed:', err.message);
-    });
-
+    // No server-side ffmpeg fallback here anymore — clients (ThumbnailService)
+    // now generate + upload the JPEG themselves. This endpoint stays as a
+    // pure "does the backend already have one?" probe: the 202 tells the
+    // client to keep showing its placeholder and to retry later, at which
+    // point another viewer's client-side upload (or this viewer's own)
+    // may have populated thumbnail_url. See cache-restore-plan §4.
     return res.status(202)
       .set('Retry-After', String(PREFETCH_RETRY_AFTER_SECONDS))
       .json({ status: wave.thumbnail_status || 'pending' });
@@ -1542,19 +1540,28 @@ async function uploadWaveThumbnail(req, res) {
       return res.status(404).json({ error: 'Wave not found' });
     }
 
-    // Only the channel owner or admin can upload thumbnails
+    // Ownership is not required: any authenticated viewer may upload the
+    // FIRST thumbnail for a wave (client-side generation replaces the
+    // Cloud Run ffmpeg path). To keep the record stable and prevent
+    // drive-by overwrites once a good thumbnail exists, the endpoint is
+    // idempotent — a wave that already has a thumbnail_url returns the
+    // existing URL as success without persisting the upload.
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const channel = await Channel.findById(wave.channel_id);
-    const isOwner = channel && channel.owner_id === req.userId;
-    const isAdmin = user.role === 'admin';
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({ error: 'Only the channel owner or admin can upload thumbnails' });
+
+    if (wave.thumbnail_url) {
+      return res.json({
+        success: true,
+        thumbnail_url: wave.thumbnail_url,
+        already_exists: true,
+      });
     }
 
+    // Channel owner / admin may re-upload to replace a stored thumbnail
+    // via a separate admin flow — that path stays untouched. Everyone
+    // else may only fill the gap.
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    // Use the GCS URL from the upload middleware
     const thumbnailUrl = req.file.gcsUrl;
     if (!thumbnailUrl) return res.status(500).json({ error: 'Failed to upload thumbnail to GCS' });
 
@@ -1565,7 +1572,7 @@ async function uploadWaveThumbnail(req, res) {
       thumbnail_error: null,
       thumbnail_failed_at: null,
     });
-    console.log(`[Wave] Thumbnail uploaded by client for wave ${wave.id}: ${thumbnailUrl}`);
+    console.log(`[Wave] Thumbnail uploaded by viewer ${req.userId} for wave ${wave.id}: ${thumbnailUrl}`);
     res.json({ success: true, thumbnail_url: thumbnailUrl });
   } catch (err) {
     console.error('[Wave] uploadWaveThumbnail:', err.message);
@@ -1893,11 +1900,8 @@ async function completeWaveResumableSession(req, res) {
       hasSex: session.has_sex || false,
     });
 
-    if (!session.thumbnail_url && session.public_url) {
-      generateThumbnailAsync(session.public_url, wave.id).catch((err) => {
-        console.error('[Wave] Async thumbnail generation failed:', err);
-      });
-    }
+    // Recording-session waves also skip server-side thumbnail generation
+    // now; the client fills the gap on first view. See cache-restore-plan §4.
 
     prepareWaveTranscode(wave).catch((err) => {
       console.error('[WaveTranscoder] Async transcode failed:', err.message);

@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import '../../../core/api/api_service.dart';
+import '../../../core/services/section_cache.dart';
 import '../models/movie_model.dart';
 import '../models/series_model.dart';
 
@@ -108,14 +111,47 @@ class WatchProgress {
 }
 
 /// Service for movies and series public feeds, details, and watch progress.
+///
+/// The `*Cached` variants add stale-while-revalidate (SectionCache): they
+/// hand back the last known list synchronously via `onCached`, then hit the
+/// network and overwrite the cache with the fresh response. Callers get
+/// instant paint on revisit at zero backend cost.
 class VodService {
+  // ── SectionCache keys ────────────────────────────────────────────────────
+  static const String _publicMoviesKey = 'vod_public_movies';
+  static const String _publicSeriesKey = 'vod_public_series';
+  static String _chMoviesKey(String id) => 'vod_ch_movies_$id';
+  static String _chSeriesKey(String id) => 'vod_ch_series_$id';
+
   /// GET /movies — global public movie feed.
   static Future<MovieListResponse> getPublicMovies({
     int page = 1,
     int limit = 24,
   }) async {
     final data = await ApiService.get('/movies?page=$page&limit=$limit');
+    if (page == 1) {
+      // Cache only the first page — that's what the Media Center paints.
+      await SectionCache.write(_publicMoviesKey, jsonEncode(data));
+    }
     return MovieListResponse.fromJson(data);
+  }
+
+  /// Stale-while-revalidate wrapper for [getPublicMovies].
+  static Future<MovieListResponse> getPublicMoviesCached({
+    int page = 1,
+    int limit = 24,
+    void Function(MovieListResponse cached)? onCached,
+  }) async {
+    if (page == 1 && onCached != null) {
+      final raw = await SectionCache.readStale(_publicMoviesKey);
+      if (raw != null) {
+        try {
+          onCached(MovieListResponse.fromJson(
+              jsonDecode(raw) as Map<String, dynamic>));
+        } catch (_) {}
+      }
+    }
+    return getPublicMovies(page: page, limit: limit);
   }
 
   /// GET /movies/:movieId — public movie detail.
@@ -128,7 +164,31 @@ class VodService {
   /// GET /channels/:channelId/movies — channel-scoped published movies.
   static Future<List<MovieModel>> getChannelMovies(String channelId) async {
     final data = await ApiService.get('/channels/$channelId/movies');
-    final list = (data['data'] as Map<String, dynamic>? ?? {})['movies'] as List? ?? [];
+    await SectionCache.write(_chMoviesKey(channelId), jsonEncode(data));
+    return _parseChannelMovies(data);
+  }
+
+  /// Stale-while-revalidate wrapper for [getChannelMovies].
+  static Future<List<MovieModel>> getChannelMoviesCached(
+    String channelId, {
+    void Function(List<MovieModel> cached)? onCached,
+  }) async {
+    if (onCached != null) {
+      final raw = await SectionCache.readStale(_chMoviesKey(channelId));
+      if (raw != null) {
+        try {
+          onCached(_parseChannelMovies(jsonDecode(raw)));
+        } catch (_) {}
+      }
+    }
+    return getChannelMovies(channelId);
+  }
+
+  static List<MovieModel> _parseChannelMovies(dynamic data) {
+    if (data is! Map) return const <MovieModel>[];
+    final list = (data['data'] as Map<String, dynamic>? ?? {})['movies']
+            as List? ??
+        const [];
     return list
         .whereType<Map<String, dynamic>>()
         .map(MovieModel.fromJson)
@@ -141,13 +201,58 @@ class VodService {
     int limit = 24,
   }) async {
     final data = await ApiService.get('/series?page=$page&limit=$limit');
+    if (page == 1) {
+      await SectionCache.write(_publicSeriesKey, jsonEncode(data));
+    }
     return SeriesListResponse.fromJson(data);
+  }
+
+  /// Stale-while-revalidate wrapper for [getPublicSeries].
+  static Future<SeriesListResponse> getPublicSeriesCached({
+    int page = 1,
+    int limit = 24,
+    void Function(SeriesListResponse cached)? onCached,
+  }) async {
+    if (page == 1 && onCached != null) {
+      final raw = await SectionCache.readStale(_publicSeriesKey);
+      if (raw != null) {
+        try {
+          onCached(SeriesListResponse.fromJson(
+              jsonDecode(raw) as Map<String, dynamic>));
+        } catch (_) {}
+      }
+    }
+    return getPublicSeries(page: page, limit: limit);
   }
 
   /// GET /channels/:channelId/series — channel-scoped published series.
   static Future<List<SeriesModel>> getChannelSeries(String channelId) async {
     final data = await ApiService.get('/channels/$channelId/series');
-    final list = (data['data'] as Map<String, dynamic>? ?? {})['series'] as List? ?? [];
+    await SectionCache.write(_chSeriesKey(channelId), jsonEncode(data));
+    return _parseChannelSeries(data);
+  }
+
+  /// Stale-while-revalidate wrapper for [getChannelSeries].
+  static Future<List<SeriesModel>> getChannelSeriesCached(
+    String channelId, {
+    void Function(List<SeriesModel> cached)? onCached,
+  }) async {
+    if (onCached != null) {
+      final raw = await SectionCache.readStale(_chSeriesKey(channelId));
+      if (raw != null) {
+        try {
+          onCached(_parseChannelSeries(jsonDecode(raw)));
+        } catch (_) {}
+      }
+    }
+    return getChannelSeries(channelId);
+  }
+
+  static List<SeriesModel> _parseChannelSeries(dynamic data) {
+    if (data is! Map) return const <SeriesModel>[];
+    final list = (data['data'] as Map<String, dynamic>? ?? {})['series']
+            as List? ??
+        const [];
     return list
         .whereType<Map<String, dynamic>>()
         .map(SeriesModel.fromJson)

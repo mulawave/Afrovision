@@ -19,6 +19,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/video_cache_service.dart';
+import '../../../core/services/thumbnail_service.dart';
 import '../../../core/storage/auth_storage.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
@@ -616,10 +617,23 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   void _precacheThumbnail(WaveModel wave) {
-    if (wave.thumbnailUrl.isEmpty || !mounted) return;
-    // Use CachedNetworkImage's built-in caching instead of precacheImage
-    // CachedNetworkImage automatically handles caching and memory management
-    // This is more efficient than Flutter's precacheImage for remote images
+    if (!mounted) return;
+    if (wave.thumbnailUrl.isNotEmpty) {
+      // Backend already has one — CachedNetworkImage in the tile does the
+      // network cache; nothing to do here.
+      return;
+    }
+    // No backend thumbnail: fire-and-forget client-side generation +
+    // upload. Runs sequentially (one wave at a time) and only once per
+    // wave per session — takes load off Cloud Run's ffmpeg path.
+    final videoUrl = wave.videoUrl;
+    if (videoUrl.isEmpty) return;
+    // ignore: discarded_futures
+    ThumbnailService.ensureThumbnail(
+      waveId: wave.id,
+      videoUrl: videoUrl,
+      thumbnailUrl: wave.thumbnailUrl,
+    );
   }
 
   Future<void> _loadPulseMoments(String waveId) async {

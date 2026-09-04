@@ -1,20 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/app_button.dart';
+import '../../../core/theme/nocturne_theme.dart';
 import '../models/series_model.dart';
 import '../models/vod_playback_args.dart';
 import '../services/vod_service.dart';
 import 'vod_player_screen.dart';
 
-/// Series detail page with seasons, episode list, and play/next-episode support.
 class SeriesDetailScreen extends StatefulWidget {
   final SeriesModel series;
 
-  const SeriesDetailScreen({
-    super.key,
-    required this.series,
-  });
+  const SeriesDetailScreen({super.key, required this.series});
 
   @override
   State<SeriesDetailScreen> createState() => _SeriesDetailScreenState();
@@ -37,11 +32,13 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         widget.series.channelId,
         widget.series.id,
       );
+      if (!mounted) return;
       setState(() {
         _series = detail;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _series = widget.series;
         _error = e.toString();
@@ -53,183 +50,343 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final series = _series ?? widget.series;
-    final hasSeasons = series.seasons.isNotEmpty;
-    final firstEpisode = hasSeasons ? series.seasons.first.episodes.firstOrNull : null;
+    final firstEpisode =
+        series.seasons.isNotEmpty ? series.seasons.first.episodes.firstOrNull : null;
+    final canPlay = firstEpisode?.playbackUrl != null;
 
     return Scaffold(
-      backgroundColor: AppColors.darkBlue,
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            backgroundColor: AppColors.darkBlue,
-            foregroundColor: AppColors.white,
-            expandedHeight: 260,
-            pinned: true,
-            flexibleSpace: FlexibleSpaceBar(
-              background: _buildCover(series.coverUrl),
+      backgroundColor: Nocturne.bg,
+      body: SafeArea(
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(child: _buildHero(context, series)),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildActionRow(
+                      context,
+                      canPlay: canPlay,
+                      onPlay: canPlay ? () => _playEpisode(firstEpisode!) : null,
+                    ),
+                    const SizedBox(height: 16),
+                    if (series.description != null &&
+                        series.description!.isNotEmpty)
+                      Text(
+                        series.description!,
+                        style: const TextStyle(
+                          color: Nocturne.textMuted,
+                          fontSize: 13,
+                          height: 1.5,
+                        ),
+                      ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _error!,
+                        style: const TextStyle(
+                          color: Nocturne.redSoft,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            if (series.seasons.isNotEmpty)
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final expanded = <Widget>[];
+                    for (final season in series.seasons) {
+                      expanded.add(_seasonHeader(season.title));
+                      for (final ep in season.episodes) {
+                        expanded.add(_episodeTile(ep));
+                      }
+                    }
+                    if (index >= expanded.length) return null;
+                    return expanded[index];
+                  },
+                  childCount: series.seasons.fold<int>(
+                      0, (a, s) => a + 1 + s.episodes.length),
+                ),
+              ),
+            const SliverToBoxAdapter(child: SizedBox(height: 30)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHero(BuildContext context, SeriesModel series) {
+    final cover = series.coverUrl;
+    return Stack(
+      children: [
+        Container(
+          height: 230,
+          width: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1C2C62), Color(0xFF0D1633)],
+            ),
+            border: Border(
+              bottom: BorderSide(color: Nocturne.border, width: 1),
             ),
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          child: cover != null && cover.isNotEmpty
+              ? ShaderMask(
+                  shaderCallback: (r) => LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+                    stops: const [0.55, 1],
+                  ).createShader(r),
+                  blendMode: BlendMode.dstIn,
+                  child: Image.network(
+                    cover,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: 230,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                )
+              : null,
+        ),
+        Positioned(
+          left: 16,
+          top: 12,
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).maybePop(),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFF0B1533).withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: Nocturne.borderStrong, width: 1),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.chevron_left_rounded,
+                  color: Nocturne.text, size: 22),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 20,
+          right: 20,
+          bottom: 18,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                series.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Nocturne.text,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.15,
+                  height: 1.15,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _seriesMeta(series),
+                style: const TextStyle(
+                  color: Nocturne.textFaint,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionRow(
+    BuildContext context, {
+    required bool canPlay,
+    required VoidCallback? onPlay,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: onPlay,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(
+                  color: canPlay ? Nocturne.gold : Nocturne.border,
+                  width: 1,
+                ),
+                color: canPlay
+                    ? Nocturne.gold.withValues(alpha: 0.02)
+                    : Colors.transparent,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  Icon(
+                    Icons.play_arrow_rounded,
+                    color: canPlay ? Nocturne.gold : Nocturne.textHint,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
                   Text(
-                    series.title,
-                    style: const TextStyle(
-                      color: AppColors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+                    _loading
+                        ? 'Loading…'
+                        : (canPlay ? 'Play Episode 1' : 'Unavailable'),
+                    style: TextStyle(
+                      color: canPlay ? Nocturne.gold : Nocturne.textHint,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  if (firstEpisode != null)
-                    SizedBox(
-                      width: double.infinity,
-                      child: AppButton(
-                        label: 'Play Episode 1',
-                        onPressed: firstEpisode.playbackUrl != null
-                            ? () => _playEpisode(firstEpisode)
-                            : null,
-                        loading: _loading,
-                      ),
-                    ),
-                  const SizedBox(height: 20),
-                  if (series.description != null && series.description!.isNotEmpty)
-                    Text(
-                      series.description!,
-                      style: TextStyle(
-                        color: AppColors.white.withValues(alpha: 0.85),
-                        fontSize: 14,
-                        height: 1.5,
-                      ),
-                    ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: AppColors.errorRed, fontSize: 12),
-                      ),
-                    ),
-                  const SizedBox(height: 24),
                 ],
               ),
             ),
           ),
-          if (hasSeasons)
-            SliverList(
-              delegate: SliverChildListDelegate(
-                series.seasons.expand((season) {
-                  return [
-                    _buildSeasonHeader(season.title),
-                    ...season.episodes.map((ep) => _buildEpisodeTile(ep, season.title)),
-                  ];
-                }).toList(),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Added to library'),
+                duration: Duration(seconds: 2),
               ),
+            );
+          },
+          child: Container(
+            width: 46,
+            height: 42,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(color: Nocturne.border, width: 1),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCover(String? coverUrl) {
-    return Container(
-      width: double.infinity,
-      height: 260,
-      color: AppColors.cardBg,
-      child: coverUrl != null && coverUrl.isNotEmpty
-          ? Image.network(
-              coverUrl,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: 260,
-              errorBuilder: (_, __, ___) => _coverFallback(),
-            )
-          : _coverFallback(),
-    );
-  }
-
-  Widget _coverFallback() {
-    return const Center(
-      child: Icon(Icons.tv, color: AppColors.hintText, size: 64),
-    );
-  }
-
-  Widget _buildSeasonHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: AppColors.lightOrange,
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEpisodeTile(EpisodeModel episode, String seasonTitle) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      leading: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: AppColors.inputFill,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Center(
-          child: Text(
-            '${episode.episodeNumber}',
-            style: const TextStyle(
-              color: AppColors.white,
-              fontWeight: FontWeight.bold,
-            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.add_rounded,
+                color: Nocturne.textMuted, size: 18),
           ),
         ),
-      ),
-      title: Text(
-        episode.title,
+      ],
+    );
+  }
+
+  Widget _seasonHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 6),
+      child: Text(
+        title.toUpperCase(),
         style: const TextStyle(
-          color: AppColors.white,
-          fontSize: 14,
+          color: Nocturne.gold,
+          fontSize: 11,
           fontWeight: FontWeight.w600,
+          letterSpacing: 1,
         ),
       ),
-      subtitle: Text(
-        _formatDuration(episode.duration),
-        style: const TextStyle(color: AppColors.hintText, fontSize: 12),
-      ),
-      trailing: episode.playbackUrl != null
-          ? const Icon(Icons.play_circle_fill, color: AppColors.orange)
-          : const Icon(Icons.lock, color: AppColors.hintText),
-      onTap: episode.playbackUrl != null ? () => _playEpisode(episode) : null,
     );
+  }
+
+  Widget _episodeTile(EpisodeModel ep) {
+    final playable = ep.playbackUrl != null;
+    return InkWell(
+      onTap: playable ? () => _playEpisode(ep) : null,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                color: Nocturne.surfaceRaised,
+                border: Border.all(color: Nocturne.border, width: 1),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                '${ep.episodeNumber}',
+                style: const TextStyle(
+                  color: Nocturne.textDim,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    ep.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Nocturne.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _formatDuration(ep.duration),
+                    style: const TextStyle(
+                      color: Nocturne.textFaint,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              playable
+                  ? Icons.play_circle_outline_rounded
+                  : Icons.lock_outline_rounded,
+              color: playable ? Nocturne.gold : Nocturne.textHint,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _seriesMeta(SeriesModel s) {
+    final parts = <String>[];
+    if (s.seasons.isNotEmpty) parts.add('S${s.seasons.length}');
+    final episodes = s.seasons.fold<int>(0, (a, se) => a + se.episodes.length);
+    if (episodes > 0) parts.add('$episodes episodes');
+    return parts.join(' · ');
   }
 
   void _playEpisode(EpisodeModel episode) {
     final series = _series ?? widget.series;
-
-    // Find next/previous episodes in the full series order.
     final all = series.allEpisodes;
     final index = all.indexWhere((e) => e.id == episode.id);
     final nextId = index >= 0 && index < all.length - 1 ? all[index + 1].id : null;
     final prevId = index > 0 ? all[index - 1].id : null;
-
     final args = VodPlaybackArgs.fromEpisode(
       series,
       episode,
       nextEpisodeId: nextId,
       previousEpisodeId: prevId,
     );
-
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => VodPlayerScreen(args: args),
-      ),
+      MaterialPageRoute(builder: (_) => VodPlayerScreen(args: args)),
     );
   }
 
@@ -237,7 +394,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     final d = Duration(seconds: seconds);
     final h = d.inHours;
     final m = d.inMinutes.remainder(60);
-    if (h > 0) return '${h}h ${m}m';
+    if (h > 0) return '${h}h ${m.toString().padLeft(2, '0')}m';
     return '${m}m';
   }
 }

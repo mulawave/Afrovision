@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../../core/api/api_service.dart';
+import '../../../core/services/section_cache.dart';
 import '../models/wave_model.dart';
 
 typedef UploadProgressCallback = void Function(double progress);
@@ -274,8 +275,42 @@ class WaveService {
         .whereType<Map<String, dynamic>>()
         .map(WaveModel.fromJson)
         .toList();
+    // Persist raw list for stale-while-revalidate on the channel profile.
+    await SectionCache.write(_waveChannelKey(channelId, includeHidden),
+        jsonEncode(data));
     return waves;
   }
+
+  /// Stale-while-revalidate wrapper for [getChannelWaves].
+  ///
+  /// Paints the last known waves for a channel instantly via [onCached],
+  /// then hits the network and returns the fresh list. Fixes the
+  /// "loading afresh every visit" behaviour on channel profile Waves tabs.
+  static Future<List<WaveModel>> getChannelWavesCached(
+    String channelId, {
+    bool includeHidden = false,
+    void Function(List<WaveModel> cached)? onCached,
+  }) async {
+    if (onCached != null) {
+      final raw =
+          await SectionCache.readStale(_waveChannelKey(channelId, includeHidden));
+      if (raw != null) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            onCached(decoded
+                .whereType<Map<String, dynamic>>()
+                .map(WaveModel.fromJson)
+                .toList());
+          }
+        } catch (_) {}
+      }
+    }
+    return getChannelWaves(channelId, includeHidden: includeHidden);
+  }
+
+  static String _waveChannelKey(String channelId, bool includeHidden) =>
+      'wave_ch_${channelId}_${includeHidden ? 'h' : 'v'}';
 
   static Future<void> addPulse(
     String waveId, {
@@ -291,6 +326,24 @@ class WaveService {
   static Future<bool> toggleBookmark(String waveId) async {
     final data = await ApiService.post('/wave/$waveId/bookmark', {});
     return data['bookmarked'] == true;
+  }
+
+  /// GET /wave/:id/thumbnail — asks the backend for a thumbnail URL,
+  /// triggering a lazy fetch/check on the server side. Returns the URL if
+  /// one is (now) available, otherwise null. Used by [WaveThumbnail] to
+  /// hydrate tiles whose feed row arrived with an empty thumbnail_url.
+  ///
+  /// Never throws — a network error, 404, or missing field all return null.
+  static Future<String?> getWaveThumbnailUrl(String waveId) async {
+    try {
+      final data = await ApiService.get('/wave/$waveId/thumbnail');
+      // Backend returns { thumbnail_url: "..." } or { data: { thumbnail_url: "..." } }
+      final root = data['data'] as Map<String, dynamic>? ?? data;
+      final url = root['thumbnail_url'] as String?;
+      return (url != null && url.isNotEmpty) ? url : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<List<WaveModel>> getMyBookmarks() async {

@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#080e21;color:#eef1f8;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#f0a52a}a:hover{color:#f7c66a}
+.av-scroll::-webkit-scrollbar{width:0;height:0}
+.av-scroll{scrollbar-width:none}
+@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes sheetUp{from{transform:translateY(103%)}to{transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;gap:44px;padding:44px 48px 64px;align-items:flex-start;justify-content:center">
+
+<div style="flex:none;width:390px;height:844px;position:relative;border-radius:42px;background:#0b1533;box-shadow:0 0 0 1px #22325e,0 30px 80px rgba(0,0,0,.65);overflow:hidden;display:flex;flex-direction:column">
+
+<div style="flex:none;background:linear-gradient(168deg,#17295e,#0e1a3f 78%);padding:14px 18px 13px;box-shadow:inset 0 -1px 0 #22325e">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:500;color:#c3cde6;margin-bottom:11px">
+<span>6:45</span>
+<span style="display:flex;align-items:center;gap:6px"><i class="ph ph-moon" style="font-size:12px"></i><i class="ph ph-cell-signal-full" style="font-size:12px"></i><span style="width:16px;height:9px;border-radius:2px;box-shadow:inset 0 0 0 1px #7d8bad;background:linear-gradient(to right,#eef1f8 55%,transparent 55%)"></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:11px">
+<div style="width:44px;height:44px;flex:none;border-radius:13px;background:linear-gradient(150deg,#2a3d78,#141f45);box-shadow:0 0 0 1.5px #f0a52a;display:grid;place-items:center;font-size:14px;font-weight:600;color:#f5c266">RO</div>
+<div style="flex:1;min-width:0">
+<div style="font-size:11px;color:#9aa6c4">Welcome back,</div>
+<div style="font-size:17px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ userName }}</div>
+<div style="display:flex;gap:6px;margin-top:5px">
+<span style="display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:600;letter-spacing:.06em;padding:3px 8px;border-radius:999px;background:rgba(47,158,107,.16);color:#5fd39a;box-shadow:inset 0 0 0 1px rgba(95,211,154,.35)"><i class="ph-fill ph-video-camera" style="font-size:11px"></i>CREATOR</span>
+<span style="display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:600;padding:3px 8px;border-radius:999px;background:rgba(240,165,42,.13);color:#f5c266;box-shadow:inset 0 0 0 1px rgba(245,194,102,.3)"><i class="ph-fill ph-star" style="font-size:11px"></i>28.9K · Level 2</span>
+</div>
+</div>
+<div style="display:flex;gap:7px;flex:none">
+<button onClick="{{ openNotifications }}" aria-label="Notifications" style="position:relative;width:36px;height:36px;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#f0a52a;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.14)">
+<i class="ph-fill ph-bell" style="font-size:16px"></i>
+<span style="position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#e2543f;color:#fff;font-size:9px;font-weight:600;display:grid;place-items:center;box-shadow:0 0 0 2px #14224c">7</span>
+</button>
+<button aria-label="Sign out" style="width:36px;height:36px;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#9aa6c4;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(255,255,255,.07);color:#eef1f8">
+<i class="ph ph-sign-out" style="font-size:16px"></i>
+</button>
+</div>
+</div>
+</div>
+
+<sc-if value="{{ showTicker }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;overflow:hidden;background:#060b1c;box-shadow:inset 0 -1px 0 #1b2748;padding:6px 0">
+<div style="display:flex;width:max-content;animation:ticker 34s linear infinite;font-size:10.5px;color:#8fa0c8;letter-spacing:.01em">
+<span style="padding-right:38px">Exclusive channels · library for comics, magazines &amp; books · enhanced viewing experience and lots more — download on Google Play</span>
+<span style="padding-right:38px">Exclusive channels · library for comics, magazines &amp; books · enhanced viewing experience and lots more — download on Google Play</span>
+</div>
+</div>
+</sc-if>
+
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto">
+
+<div style="padding:14px 18px 8px">
+<div style="display:flex;gap:8px;border-radius:14px;padding:11px 6px;background:linear-gradient(140deg,#152350,#101c40);box-shadow:inset 0 0 0 1px #24345f">
+<sc-for list="{{ assets }}" as="a" hint-placeholder-count="3">
+<div style="flex:1;text-align:center;padding:0 4px;{{ a.sep }}">
+<div style="display:flex;align-items:center;justify-content:center;gap:5px;font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:#8fa0c8"><i class="{{ a.icon }}" style="font-size:12px;color:{{ a.tint }}"></i>{{ a.label }}</div>
+<div style="font-size:16px;font-weight:600;letter-spacing:-.01em;margin-top:4px">{{ a.value }}</div>
+</div>
+</sc-for>
+</div>
+<button onClick="{{ openPlans }}" style="margin-top:9px;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border:0;border-radius:12px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 6px 18px rgba(239,150,21,.22)" style-hover="filter:brightness(1.06)" style-active="filter:brightness(.94)">
+<i class="ph-fill ph-diamond" style="font-size:15px"></i>Subscribe to a Plan
+</button>
+</div>
+
+<div style="padding:14px 0 6px">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:0 18px;margin-bottom:9px">
+<div style="display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a"><i class="ph-fill ph-television-simple" style="font-size:13px"></i>Featured channels</div>
+<button onClick="{{ openBrowse }}" style="font-size:11px;font-weight:500;color:#9aa6c4;border:0;background:transparent;font-family:inherit;cursor:pointer" style-hover="color:#f5c266">Browse all</button>
+</div>
+<div class="av-scroll" ref="{{ railRef }}" onScroll="{{ onRail }}" style="display:flex;gap:11px;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 18px 2px">
+<sc-for list="{{ featured }}" as="f" hint-placeholder-count="3">
+<button onClick="{{ f.tap }}" style="flex:none;width:298px;scroll-snap-align:center;padding:0;border:0;background:transparent;cursor:pointer;font-family:inherit;text-align:left">
+<div style="position:relative;height:150px;border-radius:14px;overflow:hidden;background:{{ f.bg }};box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)">
+<div style="position:absolute;inset:0;display:grid;place-items:center;font-size:34px;font-weight:700;letter-spacing:-.02em;color:rgba(255,255,255,.9);text-shadow:0 2px 18px rgba(0,0,0,.4)">{{ f.wordmark }}</div>
+<span style="position:absolute;top:10px;right:10px;font-size:8.5px;font-weight:700;letter-spacing:.08em;padding:4px 8px;border-radius:6px;background:#f0a52a;color:#241606">FEATURED</span>
+<div style="position:absolute;left:0;right:0;bottom:0;padding:10px 12px;display:flex;align-items:center;gap:9px;background:linear-gradient(to top,rgba(6,11,28,.86),transparent)">
+<span style="width:32px;height:32px;flex:none;border-radius:50%;background:{{ f.mark }};display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff">{{ f.initials }}</span>
+<span style="flex:1;min-width:0">
+<span style="display:block;font-size:13.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.name }}</span>
+<span style="display:block;font-size:10.5px;color:#f5c266">{{ f.genre }}</span>
+</span>
+<i class="ph ph-play-circle" style="font-size:20px;color:#fff;opacity:.85"></i>
+</div>
+</div>
+</button>
+</sc-for>
+</div>
+<div style="display:flex;gap:5px;justify-content:center;margin-top:9px">
+<sc-for list="{{ dots }}" as="d" hint-placeholder-count="5">
+<button onClick="{{ d.go }}" aria-label="Go to slide" style="height:5px;border:0;border-radius:3px;cursor:pointer;padding:0;{{ d.style }}"></button>
+</sc-for>
+</div>
+</div>
+
+<div style="padding:16px 18px 4px">
+<div style="display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#7fc4ff;margin-bottom:10px"><i class="ph-fill ph-lightning" style="font-size:13px"></i>Instant actions</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+<sc-for list="{{ actions }}" as="a" hint-placeholder-count="9">
+<button onClick="{{ a.tap }}" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 6px 10px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#dbe2f2;font-family:inherit;cursor:pointer" style-hover="border-color:#f0a52a;background:rgba(240,165,42,.08)">
+<span style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:{{ a.tint }}"><i class="{{ a.icon }}" style="font-size:17px;color:{{ a.color }}"></i></span>
+<span style="font-size:10.5px;font-weight:500;line-height:1.25;text-align:center">{{ a.label }}</span>
+<sc-if value="{{ a.badge }}" hint-placeholder-val="{{ false }}">
+<span style="position:absolute;top:6px;right:6px;font-size:8.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:6px;background:{{ a.badgeBg }};color:{{ a.badgeFg }}">{{ a.badge }}</span>
+</sc-if>
+</button>
+</sc-for>
+</div>
+</div>
+
+<div style="padding:16px 18px 0">
+<button onClick="{{ openBoost }}" style="width:100%;display:flex;align-items:center;gap:12px;text-align:left;padding:13px;border-radius:14px;border:1px solid #4a3a1a;background:linear-gradient(112deg,rgba(240,165,42,.14),rgba(240,165,42,.03));color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="border-color:#f0a52a">
+<span style="width:42px;height:42px;flex:none;border-radius:12px;background:rgba(240,165,42,.18);display:grid;place-items:center"><i class="ph-fill ph-rocket-launch" style="font-size:20px;color:#f5c266"></i></span>
+<span style="flex:1">
+<span style="display:block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">Spotlight</span>
+<span style="display:block;font-size:14px;font-weight:600;margin-top:2px">Boost Your Channel</span>
+<span style="display:block;font-size:11.5px;color:#9aa6c4;margin-top:1px">Promote your content to thousands of viewers across Africa.</span>
+</span>
+<i class="ph ph-caret-right" style="font-size:16px;color:#f0a52a"></i>
+</button>
+</div>
+
+<div style="padding:14px 18px 0;display:flex;flex-direction:column;gap:9px">
+<div style="border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px 14px">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+<div style="display:flex;align-items:center;gap:9px">
+<span style="width:30px;height:30px;border-radius:9px;background:rgba(240,165,42,.14);display:grid;place-items:center"><i class="ph-fill ph-bank" style="font-size:15px;color:#f5c266"></i></span>
+<div style="font-size:14px;font-weight:600">Community Pool</div>
+</div>
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:600;padding:3px 8px;border-radius:999px;background:rgba(47,158,107,.16);color:#5fd39a"><span style="width:5px;height:5px;border-radius:50%;background:#5fd39a"></span>LIVE</span>
+</div>
+<div style="display:flex;align-items:baseline;gap:8px">
+<span style="font-size:25px;font-weight:600;letter-spacing:-.02em;color:#f5c266">12 vPT</span>
+<span style="font-size:12.5px;color:#9aa6c4">(₦9,000)</span>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#8fa0c8;margin-top:3px"><span>{{ vptRate }}</span><span>0 members · 0 channels</span></div>
+<div style="display:flex;margin-top:11px;border-radius:10px;background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1px #22325e">
+<div style="flex:1;text-align:center;padding:9px 4px"><div style="font-size:14px;font-weight:600;color:#f5c266">0 vPT</div><div style="font-size:9.5px;color:#8fa0c8;margin-top:1px">Distributed (₦0)</div></div>
+<div style="flex:1;text-align:center;padding:9px 4px;box-shadow:inset 1px 0 0 #22325e"><div style="font-size:14px;font-weight:600;color:#f5c266">0</div><div style="font-size:9.5px;color:#8fa0c8;margin-top:1px">Beneficiaries</div></div>
+</div>
+</div>
+
+<button onClick="{{ openSubs }}" style="display:flex;align-items:center;gap:11px;text-align:left;padding:12px 14px;border-radius:14px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="background:rgba(255,255,255,.05)">
+<span style="width:34px;height:34px;flex:none;border-radius:10px;background:rgba(240,165,42,.13);display:grid;place-items:center"><i class="ph ph-cards-three" style="font-size:17px;color:#f5c266"></i></span>
+<span style="flex:1"><span style="display:block;font-size:14px;font-weight:600">My Subscriptions</span><span style="display:block;font-size:11.5px;color:#9aa6c4">4 active subscriptions</span></span>
+<i class="ph ph-caret-right" style="font-size:16px;color:#7d8bad"></i>
+</button>
+</div>
+
+<div style="padding:16px 0 0">
+<div style="display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#7fc4ff;padding:0 18px;margin-bottom:10px"><i class="ph ph-clock-counter-clockwise" style="font-size:13px"></i>Recently visited</div>
+<div class="av-scroll" style="display:flex;gap:12px;overflow-x:auto;padding:0 18px 2px">
+<sc-for list="{{ recent }}" as="r" hint-placeholder-count="5">
+<button onClick="{{ r.tap }}" style="flex:none;width:66px;padding:0;border:0;background:transparent;cursor:pointer;font-family:inherit">
+<span style="display:grid;place-items:center;width:58px;height:58px;margin:0 auto;border-radius:50%;background:{{ r.bg }};box-shadow:0 0 0 1px #2a3a6b;font-size:12px;font-weight:700;color:#fff">{{ r.initials }}</span>
+<span style="display:block;font-size:9.5px;color:#9aa6c4;margin-top:6px;line-height:1.2;text-align:center">{{ r.name }}</span>
+</button>
+</sc-for>
+</div>
+</div>
+
+<div style="padding:16px 18px 0">
+<div style="border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;overflow:hidden">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px 0">
+<div style="display:flex;gap:14px">
+<sc-for list="{{ feedTabs }}" as="t" hint-placeholder-count="2">
+<button onClick="{{ t.pick }}" style="padding:0 0 9px;border:0;background:transparent;font-family:inherit;font-size:13px;font-weight:600;color:#7d8bad;cursor:pointer;{{ t.style }}">{{ t.label }}</button>
+</sc-for>
+</div>
+<button style="font-size:11px;font-weight:500;color:#f0a52a;border:0;background:transparent;font-family:inherit;cursor:pointer;padding-bottom:9px" style-hover="color:#f7c66a">See all</button>
+</div>
+<div style="box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ feedItems }}" as="u" hint-placeholder-count="3">
+<div style="display:flex;gap:11px;padding:11px 13px;align-items:flex-start;box-shadow:inset 0 -1px 0 rgba(34,50,94,.7)">
+<span style="width:30px;height:30px;flex:none;border-radius:9px;background:rgba(255,255,255,.04);display:grid;place-items:center"><i class="{{ u.icon }}" style="font-size:15px;color:#f5c266"></i></span>
+<span style="flex:1">
+<span style="display:block;font-size:12.5px;font-weight:600">{{ u.title }}</span>
+<span style="display:block;font-size:11px;color:#8fa0c8;margin-top:2px">{{ u.body }}</span>
+</span>
+<button style="flex:none;font-size:10.5px;font-weight:500;color:#f0a52a;border:0;background:transparent;font-family:inherit;cursor:pointer;padding:0" style-hover="color:#f7c66a">{{ u.cta }}</button>
+</div>
+</sc-for>
+<sc-if value="{{ feedEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="padding:20px 14px;text-align:center;font-size:11.5px;color:#7d8bad">Announcements from Admin will appear here</div>
+</sc-if>
+</div>
+</div>
+</div>
+
+<div style="padding:14px 18px 26px">
+<div style="display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#8fa0c8;margin-bottom:9px"><i class="ph ph-chart-line-up" style="font-size:13px"></i>Highlights</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+<sc-for list="{{ highlights }}" as="h" hint-placeholder-count="4">
+<div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:11px;background:rgba(255,255,255,.02);box-shadow:inset 0 0 0 1px #22325e">
+<i class="{{ h.icon }}" style="font-size:15px;color:#8fa0c8"></i>
+<span style="flex:1;font-size:11px;color:#9aa6c4">{{ h.label }}</span>
+<span style="font-size:12.5px;font-weight:600;color:{{ h.tint }}">{{ h.value }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div style="flex:none;position:relative;display:flex;padding:8px 10px 20px;background:#0a1330;box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 2px;border:0;background:transparent;font-family:inherit;font-size:9.5px;font-weight:500;color:#7d8bad;cursor:pointer;{{ n.style }}">
+<i class="{{ n.icon }}" style="font-size:{{ n.size }}"></i>{{ n.label }}
+</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:18px;right:18px;bottom:96px;padding:11px 13px;border-radius:12px;background:#16255c;box-shadow:0 0 0 1px #2f4483,0 12px 30px rgba(0,0,0,.5);font-size:12px;color:#dbe2f2;animation:fadeIn .16s ease;display:flex;align-items:center;gap:9px">
+<i class="ph-fill ph-info" style="font-size:15px;color:#f5c266"></i>{{ toast }}
+</div>
+</sc-if>
+</div>
+
+<div style="flex:none;width:280px;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f0a52a;margin-bottom:6px">AfroVision · home</div>
+<h1 style="font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.16;margin:0 0 10px">One screen,<br>everything from the four</h1>
+<p style="margin:0 0 20px;font-size:12.5px;color:#8fa0c8;text-wrap:pretty">Same content, redesigned into a single home: identity, wallet, plan CTA, featured channels, instant actions, spotlight, pool, subscriptions, recents, updates and highlights — plus the Media Center nav.</p>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="5">
+<div style="border-radius:8px;padding:11px 12px;box-shadow:0 0 0 1px #1e2c55">
+<div style="font-size:12px;font-weight:600;margin-bottom:3px">{{ n.title }}</div>
+<p style="margin:0;font-size:11.5px;color:#8fa0c8">{{ n.body }}</p>
+</div>
+</sc-for>
+</div>
+<div style="margin-top:18px;font-size:11px;color:#6d7ba1;text-wrap:pretty">Channel logos are typographic placeholders — send the real artwork and I'll drop it in.</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:800,&quot;height&quot;:940},&quot;userName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Richard Obroh&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;showTicker&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;accentColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#f0a52a&quot;,&quot;options&quot;:[&quot;#f0a52a&quot;,&quot;#f7c66a&quot;,&quot;#5fd39a&quot;,&quot;#7fc4ff&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+const GOLD = '#f0a52a', GOLD_L = '#f5c266';
+
+const FEATURED = [
+  { name: 'Gravitas Movies', genre: 'Entertainment', wordmark: 'Gravitas', initials: 'GM',
+    bg: 'linear-gradient(150deg,#c9cede,#8f96b4 60%,#3c4266)', mark: '#6d3fa8' },
+  { name: 'Ebony TV by Lionsgate', genre: 'Movie', wordmark: 'EBONY', initials: 'ET',
+    bg: 'linear-gradient(150deg,#c0271f,#7c130f)', mark: '#1b1b1b' },
+  { name: 'FilmBox+ Hits Adria', genre: 'Movies · Series', wordmark: 'FilmBox+', initials: 'FB',
+    bg: 'linear-gradient(150deg,#1b63c4,#0b2f6b)', mark: '#0e4fa1' },
+  { name: 'GREAT! movies UK', genre: 'Classics', wordmark: 'GREAT!', initials: 'GM',
+    bg: 'linear-gradient(150deg,#8a2fbe,#3d1266)', mark: '#8a2fbe' },
+  { name: 'X-Lounge Extreme', genre: 'Adult · 18+', wordmark: 'X-Lounge', initials: 'XL',
+    bg: 'linear-gradient(150deg,#4a3350,#1d1424)', mark: '#7a4a63' }
+];
+
+const ACTIONS = [
+  { label: 'Browse Channel', icon: 'ph-fill ph-compass', tint: 'rgba(240,165,42,.14)', color: GOLD_L },
+  { label: 'Channel Number', icon: 'ph-fill ph-dots-nine', tint: 'rgba(240,165,42,.14)', color: GOLD_L },
+  { label: 'Live Now', icon: 'ph-fill ph-television', tint: 'rgba(226,84,63,.15)', color: '#f18b78' },
+  { label: 'Creator Studio', icon: 'ph-fill ph-video-camera', tint: 'rgba(47,158,107,.15)', color: '#5fd39a' },
+  { label: 'Advertise', icon: 'ph-fill ph-megaphone', tint: 'rgba(47,158,107,.15)', color: '#5fd39a' },
+  { label: 'Digital Assets', icon: 'ph-fill ph-wallet', tint: 'rgba(47,158,107,.15)', color: '#5fd39a' },
+  { label: 'My Plan', icon: 'ph-fill ph-seal-check', tint: 'rgba(127,196,255,.14)', color: '#7fc4ff',
+    badge: 'START HERE', badgeBg: 'rgba(127,196,255,.2)', badgeFg: '#a9d9ff' },
+  { label: 'My Reminders', icon: 'ph-fill ph-bell-ringing', tint: 'rgba(127,196,255,.14)', color: '#7fc4ff',
+    badge: '7', badgeBg: '#e2543f', badgeFg: '#fff' },
+  { label: 'Surf Waves', icon: 'ph-fill ph-waves', tint: 'rgba(127,196,255,.14)', color: '#7fc4ff' }
+];
+
+const UPDATES = [
+  { icon: 'ph-fill ph-scroll', title: 'Comprehensive Policies Published', body: 'Terms of Service, Privacy Policy and registration terms are now live.', cta: 'Read more' },
+  { icon: 'ph-fill ph-lock-key', title: 'CAPTCHA Protection on Login', body: 'Google reCAPTCHA now verifies both login and registration.', cta: 'Read more' },
+  { icon: 'ph-fill ph-shield-check', title: 'Copyright Report System', body: 'Content owners can report infringements with the new form.', cta: 'Read more' }
+];
+
+const RECENT = [
+  { name: 'Urgency TV', initials: 'UT', bg: 'linear-gradient(150deg,#2b2b33,#101014)' },
+  { name: 'FilmBox+ Adria', initials: 'FB', bg: 'linear-gradient(150deg,#1b63c4,#0b2f6b)' },
+  { name: 'GREAT! movies', initials: 'GM', bg: 'linear-gradient(150deg,#8a2fbe,#3d1266)' },
+  { name: 'X-Lounge', initials: 'XL', bg: 'linear-gradient(150deg,#7a4a63,#2a1a24)' },
+  { name: 'Ebony TV', initials: 'ET', bg: 'linear-gradient(150deg,#c0271f,#5e0f0c)' },
+  { name: 'Gravitas', initials: 'GR', bg: 'linear-gradient(150deg,#6d3fa8,#241541)' }
+];
+
+class Component extends DCLogic {
+  railRef = React.createRef();
+  state = { slide: 0, feed: 'updates', toast: '' };
+
+  say(msg) {
+    this.setState({ toast: msg });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ toast: '' }), 1900);
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+
+  goSlide(i) {
+    const el = this.railRef.current;
+    if (el) el.scrollTo({ left: i * (298 + 11), behavior: 'smooth' });
+    this.setState({ slide: i });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const tap = (m) => () => this.say(m);
+    const accent = this.props.accentColor ?? GOLD;
+
+    return {
+      userName: this.props.userName ?? 'Richard Obroh',
+      showTicker: this.props.showTicker ?? true,
+
+      assets: [
+        { label: 'Cash', value: '₦7,123.00', icon: 'ph-fill ph-money', tint: GOLD_L, sep: '' },
+        { label: 'vPT Offchain', value: '250.70', icon: 'ph-fill ph-cube', tint: '#5fd39a', sep: 'box-shadow:inset 1px 0 0 #24345f,inset -1px 0 0 #24345f' },
+        { label: 'Ravens', value: '5,537', icon: 'ph-fill ph-heart', tint: '#f18b78', sep: '' }
+      ],
+      openPlans: tap('Subscribe to a Plan — plan picker opens'),
+
+      featured: FEATURED.map((f, i) => ({ ...f, tap: tap('Opening ' + f.name) })),
+      dots: FEATURED.map((f, i) => ({
+        go: () => this.goSlide(i),
+        style: i === s.slide
+          ? 'width:18px;background:' + accent
+          : 'width:5px;background:rgba(240,165,42,.32)' })),
+      railRef: this.railRef,
+      onRail: (e) => {
+        const i = Math.round(e.target.scrollLeft / (298 + 11));
+        if (i !== s.slide) this.setState({ slide: Math.max(0, Math.min(FEATURED.length - 1, i)) });
+      },
+      openBrowse: tap('Browse all channels'),
+      vptRate: '1 vPT = ₦750',
+
+      actions: ACTIONS.map(a => ({ ...a, badge: a.badge || '', tap: tap(a.label) })),
+      openBoost: tap('Boost Your Channel — promotion setup'),
+      openSubs: tap('My Subscriptions · 4 active'),
+      openNotifications: tap('7 new notifications'),
+
+      recent: RECENT.map(r => ({ ...r, tap: tap('Tuning in to ' + r.name) })),
+
+      feedTabs: [
+        { label: 'Updates', pick: () => this.setState({ feed: 'updates' }),
+          style: s.feed === 'updates' ? 'color:#eef1f8;box-shadow:inset 0 -2px 0 ' + accent : '' },
+        { label: 'Announcements', pick: () => this.setState({ feed: 'ann' }),
+          style: s.feed === 'ann' ? 'color:#eef1f8;box-shadow:inset 0 -2px 0 ' + accent : '' }
+      ],
+      feedItems: s.feed === 'updates' ? UPDATES : [],
+      feedEmpty: s.feed !== 'updates',
+
+      highlights: [
+        { label: 'Members', value: '0', icon: 'ph-fill ph-users-three', tint: '#eef1f8' },
+        { label: 'Channels', value: '0', icon: 'ph-fill ph-monitor-play', tint: '#eef1f8' },
+        { label: 'Your vPT', value: '250.70', icon: 'ph-fill ph-cube', tint: GOLD_L },
+        { label: 'Plan', value: 'PREMIUM', icon: 'ph-fill ph-star', tint: GOLD_L }
+      ],
+
+      navItems: [
+        { label: 'Home', icon: 'ph-fill ph-house', size: '19px', style: 'color:' + accent, go: tap('Home') },
+        { label: 'Channels', icon: 'ph ph-television-simple', size: '19px', style: '', go: tap('Channels') },
+        { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: '',
+          go: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; } },
+        { label: 'Library', icon: 'ph ph-books', size: '19px', style: '', go: tap('Library') },
+        { label: 'Me', icon: 'ph ph-user-circle', size: '19px', style: '', go: tap('Account') }
+      ],
+      toast: s.toast,
+
+      notes: [
+        ['Identity collapses to one row', 'Avatar, name, CREATOR and 28.9K · Level 2 sit on one line with bell and sign-out — reclaiming the whole first screenful.'],
+        ['Wallet becomes a strip', 'Cash, vPT and Ravens read as one segmented figure row instead of three cards, with the plan CTA directly under it.'],
+        ['One featured carousel', 'Snap-scrolling with a live pill indicator; the duplicate rail from the old scroll is gone.'],
+        ['Updates and Announcements merge', 'Two tabs in one card — the empty-admin state no longer costs a full section.'],
+        ['Media Center in the nav', 'Footer nav carried over from the Media Center design, recoloured to the app: navy ground, gold active state.']
+      ].map(n => ({ title: n[0], body: n[1] }))
+    };
+  }
+}
+</script>
+</body>
+</html>
