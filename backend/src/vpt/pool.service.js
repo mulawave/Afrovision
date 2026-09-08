@@ -106,8 +106,6 @@ async function init() {
   if (!opsDoc.exists) {
     await opsRef.set({ balance_ngn: 0, total_credited: 0, updated_at: Date.now() });
   }
-
-  return distributions;
 }
 
 // ─── POOL BALANCE ───────────────────────────────────────

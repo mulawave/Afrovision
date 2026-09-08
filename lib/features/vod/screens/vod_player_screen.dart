@@ -149,6 +149,10 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
         startPositionSeconds: _resumePosition,
         userHlsBps: PlayerSettingsService.instance.current.quality.bps,
       );
+      // Start playback immediately — no tap-to-reveal gate before video.
+      if (!_controller!.isPlaying) {
+        unawaited(_controller!.play());
+      }
     } catch (e) {
       _error = 'Unable to start playback. ${_sanitizeError(e)}';
     } finally {

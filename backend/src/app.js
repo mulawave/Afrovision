@@ -132,6 +132,7 @@ app.use('/ai-video', aiVideoRoutes);
 app.use('/distribution', distributionRoutes);
 app.use('/announcements', announcementRoutes);
 app.use('/progress', progressRoutes);
+app.use('/watch-progress', progressRoutes);
 
 function getOpsSecret() {
   return process.env.OPS_SECRET || null;

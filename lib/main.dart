@@ -88,9 +88,16 @@ void main() async {
   // Initialize media_kit before any Player/VideoController is created.
   MediaKit.ensureInitialized();
 
-  // Initialize Firebase and FCM
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await NotificationService.initialize();
+  // Initialize Firebase and FCM — Android/iOS only; other platforms
+  // (desktop, web) run without push notifications.
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await NotificationService.initialize();
+  } on UnsupportedError {
+    // Platform has no configured Firebase options.
+  } catch (_) {
+    // Firebase/FCM unavailable on this platform — continue without it.
+  }
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

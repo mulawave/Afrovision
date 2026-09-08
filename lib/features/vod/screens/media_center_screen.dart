@@ -15,12 +15,15 @@ import '../../channel/services/channel_service.dart';
 import '../models/media_center_hero_model.dart';
 import '../models/movie_model.dart';
 import '../models/series_model.dart';
+import '../models/vod_playback_args.dart';
 import '../services/media_center_service.dart';
 import '../services/vod_service.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/utils/image_cache_key.dart';
 import 'catch_up_tab.dart';
 import 'movie_detail_screen.dart';
 import 'series_detail_screen.dart';
+import 'vod_player_screen.dart';
 
 enum _MediaTab { catchUp, movies, series, library }
 
@@ -1086,6 +1089,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${newThisWeek.length} titles',
               items: newThisWeek
                   .map((m) => _PosterItem(
+                        id: 'movie_${m.id}',
                         title: m.title,
                         meta: _movieMeta(m),
                         imageUrl: m.posterUrl,
@@ -1099,6 +1103,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${because.items.length} titles',
               items: because.items
                   .map((m) => _PosterItem(
+                        id: 'movie_${m.id}',
                         title: m.title,
                         meta: _movieMeta(m),
                         imageUrl: m.posterUrl,
@@ -1113,6 +1118,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               exclusive: true,
               items: exMovies
                   .map((e) => _PosterItem(
+                        id: 'movie_${e.movie.id}',
                         title: e.movie.title,
                         meta: _movieMeta(e.movie),
                         imageUrl: e.movie.posterUrl,
@@ -1128,6 +1134,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${pubMovies.length} titles',
               items: pubMovies
                   .map((m) => _PosterItem(
+                        id: 'movie_${m.id}',
                         title: m.title,
                         meta: _movieMeta(m),
                         imageUrl: m.posterUrl,
@@ -1156,6 +1163,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${newThisWeek.length} titles',
               items: newThisWeek
                   .map((s) => _PosterItem(
+                        id: 'series_${s.id}',
                         title: s.title,
                         meta: _seriesMeta(s),
                         imageUrl: s.coverUrl,
@@ -1170,6 +1178,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               exclusive: true,
               items: exSeries
                   .map((e) => _PosterItem(
+                        id: 'series_${e.series.id}',
                         title: e.series.title,
                         meta: _seriesMeta(e.series),
                         imageUrl: e.series.coverUrl,
@@ -1185,6 +1194,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${pubSeries.length} titles',
               items: pubSeries
                   .map((s) => _PosterItem(
+                        id: 'series_${s.id}',
                         title: s.title,
                         meta: _seriesMeta(s),
                         imageUrl: s.coverUrl,
@@ -1820,17 +1830,23 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   }
 
   Widget _buildPoster(_PosterItem item) {
+    // Resolve relative media paths and give every tile a stable identity so
+    // the Movies and Series grids can't recycle each other's images.
+    final raw = item.imageUrl;
+    final imageUrl =
+        (raw != null && raw.isNotEmpty) ? AppConfig.mediaUrl(raw) : null;
     return GestureDetector(
+      key: ValueKey('poster_${item.id}'),
       onTap: item.onTap,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (item.imageUrl != null && item.imageUrl!.isNotEmpty)
+            if (imageUrl != null)
               CachedNetworkImage(
-                imageUrl: item.imageUrl!,
-                cacheKey: imageCacheKey(item.imageUrl),
+                imageUrl: imageUrl,
+                cacheKey: imageCacheKey(imageUrl),
                 fit: BoxFit.cover,
                 // 3-column posters — ~150 wide at 2:3 → cap decoded size.
                 memCacheWidth: 320,
@@ -2134,7 +2150,13 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   }
 
   Widget _continueWatchingCard(ContinueWatchingItem item) {
+    final rawPoster = item.posterUrl;
+    final posterUrl = (rawPoster != null && rawPoster.isNotEmpty)
+        ? AppConfig.mediaUrl(rawPoster)
+        : null;
     return GestureDetector(
+      key: ValueKey(
+          'cw_${item.mediaType}_${item.movieId ?? item.episodeId ?? item.title}'),
       onTap: () => _openContinueWatching(item),
       child: SizedBox(
         width: 118,
@@ -2149,10 +2171,10 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if ((item.posterUrl ?? '').isNotEmpty)
+                    if (posterUrl != null)
                       CachedNetworkImage(
-                        imageUrl: item.posterUrl!,
-                        cacheKey: imageCacheKey(item.posterUrl),
+                        imageUrl: posterUrl,
+                        cacheKey: imageCacheKey(posterUrl),
                         fit: BoxFit.cover,
                         memCacheWidth: 260,
                         placeholder: (_, __) => _posterFallback(),
@@ -2217,6 +2239,8 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
     );
   }
 
+  /// Deep-links straight into the player — VodPlayerScreen reloads the
+  /// saved position from the backend and resumes playback automatically.
   Future<void> _openContinueWatching(ContinueWatchingItem item) async {
     if (item.mediaType == 'movie' && (item.movieId ?? '').isNotEmpty) {
       try {
@@ -2224,7 +2248,9 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
         if (!mounted) return;
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => MovieDetailScreen(movie: movie),
+            builder: (_) => VodPlayerScreen(
+              args: VodPlaybackArgs.fromMovie(movie),
+            ),
           ),
         );
       } catch (_) {}
@@ -2232,10 +2258,26 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       try {
         final series = await VodService.getSeriesById(item.seriesId!);
         if (!mounted) return;
+        final episodes = series.allEpisodes;
+        final index = episodes.indexWhere((e) => e.id == item.episodeId);
+        if (index < 0) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => SeriesDetailScreen(series: series),
+            ),
+          );
+          return;
+        }
+        final episode = episodes[index];
+        final args = VodPlaybackArgs.fromEpisode(
+          series,
+          episode,
+          nextEpisodeId:
+              index < episodes.length - 1 ? episodes[index + 1].id : null,
+          previousEpisodeId: index > 0 ? episodes[index - 1].id : null,
+        );
         Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => SeriesDetailScreen(series: series),
-          ),
+          MaterialPageRoute(builder: (_) => VodPlayerScreen(args: args)),
         );
       } catch (_) {}
     }
@@ -2260,6 +2302,7 @@ class _LibraryEntry {
 }
 
 class _PosterItem {
+  final String id;
   final String title;
   final String meta;
   final String? imageUrl;
@@ -2267,6 +2310,7 @@ class _PosterItem {
   final String? channelTag;
   final String? channelName;
   const _PosterItem({
+    required this.id,
     required this.title,
     required this.meta,
     required this.imageUrl,
