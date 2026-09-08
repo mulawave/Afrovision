@@ -154,6 +154,13 @@ class VodService {
     return getPublicMovies(page: page, limit: limit);
   }
 
+  /// GET /series/:seriesId — public series detail.
+  static Future<SeriesModel> getSeriesById(String seriesId) async {
+    final data = await ApiService.get('/series/$seriesId');
+    final seriesData = data['data'] as Map<String, dynamic>? ?? {};
+    return SeriesModel.fromJson(seriesData['series'] as Map<String, dynamic>);
+  }
+
   /// GET /movies/:movieId — public movie detail.
   static Future<MovieModel> getMovieById(String movieId) async {
     final data = await ApiService.get('/movies/$movieId');
@@ -281,15 +288,15 @@ class VodService {
     return EpisodeDetailResponse.fromJson(data);
   }
 
-  /// POST /watch-progress/:mediaType/:mediaId
+  /// PUT /progress/:mediaType/:mediaId
   static Future<void> saveProgress(
     String mediaType,
     String mediaId,
     int positionSeconds,
     int durationSeconds,
   ) async {
-    await ApiService.post(
-      '/watch-progress/$mediaType/$mediaId',
+    await ApiService.put(
+      '/progress/$mediaType/$mediaId',
       {
         'position_seconds': positionSeconds,
         'duration_seconds': durationSeconds,
@@ -297,16 +304,105 @@ class VodService {
     );
   }
 
-  /// GET /watch-progress/:mediaType/:mediaId
+  /// GET /progress/:mediaType/:mediaId
   static Future<WatchProgress?> getProgress(
     String mediaType,
     String mediaId,
   ) async {
     try {
-      final data = await ApiService.get('/watch-progress/$mediaType/$mediaId');
+      final data = await ApiService.get('/progress/$mediaType/$mediaId', noCache: true);
       return WatchProgress.fromJson(data);
     } catch (_) {
       return null;
     }
+  }
+
+  /// GET /progress/me — caller's in-progress items across all media
+  /// types, joined with movie/series metadata. Powers the Continue Watching
+  /// rail on Media Center. Fail-tolerant: returns [] on any error.
+  static const String _continueWatchingKey = 'vod_continue_watching';
+
+  static Future<List<ContinueWatchingItem>> getContinueWatching({
+    int limit = 20,
+  }) async {
+    try {
+      final data = await ApiService.get('/progress/me?limit=$limit', noCache: true);
+      await SectionCache.write(_continueWatchingKey, jsonEncode(data));
+      return _parseContinueWatching(data);
+    } catch (_) {
+      return const <ContinueWatchingItem>[];
+    }
+  }
+
+  /// Stale-while-revalidate wrapper for [getContinueWatching].
+  static Future<List<ContinueWatchingItem>> getContinueWatchingCached({
+    int limit = 20,
+    void Function(List<ContinueWatchingItem> cached)? onCached,
+  }) async {
+    if (onCached != null) {
+      final raw = await SectionCache.readStale(_continueWatchingKey);
+      if (raw != null) {
+        try {
+          onCached(_parseContinueWatching(
+              jsonDecode(raw) as Map<String, dynamic>));
+        } catch (_) {}
+      }
+    }
+    return getContinueWatching(limit: limit);
+  }
+
+  static List<ContinueWatchingItem> _parseContinueWatching(
+      Map<String, dynamic> data) {
+    final inner = (data['data'] as Map<String, dynamic>?) ?? data;
+    final list = inner['items'] as List? ?? const [];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(ContinueWatchingItem.fromJson)
+        .toList();
+  }
+}
+
+class ContinueWatchingItem {
+  final String mediaType; // 'movie' | 'episode'
+  final String? movieId;
+  final String? seriesId;
+  final String? episodeId;
+  final String title;
+  final String? episodeTitle;
+  final String? posterUrl;
+  final int positionSeconds;
+  final int durationSeconds;
+  final int updatedAt;
+
+  const ContinueWatchingItem({
+    required this.mediaType,
+    this.movieId,
+    this.seriesId,
+    this.episodeId,
+    required this.title,
+    this.episodeTitle,
+    this.posterUrl,
+    required this.positionSeconds,
+    required this.durationSeconds,
+    required this.updatedAt,
+  });
+
+  double get progress => durationSeconds > 0
+      ? (positionSeconds / durationSeconds).clamp(0.0, 1.0)
+      : 0.0;
+
+  factory ContinueWatchingItem.fromJson(Map<String, dynamic> json) {
+    return ContinueWatchingItem(
+      mediaType: (json['media_type'] ?? '').toString(),
+      movieId: json['movie_id'] as String?,
+      seriesId: json['series_id'] as String?,
+      episodeId: json['episode_id'] as String?,
+      title: (json['title'] ?? '').toString(),
+      episodeTitle: json['episode_title'] as String?,
+      posterUrl: json['poster_url'] as String?,
+      positionSeconds: (json['position_seconds'] as num?)?.toInt() ?? 0,
+      durationSeconds: (json['duration_seconds'] as num?)?.toInt() ?? 0,
+      updatedAt: (json['updated_at'] as num?)?.toInt() ?? 0,
+    );
   }
 }

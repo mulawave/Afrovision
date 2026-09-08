@@ -36,8 +36,33 @@ async function getProgress(userId, mediaType, mediaId) {
   return { ...doc.data(), id: doc.id };
 }
 
+/**
+ * List a user's most-recently-updated in-progress items across every mediaType.
+ * "In progress" == 0 < position_seconds < duration_seconds - 30 (guards
+ * against near-finished playbacks that are effectively "watched").
+ */
+async function listMine(userId, { limit = 20 } = {}) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('user_id', '==', userId)
+    .orderBy('updated_at', 'desc')
+    .limit(Math.max(1, Math.min(100, limit)))
+    .get();
+
+  return snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }))
+    .filter((p) => {
+      const pos = Number(p.position_seconds) || 0;
+      const dur = Number(p.duration_seconds) || 0;
+      if (pos <= 0) return false;
+      if (dur > 0 && pos >= dur - 30) return false;
+      return true;
+    });
+}
+
 module.exports = {
   COLLECTION,
   saveProgress,
   getProgress,
+  listMine,
 };

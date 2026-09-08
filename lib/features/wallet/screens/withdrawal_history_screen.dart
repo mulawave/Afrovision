@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/app_button.dart';
-import '../../../core/widgets/app_pagination_controls.dart';
+
+import '../../../core/theme/nocturne_theme.dart';
 import '../models/withdrawal_model.dart';
 import '../services/wallet_service.dart';
+import '../utils/wallet_format.dart';
+import '../widgets/assets_header.dart';
+import '../../../core/widgets/nocturne_pagination.dart';
+import '../widgets/wallet_detail_sheet.dart';
 
 class WithdrawalHistoryScreen extends StatefulWidget {
   const WithdrawalHistoryScreen({super.key});
@@ -15,7 +18,7 @@ class WithdrawalHistoryScreen extends StatefulWidget {
 
 class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
     with SingleTickerProviderStateMixin {
-  static const int _pageSize = 5;
+  static const int _pageSize = 10;
 
   late AnimationController _animCtrl;
   late Animation<double> _fadeIn;
@@ -25,7 +28,7 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
   bool _loading = true;
   String? _error;
   int _page = 0;
-  String _filter = 'all'; // all, pending, approved, rejected
+  String _filter = 'all';
 
   @override
   void initState() {
@@ -34,12 +37,11 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _fadeIn = Tween<double>(
-      begin: 0,
-      end: 1,
-    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
+    _fadeIn = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut),
+    );
     _slideUp = Tween<Offset>(
-      begin: const Offset(0, 0.15),
+      begin: const Offset(0, 0.08),
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOutCubic));
     _loadData();
@@ -59,6 +61,7 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
         _withdrawals = result;
         _page = 0;
         _loading = false;
+        _error = null;
       });
       _animCtrl.forward(from: 0);
     } catch (e) {
@@ -91,6 +94,7 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
       'pending': 0,
       'approved': 0,
       'rejected': 0,
+      'paid': 0,
     };
     for (final w in _withdrawals) {
       counts[w.status] = (counts[w.status] ?? 0) + 1;
@@ -98,132 +102,116 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
     return counts;
   }
 
+  Color _colorForStatus(String status) {
+    switch (status) {
+      case 'pending':
+        return Nocturne.goldLight;
+      case 'approved':
+        return Nocturne.green;
+      case 'rejected':
+        return Nocturne.redSoft;
+      case 'paid':
+        return Nocturne.blue;
+      default:
+        return Nocturne.textFaint;
+    }
+  }
+
+  void _showDetail(WithdrawalModel w) {
+    showWalletDetailSheet(
+      context,
+      WalletDetail.fromWithdrawal(
+        w,
+        statusColor: _colorForStatus(w.status),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildAppBar(),
-              Expanded(
-                child: _loading
-                    ? const Center(
-                        child: CircularProgressIndicator(
-                          color: AppColors.orange,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : _error != null
-                    ? _buildError()
-                    : FadeTransition(
-                        opacity: _fadeIn,
-                        child: SlideTransition(
-                          position: _slideUp,
-                          child: RefreshIndicator(
-                            onRefresh: _loadData,
-                            color: AppColors.orange,
-                            child: ListView(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
+      backgroundColor: Nocturne.bg,
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            const AssetsHeader(
+              title: 'Withdrawal History',
+              subtitle: 'Requests and payouts',
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Nocturne.gold,
+                        strokeWidth: 3,
+                      ),
+                    )
+                  : _error != null
+                  ? _buildErrorState()
+                  : FadeTransition(
+                      opacity: _fadeIn,
+                      child: SlideTransition(
+                        position: _slideUp,
+                        child: RefreshIndicator(
+                          onRefresh: _loadData,
+                          color: Nocturne.gold,
+                          backgroundColor: Nocturne.surfaceRaised,
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                            children: [
+                              _buildStatsGrid(),
+                              const SizedBox(height: 14),
+                              _buildFilterChips(),
+                              const SizedBox(height: 14),
+                              _buildList(),
+                              const SizedBox(height: 12),
+                              NocturnePagination(
+                                currentPage: _page,
+                                totalPages: _totalPages,
+                                onPrevious: _page > 0
+                                  ? () => setState(() => _page -= 1)
+                                  : null,
+                                onNext: _page < _totalPages - 1
+                                  ? () => setState(() => _page += 1)
+                                  : null,
                               ),
-                              children: [
-                                const SizedBox(height: 8),
-                                _buildSummaryStats(),
-                                const SizedBox(height: 16),
-                                _buildFilterTabs(),
-                                const SizedBox(height: 16),
-                                _buildList(),
-                                const SizedBox(height: 12),
-                                AppPaginationControls(
-                                  currentPage: _page,
-                                  totalPages: _totalPages,
-                                  onPrevious: _page > 0
-                                      ? () => setState(() => _page -= 1)
-                                      : null,
-                                  onNext: _page < _totalPages - 1
-                                      ? () => setState(() => _page += 1)
-                                      : null,
-                                ),
-                                const SizedBox(height: 32),
-                              ],
-                            ),
+                              const SizedBox(height: 24),
+                            ],
                           ),
                         ),
                       ),
-              ),
-            ],
-          ),
+                    ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.inputBorder),
-              ),
-              child: const Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: AppColors.white,
-                size: 18,
-              ),
-            ),
-          ),
-          const Expanded(
-            child: Text(
-              'Withdrawal History',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
-          const SizedBox(width: 34),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryStats() {
+  Widget _buildStatsGrid() {
     final counts = _statusCounts;
     return Row(
       children: [
-        _statChip('Total', counts['all'] ?? 0, AppColors.white),
+        _buildStatTile('Total', counts['all'] ?? 0, Nocturne.text),
         const SizedBox(width: 8),
-        _statChip('Pending', counts['pending'] ?? 0, AppColors.lightOrange),
+        _buildStatTile('Approved', counts['approved'] ?? 0, Nocturne.green),
         const SizedBox(width: 8),
-        _statChip('Approved', counts['approved'] ?? 0, AppColors.successGreen),
+        _buildStatTile('Pending', counts['pending'] ?? 0, Nocturne.goldLight),
         const SizedBox(width: 8),
-        _statChip('Rejected', counts['rejected'] ?? 0, AppColors.errorRed),
+        _buildStatTile('Rejected', counts['rejected'] ?? 0, Nocturne.redSoft),
       ],
     );
   }
 
-  Widget _statChip(String label, int count, Color color) {
+  Widget _buildStatTile(String label, int count, Color color) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: AppColors.cardBg,
+          color: Nocturne.surfaceRaised,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.inputBorder),
+          border: Border.all(color: Nocturne.borderCard),
         ),
         child: Column(
           children: [
@@ -232,16 +220,17 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
               style: TextStyle(
                 color: color,
                 fontSize: 18,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 2),
             Text(
               label,
               style: const TextStyle(
-                color: AppColors.goldText,
+                color: Nocturne.textFaint,
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
+                letterSpacing: 0.4,
               ),
             ),
           ],
@@ -250,11 +239,11 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
     );
   }
 
-  Widget _buildFilterTabs() {
+  Widget _buildFilterChips() {
     final filters = [
       ('all', 'All'),
-      ('pending', 'Pending'),
       ('approved', 'Approved'),
+      ('pending', 'Pending'),
       ('rejected', 'Rejected'),
     ];
 
@@ -270,25 +259,28 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
                 _filter = f.$1;
                 _page = 0;
               }),
-              child: Container(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 9,
                 ),
                 decoration: BoxDecoration(
-                  gradient: isActive ? AppColors.buttonGradient : null,
-                  color: isActive ? null : AppColors.cardBg,
+                  gradient: isActive ? Nocturne.goldCta : null,
+                  color: isActive ? null : const Color(0x05FFFFFF),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: isActive
                         ? Colors.transparent
-                        : AppColors.inputBorder,
+                        : Nocturne.border,
                   ),
                 ),
                 child: Text(
                   f.$2,
                   style: TextStyle(
-                    color: isActive ? AppColors.darkBlue : AppColors.goldText,
+                    color: isActive
+                        ? const Color(0xFF26170A)
+                        : Nocturne.textDim,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -302,17 +294,14 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
   }
 
   Widget _buildList() {
-    final entries = _paginated;
     if (_filtered.isEmpty) {
       return Container(
         padding: const EdgeInsets.symmetric(vertical: 60),
         child: Column(
           children: [
-            Icon(
-              _filter == 'all'
-                  ? Icons.receipt_long_rounded
-                  : Icons.filter_list_off_rounded,
-              color: AppColors.goldText,
+            const Icon(
+              Icons.receipt_long_rounded,
+              color: Nocturne.goldLight,
               size: 48,
             ),
             const SizedBox(height: 12),
@@ -321,7 +310,7 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
                   ? 'No withdrawal requests yet'
                   : 'No $_filter withdrawals',
               style: const TextStyle(
-                color: AppColors.goldText,
+                color: Nocturne.textFaint,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
@@ -331,141 +320,187 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
       );
     }
 
-    return Column(children: entries.map((w) => _buildTile(w)).toList());
+    return Column(
+      children: _paginated.map((w) => _buildHistoryCard(w)).toList(),
+    );
   }
 
-  Widget _buildTile(WithdrawalModel withdrawal) {
-    final statusColor = _colorForStatus(withdrawal.status);
+  Widget _buildHistoryCard(WithdrawalModel w) {
+    final statusColor = _colorForStatus(w.status);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.inputFill,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.inputBorder),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.account_balance_rounded,
-                  color: statusColor,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '₦${_formatAmount(withdrawal.amount)}',
-                      style: const TextStyle(
-                        color: AppColors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
+    return GestureDetector(
+      onTap: () => _showDetail(w),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Nocturne.surfaceRaised,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Nocturne.borderCard),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: statusColor.withValues(alpha: 0.25),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      withdrawal.timeAgo,
-                      style: const TextStyle(
-                        color: AppColors.goldText,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: statusColor.withValues(alpha: 0.25),
                   ),
+                  child: Icon(
+                    Icons.account_balance_rounded,
+                    color: statusColor,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '₦${walletFormatAmount(w.amount)}',
+                        style: const TextStyle(
+                          color: Nocturne.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        w.timeAgo,
+                        style: const TextStyle(
+                          color: Nocturne.textFaint,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: statusColor.withValues(alpha: 0.32),
+                    ),
+                  ),
+                  child: Text(
+                    w.statusLabel,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (w.bankName != null || w.accountNumberMasked != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: const Color(0x05FFFFFF),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(color: Nocturne.borderCard),
                 ),
                 child: Text(
-                  withdrawal.statusLabel,
-                  style: TextStyle(
-                    color: statusColor,
+                  '${w.bankName ?? 'Bank'} • ${w.accountName ?? ''} ${w.accountNumberMasked ?? ''}'
+                      .trim(),
+                  style: const TextStyle(
+                    color: Nocturne.textFaint,
                     fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3,
+                    fontWeight: FontWeight.w500,
                   ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
+            if (w.totalFees > 0 || w.vatAmount > 0 || w.totalDebit > 0) ...[
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildMetaPill(
+                    'Fees',
+                    '₦${walletFormatAmount(w.totalFees)}',
+                  ),
+                  _buildMetaPill(
+                    'VAT',
+                    '₦${walletFormatAmount(w.vatAmount)}',
+                  ),
+                  _buildMetaPill(
+                    'Total',
+                    '₦${walletFormatAmount(w.totalDebit)}',
+                    highlight: true,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetaPill(
+    String label,
+    String value, {
+    bool highlight = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: highlight
+            ? Nocturne.gold.withValues(alpha: 0.10)
+            : const Color(0x05FFFFFF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: highlight
+              ? Nocturne.gold.withValues(alpha: 0.25)
+              : Nocturne.borderCard,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Nocturne.textFaint,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          if (withdrawal.bankName != null ||
-              withdrawal.accountNumberMasked != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.cardBg,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.inputBorder),
-              ),
-              child: Text(
-                '${withdrawal.bankName ?? 'Bank'} • ${withdrawal.accountName ?? ''} ${withdrawal.accountNumberMasked ?? ''}'
-                    .trim(),
-                style: const TextStyle(
-                  color: AppColors.goldText,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+          const SizedBox(height: 1),
+          Text(
+            value,
+            style: TextStyle(
+              color: highlight ? Nocturne.gold : Nocturne.text,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
             ),
-          ],
-          if (withdrawal.totalFees > 0) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Fees: ₦${_formatAmount(withdrawal.totalFees)} · '
-              'VAT: ₦${_formatAmount(withdrawal.vatAmount)} · '
-              'Total debited: ₦${_formatAmount(withdrawal.totalDebit)}',
-              style: const TextStyle(
-                color: AppColors.goldText,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );
   }
 
-  Color _colorForStatus(String status) {
-    switch (status) {
-      case 'pending':
-        return AppColors.lightOrange;
-      case 'approved':
-        return AppColors.successGreen;
-      case 'rejected':
-        return AppColors.errorRed;
-      case 'paid':
-        return AppColors.softBlue;
-      default:
-        return AppColors.goldText;
-    }
-  }
-
-  Widget _buildError() {
+  Widget _buildErrorState() {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -474,15 +509,15 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
           children: [
             const Icon(
               Icons.error_outline_rounded,
-              color: AppColors.errorRed,
+              color: Nocturne.red,
               size: 48,
             ),
             const SizedBox(height: 16),
             const Text(
               'Failed to load withdrawal history',
               style: TextStyle(
-                color: AppColors.goldText,
-                fontSize: 14,
+                color: Nocturne.text,
+                fontSize: 15,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -492,34 +527,42 @@ class _WithdrawalHistoryScreenState extends State<WithdrawalHistoryScreen>
                 _error!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: AppColors.goldText,
-                  fontSize: 11,
+                  color: Nocturne.textFaint,
+                  fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
             ],
-            const SizedBox(height: 16),
-            AppButton(
-              label: 'Retry',
-              onPressed: () {
+            const SizedBox(height: 20),
+            GestureDetector(
+              onTap: () {
                 setState(() {
                   _loading = true;
                   _error = null;
                 });
                 _loadData();
               },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                decoration: BoxDecoration(
+                  gradient: Nocturne.goldCta,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Text(
+                  'Retry',
+                  style: TextStyle(
+                    color: Color(0xFF26170A),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  String _formatAmount(double val) {
-    if (val == 0) return '0';
-    if (val == val.roundToDouble()) return val.toInt().toString();
-    return val.toStringAsFixed(2);
   }
 }

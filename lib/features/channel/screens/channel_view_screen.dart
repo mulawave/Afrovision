@@ -2,22 +2,36 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../core/widgets/wave_thumbnail.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/services/watch_history_service.dart';
-import '../models/channel_model.dart';
-import '../services/channel_service.dart';
-import '../../broadcast/services/channel_library_service.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/wave_thumbnail.dart';
 import '../../auth/services/auth_service.dart';
+import '../../broadcast/services/channel_library_service.dart';
 import '../../kyc/services/kyc_service.dart';
 import '../../subscription/models/channel_subscription_model.dart';
 import '../../subscription/services/channel_subscription_service.dart';
 import '../../wave/models/wave_model.dart';
 import '../../wave/services/wave_service.dart';
+import '../models/channel_model.dart';
+import '../services/channel_content_service.dart';
+import '../services/channel_service.dart';
+import '../widgets/exclusive_requests_section.dart';
+import 'media_player_screen.dart';
 
-enum ChannelSection { about, streams, library, waves, schedule, manage }
+enum ChannelSection {
+  about,
+  streams,
+  library,
+  movies,
+  series,
+  waves,
+  schedule,
+  requests,
+  manage,
+}
 
 extension ChannelSectionX on ChannelSection {
   String get label {
@@ -28,10 +42,16 @@ extension ChannelSectionX on ChannelSection {
         return 'Past Streams';
       case ChannelSection.library:
         return 'Library';
+      case ChannelSection.movies:
+        return 'Movies';
+      case ChannelSection.series:
+        return 'Series';
       case ChannelSection.waves:
         return 'Waves';
       case ChannelSection.schedule:
         return 'Schedule';
+      case ChannelSection.requests:
+        return 'Requests';
       case ChannelSection.manage:
         return 'Manage';
     }
@@ -45,10 +65,16 @@ extension ChannelSectionX on ChannelSection {
         return 'past-streams';
       case ChannelSection.library:
         return 'library';
+      case ChannelSection.movies:
+        return 'movies';
+      case ChannelSection.series:
+        return 'series';
       case ChannelSection.waves:
         return 'waves';
       case ChannelSection.schedule:
         return 'schedule';
+      case ChannelSection.requests:
+        return 'requests';
       case ChannelSection.manage:
         return 'manage';
     }
@@ -80,6 +106,14 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   bool _wavesLoading = false;
   String? _wavesError;
   String? _waveActionId;
+
+  // Movies / Series tabs (restored per wips_restoration.md Phase 4).
+  List<ChannelMovie> _channelMovies = const <ChannelMovie>[];
+  bool _moviesLoading = false;
+  String? _moviesError;
+  List<ChannelSeries> _channelSeries = const <ChannelSeries>[];
+  bool _seriesLoading = false;
+  String? _seriesError;
 
   // Channel subscription state
   bool _subLoading = false;
@@ -162,10 +196,16 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         return ChannelSection.streams;
       case 'library':
         return ChannelSection.library;
+      case 'movies':
+        return ChannelSection.movies;
+      case 'series':
+        return ChannelSection.series;
       case 'waves':
         return ChannelSection.waves;
       case 'schedule':
         return ChannelSection.schedule;
+      case 'requests':
+        return ChannelSection.requests;
       case 'manage':
         return ChannelSection.manage;
       default:
@@ -276,6 +316,8 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
 
       _loadLibraryUnreadCount();
       _loadChannelWaves();
+      _loadChannelMovies();
+      _loadChannelSeries();
 
       if (_activeSection == ChannelSection.manage && !_canManage) {
         _activeSection = ChannelSection.about;
@@ -336,6 +378,119 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     }
   }
 
+  Future<void> _loadChannelMovies() async {
+    final ch = _channel;
+    if (ch == null) return;
+    setState(() {
+      _moviesLoading = _channelMovies.isEmpty;
+      _moviesError = null;
+    });
+
+    void apply(List<ChannelMovie> movies) {
+      if (!mounted) return;
+      setState(() {
+        _channelMovies = movies;
+        _moviesLoading = false;
+      });
+    }
+
+    try {
+      final movies = await ChannelContentService.getChannelMoviesCached(
+        ch.id,
+        onCached: apply,
+      );
+      if (!mounted) return;
+      apply(movies);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _moviesLoading = false;
+        _moviesError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _loadChannelSeries() async {
+    final ch = _channel;
+    if (ch == null) return;
+    setState(() {
+      _seriesLoading = _channelSeries.isEmpty;
+      _seriesError = null;
+    });
+
+    void apply(List<ChannelSeries> series) {
+      if (!mounted) return;
+      setState(() {
+        _channelSeries = series;
+        _seriesLoading = false;
+      });
+    }
+
+    try {
+      final series = await ChannelContentService.getChannelSeriesCached(
+        ch.id,
+        onCached: apply,
+      );
+      if (!mounted) return;
+      apply(series);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _seriesLoading = false;
+        _seriesError = e.toString();
+      });
+    }
+  }
+
+  void _openChannelMovie(ChannelMovie movie) {
+    final url = movie.playableUrl;
+    if (url == null || url.isEmpty) return;
+    Navigator.pushNamed(
+      context,
+      '/media-player',
+      arguments: MediaPlayerArgs(
+        title: movie.title,
+        items: [
+          MediaPlayerItem(
+            id: movie.id,
+            title: movie.title,
+            url: url,
+            duration: movie.duration,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openChannelSeries(ChannelSeries series) async {
+    final detail = await ChannelContentService.getSeriesDetail(series.id);
+    if (!mounted) return;
+    final episodes = detail?.allEpisodes ?? const <ChannelEpisode>[];
+    final playable = episodes.where((e) => e.hasVideo).toList();
+    if (playable.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No playable episodes yet.')),
+      );
+      return;
+    }
+    Navigator.pushNamed(
+      context,
+      '/media-player',
+      arguments: MediaPlayerArgs(
+        title: series.title,
+        items: playable
+            .map((e) => MediaPlayerItem(
+                  id: e.id,
+                  title: e.title,
+                  subtitle: 'Episode ${e.episodeNumber}',
+                  url: e.playableUrl!,
+                  duration: e.duration,
+                ))
+            .toList(),
+      ),
+    );
+  }
+
   Future<void> _loadLibraryUnreadCount() async {
     final ch = _channel;
     if (ch == null || !ch.isExclusive) {
@@ -388,6 +543,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   Future<void> _toggleSubscription() async {
     final ch = _channel;
     if (ch == null) return;
+    if (!await KycGuard.ensureKycVerified(context)) return;
     setState(() => _subLoading = true);
     try {
       if (_subscription != null && _subscription!.isActive) {
@@ -955,8 +1111,11 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       ChannelSection.about,
       ChannelSection.streams,
       if (ch.isExclusive) ChannelSection.library,
+      ChannelSection.movies,
+      ChannelSection.series,
       ChannelSection.waves,
       ChannelSection.schedule,
+      if (_canManage && ch.isExclusive) ChannelSection.requests,
       if (_canManage) ChannelSection.manage,
     ];
 
@@ -1006,10 +1165,16 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         return _buildStreamsSection(ch);
       case ChannelSection.library:
         return _buildLibrarySection(ch);
+      case ChannelSection.movies:
+        return _buildMoviesSection(ch);
+      case ChannelSection.series:
+        return _buildSeriesSection(ch);
       case ChannelSection.waves:
         return _buildWavesSection(ch);
       case ChannelSection.schedule:
         return _buildScheduleSection(ch);
+      case ChannelSection.requests:
+        return ExclusiveRequestsSection(channel: ch);
       case ChannelSection.manage:
         return _buildManageSection(ch);
     }
@@ -1402,6 +1567,278 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildMoviesSection(ChannelModel ch) {
+    return Column(
+      children: [
+        _buildInfoCard(
+          icon: Icons.movie_outlined,
+          label: 'Movies',
+          value: 'Movies published by this channel.',
+        ),
+        if (_moviesLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: CircularProgressIndicator(color: AppColors.orange),
+          )
+        else if (_moviesError != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'Unable to load movies.',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _moviesError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.hintText),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: _loadChannelMovies,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          )
+        else if (_channelMovies.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: const Text(
+              'This channel has no published movies yet.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.hintText),
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 2 / 3,
+            ),
+            itemCount: _channelMovies.length,
+            itemBuilder: (context, index) =>
+                _buildMovieCard(_channelMovies[index]),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildMovieCard(ChannelMovie movie) {
+    return GestureDetector(
+      onTap: () => _openChannelMovie(movie),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (movie.posterUrl != null && movie.posterUrl!.isNotEmpty)
+              Image.network(
+                AppConfig.mediaUrl(movie.posterUrl!),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: AppColors.inputFill,
+                  child: const Icon(Icons.movie_outlined,
+                      color: AppColors.hintText, size: 28),
+                ),
+              )
+            else
+              Container(
+                color: AppColors.inputFill,
+                child: const Icon(Icons.movie_outlined,
+                    color: AppColors.hintText, size: 28),
+              ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.85),
+                  ],
+                  stops: const [0.5, 1],
+                ),
+              ),
+            ),
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: 8,
+              child: Text(
+                movie.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSeriesSection(ChannelModel ch) {
+    return Column(
+      children: [
+        _buildInfoCard(
+          icon: Icons.tv_outlined,
+          label: 'Series',
+          value: 'Series published by this channel.',
+        ),
+        if (_seriesLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: CircularProgressIndicator(color: AppColors.orange),
+          )
+        else if (_seriesError != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'Unable to load series.',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _seriesError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.hintText),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: _loadChannelSeries,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          )
+        else if (_channelSeries.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.inputBorder),
+            ),
+            child: const Text(
+              'This channel has no published series yet.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.hintText),
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 2 / 3,
+            ),
+            itemCount: _channelSeries.length,
+            itemBuilder: (context, index) =>
+                _buildSeriesCard(_channelSeries[index]),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSeriesCard(ChannelSeries series) {
+    return GestureDetector(
+      onTap: () => _openChannelSeries(series),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (series.coverUrl != null && series.coverUrl!.isNotEmpty)
+              Image.network(
+                AppConfig.mediaUrl(series.coverUrl!),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: AppColors.inputFill,
+                  child: const Icon(Icons.tv_outlined,
+                      color: AppColors.hintText, size: 28),
+                ),
+              )
+            else
+              Container(
+                color: AppColors.inputFill,
+                child: const Icon(Icons.tv_outlined,
+                    color: AppColors.hintText, size: 28),
+              ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.85),
+                  ],
+                  stops: const [0.5, 1],
+                ),
+              ),
+            ),
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: 8,
+              child: Text(
+                series.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

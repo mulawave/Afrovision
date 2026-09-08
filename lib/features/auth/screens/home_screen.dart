@@ -28,10 +28,11 @@ import '../../challenge/services/challenge_service.dart';
 import '../../challenge/models/challenge_model.dart';
 import '../../announcements/services/announcement_service.dart';
 import '../../../core/widgets/marquee_ticker_widget.dart';
+import '../../../core/widgets/grace_period_banner.dart';
 import '../../vod/screens/media_center_screen.dart';
 import '../../channel/screens/channel_list_screen.dart';
 import '../../wave/screens/wave_screen.dart';
-import '../../wallet/screens/digital_assets_screen.dart';
+import '../../wallet/screens/digital_assets_overview_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -539,6 +540,7 @@ class _HomeScreenState extends State<HomeScreen>
                                         CrossAxisAlignment.start,
                                     children: [
                                       const ActiveFloatingPlayerBanner(),
+                                      const GracePeriodBanner(),
                                       const SizedBox(height: 14),
                                       _buildUserAssetsSection(),
                                       const SizedBox(height: 14),

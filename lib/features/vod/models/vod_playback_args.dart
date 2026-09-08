@@ -1,3 +1,4 @@
+import '../services/vod_cache_service.dart';
 import 'movie_model.dart';
 import 'series_model.dart';
 
@@ -51,6 +52,24 @@ class VodPlaybackArgs {
       playbackUrl: movie.playbackUrl,
       duration: movie.duration,
       downloadable: movie.downloadable,
+    );
+  }
+
+  /// Build args for a title played out of the on-device cache. The
+  /// underlying player still uses `VodCacheService.getLocalPath` for the
+  /// real byte source; `playbackUrl` here is the original network URL so
+  /// analytics + resume behaviour still work.
+  factory VodPlaybackArgs.fromCache(CachedVodItem item) {
+    return VodPlaybackArgs(
+      mediaType: item.mediaType,
+      mediaId: item.mediaId,
+      channelId: '',
+      title: item.title,
+      posterUrl: item.posterUrl,
+      videoSourceMode: 'hosted',
+      playbackUrl: item.originalUrl,
+      duration: item.duration,
+      downloadable: true,
     );
   }
 

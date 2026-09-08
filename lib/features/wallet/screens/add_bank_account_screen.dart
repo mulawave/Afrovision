@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/app_button.dart';
-import '../../../core/widgets/app_text_field.dart';
+import 'package:flutter/services.dart';
+
+import '../../../core/services/kyc_guard_service.dart';
+import '../../../core/theme/nocturne_theme.dart';
 import '../models/bank_details_model.dart';
 import '../services/wallet_service.dart';
+import '../widgets/assets_header.dart';
 
 class AddBankAccountScreen extends StatefulWidget {
   const AddBankAccountScreen({super.key});
@@ -121,13 +123,14 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _accountError = e.toString();
+        _accountError = e.toString().replaceFirst('Exception: ', '');
         _resolving = false;
       });
     }
   }
 
   Future<void> _saveBankDetails() async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
     if (!_canSave || _selectedBank == null || _resolvedAccount == null) return;
     setState(() => _saving = true);
     try {
@@ -142,7 +145,7 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _accountError = e.toString();
+        _accountError = e.toString().replaceFirst('Exception: ', '');
         _saving = false;
       });
     }
@@ -151,107 +154,65 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildAppBar(),
-              Expanded(
-                child: _loading
-                    ? const Center(
-                        child: CircularProgressIndicator(
-                          color: AppColors.orange,
-                        ),
-                      )
-                    : _error != null
-                    ? _buildErrorState()
-                    : FadeTransition(
-                        opacity: _fadeIn,
-                        child: SlideTransition(
-                          position: _slideUp,
-                          child: RefreshIndicator(
-                            onRefresh: _refresh,
-                            color: AppColors.orange,
-                            backgroundColor: AppColors.inputFill,
-                            child: ListView(
-                              padding: const EdgeInsets.all(24),
-                              children: [
-                                _buildWarningCard(),
-                                const SizedBox(height: 16),
-                                _buildBankForm(),
-                                const SizedBox(height: 16),
-                                if (_resolvedAccount != null)
-                                  _buildVerifiedCard(),
-                                if (_resolvedAccount != null)
-                                  const SizedBox(height: 16),
-                                AppButton(
-                                  label: 'Save Bank Account',
-                                  loading: _saving,
-                                  enabled: _canSave,
-                                  onPressed: _canSave ? _saveBankDetails : null,
-                                ),
-                                const SizedBox(height: 20),
+      backgroundColor: Nocturne.bg,
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            const AssetsHeader(
+              title: 'Add Bank',
+              subtitle: 'Link a withdrawal account',
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Nocturne.gold,
+                        strokeWidth: 3,
+                      ),
+                    )
+                  : _error != null
+                  ? _buildErrorState()
+                  : FadeTransition(
+                      opacity: _fadeIn,
+                      child: SlideTransition(
+                        position: _slideUp,
+                        child: RefreshIndicator(
+                          onRefresh: _refresh,
+                          color: Nocturne.gold,
+                          backgroundColor: Nocturne.surfaceRaised,
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                            children: [
+                              _buildWarningCard(),
+                              const SizedBox(height: 14),
+                              _buildBankForm(),
+                              if (_resolvedAccount != null) ...[
+                                const SizedBox(height: 14),
+                                _buildVerifiedCard(),
                               ],
-                            ),
+                              const SizedBox(height: 16),
+                              _buildSaveButton(),
+                              const SizedBox(height: 24),
+                            ],
                           ),
                         ),
                       ),
-              ),
-            ],
-          ),
+                    ),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.inputBorder),
-              ),
-              child: const Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: AppColors.white,
-                size: 18,
-              ),
-            ),
-          ),
-          const Expanded(
-            child: Text(
-              'Add Bank Account',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(width: 34),
-        ],
       ),
     );
   }
 
   Widget _buildWarningCard() {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.orange),
+        color: Nocturne.gold.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Nocturne.gold.withValues(alpha: 0.30)),
       ),
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -259,19 +220,19 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
           Text(
             'Important',
             style: TextStyle(
-              color: AppColors.orange,
-              fontSize: 15,
+              color: Nocturne.gold,
+              fontSize: 13,
               fontWeight: FontWeight.w700,
             ),
           ),
-          SizedBox(height: 10),
+          SizedBox(height: 6),
           Text(
-            'Your bank details will be saved permanently after verification and cannot be edited inside the app. If you need to change them later, you must contact AfroVision support by email.',
+            'Your bank details will be saved permanently after verification and cannot be edited inside the app. If you need to change them later, you must contact AfroVision support.',
             style: TextStyle(
-              color: AppColors.goldText,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              height: 1.5,
+              color: Nocturne.goldLight,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+              height: 1.35,
             ),
           ),
         ],
@@ -281,11 +242,11 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
 
   Widget _buildBankForm() {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.inputBorder),
+        color: Nocturne.surfaceRaised,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Nocturne.borderCard),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -293,36 +254,41 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
           const Text(
             'Bank Details',
             style: TextStyle(
-              color: AppColors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
+              color: Nocturne.text,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 14),
           const Text(
             'Select Bank',
             style: TextStyle(
-              color: AppColors.goldText,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
+              color: Nocturne.goldSoft,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
             decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.inputBorder),
+              color: Nocturne.surfaceDeep,
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: Nocturne.borderCard),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<BankOptionModel>(
                 value: _selectedBank,
                 isExpanded: true,
-                dropdownColor: AppColors.cardBg,
+                dropdownColor: Nocturne.surfaceRaised,
+                icon: const Icon(Icons.arrow_drop_down, color: Nocturne.textFaint),
                 hint: const Text(
                   'Choose your bank',
-                  style: TextStyle(color: AppColors.goldText),
+                  style: TextStyle(
+                    color: Nocturne.textHint,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
                 items: _banks
                     .map(
@@ -330,7 +296,11 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
                         value: bank,
                         child: Text(
                           bank.name,
-                          style: const TextStyle(color: AppColors.white),
+                          style: const TextStyle(
+                            color: Nocturne.text,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     )
@@ -346,28 +316,139 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
             ),
           ),
           const SizedBox(height: 14),
-          AppTextField(
-            controller: _accountNumberCtrl,
-            label: 'Account Number',
-            hint: 'Enter 10-digit account number',
-            keyboardType: TextInputType.number,
-            prefixIcon: Icons.numbers_rounded,
-            errorText: _accountError,
-            onChanged: (_) {
-              if (_resolvedAccount != null || _accountError != null) {
-                setState(() {
-                  _resolvedAccount = null;
-                  _accountError = null;
-                });
-              }
-            },
+          const Text(
+            'Account Number',
+            style: TextStyle(
+              color: Nocturne.goldSoft,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const SizedBox(height: 14),
-          AppButton(
-            label: 'Verify Account Name',
-            loading: _resolving,
-            enabled: _canResolve,
-            onPressed: _canResolve ? _resolveAccount : null,
+          const SizedBox(height: 7),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+            decoration: BoxDecoration(
+              color: Nocturne.surfaceDeep,
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(
+                color: _accountError != null
+                    ? Nocturne.red.withValues(alpha: 0.55)
+                    : Nocturne.borderCard,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.numbers_rounded,
+                  color: Nocturne.textFaint,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _accountNumberCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
+                    maxLength: 10,
+                    buildCounter: (context,
+                        {required currentLength,
+                        required isFocused,
+                        required maxLength}) {
+                      return null;
+                    },
+                    style: const TextStyle(
+                      color: Nocturne.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                      border: InputBorder.none,
+                      hintText: 'Enter 10-digit account number',
+                      hintStyle: TextStyle(
+                        color: Nocturne.textHint,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    onChanged: (_) {
+                      if (_resolvedAccount != null || _accountError != null) {
+                        setState(() {
+                          _resolvedAccount = null;
+                          _accountError = null;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_accountError != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.error_outline_rounded, color: Nocturne.redSoft, size: 13),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _accountError!,
+                    style: const TextStyle(
+                      color: Nocturne.redSoft,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: _canResolve ? () => _resolveAccount() : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                gradient: _canResolve ? Nocturne.goldCta : null,
+                color: _canResolve ? null : const Color(0x05FFFFFF),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(
+                  color: _canResolve ? Colors.transparent : Nocturne.border,
+                ),
+                boxShadow: _canResolve
+                    ? [
+                        BoxShadow(
+                          color: Nocturne.gold.withValues(alpha: 0.30),
+                          blurRadius: 22,
+                          offset: const Offset(0, 8),
+                        ),
+                      ]
+                    : [],
+              ),
+              alignment: Alignment.center,
+              child: _resolving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF26170A),
+                        strokeWidth: 2.5,
+                      ),
+                    )
+                  : Text(
+                      'Verify Account Name',
+                      style: TextStyle(
+                        color: _canResolve ? const Color(0xFF26170A) : Nocturne.textHint,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+            ),
           ),
         ],
       ),
@@ -376,22 +457,28 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
 
   Widget _buildVerifiedCard() {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.successGreen),
+        color: Nocturne.green.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Nocturne.green.withValues(alpha: 0.30)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Verified Account',
-            style: TextStyle(
-              color: AppColors.successGreen,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Nocturne.green, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'Verified Account',
+                style: TextStyle(
+                  color: Nocturne.green,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           _infoRow('Bank', _selectedBank?.name ?? ''),
@@ -411,21 +498,68 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
         Text(
           label,
           style: const TextStyle(
-            color: AppColors.goldText,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
+            color: Nocturne.textFaint,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 3),
         Text(
           value,
           style: const TextStyle(
-            color: AppColors.white,
+            color: Nocturne.text,
             fontSize: 13,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSaveButton() {
+    return GestureDetector(
+      onTap: _canSave ? () => _saveBankDetails() : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        decoration: BoxDecoration(
+          gradient: _canSave ? Nocturne.goldCta : null,
+          color: _canSave ? null : const Color(0x05FFFFFF),
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(
+            color: _canSave ? Colors.transparent : Nocturne.border,
+          ),
+          boxShadow: _canSave
+              ? [
+                  BoxShadow(
+                    color: Nocturne.gold.withValues(alpha: 0.30),
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : [],
+        ),
+        alignment: Alignment.center,
+        child: _saving
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  color: Color(0xFF26170A),
+                  strokeWidth: 2.5,
+                ),
+              )
+            : Text(
+                'Save Bank Account',
+                style: TextStyle(
+                  color: _canSave ? const Color(0xFF26170A) : Nocturne.textHint,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+      ),
     );
   }
 
@@ -438,7 +572,7 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
           children: [
             const Icon(
               Icons.error_outline_rounded,
-              color: AppColors.errorRed,
+              color: Nocturne.red,
               size: 44,
             ),
             const SizedBox(height: 12),
@@ -446,13 +580,30 @@ class _AddBankAccountScreenState extends State<AddBankAccountScreen>
               _error ?? 'Failed to load bank list',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: AppColors.goldText,
+                color: Nocturne.textFaint,
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 14),
-            AppButton(label: 'Retry', onPressed: _loadBanks),
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: _loadBanks,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                decoration: BoxDecoration(
+                  gradient: Nocturne.goldCta,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Text(
+                  'Retry',
+                  style: TextStyle(
+                    color: Color(0xFF26170A),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),

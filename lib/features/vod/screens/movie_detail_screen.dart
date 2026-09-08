@@ -1,5 +1,7 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/nocturne_theme.dart';
 import '../models/movie_model.dart';
 import '../models/vod_playback_args.dart';
@@ -75,12 +77,14 @@ class MovieDetailScreen extends StatelessWidget {
                     stops: const [0.55, 1],
                   ).createShader(r),
                   blendMode: BlendMode.dstIn,
-                  child: Image.network(
-                    poster,
+                  child: CachedNetworkImage(
+                    imageUrl: poster,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: 230,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    memCacheHeight: 460,
+                    placeholder: (_, __) => const SizedBox.shrink(),
+                    errorWidget: (_, __, ___) => const SizedBox.shrink(),
                   ),
                 )
               : null,
@@ -291,6 +295,18 @@ class MovieDetailScreen extends StatelessWidget {
   }
 
   void _play(BuildContext context, {bool fromDownload = false}) {
+    final isAdultContent = movie.ageClassification.toLowerCase() == 'adult';
+    if (isAdultContent) {
+      KycGuard.ensureKycVerified(
+        context,
+        onComplete: () => _openPlayer(context, fromDownload: fromDownload),
+      );
+      return;
+    }
+    _openPlayer(context, fromDownload: fromDownload);
+  }
+
+  void _openPlayer(BuildContext context, {bool fromDownload = false}) {
     final args = VodPlaybackArgs.fromMovie(movie);
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => VodPlayerScreen(args: args)),

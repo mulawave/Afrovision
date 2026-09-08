@@ -13,7 +13,7 @@
 const KycModel = require('./kyc.model');
 const UserModel = require('../users/user.model');
 const ReputationService = require('../reputation/reputation.service');
-const { extractKycGCSPath, getKycPublicUrl } = require('../utils/gcs');
+const { extractKycGCSPath, generateKycSignedReadUrl } = require('../utils/gcs');
 
 /* ── User-facing ──────────────────────────────────────────────── */
 
@@ -98,7 +98,7 @@ async function submitKyc(req, res) {
       // Minor — set KYC status to minor_pending, require guardian form
       await UserModel.setKyc(userId, 'minor_pending');
       return res.status(201).json({
-        ...record,
+        ...(await signKycImageUrls(record)),
         minor: true,
         message: 'You are under 18. A guardian needs to complete a consent form.',
       });
@@ -107,7 +107,7 @@ async function submitKyc(req, res) {
     // Adult — proceed as normal
     await UserModel.setKyc(userId, 'pending');
 
-    res.status(201).json(record);
+    res.status(201).json(await signKycImageUrls(record));
   } catch (err) {
     console.error('[KYC] submit error:', err);
     res.status(500).json({ error: 'Failed to submit KYC' });
@@ -133,7 +133,7 @@ async function getMyKyc(req, res) {
     }
 
     if (!record) return res.status(404).json({ error: 'No KYC record', ...response });
-    res.json(response);
+    res.json(await signKycImageUrls(response));
   } catch (err) {
     console.error('[KYC] getMyKyc error:', err);
     res.status(500).json({ error: 'Failed to fetch KYC' });
@@ -161,7 +161,7 @@ async function updateMyGender(req, res) {
 const KYC_IMAGE_FIELDS = ['id_front_url', 'id_back_url', 'selfie_url'];
 
 /**
- * Replace raw KYC bucket URLs with public URLs for admin display.
+ * Replace raw KYC bucket URLs with signed read URLs for admin/client display.
  * Non-KYC URLs (e.g. older public-bucket uploads) are left as-is.
  */
 async function signKycImageUrls(record) {
@@ -172,7 +172,7 @@ async function signKycImageUrls(record) {
     const path = extractKycGCSPath(rawUrl);
     if (!path) continue;
     try {
-      record[field] = getKycPublicUrl(path);
+      record[field] = await generateKycSignedReadUrl(path, 60);
     } catch (err) {
       console.error(`[KYC] Failed to sign ${field}:`, err.message);
       // Keep the original URL as a fallback.

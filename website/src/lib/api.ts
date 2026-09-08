@@ -1983,14 +1983,14 @@ export async function listCreatorMoviesApi(channelId: string) {
 export async function uploadMoviePosterApi(channelId: string, file: File) {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`/api/proxy/creator/channels/${channelId}/movies/poster`, {
-    method: "POST",
-    body: form,
-    headers: {},
-    credentials: "include",
-  });
-  const json = (await res.json()) as { success?: boolean; url?: string; error?: string };
-  return { ok: res.ok, status: res.status, data: json };
+  return apiFormData<{ success?: boolean; url?: string; error?: string }>(
+    `/creator/channels/${channelId}/movies/poster`,
+    {
+      method: "POST",
+      body: form,
+      requireAuth: true,
+    },
+  );
 }
 
 export async function createMovieResumableSessionApi(channelId: string, input: {
@@ -2084,14 +2084,14 @@ export async function listCreatorSeriesApi(channelId: string) {
 export async function uploadSeriesCoverApi(channelId: string, file: File) {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`/api/proxy/creator/channels/${channelId}/series/cover`, {
-    method: "POST",
-    body: form,
-    headers: {},
-    credentials: "include",
-  });
-  const json = (await res.json()) as { success?: boolean; url?: string; error?: string };
-  return { ok: res.ok, status: res.status, data: json };
+  return apiFormData<{ success?: boolean; url?: string; error?: string }>(
+    `/creator/channels/${channelId}/series/cover`,
+    {
+      method: "POST",
+      body: form,
+      requireAuth: true,
+    },
+  );
 }
 
 export async function createSeasonApi(channelId: string, seriesId: string, payload: { title?: string; season_number?: number }) {
@@ -2105,7 +2105,7 @@ export async function createEpisodeApi(channelId: string, seriesId: string, seas
   title: string;
   description?: string;
   episode_number?: number;
-  video_url?: string;
+  hosted_url?: string;
   external_url?: string;
   embed_url?: string;
   hls_url?: string;
@@ -2118,6 +2118,27 @@ export async function createEpisodeApi(channelId: string, seriesId: string, seas
   return api<{ success: boolean; episode: ChannelSeriesEpisode } | ErrorResponse>(
     `/creator/channels/${channelId}/series/${seriesId}/seasons/${seasonId}/episodes`,
     { method: "POST", body: payload, requireAuth: true },
+  );
+}
+
+export async function publishEpisodeApi(channelId: string, seriesId: string, episodeId: string) {
+  return api<{ success: boolean; episode: ChannelSeriesEpisode } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}/episodes/${episodeId}/publish`,
+    { method: "POST", body: {}, requireAuth: true },
+  );
+}
+
+export async function archiveEpisodeApi(channelId: string, seriesId: string, episodeId: string) {
+  return api<{ success: boolean; episode: ChannelSeriesEpisode } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}/episodes/${episodeId}/archive`,
+    { method: "POST", body: {}, requireAuth: true },
+  );
+}
+
+export async function deleteEpisodeApi(channelId: string, seriesId: string, episodeId: string) {
+  return api<{ success: boolean } | ErrorResponse>(
+    `/creator/channels/${channelId}/series/${seriesId}/episodes/${episodeId}`,
+    { method: "DELETE", requireAuth: true },
   );
 }
 

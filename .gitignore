@@ -114,3 +114,31 @@ marketer_app/**/mac_key.jks
 # Backup files
 *.bak
 stable_broadcast_player.dart
+
+# Decompiled TV APK — local analysis only
+tv_decompiled/
+
+# TV build artifacts
+tv/build/
+
+# Test screenshots
+.test_screenshot*.png
+
+# Design files (local only)
+claude_designs/uploads/
+claude_designs/.thumbnail
+tv_design/
+
+# Archive (local only)
+archive/
+
+# Tools (local only)
+tools/
+
+# Local planning/notes
+*.md
+!README.md
+!CLAUDE.md
+!backend/README.md
+!website/README.md
+!admin/README.md

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_pagination_controls.dart';
@@ -46,6 +47,7 @@ class _CreatorLibraryManagementScreenState
   @override
   void initState() {
     super.initState();
+    KycGuard.enforceOnEntry(context);
     _animCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 650),

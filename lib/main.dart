@@ -25,11 +25,12 @@ import 'features/subscription/screens/subscription_entry_screens.dart';
 import 'features/channel/screens/channel_list_screen.dart';
 import 'features/channel/screens/create_channel_screen.dart';
 import 'features/channel/screens/channel_view_screen.dart';
+import 'features/channel/screens/media_player_screen.dart';
 import 'features/channel/screens/channel_grid_screen.dart';
 import 'features/channel/screens/channel_number_access_screen.dart';
 import 'features/channel/screens/creator_studio_screen.dart';
 import 'features/channel/screens/edit_channel_screen.dart';
-import 'features/wallet/screens/digital_assets_screen.dart';
+import 'features/wallet/screens/digital_assets_overview_screen.dart';
 import 'features/wallet/screens/gift_wallet_screen.dart';
 import 'features/wallet/screens/ravens_to_vpt_screen.dart';
 import 'features/wallet/screens/wallet_transactions_screen.dart';
@@ -45,6 +46,9 @@ import 'features/notifications/screens/notifications_screen.dart';
 import 'features/channel/screens/premium_stream_paywall_screen.dart';
 import 'features/channel/screens/exclusive_access_paywall_screen.dart';
 import 'features/subscription/screens/creator_subscription_screen.dart';
+import 'features/subscription/screens/exclusive_request_status_screen.dart';
+import 'features/vod/screens/media_search_screen.dart';
+import 'features/vod/screens/watch_history_screen.dart';
 import 'features/referral/screens/referral_screen.dart';
 import 'features/auth/screens/pak_login_screen.dart';
 import 'features/ads/screens/advertiser_screen.dart';
@@ -74,6 +78,9 @@ import 'features/broadcast/screens/readable_upload_screen.dart';
 import 'features/announcements/screens/announcements_screen.dart';
 import 'features/updates/screens/updates_screen.dart';
 import 'features/channel/screens/my_pics_screen.dart';
+import 'features/profile/screens/profile_setup_screen.dart';
+import 'features/guardian/screens/guardian_form_screen.dart';
+import 'core/widgets/profile_setup_guard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -115,6 +122,7 @@ class AfroVisionApp extends StatelessWidget {
       title: 'AfroVision',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
+      navigatorObservers: [ProfileSetupGuard()],
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: AppColors.darkBlue,
@@ -165,6 +173,9 @@ class AfroVisionApp extends StatelessWidget {
             const ReadableUploadScreen(),
         '/create-channel': (_) => const CreateChannelScreen(),
         '/channel-view': (_) => const ChannelViewScreen(),
+        '/media-player': (_) => const MediaPlayerScreen(),
+        '/profile-setup': (_) => const ProfileSetupScreen(),
+        '/guardian-form': (_) => const GuardianFormScreen(),
         '/channel-access': (_) => const ChannelNumberAccessScreen(),
         '/creator-studio': (_) => const CreatorStudioScreen(),
         '/ai-video': (_) => const AiVideoGeneratorScreen(),
@@ -192,6 +203,12 @@ class AfroVisionApp extends StatelessWidget {
         '/advertiser': (_) => const AdvertiserScreen(),
         '/reminders': (_) => const RemindersScreen(),
         '/kyc': (_) => const KycScreen(),
+        '/exclusive-request-status': (ctx) =>
+            ExclusiveRequestStatusScreen.fromArgs(
+              ModalRoute.of(ctx)?.settings.arguments,
+            ),
+        '/media/search': (_) => const MediaSearchScreen(),
+        '/watch-history': (_) => const WatchHistoryScreen(),
         '/channel-analytics': (_) => const ChannelAnalyticsScreen(),
         '/checkout': (_) => const CheckoutScreen(),
         '/checkout/result': (_) => const CheckoutResultScreen(),

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../channel/screens/channel_list_screen.dart';
 import '../../profile/screens/profile_screen.dart';
-import '../../wallet/screens/digital_assets_screen.dart';
+import '../../wallet/screens/digital_assets_overview_screen.dart';
 import '../../wave/screens/wave_screen.dart';
 import 'media_center_screen.dart';
 

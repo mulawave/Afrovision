@@ -14,6 +14,7 @@ const { sendExclusiveLifecycleEmail } = require('../utils/email');
 const { buildExclusiveLifecycleMessage } = require('./exclusive_lifecycle.messages');
 const { isAdultKycVerified } = require('./exclusive_policy.service');
 const { queueExclusiveSplitException } = require('./exclusive_reconciliation.service');
+const ExclusiveRequestCtrl = require('./exclusive_request.controller');
 
 const COLLECTION = 'exclusive_channel_access';
 const PIC_ATTEMPTS_COLLECTION = 'exclusive_pic_attempts';
@@ -493,6 +494,24 @@ async function purchaseExclusiveAccess(req, res) {
           },
           description: `Exclusive channel access payment - ${channel.name}`,
         }).catch((err) => console.error('[Exclusive] ledger creation failed:', err.message));
+
+        // If the client tied this purchase to a prior membership request
+        // (approved_pending_payment), flip that request to `approved` and
+        // stash the access id + payment reference. Best-effort — a failure
+        // here must not undo the purchase.
+        const linkedRequestId = req.body && typeof req.body.request_id === 'string'
+          ? req.body.request_id.trim()
+          : null;
+        if (linkedRequestId) {
+          ExclusiveRequestCtrl.markRequestApprovedFromPayment({
+            requestId: linkedRequestId,
+            channelId: channel.id,
+            userUid: req.userId,
+            accessId: access.id,
+            paymentReference,
+          }).catch((err) =>
+            console.error('[Exclusive] request payment-link failed:', err.message));
+        }
 
         NotificationService.notifyUser(req.userId, {
           title: viewerMessage.title,

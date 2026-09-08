@@ -127,6 +127,46 @@ class VodCacheService {
     }
   }
 
+  /// Enumerate every VOD asset currently cached on this device. Reads the
+  /// per-item `meta.json` written by `_writeMeta` so the Library tab can
+  /// render tiles without a network round-trip. Fault-tolerant — a bad
+  /// meta file is skipped.
+  Future<List<CachedVodItem>> listAllCached() async {
+    if (!_initialized) return const <CachedVodItem>[];
+    final dir = _cacheDir;
+    if (dir == null || !await dir.exists()) return const <CachedVodItem>[];
+    final items = <CachedVodItem>[];
+    await for (final entity in dir.list()) {
+      if (entity is! Directory) continue;
+      final key = p.basename(entity.path);
+      if (!_cachedKeys.contains(key)) continue;
+      final metaFile = File(p.join(entity.path, 'meta.json'));
+      if (!await metaFile.exists()) continue;
+      try {
+        final raw = await metaFile.readAsString();
+        final meta = jsonDecode(raw) as Map<String, dynamic>;
+        final sep = key.indexOf('_');
+        if (sep <= 0) continue;
+        final mediaType = key.substring(0, sep);
+        final mediaId = key.substring(sep + 1);
+        items.add(CachedVodItem(
+          mediaType: mediaType,
+          mediaId: mediaId,
+          title: (meta['title'] as String?) ?? 'Untitled',
+          posterUrl: meta['poster_url'] as String?,
+          duration: (meta['duration'] as num?)?.toInt() ?? 0,
+          downloadedAt: (meta['downloaded_at'] as num?)?.toInt() ?? 0,
+          originalUrl: (meta['original_url'] as String?) ?? '',
+        ));
+      } catch (_) {
+        // Skip corrupt meta entries.
+      }
+    }
+    // Most recently downloaded first.
+    items.sort((a, b) => b.downloadedAt.compareTo(a.downloadedAt));
+    return items;
+  }
+
   bool isCached(String mediaType, String mediaId) {
     final key = _key(mediaType, mediaId);
     if (!_initialized) return false;
@@ -730,5 +770,26 @@ class DownloadProgress {
     required this.percent,
     required this.downloadedBytes,
     required this.totalBytes,
+  });
+}
+
+/// One cached VOD asset, as surfaced by [VodCacheService.listAllCached].
+class CachedVodItem {
+  final String mediaType;
+  final String mediaId;
+  final String title;
+  final String? posterUrl;
+  final int duration;
+  final int downloadedAt;
+  final String originalUrl;
+
+  const CachedVodItem({
+    required this.mediaType,
+    required this.mediaId,
+    required this.title,
+    required this.posterUrl,
+    required this.duration,
+    required this.downloadedAt,
+    required this.originalUrl,
   });
 }

@@ -19,6 +19,7 @@ const { getFirestore } = require('../utils/firestore');
 const ALLOWED_VIDEO_TYPES = {
   'video/mp4': '.mp4',
   'video/webm': '.webm',
+  'video/x-matroska': '.mkv',
 };
 
 const AGE_CLASSIFICATION_VALUES = new Set(['minor_safe', 'teen', 'adult']);

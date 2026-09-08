@@ -185,7 +185,14 @@ class AfrovisionVideoController extends ChangeNotifier {
         _position = _duration;
         if (!_disposed) notifyListeners();
       }
-      if (!_disposed && _completed && !_isLooping) onCompleted?.call();
+      // Only fire onCompleted when the video actually loaded and played to
+      // the end. A zero-duration "completion" means the stream failed to
+      // load — firing onCompleted in that case causes a cascade through all
+      // episodes (each one fails and auto-advances to the next, landing on
+      // the last episode regardless of which the user selected).
+      if (!_disposed && _completed && !_isLooping && _duration > Duration.zero) {
+        onCompleted?.call();
+      }
     });
 
     _bufferingSub = _player!.stream.buffering.listen((buffering) {
@@ -261,8 +268,8 @@ class AfrovisionVideoController extends ChangeNotifier {
 
     if (_disposed) return;
 
-    // Wait for an actual decoded frame before claiming success. This prevents
-    // the UI from showing a black player that is still buffering forever.
+    // Wait for MPV to know the frame dimensions — confirms demuxing/decoding
+    // has actually started (fails fast on a dead/unusable stream).
     final firstWidth = await _player!.stream.width
         .firstWhere((w) => (w ?? 0) > 0)
         .timeout(
@@ -275,11 +282,23 @@ class AfrovisionVideoController extends ChangeNotifier {
 
     if (_disposed) return;
 
-    // Seek to the requested start position once the decoder is ready.
+    // Seek to the requested start position before we wait for the first
+    // painted frame, so resumed playback doesn't flash frame zero first.
     if (_startPosition > Duration.zero) {
       await _player!.seek(_startPosition);
       if (_disposed) return;
     }
+
+    // Wait for the Flutter texture/surface to actually paint a decoded frame.
+    // Without this, `_isInitialized` (and thus the caller's loading spinner)
+    // can flip before anything is drawn, producing a black screen that only
+    // clears once the user taps the surface and forces a relayout.
+    await _videoController!.waitUntilFirstFrameRendered.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {},
+    );
+
+    if (_disposed) return;
 
     _hasError = false;
     _errorMessage = null;

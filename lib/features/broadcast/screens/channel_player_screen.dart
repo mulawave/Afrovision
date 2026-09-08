@@ -9,6 +9,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/services/watch_history_service.dart';
 import '../services/broadcast_service.dart';
 import '../widgets/broadcast_player.dart';
@@ -711,6 +712,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   }
 
   Future<void> _toggleFollow() async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
     final ch = _channel;
     if (ch == null || _followLoading) return;
     setState(() => _followLoading = true);
@@ -2633,6 +2635,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
               const SizedBox(height: 20),
               GestureDetector(
                 onTap: () async {
+                  if (!await KycGuard.ensureKycVerified(context)) return;
                   final granted = await Navigator.pushNamed(
                     context,
                     '/premium-stream',
@@ -4487,17 +4490,23 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   }
 
   void _onReactionTap(String emoji) {
-    _overlayKey.currentState?.addReaction(emoji);
-    if (_channelId != null) {
-      InteractionService.sendReaction(
-        channelId: _channelId!,
-        emoji: emoji,
-      ).catchError((_) {});
-    }
+    KycGuard.ensureKycVerified(
+      context,
+      onComplete: () {
+        _overlayKey.currentState?.addReaction(emoji);
+        if (_channelId != null) {
+          InteractionService.sendReaction(
+            channelId: _channelId!,
+            emoji: emoji,
+          ).catchError((_) {});
+        }
+      },
+    );
   }
 
   Future<void> _onGiftTap() async {
     if (_channelId == null) return;
+    if (!await KycGuard.ensureKycVerified(context)) return;
     final result = await GiftSheet.show(context, _channelId!);
     if (result != null && mounted) {
       _overlayKey.currentState?.showGift(
@@ -4563,6 +4572,7 @@ class _FullscreenGiftPanelState extends State<_FullscreenGiftPanel> {
   }
 
   Future<void> _sendGift(GiftModel gift) async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
     if (_sendingId != null) return;
     setState(() {
       _sendingId = gift.id;

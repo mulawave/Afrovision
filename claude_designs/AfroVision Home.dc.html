@@ -339,7 +339,7 @@ class Component extends DCLogic {
         const i = Math.round(e.target.scrollLeft / (298 + 11));
         if (i !== s.slide) this.setState({ slide: Math.max(0, Math.min(FEATURED.length - 1, i)) });
       },
-      openBrowse: tap('Browse all channels'),
+      openBrowse: () => { window.location.href = 'AfroVision Channels.dc.html'; },
       vptRate: '1 vPT = ₦750',
 
       actions: ACTIONS.map(a => ({ ...a, badge: a.badge || '', tap: tap(a.label) })),
@@ -366,12 +366,15 @@ class Component extends DCLogic {
       ],
 
       navItems: [
-        { label: 'Home', icon: 'ph-fill ph-house', size: '19px', style: 'color:' + accent, go: tap('Home') },
-        { label: 'Channels', icon: 'ph ph-television-simple', size: '19px', style: '', go: tap('Channels') },
+        { label: 'Home', icon: 'ph-fill ph-house', size: '19px', style: 'color:#f0a52a',
+          go: () => this.say('Home') },
+        { label: 'Channels', icon: 'ph ph-television-simple', size: '19px', style: '',
+          go: () => { window.location.href = 'AfroVision Channels.dc.html'; } },
         { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: '',
           go: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; } },
-        { label: 'Library', icon: 'ph ph-books', size: '19px', style: '', go: tap('Library') },
-        { label: 'Me', icon: 'ph ph-user-circle', size: '19px', style: '', go: tap('Account') }
+        { label: 'Waves', icon: 'ph ph-waves', size: '19px', style: '', go: () => this.say('Waves — shorts and mini series') },
+        { label: 'Assets', icon: 'ph ph-wallet', size: '19px', style: '',
+          go: () => { window.location.href = 'AfroVision Assets.dc.html'; } }
       ],
       toast: s.toast,
 

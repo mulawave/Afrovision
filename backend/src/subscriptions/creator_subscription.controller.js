@@ -359,9 +359,16 @@ async function adminListSubscriptions(req, res) {
       creatorUid,
     });
 
+    let stats = null;
+    try {
+      stats = await CreatorSub.getStats();
+    } catch (statsErr) {
+      console.error('[CreatorSub] adminListSubscriptions stats:', statsErr.message);
+    }
+
     res.json({
       subscriptions: page.subscriptions.map((subscription) => serializeCreatorSubscriptionForAdmin(subscription)),
-      stats: await CreatorSub.getStats(),
+      stats,
       limit,
       next_cursor: page.nextCursor,
       has_more: Boolean(page.nextCursor),

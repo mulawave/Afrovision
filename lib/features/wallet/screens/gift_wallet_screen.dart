@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../models/ledger_entry_model.dart';
 import '../services/wallet_service.dart';
@@ -476,6 +477,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
         Expanded(
           child: GestureDetector(
             onTap: () async {
+              if (!await KycGuard.ensureKycVerified(context)) return;
               final result = await Navigator.pushNamed(
                 context,
                 '/checkout',

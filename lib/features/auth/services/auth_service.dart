@@ -4,6 +4,35 @@ import '../../../core/storage/auth_storage.dart';
 import '../models/user_model.dart';
 
 class AuthService {
+  static UserModel? _cachedUser;
+  static DateTime? _cachedAt;
+  static const _cacheTtl = Duration(minutes: 2);
+
+  static void _setCache(UserModel user) {
+    _cachedUser = user;
+    _cachedAt = DateTime.now();
+  }
+
+  static void clearCache() {
+    _cachedUser = null;
+    _cachedAt = null;
+  }
+
+  static Future<UserModel> getCurrentUser({bool forceRefresh = false}) async {
+    final cached = _cachedUser;
+    final cachedAt = _cachedAt;
+    if (!forceRefresh &&
+        cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < _cacheTtl) {
+      return cached;
+    }
+    final data = await ApiService.get('/auth/me');
+    final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
+    _setCache(user);
+    return user;
+  }
+
   static Future<UserModel> register(
     String email,
     String password, {
@@ -21,7 +50,9 @@ class AuthService {
     await AuthStorage.saveToken(data['token'] as String);
     // Register FCM token silently after new account creation
     NotificationService.registerToken();
-    return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+    final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
+    _setCache(user);
+    return user;
   }
 
   static Future<UserModel> login(String email, String password) async {
@@ -33,18 +64,16 @@ class AuthService {
     await AuthStorage.saveToken(data['token'] as String);
     // Re-register FCM token on every login (token may have rotated)
     NotificationService.registerToken();
-    return UserModel.fromJson(data['user'] as Map<String, dynamic>);
-  }
-
-  static Future<UserModel> getCurrentUser() async {
-    final data = await ApiService.get('/auth/me');
-    return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+    final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
+    _setCache(user);
+    return user;
   }
 
   static Future<void> logout() async {
     // Remove FCM token from backend before clearing the session
     await NotificationService.unregisterToken();
     await AuthStorage.deleteToken();
+    clearCache();
   }
 
   static Future<void> forgotPassword(String email) async {

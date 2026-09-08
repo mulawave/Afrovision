@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_colors.dart';
+
+import '../../../core/theme/nocturne_theme.dart';
+import '../utils/wallet_format.dart';
 
 class WithdrawalSuccessModal extends StatefulWidget {
-  final double amount;
-  final double totalDebit;
-  final double transactionFee;
-  final double serviceCharge;
+  final double requestedAmount;
+  final double withdrawalFee;
   final double vatAmount;
+  final double totalDebit;
   final String bankName;
   final VoidCallback onClose;
 
   const WithdrawalSuccessModal({
     super.key,
-    required this.amount,
-    required this.totalDebit,
-    required this.transactionFee,
-    required this.serviceCharge,
+    required this.requestedAmount,
+    required this.withdrawalFee,
     required this.vatAmount,
+    required this.totalDebit,
     required this.bankName,
     required this.onClose,
   });
@@ -75,11 +75,6 @@ class _WithdrawalSuccessModalState extends State<WithdrawalSuccessModal>
     super.dispose();
   }
 
-  String _fmt(double val) {
-    if (val == val.roundToDouble()) return val.toInt().toString();
-    return val.toStringAsFixed(2);
-  }
-
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -100,14 +95,12 @@ class _WithdrawalSuccessModalState extends State<WithdrawalSuccessModal>
 
   Widget _buildModal() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 28),
-      padding: const EdgeInsets.all(28),
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.successGreen.withValues(alpha: 0.25),
-        ),
+        color: Nocturne.surfaceRaised,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Nocturne.borderCard),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.5),
@@ -119,30 +112,27 @@ class _WithdrawalSuccessModalState extends State<WithdrawalSuccessModal>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Animated checkmark circle
           FadeTransition(
             opacity: _checkFade,
             child: Container(
-              width: 80,
-              height: 80,
+              width: 76,
+              height: 76,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppColors.successGreen.withValues(alpha: 0.12),
+                color: Nocturne.green.withValues(alpha: 0.12),
                 border: Border.all(
-                  color: AppColors.successGreen.withValues(alpha: 0.3),
+                  color: Nocturne.green.withValues(alpha: 0.35),
                   width: 2,
                 ),
               ),
               child: const Icon(
                 Icons.check_rounded,
-                color: AppColors.successGreen,
-                size: 40,
+                color: Nocturne.green,
+                size: 38,
               ),
             ),
           ),
-          const SizedBox(height: 20),
-
-          // Content with fade
+          const SizedBox(height: 18),
           FadeTransition(
             opacity: _contentFade,
             child: Column(
@@ -152,99 +142,91 @@ class _WithdrawalSuccessModalState extends State<WithdrawalSuccessModal>
                   'Withdrawal Request Submitted',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: AppColors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3,
+                    color: Nocturne.text,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.01,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
-                  '₦${_fmt(widget.amount)}',
+                  '₦${walletFormatAmount(widget.requestedAmount)}',
                   style: const TextStyle(
-                    color: AppColors.successGreen,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
+                    color: Nocturne.green,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.02,
                   ),
                 ),
-                const SizedBox(height: 16),
-
-                // Fee breakdown card
+                const SizedBox(height: 14),
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppColors.inputFill,
+                    color: Nocturne.bg,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.inputBorder),
+                    border: Border.all(color: Nocturne.borderCard),
                   ),
                   child: Column(
                     children: [
                       _feeRow(
-                        'You will receive',
-                        '₦${_fmt(widget.amount)}',
-                        AppColors.successGreen,
+                        'Requested amount',
+                        '₦${walletFormatAmount(widget.requestedAmount)}',
+                        Nocturne.text,
                       ),
                       const SizedBox(height: 8),
                       _feeRow(
-                        'Transaction fee',
-                        '₦${_fmt(widget.transactionFee)}',
-                        AppColors.goldText,
-                      ),
-                      const SizedBox(height: 6),
-                      _feeRow(
-                        'Service charge',
-                        '₦${_fmt(widget.serviceCharge)}',
-                        AppColors.goldText,
+                        'Withdrawal fee',
+                        '₦${walletFormatAmount(widget.withdrawalFee)}',
+                        Nocturne.textFaint,
                       ),
                       const SizedBox(height: 6),
                       _feeRow(
                         'VAT (7.5%)',
-                        '₦${_fmt(widget.vatAmount)}',
-                        AppColors.goldText,
+                        '₦${walletFormatAmount(widget.vatAmount)}',
+                        Nocturne.textFaint,
                       ),
                       const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Divider(color: AppColors.inputBorder, height: 1),
+                        padding: EdgeInsets.symmetric(vertical: 10),
+                        child: Divider(color: Nocturne.borderCard, height: 1),
                       ),
                       _feeRow(
                         'Total debited',
-                        '₦${_fmt(widget.totalDebit)}',
-                        AppColors.orange,
+                        '₦${walletFormatAmount(widget.totalDebit)}',
+                        Nocturne.gold,
                         bold: true,
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
-
-                // Info rows
+                const SizedBox(height: 12),
                 _infoRow(Icons.account_balance_rounded, widget.bankName),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 _infoRow(Icons.schedule_rounded, 'Processing within 24 hours'),
-                const SizedBox(height: 20),
-
-                // Close button
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: widget.onClose,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.orange,
-                      foregroundColor: AppColors.darkBlue,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 0,
+                const SizedBox(height: 18),
+                GestureDetector(
+                  onTap: widget.onClose,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      gradient: Nocturne.goldCta,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Nocturne.gold.withValues(alpha: 0.30),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
                     ),
+                    alignment: Alignment.center,
                     child: const Text(
                       'Done',
                       style: TextStyle(
+                        color: Color(0xFF26170A),
                         fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.3,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -269,17 +251,17 @@ class _WithdrawalSuccessModalState extends State<WithdrawalSuccessModal>
         Text(
           label,
           style: TextStyle(
-            color: AppColors.goldText,
+            color: Nocturne.textFaint,
             fontSize: 12,
-            fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+            fontWeight: bold ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
         Text(
           value,
           style: TextStyle(
             color: valueColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -289,15 +271,15 @@ class _WithdrawalSuccessModalState extends State<WithdrawalSuccessModal>
   Widget _infoRow(IconData icon, String text) {
     return Row(
       children: [
-        Icon(icon, color: AppColors.goldText, size: 16),
+        Icon(icon, color: Nocturne.textFaint, size: 16),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             text,
             style: const TextStyle(
-              color: AppColors.goldText,
+              color: Nocturne.textFaint,
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),

@@ -1,13 +1,18 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../../../core/services/deep_link_service.dart';
-import 'payment_webview_screen.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/nocturne_theme.dart';
+import '../../wallet/services/wallet_service.dart';
+import '../../wallet/utils/wallet_format.dart';
+import '../../wallet/widgets/assets_header.dart';
 import '../services/checkout_recovery_service.dart';
-import '../services/payment_service.dart';
 import '../services/google_play_billing_service.dart';
+import '../services/payment_service.dart';
+import 'payment_webview_screen.dart';
 
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
@@ -40,6 +45,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   final TextEditingController _amountCtrl = TextEditingController(text: '2000');
   final List<Map<String, dynamic>> _providers = [];
 
+  Map<String, dynamic> _exchangeRates = {};
   double? _fixedAmount;
   String? _paymentId;
   String? _checkoutUrl;
@@ -56,6 +62,8 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   static const String _resultCanceled = 'canceled';
   static const String _resultPending = 'pending';
   static const String _resultUnknown = 'unknown';
+
+  static const _quickAmounts = [2000, 5000, 10000, 20000];
 
   @override
   void initState() {
@@ -74,8 +82,6 @@ class _CheckoutScreenState extends State<CheckoutScreen>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOutCubic));
 
-    // Register deep-link callback so the payment gateway (Paystack/Flutterwave)
-    // can redirect back to the app via afrovision://checkout/result?payment_id=xxx
     DeepLinkService.onCheckoutResult = (paymentId) {
       if (!mounted || _completed) return;
       setState(() {
@@ -136,8 +142,19 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   }
 
   Future<void> _hydrateRecoveryAndLoadProviders() async {
+    await _loadExchangeRates();
     await _restorePendingSessionIfNeeded();
     await _loadProviders();
+  }
+
+  Future<void> _loadExchangeRates() async {
+    try {
+      final rates = await WalletService.getExchangeRates();
+      if (!mounted) return;
+      setState(() => _exchangeRates = rates);
+    } catch (_) {
+      _exchangeRates = {};
+    }
   }
 
   Future<void> _restorePendingSessionIfNeeded() async {
@@ -284,8 +301,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
     });
 
     try {
-      final isSub = _pendingGooglePlayIsSub ||
-          _purpose == 'platform_plan';
+      final isSub = _pendingGooglePlayIsSub || _purpose == 'platform_plan';
       final result = await GooglePlayBillingService.completeAndVerify(
         purchase: purchase,
         isSubscription: isSub,
@@ -320,17 +336,15 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   String? _googlePlayProductIdForCurrentSelection() {
     if (_purpose == 'wallet_topup') {
       final amount = _displayAmount;
-      // Match to nearest predefined top-up product
       if (amount <= 500) return 'wallet_topup_500';
       if (amount <= 1000) return 'wallet_topup_1000';
       if (amount <= 2000) return 'wallet_topup_2000';
       if (amount <= 5000) return 'wallet_topup_5000';
       if (amount <= 10000) return 'wallet_topup_10000';
-      return null; // Amount too large for Google Play top-up products
+      return null;
     }
     if (_purpose == 'platform_plan' && _planId != null) {
       final cycleSuffix = _billingCycle == 'yearly' ? 'yearly' : 'monthly';
-      // Map plan IDs to Google Play product IDs
       final planProductMap = {
         'plan_viewer_basic': 'viewer_basic_$cycleSuffix',
         'plan_viewer_pro': 'viewer_pro_$cycleSuffix',
@@ -409,8 +423,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         _checkoutUrl = checkoutUrl;
         _launchedCheckout = true;
         _starting = false;
-        _statusText =
-            'Checkout opened. Complete payment and return to AfroVision.';
+        _statusText = 'Checkout opened. Complete payment and return to AfroVision.';
       });
 
       await CheckoutRecoveryService.savePendingSession(
@@ -451,7 +464,6 @@ class _CheckoutScreenState extends State<CheckoutScreen>
 
     if (!mounted) return;
 
-    // WebView intercepted com.afrovision.app://checkout/result?payment_id=xxx
     if (result != null && result.isNotEmpty) {
       setState(() {
         _paymentId = result;
@@ -590,164 +602,163 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   double get _displayAmount =>
       _fixedAmount ?? double.tryParse(_amountCtrl.text.trim()) ?? 0;
 
+  double get _vptPrice {
+    final price = _exchangeRates['vpt_price_ngn'];
+    if (price is num) return price.toDouble();
+    return 750;
+  }
+
+  String get _topUpDisplay {
+    if (_purpose == 'platform_plan') {
+      final amount = _fixedAmount;
+      if (amount != null && amount > 0) return '₦${walletFormatAmount(amount)}';
+      return 'Plan Checkout';
+    }
+    return '₦${walletFormatAmount(_displayAmount)}';
+  }
+
+  String get _topUpHint {
+    if (_purpose == 'platform_plan') {
+      return '${_planName ?? 'Selected plan'} · ${_billingCycle.toUpperCase()}';
+    }
+    if (_displayAmount <= 0) {
+      return _balanceType == 'vpt'
+          ? 'Enter an amount to buy off-chain vPT'
+          : 'Enter an amount to top up your NGN cash wallet';
+    }
+    if (_balanceType == 'vpt') {
+      final vpt = _displayAmount / _vptPrice;
+      return '≈ ${walletFormatAmount(vpt)} vPT';
+    }
+    return 'Top up your NGN cash wallet balance';
+  }
+
+  void _onBack() {
+    if (_launchedCheckout && !_completed) {
+      unawaited(_openResultScreen(
+        status: _resultCanceled,
+        message: 'You left checkout before verification completed.',
+      ));
+      return;
+    }
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  void _selectAmount(int amount) {
+    _amountCtrl.text = amount.toString();
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
-        child: SafeArea(
-          child: _loadingProviders
-              ? const Center(
-                  child: CircularProgressIndicator(color: AppColors.orange),
-                )
-              : FadeTransition(
-                  opacity: _fadeIn,
-                  child: SlideTransition(
-                    position: _slideUp,
-                    child: Column(
-                      children: [
-                        _buildAppBar(),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildHeroCard(),
-                                const SizedBox(height: 16),
-                                if (_purpose == 'wallet_topup') ...[
-                                  _buildAmountField(),
-                                  const SizedBox(height: 16),
-                                  _buildBalanceTypeSelector(),
-                                  const SizedBox(height: 16),
-                                ],
-                                _buildProviderSelector(),
-                                if (_googlePlayAvailable) ...[
-                                  const SizedBox(height: 16),
-                                  _buildGooglePlaySection(),
-                                ],
-                                const SizedBox(height: 16),
-                                _buildStatusCard(),
-                                if (_error != null) ...[
-                                  const SizedBox(height: 16),
-                                  _buildErrorCard(),
-                                ],
-                                const SizedBox(height: 22),
-                                _buildActions(),
+      backgroundColor: Nocturne.bg,
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            AssetsHeader(
+              title: _purpose == 'platform_plan' ? 'Plan Checkout' : 'Top Up',
+              subtitle: _purpose == 'platform_plan'
+                  ? '${_planName ?? 'Selected plan'} · ${_billingCycle.toUpperCase()}'
+                  : 'Add value to your wallet',
+              onBack: _onBack,
+            ),
+            Expanded(
+              child: _loadingProviders
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Nocturne.gold,
+                        strokeWidth: 3,
+                      ),
+                    )
+                  : FadeTransition(
+                      opacity: _fadeIn,
+                      child: SlideTransition(
+                        position: _slideUp,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildHeroCard(),
+                              const SizedBox(height: 14),
+                              if (_purpose == 'wallet_topup') ...[
+                                _buildAmountField(),
+                                const SizedBox(height: 9),
+                                _buildQuickAmounts(),
+                                const SizedBox(height: 14),
+                                _buildBalanceTypeSelector(),
+                                const SizedBox(height: 14),
                               ],
-                            ),
+                              _buildProviderSelector(),
+                              if (_googlePlayAvailable) ...[
+                                const SizedBox(height: 14),
+                                _buildGooglePlaySection(),
+                              ],
+                              const SizedBox(height: 14),
+                              _buildStatusCard(),
+                              if (_error != null) ...[
+                                const SizedBox(height: 14),
+                                _buildErrorCard(),
+                              ],
+                              const SizedBox(height: 22),
+                              _buildActions(),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () async {
-              if (_launchedCheckout && !_completed) {
-                await _openResultScreen(
-                  status: _resultCanceled,
-                  message: 'You left checkout before verification completed.',
-                );
-                return;
-              }
-              if (!mounted) return;
-              Navigator.pop(context);
-            },
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.inputBorder),
-              ),
-              child: const Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: AppColors.white,
-                size: 18,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Text(
-              _title,
-              style: const TextStyle(
-                color: AppColors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
 
   Widget _buildHeroCard() {
-    final amountText = _displayAmount <= 0
-        ? 'Choose an amount'
-        : '₦${_displayAmount.toStringAsFixed(0)}';
-
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        gradient: LinearGradient(
-          colors: [
-            AppColors.orange.withValues(alpha: 0.16),
-            AppColors.lightOrange.withValues(alpha: 0.06),
-          ],
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          colors: [Color(0xFF1B2A5C), Color(0xFF101C40)],
         ),
-        border: Border.all(color: AppColors.orange.withValues(alpha: 0.25)),
+        border: Border.all(color: const Color(0xFF2F4483)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            _purpose == 'platform_plan'
-                ? 'Subscription Checkout'
-                : 'Wallet Top-Up',
-            style: TextStyle(
-              color: AppColors.goldText.withValues(alpha: 0.9),
-              fontSize: 12,
+            _purpose == 'platform_plan' ? 'Subscription Checkout' : 'Wallet top-up',
+            style: const TextStyle(
+              color: Nocturne.gold,
+              fontSize: 10,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.1,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Text(
-            amountText,
+            _topUpDisplay,
             style: const TextStyle(
-              color: AppColors.white,
-              fontSize: 30,
-              fontWeight: FontWeight.w800,
+              color: Nocturne.text,
+              fontSize: 32,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.02,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 3),
           Text(
-            _purpose == 'platform_plan'
-                ? '${_planName ?? 'Selected plan'} · ${_billingCycle.toUpperCase()}'
-                : _balanceType == 'vpt'
-                ? 'Buy vPT units into your gift wallet'
-                : 'Top up your NGN gift wallet balance',
+            _topUpHint,
             style: const TextStyle(
-              color: AppColors.hintText,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
+              color: Nocturne.textFaint,
+              fontSize: 11.5,
+              height: 1.35,
             ),
           ),
         ],
@@ -760,42 +771,96 @@ class _CheckoutScreenState extends State<CheckoutScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Top-Up Amount (NGN)',
+          'Top-up amount (NGN)',
           style: TextStyle(
-            color: AppColors.lightOrange,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
+            color: Nocturne.goldSoft,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _amountCtrl,
-          keyboardType: TextInputType.number,
-          style: const TextStyle(color: AppColors.white),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: AppColors.inputFill,
-            hintText: 'Minimum 100',
-            hintStyle: const TextStyle(color: AppColors.hintText),
-            prefixText: '₦ ',
-            prefixStyle: const TextStyle(color: AppColors.lightOrange),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: AppColors.inputBorder),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: AppColors.inputBorder),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppColors.orange),
-            ),
+        const SizedBox(height: 7),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0E1A3D),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: Nocturne.borderCard),
           ),
-          onChanged: (_) => setState(() {}),
+          child: Row(
+            children: [
+              const Text(
+                '₦',
+                style: TextStyle(
+                  color: Nocturne.goldLight,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _amountCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  style: const TextStyle(
+                    color: Nocturne.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    border: InputBorder.none,
+                    hintText: '2000',
+                    hintStyle: TextStyle(
+                      color: Nocturne.textHint,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildQuickAmounts() {
+    return Row(
+      children: _quickAmounts.map((amount) {
+        final active = _displayAmount == amount.toDouble();
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 7),
+            child: GestureDetector(
+              onTap: () => _selectAmount(amount),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: active ? const Color(0x14F0A52A) : const Color(0x05FFFFFF),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(
+                    color: active ? Nocturne.gold : Nocturne.border,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '₦${walletFormatAmount(amount)}',
+                  style: TextStyle(
+                    color: active ? Nocturne.goldLight : Nocturne.textMuted,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -804,30 +869,29 @@ class _CheckoutScreenState extends State<CheckoutScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Credit Destination',
+          'Credit destination',
           style: TextStyle(
-            color: AppColors.lightOrange,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
+            color: Nocturne.goldSoft,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 7),
         Row(
           children: [
             Expanded(
-              child: _typeCard(
-                'ngn',
-                'NGN Wallet',
-                'For subscriptions and premium access',
+              child: _buildDestinationTile(
+                value: 'ngn',
+                label: 'Cash Wallet',
+                note: 'For subscriptions and premium access',
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
-              child: _typeCard(
-                'vpt',
-                'Gift Wallet vPT',
-                'For gifts and vPT spend',
+              child: _buildDestinationTile(
+                value: 'vpt',
+                label: 'Off-chain vPT',
+                note: 'For gifts and vPT spend',
               ),
             ),
           ],
@@ -836,41 +900,41 @@ class _CheckoutScreenState extends State<CheckoutScreen>
     );
   }
 
-  Widget _typeCard(String value, String title, String subtitle) {
+  Widget _buildDestinationTile({
+    required String value,
+    required String label,
+    required String note,
+  }) {
     final selected = _balanceType == value;
     return GestureDetector(
       onTap: () => setState(() => _balanceType = value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selected
-              ? AppColors.orange.withValues(alpha: 0.12)
-              : AppColors.inputFill,
-          borderRadius: BorderRadius.circular(14),
+          color: const Color(0x05FFFFFF),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected
-                ? AppColors.orange.withValues(alpha: 0.45)
-                : AppColors.inputBorder,
+            color: selected ? Nocturne.gold : Nocturne.border,
           ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              title,
+              label,
               style: TextStyle(
-                color: selected ? AppColors.white : AppColors.lightOrange,
+                color: selected ? Nocturne.text : Nocturne.textDim,
                 fontSize: 13,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
-              subtitle,
+              note,
               style: const TextStyle(
-                color: AppColors.hintText,
-                fontSize: 11,
+                color: Nocturne.textFaint,
+                fontSize: 10.5,
                 height: 1.35,
               ),
             ),
@@ -885,71 +949,58 @@ class _CheckoutScreenState extends State<CheckoutScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Payment Provider',
+          'Payment provider',
           style: TextStyle(
-            color: AppColors.lightOrange,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
+            color: Nocturne.goldSoft,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 7),
         Column(
           children: _providers.map((item) {
             final id = (item['id'] as String?) ?? '';
+            final label = (item['label'] as String?) ?? id;
+            final note = (item['note'] as String?) ??
+                (item['enabled'] == true ? 'Pay securely with $id' : 'Not configured');
             final enabled = item['enabled'] == true;
             final selected = _provider == id;
             return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.only(bottom: 8),
               child: GestureDetector(
                 onTap: enabled ? () => setState(() => _provider = id) : null,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(13),
                   decoration: BoxDecoration(
-                    color: selected
-                        ? AppColors.orange.withValues(alpha: 0.12)
-                        : AppColors.inputFill,
-                    borderRadius: BorderRadius.circular(14),
+                    color: const Color(0x05FFFFFF),
+                    borderRadius: BorderRadius.circular(13),
                     border: Border.all(
-                      color: selected
-                          ? AppColors.orange.withValues(alpha: 0.45)
-                          : AppColors.inputBorder,
+                      color: selected ? Nocturne.gold : Nocturne.border,
                     ),
                   ),
                   child: Row(
                     children: [
-                      Icon(
-                        selected
-                            ? Icons.radio_button_checked_rounded
-                            : Icons.radio_button_off_rounded,
-                        color: selected ? AppColors.orange : AppColors.hintText,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 10),
+                      _buildRadioRing(selected: selected && enabled, enabled: enabled),
+                      const SizedBox(width: 11),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              (item['label'] as String?) ?? id,
+                              label,
                               style: TextStyle(
-                                color: enabled
-                                    ? AppColors.white
-                                    : AppColors.hintText,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
+                                color: enabled ? Nocturne.text : Nocturne.textHint,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              enabled
-                                  ? 'Configured in admin settings'
-                                  : 'Not configured',
+                              note,
                               style: const TextStyle(
-                                color: AppColors.hintText,
-                                fontSize: 11,
+                                color: Nocturne.textFaint,
+                                fontSize: 10.5,
                               ),
                             ),
                           ],
@@ -966,14 +1017,38 @@ class _CheckoutScreenState extends State<CheckoutScreen>
     );
   }
 
+  Widget _buildRadioRing({required bool selected, required bool enabled}) {
+    final ringColor = enabled
+        ? (selected ? Nocturne.gold : Nocturne.textHint)
+        : Nocturne.textHint.withValues(alpha: 0.35);
+    final dotColor = selected ? Nocturne.goldLight : Colors.transparent;
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: ringColor, width: 1.5),
+      ),
+      alignment: Alignment.center,
+      child: Container(
+        width: 9,
+        height: 9,
+        decoration: BoxDecoration(
+          color: dotColor,
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatusCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
       decoration: BoxDecoration(
-        color: AppColors.inputFill,
+        color: Nocturne.bg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.inputBorder),
+        border: Border.all(color: Nocturne.borderCard),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -981,18 +1056,18 @@ class _CheckoutScreenState extends State<CheckoutScreen>
           const Text(
             'Status',
             style: TextStyle(
-              color: AppColors.goldText,
-              fontSize: 11,
+              color: Nocturne.gold,
+              fontSize: 10,
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
+              letterSpacing: 1.1,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             _statusText,
             style: const TextStyle(
-              color: AppColors.white,
-              fontSize: 13,
+              color: Nocturne.textDim,
+              fontSize: 12.5,
               height: 1.4,
             ),
           ),
@@ -1000,7 +1075,10 @@ class _CheckoutScreenState extends State<CheckoutScreen>
             const SizedBox(height: 8),
             Text(
               'Reference: $_paymentId',
-              style: const TextStyle(color: AppColors.hintText, fontSize: 11),
+              style: const TextStyle(
+                color: Nocturne.textFaint,
+                fontSize: 11,
+              ),
             ),
           ],
         ],
@@ -1013,14 +1091,14 @@ class _CheckoutScreenState extends State<CheckoutScreen>
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.errorRed.withValues(alpha: 0.12),
+        color: Nocturne.red.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.errorRed.withValues(alpha: 0.35)),
+        border: Border.all(color: Nocturne.red.withValues(alpha: 0.35)),
       ),
       child: Text(
         _error!,
         style: const TextStyle(
-          color: AppColors.white,
+          color: Nocturne.text,
           fontSize: 13,
           height: 1.4,
         ),
@@ -1029,73 +1107,76 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   }
 
   Widget _buildGooglePlaySection() {
+    final available = _googlePlayProductIdForCurrentSelection() != null;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: AppColors.inputFill,
+        color: Nocturne.surfaceRaised,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.orange.withValues(alpha: 0.25),
-        ),
+        border: Border.all(color: Nocturne.borderCard),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.payments_outlined, color: AppColors.orange, size: 20),
-              const SizedBox(width: 8),
+              const Icon(Icons.play_arrow_rounded, color: Nocturne.goldLight, size: 18),
+              const SizedBox(width: 9),
               const Text(
                 'Google Play',
                 style: TextStyle(
-                  color: AppColors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
+                  color: Nocturne.text,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const Spacer(),
               Text(
-                _googlePlayProductIdForCurrentSelection() != null
-                    ? 'Available'
-                    : 'Select a supported amount',
+                available ? 'Available' : 'Select a supported amount',
                 style: TextStyle(
-                  color: _googlePlayProductIdForCurrentSelection() != null
-                      ? AppColors.lightOrange
-                      : AppColors.hintText,
+                  color: available ? Nocturne.green : Nocturne.textFaint,
                   fontSize: 11,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _googlePlayLoading || _googlePlayProductIdForCurrentSelection() == null
-                  ? null
-                  : _startGooglePlayCheckout,
-              icon: _googlePlayLoading
-                  ? const SizedBox(
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: _googlePlayLoading || !available ? null : () => _startGooglePlayCheckout(),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F8B5F),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_googlePlayLoading)
+                    const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                        color: AppColors.white,
+                        color: Color(0xFFEAFFF3),
                         strokeWidth: 2,
                       ),
                     )
-                  : const Icon(Icons.android, size: 18),
-              label: Text(
-                _googlePlayLoading ? 'Processing...' : 'Pay with Google Play',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF01875F),
-                foregroundColor: AppColors.white,
-                minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
+                  else
+                    const Icon(Icons.android, color: Color(0xFFEAFFF3), size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    _googlePlayLoading ? 'Processing...' : 'Pay with Google Play',
+                    style: const TextStyle(
+                      color: Color(0xFFEAFFF3),
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1105,48 +1186,59 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   }
 
   Widget _buildActions() {
+    final canStart = !_starting &&
+        (_purpose == 'platform_plan' || _displayAmount >= 100);
     return Column(
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _starting ? null : _startCheckout,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.orange,
-              foregroundColor: AppColors.white,
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
+        GestureDetector(
+          onTap: canStart ? () => _startCheckout() : null,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              gradient: Nocturne.goldCta,
+              borderRadius: BorderRadius.circular(13),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0x33EF9615),
+                  blurRadius: 22,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
+            alignment: Alignment.center,
             child: Text(
               _starting
                   ? 'Opening Checkout...'
                   : _checkoutUrl != null
-                  ? 'Open Checkout Again'
-                  : 'Start Secure Checkout',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+                      ? 'Open Checkout Again'
+                      : 'Start Secure Checkout',
+              style: const TextStyle(
+                color: Color(0xFF26170A),
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(
-            onPressed: _verifying ? null : () => _verifyPayment(),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.lightOrange,
-              side: BorderSide(
-                color: AppColors.lightOrange.withValues(alpha: 0.4),
-              ),
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
+        GestureDetector(
+          onTap: _verifying ? null : () => _verifyPayment(),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 13),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: const Color(0xFF4A3A1A)),
             ),
+            alignment: Alignment.center,
             child: Text(
-              _verifying ? 'Verifying...' : 'I Completed Payment, Verify Now',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              _verifying ? 'Verifying...' : 'I completed payment, verify now',
+              style: const TextStyle(
+                color: Nocturne.goldLight,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ),

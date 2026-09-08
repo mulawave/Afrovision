@@ -1,7 +1,10 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/nocturne_theme.dart';
 import '../models/series_model.dart';
+import '../widgets/episode_thumbnail.dart';
 import '../models/vod_playback_args.dart';
 import '../services/vod_service.dart';
 import 'vod_player_screen.dart';
@@ -19,6 +22,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   bool _loading = true;
   SeriesModel? _series;
   String? _error;
+  final Map<String, int> _episodeProgress = {};
 
   @override
   void initState() {
@@ -37,6 +41,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         _series = detail;
         _loading = false;
       });
+      _loadEpisodeProgress(detail);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -44,7 +49,22 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         _error = e.toString();
         _loading = false;
       });
+      _loadEpisodeProgress(widget.series);
     }
+  }
+
+  Future<void> _loadEpisodeProgress(SeriesModel series) async {
+    final episodes = series.allEpisodes;
+    for (final ep in episodes) {
+      try {
+        final progress = await VodService.getProgress('episode', ep.id);
+        if (progress != null && progress.positionSeconds > 0 && mounted) {
+          _episodeProgress[ep.id] = progress.positionSeconds;
+        }
+      } catch (_) {}
+      if (!mounted) return;
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -99,21 +119,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             ),
             if (series.seasons.isNotEmpty)
               SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final expanded = <Widget>[];
-                    for (final season in series.seasons) {
-                      expanded.add(_seasonHeader(season.title));
-                      for (final ep in season.episodes) {
-                        expanded.add(_episodeTile(ep));
-                      }
-                    }
-                    if (index >= expanded.length) return null;
-                    return expanded[index];
-                  },
-                  childCount: series.seasons.fold<int>(
-                      0, (a, s) => a + 1 + s.episodes.length),
-                ),
+                delegate: SliverChildListDelegate(_buildEpisodeList(series)),
               ),
             const SliverToBoxAdapter(child: SizedBox(height: 30)),
           ],
@@ -148,12 +154,14 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                     stops: const [0.55, 1],
                   ).createShader(r),
                   blendMode: BlendMode.dstIn,
-                  child: Image.network(
-                    cover,
+                  child: CachedNetworkImage(
+                    imageUrl: cover,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: 230,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    memCacheHeight: 460,
+                    placeholder: (_, __) => const SizedBox.shrink(),
+                    errorWidget: (_, __, ___) => const SizedBox.shrink(),
                   ),
                 )
               : null,
@@ -299,48 +307,55 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     );
   }
 
+  List<Widget> _buildEpisodeList(SeriesModel series) {
+    final list = <Widget>[];
+    for (final season in series.seasons) {
+      list.add(_seasonHeader(season.title));
+      for (final ep in season.episodes) {
+        list.add(_episodeTile(ep));
+      }
+    }
+    return list;
+  }
+
   Widget _episodeTile(EpisodeModel ep) {
     final playable = ep.playbackUrl != null;
-    return InkWell(
-      onTap: playable ? () => _playEpisode(ep) : null,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
+    final hasProgress = _episodeProgress.containsKey(ep.id);
+    final buttonLabel = hasProgress ? 'Resume' : 'Play this Episode';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              width: 64,
               height: 44,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                color: Nocturne.surfaceRaised,
-                border: Border.all(color: Nocturne.border, width: 1),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                '${ep.episodeNumber}',
-                style: const TextStyle(
-                  color: Nocturne.textDim,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+              child: EpisodeThumbnail(
+                posterUrl: ep.posterUrl,
+                videoUrl: ep.playbackUrl,
+                episodeNumber: ep.episodeNumber,
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    ep.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Nocturne.text,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  ep.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Nocturne.text,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
                   ),
+                ),
+                if (ep.duration > 0) ...[
                   const SizedBox(height: 2),
                   Text(
                     _formatDuration(ep.duration),
@@ -350,17 +365,37 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                     ),
                   ),
                 ],
-              ),
+              ],
             ),
-            Icon(
-              playable
-                  ? Icons.play_circle_outline_rounded
-                  : Icons.lock_outline_rounded,
-              color: playable ? Nocturne.gold : Nocturne.textHint,
-              size: 20,
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          playable
+              ? GestureDetector(
+                  onTap: () => _playEpisode(ep),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: Nocturne.gold.withValues(alpha: 0.08),
+                      border: Border.all(color: Nocturne.gold, width: 1),
+                    ),
+                    child: Text(
+                      buttonLabel,
+                      style: const TextStyle(
+                        color: Nocturne.gold,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                )
+              : const Icon(
+                  Icons.lock_outline_rounded,
+                  color: Nocturne.textHint,
+                  size: 20,
+                ),
+        ],
       ),
     );
   }
@@ -374,10 +409,22 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   }
 
   void _playEpisode(EpisodeModel episode) {
+    if (episode.ageClassification.toLowerCase() == 'adult') {
+      KycGuard.ensureKycVerified(
+        context,
+        onComplete: () => _openPlayer(episode),
+      );
+      return;
+    }
+    _openPlayer(episode);
+  }
+
+  void _openPlayer(EpisodeModel episode) {
     final series = _series ?? widget.series;
     final all = series.allEpisodes;
     final index = all.indexWhere((e) => e.id == episode.id);
-    final nextId = index >= 0 && index < all.length - 1 ? all[index + 1].id : null;
+    final nextId =
+        index >= 0 && index < all.length - 1 ? all[index + 1].id : null;
     final prevId = index > 0 ? all[index - 1].id : null;
     final args = VodPlaybackArgs.fromEpisode(
       series,

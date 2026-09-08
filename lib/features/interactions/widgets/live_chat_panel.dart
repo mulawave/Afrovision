@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/reputation_badge.dart';
 import '../models/interaction_models.dart';
@@ -108,6 +109,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
   }
 
   Future<void> _sendMessage() async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
     final text = _inputController.text.trim();
     if (text.isEmpty || _sending) return;
 

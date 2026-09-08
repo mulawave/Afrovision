@@ -22,12 +22,16 @@ import {
   uploadSeriesCoverApi,
   createSeasonApi,
   createEpisodeApi,
+  publishEpisodeApi,
+  archiveEpisodeApi,
+  deleteEpisodeApi,
   createSeriesResumableSessionApi,
   completeSeriesResumableSessionApi,
   type ChannelMovie,
   type ChannelSeries,
   type ChannelSeason,
   type ChannelSeriesEpisode,
+  type ErrorResponse,
 } from "@/lib/api";
 
 type MediaTab = "movies" | "series";
@@ -133,6 +137,38 @@ function MoviesManager({
 }) {
   const [mode, setMode] = useState<"list" | "create" | "edit">("list");
   const [editing, setEditing] = useState<ChannelMovie | null>(null);
+  const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+
+  const handlePublish = async (m: ChannelMovie) => {
+    setNotice(null);
+    const res = await publishMovieApi(channelId, m.id);
+    if (res.ok) {
+      onChange();
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to publish movie" });
+    }
+  };
+
+  const handleArchive = async (m: ChannelMovie) => {
+    setNotice(null);
+    const res = await archiveMovieApi(channelId, m.id);
+    if (res.ok) {
+      onChange();
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to archive movie" });
+    }
+  };
+
+  const handleDelete = async (m: ChannelMovie) => {
+    if (!confirm("Delete this movie?")) return;
+    setNotice(null);
+    const res = await deleteMovieApi(channelId, m.id);
+    if (res.ok) {
+      onChange();
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to delete movie" });
+    }
+  };
 
   const ageOptions = isPublic
     ? [
@@ -149,6 +185,15 @@ function MoviesManager({
     <div className="space-y-4">
       {mode === "list" && (
         <>
+          {notice && (
+            <div className={`rounded-lg px-3 py-2 text-xs ${
+              notice.tone === "success"
+                ? "border border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+                : "border border-red-400/30 bg-red-500/10 text-red-200"
+            }`}>
+              {notice.message}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-av-white">Movies ({movies.length})</h3>
             <button
@@ -183,10 +228,7 @@ function MoviesManager({
                   <div className="flex items-center gap-2">
                     {m.status !== "published" && (
                       <button
-                        onClick={async () => {
-                          await publishMovieApi(channelId, m.id);
-                          onChange();
-                        }}
+                        onClick={() => handlePublish(m)}
                         className="px-3 py-1.5 rounded-lg bg-green-600/20 text-green-400 text-xs font-medium hover:bg-green-600/30"
                       >
                         Publish
@@ -194,10 +236,7 @@ function MoviesManager({
                     )}
                     {m.status === "published" && (
                       <button
-                        onClick={async () => {
-                          await archiveMovieApi(channelId, m.id);
-                          onChange();
-                        }}
+                        onClick={() => handleArchive(m)}
                         className="px-3 py-1.5 rounded-lg bg-yellow-600/20 text-yellow-400 text-xs font-medium hover:bg-yellow-600/30"
                       >
                         Archive
@@ -210,12 +249,7 @@ function MoviesManager({
                       Edit
                     </button>
                     <button
-                      onClick={async () => {
-                        if (confirm("Delete this movie?")) {
-                          await deleteMovieApi(channelId, m.id);
-                          onChange();
-                        }
-                      }}
+                      onClick={() => handleDelete(m)}
                       className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 text-xs font-medium hover:bg-red-600/30"
                     >
                       Delete
@@ -545,11 +579,52 @@ function SeriesManager({
 }) {
   const [mode, setMode] = useState<"list" | "create" | "edit" | "episodes">("list");
   const [editing, setEditing] = useState<ChannelSeries | null>(null);
+  const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+
+  const handlePublish = async (s: ChannelSeries) => {
+    setNotice(null);
+    const res = await publishSeriesApi(channelId, s.id);
+    if (res.ok) {
+      onChange();
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to publish series" });
+    }
+  };
+
+  const handleArchive = async (s: ChannelSeries) => {
+    setNotice(null);
+    const res = await archiveSeriesApi(channelId, s.id);
+    if (res.ok) {
+      onChange();
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to archive series" });
+    }
+  };
+
+  const handleDelete = async (s: ChannelSeries) => {
+    if (!confirm("Delete this series?")) return;
+    setNotice(null);
+    const res = await deleteSeriesApi(channelId, s.id);
+    if (res.ok) {
+      onChange();
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to delete series" });
+    }
+  };
 
   return (
     <div className="space-y-4">
       {mode === "list" && (
         <>
+          {notice && (
+            <div className={`rounded-lg px-3 py-2 text-xs ${
+              notice.tone === "success"
+                ? "border border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+                : "border border-red-400/30 bg-red-500/10 text-red-200"
+            }`}>
+              {notice.message}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-av-white">Series ({series.length})</h3>
             <button
@@ -581,7 +656,7 @@ function SeriesManager({
                   <div className="flex items-center gap-2">
                     {s.status !== "published" && (
                       <button
-                        onClick={async () => { await publishSeriesApi(channelId, s.id); onChange(); }}
+                        onClick={() => handlePublish(s)}
                         className="px-3 py-1.5 rounded-lg bg-green-600/20 text-green-400 text-xs font-medium hover:bg-green-600/30"
                       >
                         Publish
@@ -589,7 +664,7 @@ function SeriesManager({
                     )}
                     {s.status === "published" && (
                       <button
-                        onClick={async () => { await archiveSeriesApi(channelId, s.id); onChange(); }}
+                        onClick={() => handleArchive(s)}
                         className="px-3 py-1.5 rounded-lg bg-yellow-600/20 text-yellow-400 text-xs font-medium hover:bg-yellow-600/30"
                       >
                         Archive
@@ -608,7 +683,7 @@ function SeriesManager({
                       Edit
                     </button>
                     <button
-                      onClick={async () => { if (confirm("Delete this series?")) { await deleteSeriesApi(channelId, s.id); onChange(); } }}
+                      onClick={() => handleDelete(s)}
                       className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 text-xs font-medium hover:bg-red-600/30"
                     >
                       Delete
@@ -776,7 +851,7 @@ function EpisodesManager({
     setCreating(false);
   };
 
-  const active = activeSeason || seasons[0] || null;
+  const active = useMemo(() => seasons.find((s) => s.id === activeSeason?.id) || seasons[0] || null, [seasons, activeSeason]);
 
   return (
     <div className="space-y-4 rounded-xl border border-av-input-border/20 bg-av-card/50 p-4">
@@ -853,6 +928,45 @@ function SeasonEpisodeList({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+
+  const updateSeason = (nextEpisodes: ChannelSeriesEpisode[]) => {
+    setEpisodes(nextEpisodes);
+    onRefresh({ ...season, episodes: nextEpisodes });
+  };
+
+  const handlePublishEpisode = async (ep: ChannelSeriesEpisode) => {
+    setNotice(null);
+    const res = await publishEpisodeApi(channelId, seriesId, ep.id);
+    if (res.ok && "episode" in res.data) {
+      const data = res.data as { success: boolean; episode: ChannelSeriesEpisode };
+      updateSeason(episodes.map((e) => (e.id === ep.id ? data.episode : e)));
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to publish episode" });
+    }
+  };
+
+  const handleArchiveEpisode = async (ep: ChannelSeriesEpisode) => {
+    setNotice(null);
+    const res = await archiveEpisodeApi(channelId, seriesId, ep.id);
+    if (res.ok && "episode" in res.data) {
+      const data = res.data as { success: boolean; episode: ChannelSeriesEpisode };
+      updateSeason(episodes.map((e) => (e.id === ep.id ? data.episode : e)));
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to archive episode" });
+    }
+  };
+
+  const handleDeleteEpisode = async (ep: ChannelSeriesEpisode) => {
+    if (!confirm("Delete this episode?")) return;
+    setNotice(null);
+    const res = await deleteEpisodeApi(channelId, seriesId, ep.id);
+    if (res.ok) {
+      updateSeason(episodes.filter((e) => e.id !== ep.id));
+    } else {
+      setNotice({ tone: "error", message: (res.data as ErrorResponse).error || "Failed to delete episode" });
+    }
+  };
 
   useEffect(() => {
     setEpisodes(season.episodes || []);
@@ -907,7 +1021,7 @@ function SeasonEpisodeList({
       description: description.trim() || undefined,
       episode_number: episodes.length + 1,
       video_source_mode: videoMode,
-      video_url: videoMode === "hosted" ? hostedUrl : undefined,
+      hosted_url: videoMode === "hosted" ? hostedUrl : undefined,
       external_url: videoMode === "external_url" ? externalUrl : undefined,
       embed_url: videoMode === "embed" ? embedUrl : undefined,
       hls_url: videoMode === "hls" ? hlsUrl : undefined,
@@ -939,13 +1053,47 @@ function SeasonEpisodeList({
         <p className="text-xs text-av-light-orange">No episodes in this season yet.</p>
       )}
 
+      {notice && (
+        <div className={`rounded-lg px-3 py-2 text-xs ${
+          notice.tone === "success"
+            ? "border border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+            : "border border-red-400/30 bg-red-500/10 text-red-200"
+        }`}>
+          {notice.message}
+        </div>
+      )}
+
       {episodes.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-2">
           {episodes.map((ep) => (
             <div key={ep.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-av-card text-sm text-av-white">
               <span className="text-xs text-av-orange font-bold w-5">{ep.episode_number}</span>
               <span className="flex-1 truncate">{ep.title}</span>
               <span className="text-[11px] text-av-light-orange uppercase">{ep.status}</span>
+              <div className="flex items-center gap-1.5">
+                {ep.status !== "published" && (
+                  <button
+                    onClick={() => handlePublishEpisode(ep)}
+                    className="px-2 py-1 rounded bg-green-600/20 text-green-400 text-[10px] font-medium hover:bg-green-600/30"
+                  >
+                    Publish
+                  </button>
+                )}
+                {ep.status === "published" && (
+                  <button
+                    onClick={() => handleArchiveEpisode(ep)}
+                    className="px-2 py-1 rounded bg-yellow-600/20 text-yellow-400 text-[10px] font-medium hover:bg-yellow-600/30"
+                  >
+                    Archive
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDeleteEpisode(ep)}
+                  className="px-2 py-1 rounded bg-red-600/20 text-red-400 text-[10px] font-medium hover:bg-red-600/30"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
         </div>

@@ -113,6 +113,25 @@ function getKycPublicUrl(filename) {
 }
 
 /**
+ * Generate a signed URL for reading a KYC identity document from the
+ * dedicated, private KYC bucket. The main media bucket helper is not reused
+ * because the KYC bucket is a separate, non-public bucket.
+ * @param {string} filename - Object path in the KYC bucket
+ * @param {number} [expiresMinutes=60] - URL validity in minutes
+ * @returns {Promise<string>} Signed read URL
+ */
+async function generateKycSignedReadUrl(filename, expiresMinutes = 60) {
+  const bucket = getKycBucket();
+  const blob = bucket.file(filename);
+  const [url] = await blob.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + expiresMinutes * 60 * 1000,
+  });
+  return url;
+}
+
+/**
  * Generate a signed URL for direct client upload to GCS.
  * @param {string} filename - Destination path in bucket (e.g. "videos/uuid.mp4")
  * @param {string} contentType - MIME type the client will upload
@@ -239,6 +258,7 @@ module.exports = {
   generateSignedUploadUrl,
   getPublicUrl,
   getKycPublicUrl,
+  generateKycSignedReadUrl,
   resolvePlayableUrl,
   createResumableUploadSession,
   getGCSObjectMetadata,

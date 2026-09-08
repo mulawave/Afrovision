@@ -408,6 +408,8 @@ exports.updateSettings = async (req, res) => {
       'license_duration_days',
       'qr_whitelist_user_ids',
       'tv_app',
+      'imdb_api_key',
+      'imdb_api_token',
     ];
     const patch = {};
     for (const key of allowed) {

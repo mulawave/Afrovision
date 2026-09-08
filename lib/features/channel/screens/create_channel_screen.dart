@@ -1,13 +1,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/app_text_field.dart';
-import '../../../core/widgets/app_button.dart';
+import '../../../core/theme/nocturne_theme.dart';
 import '../../auth/models/user_model.dart';
 import '../../auth/services/profile_service.dart';
 import '../models/category_model.dart';
 import '../services/channel_service.dart';
+import '../utils/channels_gate.dart';
+import '../widgets/channels_header.dart';
 
 class CreateChannelScreen extends StatefulWidget {
   const CreateChannelScreen({super.key});
@@ -22,16 +22,22 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
   final _descController = TextEditingController();
   final _externalUrlController = TextEditingController();
   final _exclusiveFeeController = TextEditingController(text: '5000');
+
   String? _selectedCategory;
   String _type = 'public';
   bool _creating = false;
-  String? _error;
   UserModel? _user;
   bool _loadingUser = true;
   List<CategoryModel> _categories = [];
   bool _categoriesError = false;
   File? _logoFile;
   File? _bannerFile;
+
+  String? _nameError;
+  String? _descError;
+  String? _categoryError;
+  String? _generalError;
+
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -45,6 +51,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
   @override
   void initState() {
     super.initState();
+    ChannelsGate.enforceCreateEntry(context);
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -128,24 +135,33 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
   Future<void> _create() async {
     final name = _nameController.text.trim();
     final desc = _descController.text.trim();
+
+    setState(() {
+      _nameError = null;
+      _descError = null;
+      _categoryError = null;
+      _generalError = null;
+    });
+
     if (name.isEmpty) {
-      setState(() => _error = 'Channel name is required');
+      setState(() => _nameError = 'Channel name is required');
       return;
     }
     if (desc.isEmpty) {
-      setState(() => _error = 'Description is required');
+      setState(() => _descError = 'Description is required');
       return;
     }
     if (_selectedCategory == null) {
-      setState(() => _error = 'Please select a category');
+      setState(() => _categoryError = 'Please select a category');
       return;
     }
+
     final canPremiumTypes =
         (_user?.hasActiveSubscription == true && _user?.isPremiumCreator == true) ||
-        _user?.isAdmin == true;
+            _user?.isAdmin == true;
     if ((_type == 'private' || _type == 'exclusive') && !canPremiumTypes) {
       setState(
-        () => _error =
+        () => _generalError =
             'Premium creator subscription is required for private and exclusive channels',
       );
       return;
@@ -154,16 +170,14 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
       final fee = double.tryParse(_exclusiveFeeController.text.trim()) ?? 0;
       if (fee <= 0) {
         setState(
-          () =>
-              _error = 'Exclusive monthly entrance fee must be greater than 0',
+          () => _generalError =
+              'Exclusive monthly entrance fee must be greater than 0',
         );
         return;
       }
     }
-    setState(() {
-      _error = null;
-      _creating = true;
-    });
+
+    setState(() => _creating = true);
     try {
       final channel = await ChannelService.createChannel(
         name: name,
@@ -172,7 +186,6 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         type: _type,
       );
 
-      // Upload logo and banner if selected
       if (_logoFile != null) {
         await ChannelService.uploadLogo(channel.id, _logoFile!);
       }
@@ -180,7 +193,6 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         await ChannelService.uploadBanner(channel.id, _bannerFile!);
       }
 
-      // Persist external source settings only when user provides URL at creation.
       if (_streamSourceMode != 'native' &&
           _externalUrlController.text.trim().isNotEmpty) {
         await ChannelService.updateExternalSource(
@@ -207,7 +219,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _generalError = e.toString();
         _creating = false;
       });
     }
@@ -259,87 +271,47 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildAppBar(),
-              Expanded(
-                child: _loadingUser
-                    ? const Center(
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            AppColors.orange,
-                          ),
-                        ),
-                      )
-                    : _user?.isMinor == true
-                    ? _buildSubscriptionOverlay(
-                        icon: Icons.block_rounded,
-                        title: 'Not Available for Minors',
-                        message:
-                            'Channel creation is not available for users under 18. You can still enjoy general content and subscribe to viewer plans.',
-                        buttonLabel: 'Back',
-                      )
-                    : _needsSubscription
-                    ? _buildSubscriptionOverlay(
-                        icon: Icons.lock_rounded,
-                        title: "Creator's Subscription Required",
-                        message:
-                            'You need an active creator subscription to create channels and start broadcasting.',
-                        buttonLabel: 'Get Started With a Plan',
-                      )
-                    : _subscriptionExpired
-                    ? _buildSubscriptionOverlay(
-                        icon: Icons.timer_off_rounded,
-                        title: 'Your Subscription Has Expired!',
-                        message:
-                            'Renew your plan to continue creating and managing channels.',
-                        buttonLabel: 'Renew Plan',
-                      )
-                    : _buildForm(),
-              ),
-            ],
-          ),
+      backgroundColor: Nocturne.bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            const ChannelsHeader(
+              title: 'Create Channel',
+              subtitle: 'Set up your own channel',
+            ),
+            Expanded(
+              child: _loadingUser
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Nocturne.gold),
+                    )
+                  : _user?.isMinor == true
+                      ? _buildSubscriptionOverlay(
+                          icon: Icons.block_rounded,
+                          title: 'Not Available for Minors',
+                          message:
+                              'Channel creation is not available for users under 18. You can still enjoy general content and subscribe to viewer plans.',
+                          buttonLabel: 'Back',
+                        )
+                      : _needsSubscription
+                          ? _buildSubscriptionOverlay(
+                              icon: Icons.lock_rounded,
+                              title: "Creator's Subscription Required",
+                              message:
+                                  'You need an active creator subscription to create channels and start broadcasting.',
+                              buttonLabel: 'Get Started With a Plan',
+                            )
+                          : _subscriptionExpired
+                              ? _buildSubscriptionOverlay(
+                                  icon: Icons.timer_off_rounded,
+                                  title: 'Your Subscription Has Expired!',
+                                  message:
+                                      'Renew your plan to continue creating and managing channels.',
+                                  buttonLabel: 'Renew Plan',
+                                )
+                              : _buildForm(),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.inputBorder),
-              ),
-              child: const Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: AppColors.white,
-                size: 18,
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          const Text(
-            'Create Channel',
-            style: TextStyle(
-              color: AppColors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -354,23 +326,14 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
       opacity: _fadeAnim,
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 28),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
             decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: AppColors.orange.withValues(alpha: 0.25),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.orange.withValues(alpha: 0.08),
-                  blurRadius: 40,
-                  spreadRadius: 4,
-                ),
-              ],
+              color: Nocturne.surfaceRaised,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Nocturne.borderCard),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -380,28 +343,21 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                   height: 72,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [
-                        AppColors.orange.withValues(alpha: 0.2),
-                        AppColors.lightOrange.withValues(alpha: 0.08),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    color: Nocturne.gold.withValues(alpha: 0.1),
                     border: Border.all(
-                      color: AppColors.orange.withValues(alpha: 0.3),
-                      width: 2,
+                      color: Nocturne.gold.withValues(alpha: 0.3),
+                      width: 1.5,
                     ),
                   ),
-                  child: Icon(icon, color: AppColors.orange, size: 34),
+                  child: Icon(icon, color: Nocturne.gold, size: 32),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 22),
                 Text(
                   title,
                   style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
+                    color: Nocturne.text,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
                     height: 1.3,
                   ),
                   textAlign: TextAlign.center,
@@ -409,9 +365,9 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 const SizedBox(height: 12),
                 Text(
                   message,
-                  style: TextStyle(
-                    color: AppColors.goldText,
-                    fontSize: 14,
+                  style: const TextStyle(
+                    color: Nocturne.textFaint,
+                    fontSize: 13,
                     height: 1.5,
                   ),
                   textAlign: TextAlign.center,
@@ -419,6 +375,10 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 const SizedBox(height: 28),
                 GestureDetector(
                   onTap: () async {
+                    if (buttonLabel == 'Back') {
+                      Navigator.pop(context);
+                      return;
+                    }
                     await Navigator.pushNamed(context, '/plans');
                     if (!mounted) return;
                     setState(() => _loadingUser = true);
@@ -428,13 +388,13 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 15),
                     decoration: BoxDecoration(
-                      gradient: AppColors.buttonGradient,
-                      borderRadius: BorderRadius.circular(14),
+                      gradient: Nocturne.goldCta,
+                      borderRadius: BorderRadius.circular(13),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.orange.withValues(alpha: 0.3),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
+                          color: Nocturne.gold.withValues(alpha: 0.22),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
                         ),
                       ],
                     ),
@@ -443,16 +403,16 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                       children: [
                         const Icon(
                           Icons.rocket_launch_rounded,
-                          color: AppColors.white,
+                          color: Color(0xFF26170A),
                           size: 18,
                         ),
                         const SizedBox(width: 8),
                         Text(
                           buttonLabel,
                           style: const TextStyle(
-                            color: AppColors.white,
+                            color: Color(0xFF26170A),
                             fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -470,7 +430,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
   Widget _buildForm() {
     final canPrivate =
         (_user?.hasActiveSubscription == true && _user?.isPremiumCreator == true) ||
-        _user?.isAdmin == true;
+            _user?.isAdmin == true;
     final canExclusive = canPrivate;
 
     return FadeTransition(
@@ -479,183 +439,167 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         position: _slideAnim,
         child: RefreshIndicator(
           onRefresh: _refresh,
-          color: AppColors.orange,
-          backgroundColor: AppColors.inputFill,
+          color: Nocturne.gold,
+          backgroundColor: Nocturne.surface,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 16),
+                const SizedBox(height: 22),
 
-                // Banner upload
-                _buildMediaTile(
-                  label: 'CHANNEL BANNER',
-                  hint: 'Tap to upload banner image',
-                  icon: Icons.panorama_rounded,
-                  file: _bannerFile,
-                  height: 140,
-                  borderRadius: 16,
-                  onTap: () => _pickImage(false),
-                ),
-                const SizedBox(height: 16),
-
-                // Logo upload
-                Center(child: _buildLogoTile()),
-                const SizedBox(height: 24),
-
-                AppTextField(
-                  controller: _nameController,
-                  label: 'CHANNEL NAME',
-                  hint: 'Enter channel name',
-                  prefixIcon: Icons.live_tv_rounded,
-                  onChanged: (_) {
-                    if (_error != null) setState(() => _error = null);
-                  },
-                ),
-                const SizedBox(height: 16),
-                AppTextField(
-                  controller: _descController,
-                  label: 'DESCRIPTION',
-                  hint: 'Describe your channel',
-                  prefixIcon: Icons.description_rounded,
-                ),
-                const SizedBox(height: 16),
-
-                // Category dropdown
-                _buildCategoryDropdown(),
-                const SizedBox(height: 24),
-
-                // Type selector
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.inputFill,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.inputBorder),
-                  ),
+                // Banner + overlapping logo
+                _buildBannerUploader(),
+                Transform.translate(
+                  offset: const Offset(0, -22),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'CHANNEL TYPE',
+                      _buildLogoWell(),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Channel logo',
                         style: TextStyle(
-                          color: AppColors.goldText,
-                          fontSize: 11,
+                          color: Nocturne.textFaint,
+                          fontSize: 9,
                           fontWeight: FontWeight.w600,
-                          letterSpacing: 1.2,
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildTypeOption(
-                              label: 'Public',
-                              icon: Icons.public_rounded,
-                              selected: _type == 'public',
-                              onTap: () => setState(() => _type = 'public'),
-                              enabled: true,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildTypeOption(
-                              label: 'Private',
-                              icon: canPrivate
-                                  ? Icons.lock_rounded
-                                  : Icons.lock_outline_rounded,
-                              selected: _type == 'private',
-                              onTap: canPrivate
-                                  ? () => setState(() => _type = 'private')
-                                  : null,
-                              enabled: canPrivate,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildTypeOption(
-                              label: 'Exclusive',
-                              icon: canExclusive
-                                  ? Icons.verified_user_rounded
-                                  : Icons.lock_outline_rounded,
-                              selected: _type == 'exclusive',
-                              onTap: canExclusive
-                                  ? () => setState(() => _type = 'exclusive')
-                                  : null,
-                              enabled: canExclusive,
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
                 ),
+
+                const SizedBox(height: 10),
+
+                _buildTextField(
+                  controller: _nameController,
+                  kicker: 'Channel name',
+                  hint: 'Enter channel name',
+                  prefixIcon: Icons.tv_rounded,
+                  error: _nameError,
+                  maxLines: 1,
+                  onErrorClear: () => setState(() => _nameError = null),
+                ),
+                const SizedBox(height: 18),
+                _buildTextField(
+                  controller: _descController,
+                  kicker: 'Description',
+                  hint: 'Describe your channel',
+                  prefixIcon: Icons.description_rounded,
+                  error: _descError,
+                  maxLines: 3,
+                  onErrorClear: () => setState(() => _descError = null),
+                ),
+                const SizedBox(height: 18),
+
+                _buildCategoryPicker(),
+                const SizedBox(height: 22),
+
+                _buildTypeGrid(canPrivate: canPrivate, canExclusive: canExclusive),
                 if (!canPrivate)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Row(
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.info_outline_rounded,
-                          color: AppColors.goldText,
+                          color: Nocturne.gold,
                           size: 14,
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          'Premium subscription required for private and exclusive channels',
-                          style: TextStyle(
-                            color: AppColors.goldText,
-                            fontSize: 11,
+                        const Expanded(
+                          child: Text(
+                            'Premium subscription required for private and exclusive channels',
+                            style: TextStyle(
+                              color: Nocturne.goldLight,
+                              fontSize: 11,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
+
                 if (_type == 'exclusive')
                   Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: AppTextField(
+                    padding: const EdgeInsets.only(top: 18),
+                    child: _buildTextField(
                       controller: _exclusiveFeeController,
-                      label: 'EXCLUSIVE MONTHLY FEE (NGN)',
+                      kicker: 'Exclusive monthly fee (NGN)',
                       hint: '5000',
                       prefixIcon: Icons.payments_rounded,
+                      keyboardType: TextInputType.number,
+                      maxLines: 1,
+                      onErrorClear: () {},
                     ),
                   ),
-                const SizedBox(height: 16),
 
-                // External stream source section
+                const SizedBox(height: 22),
                 _buildSourceSection(),
-                const SizedBox(height: 16),
 
-                if (_error != null)
+                if (_generalError != null) ...[
+                  const SizedBox(height: 18),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
-                      color: AppColors.errorRed.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
+                      color: Nocturne.red.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(11),
                       border: Border.all(
-                        color: AppColors.errorRed.withValues(alpha: 0.3),
+                        color: Nocturne.red.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Text(
-                      _error!,
+                      _generalError!,
                       style: const TextStyle(
-                        color: AppColors.errorRed,
-                        fontSize: 13,
+                        color: Nocturne.redSoft,
+                        fontSize: 12.5,
                       ),
                     ),
                   ),
+                ],
 
-                AppButton(
-                  label: 'Create Channel',
-                  onPressed: _create,
-                  loading: _creating,
-                  enabled: !_creating,
+                const SizedBox(height: 22),
+
+                // Create button
+                GestureDetector(
+                  onTap: _creating ? null : _create,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    decoration: BoxDecoration(
+                      gradient: Nocturne.goldCta,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Nocturne.gold.withValues(alpha: 0.22),
+                          blurRadius: 22,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: _creating
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFF26170A),
+                              ),
+                            ),
+                          )
+                        : const Text(
+                            'Create Channel',
+                            style: TextStyle(
+                              color: Color(0xFF26170A),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  ),
                 ),
+
                 const SizedBox(height: 32),
               ],
             ),
@@ -665,158 +609,236 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
     );
   }
 
-  Widget _buildMediaTile({
-    required String label,
-    required String hint,
-    required IconData icon,
-    required File? file,
-    required double height,
-    required double borderRadius,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildBannerUploader() {
+    final hasFile = _bannerFile != null;
+    const targetHeight = 132.0;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
+        const Text(
+          'Channel banner',
           style: TextStyle(
-            color: AppColors.goldText,
-            fontSize: 11,
+            color: Nocturne.gold,
+            fontSize: 10,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.2,
           ),
         ),
         const SizedBox(height: 8),
         GestureDetector(
-          onTap: onTap,
-          child: Container(
+          onTap: () => _pickImage(false),
+          child: SizedBox(
+            height: targetHeight,
             width: double.infinity,
-            height: height,
-            decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(borderRadius),
-              border: Border.all(
-                color: file != null
-                    ? AppColors.orange.withValues(alpha: 0.4)
-                    : AppColors.inputBorder,
+            child: CustomPaint(
+              painter: _DashedBorderPainter(
+                color: Nocturne.borderStrong,
+                radius: 14,
               ),
-              image: file != null
-                  ? DecorationImage(image: FileImage(file), fit: BoxFit.cover)
-                  : null,
-            ),
-            child: file == null
-                ? Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(icon, color: AppColors.goldText, size: 32),
-                      const SizedBox(height: 8),
-                      Text(
-                        hint,
-                        style: TextStyle(
-                          color: AppColors.goldText,
-                          fontSize: 12,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: hasFile ? null : const Color(0xFF0B1533),
+                  borderRadius: BorderRadius.circular(14),
+                  image: hasFile
+                      ? DecorationImage(
+                          image: FileImage(_bannerFile!),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
+                ),
+                child: hasFile
+                    ? Align(
+                        alignment: Alignment.topRight,
+                        child: Container(
+                          margin: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: Nocturne.bg.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: const Icon(
+                            Icons.edit_rounded,
+                            color: Nocturne.gold,
+                            size: 16,
+                          ),
                         ),
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.image_rounded,
+                            color: Nocturne.textHint,
+                            size: 30,
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Tap to upload banner image',
+                            style: TextStyle(
+                              color: Nocturne.textHint,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Recommended 1280 \u00d7 720',
+                            style: TextStyle(
+                              color: Nocturne.textFaint.withValues(alpha: 0.7),
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  )
-                : Align(
-                    alignment: Alignment.topRight,
-                    child: Container(
-                      margin: const EdgeInsets.all(8),
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkBlue.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.edit_rounded,
-                        color: AppColors.orange,
-                        size: 16,
-                      ),
-                    ),
-                  ),
+              ),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildLogoTile() {
+  Widget _buildLogoWell() {
+    final hasFile = _logoFile != null;
+    return GestureDetector(
+      onTap: () => _pickImage(true),
+      child: Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFF0E1A3D),
+          border: Border.all(
+            color: hasFile ? Nocturne.gold : Nocturne.borderStrong,
+            width: hasFile ? 2 : 1.5,
+          ),
+          image: hasFile
+              ? DecorationImage(
+                  image: FileImage(_logoFile!),
+                  fit: BoxFit.cover,
+                )
+              : null,
+        ),
+        child: hasFile
+            ? Align(
+                alignment: Alignment.bottomRight,
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Nocturne.gold,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Nocturne.bg, width: 2),
+                  ),
+                  child: const Icon(
+                    Icons.edit_rounded,
+                    color: Color(0xFF26170A),
+                    size: 12,
+                  ),
+                ),
+              )
+            : const Icon(
+                Icons.add_a_photo_rounded,
+                color: Nocturne.textHint,
+                size: 26,
+              ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String kicker,
+    required String hint,
+    required IconData prefixIcon,
+    String? error,
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+    VoidCallback? onErrorClear,
+  }) {
+    final hasError = error != null;
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'CHANNEL LOGO',
+          kicker.toUpperCase(),
           style: TextStyle(
-            color: AppColors.goldText,
-            fontSize: 11,
+            color: hasError ? Nocturne.redSoft : Nocturne.gold,
+            fontSize: 10,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.2,
           ),
         ),
-        const SizedBox(height: 8),
-        GestureDetector(
-          onTap: () => _pickImage(true),
-          child: Container(
-            width: 90,
-            height: 90,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.inputFill,
-              border: Border.all(
-                color: _logoFile != null
-                    ? AppColors.orange.withValues(alpha: 0.5)
-                    : AppColors.inputBorder,
-                width: 2,
-              ),
-              image: _logoFile != null
-                  ? DecorationImage(
-                      image: FileImage(_logoFile!),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
+        const SizedBox(height: 7),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 3),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0E1A3D),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+              color: hasError ? Nocturne.redSoft : Nocturne.border,
             ),
-            child: _logoFile == null
-                ? Icon(
-                    Icons.add_a_photo_rounded,
-                    color: AppColors.goldText,
-                    size: 28,
-                  )
-                : Align(
-                    alignment: Alignment.bottomRight,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: AppColors.orange,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.darkBlue, width: 2),
-                      ),
-                      child: const Icon(
-                        Icons.edit_rounded,
-                        color: AppColors.white,
-                        size: 12,
-                      ),
-                    ),
-                  ),
+          ),
+          child: TextField(
+            controller: controller,
+            cursorColor: Nocturne.gold,
+            keyboardType: keyboardType,
+            maxLines: maxLines,
+            minLines: maxLines == 1 ? 1 : 3,
+            style: const TextStyle(
+              color: Nocturne.text,
+              fontSize: 14,
+            ),
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: const TextStyle(
+                color: Nocturne.textHint,
+                fontSize: 14,
+              ),
+              prefixIcon: Icon(prefixIcon, color: Nocturne.textHint, size: 19),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 36,
+                minHeight: 44,
+              ),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(vertical: 13),
+            ),
+            onChanged: (_) {
+              if (hasError) onErrorClear?.call();
+            },
           ),
         ),
+        if (error != null) ...[
+          const SizedBox(height: 5),
+          Text(
+            error,
+            style: const TextStyle(
+              color: Nocturne.redSoft,
+              fontSize: 11,
+            ),
+          ),
+        ],
       ],
     );
   }
 
-  Widget _buildCategoryDropdown() {
+  Widget _buildCategoryPicker() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           'CATEGORY',
           style: TextStyle(
-            color: AppColors.goldText,
-            fontSize: 11,
+            color: _categoryError != null ? Nocturne.redSoft : Nocturne.gold,
+            fontSize: 10,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.2,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 7),
         if (_categoriesError && _categories.isEmpty)
           GestureDetector(
             onTap: () async {
@@ -837,33 +859,33 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
               decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(14),
+                color: const Color(0xFF0E1A3D),
+                borderRadius: BorderRadius.circular(13),
                 border: Border.all(
-                  color: AppColors.errorRed.withValues(alpha: 0.3),
+                  color: Nocturne.redSoft.withValues(alpha: 0.4),
                 ),
               ),
               child: Row(
                 children: [
                   Icon(
                     Icons.error_outline_rounded,
-                    color: AppColors.errorRed.withValues(alpha: 0.7),
-                    size: 20,
+                    color: Nocturne.redSoft.withValues(alpha: 0.8),
+                    size: 18,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
+                  const SizedBox(width: 10),
+                  const Expanded(
                     child: Text(
                       'Failed to load categories',
                       style: TextStyle(
-                        color: AppColors.errorRed.withValues(alpha: 0.8),
+                        color: Nocturne.redSoft,
                         fontSize: 13,
                       ),
                     ),
                   ),
                   const Icon(
                     Icons.refresh_rounded,
-                    color: AppColors.orange,
-                    size: 20,
+                    color: Nocturne.redSoft,
+                    size: 18,
                   ),
                 ],
               ),
@@ -871,43 +893,43 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
           )
         else
           Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
             decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.inputBorder),
+              color: const Color(0xFF0E1A3D),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(
+                color: _categoryError != null ? Nocturne.redSoft : Nocturne.border,
+              ),
             ),
             child: Row(
               children: [
-                Icon(
-                  Icons.category_rounded,
-                  color: AppColors.goldText,
-                  size: 20,
+                const Icon(
+                  Icons.interests_rounded,
+                  color: Nocturne.textHint,
+                  size: 19,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: _selectedCategory,
-                      hint: Text(
-                        'Select a category',
-                        style: TextStyle(
-                          color: AppColors.goldText,
-                          fontSize: 14,
-                        ),
-                      ),
-                      dropdownColor: AppColors.lightBlue,
+                      isExpanded: true,
                       icon: const Icon(
                         Icons.keyboard_arrow_down_rounded,
-                        color: AppColors.orange,
+                        color: Nocturne.textHint,
                         size: 20,
                       ),
-                      isExpanded: true,
+                      dropdownColor: Nocturne.surface,
                       style: const TextStyle(
-                        color: AppColors.white,
+                        color: Nocturne.text,
                         fontSize: 14,
-                        fontWeight: FontWeight.w500,
+                      ),
+                      hint: const Text(
+                        'Select a category',
+                        style: TextStyle(
+                          color: Nocturne.textHint,
+                          fontSize: 14,
+                        ),
                       ),
                       items: _categories.map((cat) {
                         return DropdownMenuItem(
@@ -915,71 +937,150 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                           child: Text(cat.name),
                         );
                       }).toList(),
-                      onChanged: (val) =>
-                          setState(() => _selectedCategory = val),
+                      onChanged: (val) => setState(() {
+                        _selectedCategory = val;
+                        _categoryError = null;
+                      }),
                     ),
                   ),
                 ),
               ],
             ),
           ),
+        if (_categoryError != null) ...[
+          const SizedBox(height: 5),
+          Text(
+            _categoryError!,
+            style: const TextStyle(
+              color: Nocturne.redSoft,
+              fontSize: 11,
+            ),
+          ),
+        ],
       ],
     );
   }
 
-  Widget _buildTypeOption({
-    required String label,
-    required IconData icon,
-    required bool selected,
-    required VoidCallback? onTap,
-    required bool enabled,
+  Widget _buildTypeGrid({
+    required bool canPrivate,
+    required bool canExclusive,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.orange.withValues(alpha: 0.12)
-              : AppColors.inputFill,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected
-                ? AppColors.orange.withValues(alpha: 0.5)
-                : enabled
-                ? AppColors.inputBorder
-                : AppColors.inputBorder.withValues(alpha: 0.4),
+    final types = [
+      ('public', 'Public', Icons.public_rounded, true),
+      ('private', 'Private', Icons.lock_rounded, canPrivate),
+      ('exclusive', 'Exclusive', Icons.verified_user_rounded, canExclusive),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Nocturne.surfaceRaised,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Nocturne.borderCard),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'CHANNEL TYPE',
+            style: TextStyle(
+              color: Nocturne.gold,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.2,
+            ),
           ),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              color: selected
-                  ? AppColors.orange
-                  : enabled
-                  ? AppColors.hintText
-                  : AppColors.goldText,
-              size: 24,
+          const SizedBox(height: 12),
+          Row(
+            children: types.map((t) {
+              final key = t.$1;
+              final label = t.$2;
+              final icon = t.$3;
+              final enabled = t.$4;
+              final selected = _type == key;
+              final onTap = enabled
+                  ? () => setState(() => _type = key)
+                  : () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Premium creator subscription is required for this type',
+                          ),
+                        ),
+                      );
+                    };
+
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  child: GestureDetector(
+                    onTap: onTap,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? Nocturne.gold.withValues(alpha: 0.12)
+                            : Colors.white.withValues(alpha: 0.02),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selected ? Nocturne.gold : Nocturne.border,
+                          width: selected ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            icon,
+                            color: enabled
+                                ? (selected ? Nocturne.gold : Nocturne.textFaint)
+                                : Nocturne.textHint,
+                            size: 24,
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            label,
+                            style: TextStyle(
+                              color: selected
+                                  ? Nocturne.goldLight
+                                  : (enabled ? Nocturne.text : Nocturne.textHint),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _typeHint(_type),
+            style: const TextStyle(
+              color: Nocturne.textFaint,
+              fontSize: 11.5,
             ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected
-                    ? AppColors.orange
-                    : enabled
-                    ? AppColors.white
-                    : AppColors.goldText,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
+  }
+
+  String _typeHint(String type) {
+    switch (type) {
+      case 'public':
+        return 'Anyone on AfroVision can find and watch this channel.';
+      case 'private':
+        return 'Hidden from browse — reachable only by channel number.';
+      case 'exclusive':
+        return 'Members only, with paid membership and KYC verification required.';
+      default:
+        return '';
+    }
   }
 
   Widget _buildSourceSection() {
@@ -991,14 +1092,15 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
     ];
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.inputFill,
-        borderRadius: BorderRadius.circular(16),
+        color: Nocturne.surfaceRaised,
+        borderRadius: BorderRadius.circular(15),
         border: Border.all(
           color: _streamSourceMode != 'native'
-              ? AppColors.orange.withValues(alpha: 0.35)
-              : AppColors.inputBorder,
+              ? Nocturne.gold.withValues(alpha: 0.35)
+              : Nocturne.borderCard,
         ),
       ),
       child: Column(
@@ -1009,12 +1111,12 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
               Container(
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: AppColors.orange.withValues(alpha: 0.12),
+                  color: Nocturne.gold.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
                   Icons.link_rounded,
-                  color: AppColors.orange,
+                  color: Nocturne.gold,
                   size: 16,
                 ),
               ),
@@ -1022,8 +1124,8 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
               const Text(
                 'STREAM SOURCE',
                 style: TextStyle(
-                  color: AppColors.goldText,
-                  fontSize: 11,
+                  color: Nocturne.gold,
+                  fontSize: 10,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 1.2,
                 ),
@@ -1041,27 +1143,28 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 .toList(),
           ),
 
-          // URL input — visible for all non-native modes
+          // URL input for non-native
           if (_streamSourceMode != 'native') ...[
             const SizedBox(height: 14),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
-                  child: AppTextField(
+                  child: _buildTextField(
                     controller: _externalUrlController,
-                    label: _streamSourceMode == 'external_youtube'
-                        ? 'YOUTUBE URL'
+                    kicker: _streamSourceMode == 'external_youtube'
+                        ? 'YouTube URL'
                         : _streamSourceMode == 'external_hls'
-                        ? 'HLS MANIFEST URL (.m3u8)'
-                        : 'DASH MANIFEST URL (.mpd)',
+                            ? 'HLS manifest URL (.m3u8)'
+                            : 'DASH manifest URL (.mpd)',
                     hint: _streamSourceMode == 'external_youtube'
                         ? 'https://youtube.com/watch?v=...'
                         : _streamSourceMode == 'external_hls'
-                        ? 'https://example.com/stream.m3u8'
-                        : 'https://example.com/stream.mpd',
+                            ? 'https://example.com/stream.m3u8'
+                            : 'https://example.com/stream.mpd',
                     prefixIcon: Icons.link_rounded,
-                    onChanged: (_) {
+                    maxLines: 1,
+                    onErrorClear: () {
                       if (_urlValidationMessage != null) {
                         setState(() {
                           _urlValidationMessage = null;
@@ -1078,17 +1181,11 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                     height: 52,
                     width: 52,
                     decoration: BoxDecoration(
-                      gradient: _validatingUrl
-                          ? AppColors.buttonDisabledGradient
-                          : AppColors.buttonGradient,
+                      color: _validatingUrl
+                          ? Nocturne.gold.withValues(alpha: 0.2)
+                          : null,
+                      gradient: _validatingUrl ? null : Nocturne.goldCta,
                       borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.orange.withValues(alpha: 0.25),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
                     ),
                     child: _validatingUrl
                         ? const Center(
@@ -1098,14 +1195,14 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 valueColor: AlwaysStoppedAnimation<Color>(
-                                  AppColors.white,
+                                  Color(0xFF26170A),
                                 ),
                               ),
                             ),
                           )
                         : const Icon(
                             Icons.check_circle_outline_rounded,
-                            color: AppColors.white,
+                            color: Color(0xFF26170A),
                             size: 22,
                           ),
                   ),
@@ -1121,9 +1218,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                       _urlValidationOk
                           ? Icons.check_circle_rounded
                           : Icons.error_outline_rounded,
-                      color: _urlValidationOk
-                          ? AppColors.successGreen
-                          : AppColors.errorRed,
+                      color: _urlValidationOk ? Nocturne.green : Nocturne.redSoft,
                       size: 14,
                     ),
                     const SizedBox(width: 6),
@@ -1132,9 +1227,9 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                         _urlValidationMessage!,
                         style: TextStyle(
                           color: _urlValidationOk
-                              ? AppColors.successGreen
-                              : AppColors.errorRed,
-                          fontSize: 12,
+                              ? Nocturne.green
+                              : Nocturne.redSoft,
+                          fontSize: 11.5,
                         ),
                       ),
                     ),
@@ -1142,11 +1237,11 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
                 ),
               ),
           ] else
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
               child: Text(
                 'Optional at creation. You can configure source later in Edit Channel or Creator Studio.',
-                style: TextStyle(color: AppColors.hintText, fontSize: 11),
+                style: TextStyle(color: Nocturne.textFaint, fontSize: 11),
               ),
             ),
         ],
@@ -1160,6 +1255,7 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
     required IconData icon,
   }) {
     final selected = _streamSourceMode == mode;
+
     return GestureDetector(
       onTap: () => setState(() {
         _streamSourceMode = mode;
@@ -1171,14 +1267,12 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: selected
-              ? AppColors.orange.withValues(alpha: 0.15)
-              : AppColors.darkBlue.withValues(alpha: 0.6),
+              ? Nocturne.gold.withValues(alpha: 0.15)
+              : Colors.white.withValues(alpha: 0.02),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: selected
-                ? AppColors.orange.withValues(alpha: 0.6)
-                : AppColors.inputBorder,
-            width: selected ? 1.5 : 1.0,
+            color: selected ? Nocturne.gold : Nocturne.border,
+            width: selected ? 1.5 : 1,
           ),
         ),
         child: Row(
@@ -1186,14 +1280,14 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
           children: [
             Icon(
               icon,
-              color: selected ? AppColors.orange : AppColors.hintText,
+              color: selected ? Nocturne.gold : Nocturne.textHint,
               size: 14,
             ),
             const SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
-                color: selected ? AppColors.lightOrange : AppColors.hintText,
+                color: selected ? Nocturne.goldLight : Nocturne.textFaint,
                 fontSize: 12,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
               ),
@@ -1203,4 +1297,45 @@ class _CreateChannelScreenState extends State<CreateChannelScreen>
       ),
     );
   }
+}
+
+class _DashedBorderPainter extends CustomPainter {
+  final Color color;
+  final double radius;
+
+  _DashedBorderPainter({
+    required this.color,
+    this.radius = 14,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Radius.circular(radius),
+    );
+    final path = Path()..addRRect(rect);
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    const dashArray = [6.0, 4.0];
+
+    for (final metric in path.computeMetrics()) {
+      var start = 0.0;
+      while (start < metric.length) {
+        final end = start + dashArray[0];
+        if (end > metric.length) break;
+        canvas.drawPath(
+          metric.extractPath(start, end),
+          paint,
+        );
+        start = end + dashArray[1];
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

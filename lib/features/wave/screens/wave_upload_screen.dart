@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../channel/models/channel_model.dart';
@@ -56,6 +57,7 @@ class _WaveUploadScreenState extends State<WaveUploadScreen> {
   @override
   void initState() {
     super.initState();
+    KycGuard.enforceOnEntry(context);
     _loadChannels();
   }
 

@@ -3,9 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../../core/services/player_settings_service.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../channel/services/channel_service.dart';
+import '../../subscription/widgets/exclusive_membership_sheets.dart';
 import '../controllers/vod_player_controller.dart';
 import '../models/series_model.dart';
 import '../models/vod_playback_args.dart';
@@ -59,7 +63,7 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     _series = _args.series;
     _currentEpisode = _args.episode;
     _nextEpisodeId = _args.nextEpisodeId;
-    _isAutoPlayEnabled = PlayerSettingsService.instance.current.quality != QualityProfile.dataSaver;
+    _isAutoPlayEnabled = true;
     _initialize();
     _startControlsTimer();
   }
@@ -80,6 +84,16 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
       _loading = true;
       _error = null;
     });
+
+    // Mid-session entitlement re-check. If this title belongs to an
+    // exclusive channel and the user's membership has lapsed (or was
+    // revoked) since discovery, block playback and surface the Gate
+    // sheet with a Renew CTA instead of trying to stream. Cached items
+    // pass an empty channelId and are exempt (they already downloaded).
+    if (_args.channelId.isNotEmpty) {
+      final gateBlocked = await _checkExclusiveEntitlement();
+      if (gateBlocked) return;
+    }
 
     // Load download state.
     await VodCacheService.instance.initialize();
@@ -111,8 +125,7 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
 
     // Embed/external mode.
     if (videoUrl != null && _isEmbedUrl(videoUrl)) {
-      _initEmbedPlayer(videoUrl);
-      setState(() => _loading = false);
+      await _initEmbedPlayer(videoUrl);
       return;
     }
 
@@ -144,30 +157,186 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     }
   }
 
+  /// Returns true when the exclusive gate was shown and the caller should
+  /// stop initializing playback. False otherwise (either not exclusive,
+  /// or entitlement still valid, or the check failed open).
+  Future<bool> _checkExclusiveEntitlement() async {
+    try {
+      final status =
+          await ChannelService.getExclusiveAccessStatus(_args.channelId);
+      // Not an exclusive channel → nothing to gate.
+      if (status.monthlyFeeNgn <= 0) return false;
+      // Entitled → proceed with playback.
+      if (status.hasActiveEntitlement) return false;
+
+      if (!mounted) return true;
+
+      // Look up channel name for the sheet copy. Fall back silently.
+      String channelName = 'this channel';
+      try {
+        final channel =
+            await ChannelService.getChannelById(_args.channelId);
+        channelName = channel.name;
+      } catch (_) {}
+      if (!mounted) return true;
+
+      final expiryDate = _resolveExpiry(status.expiresAt);
+
+      await showMembershipGateSheet(
+        context,
+        channelName: channelName,
+        expiryDate: expiryDate,
+        onRenew: () {
+          if (!mounted) return;
+          // Bounce to the paywall — it handles Xlounge vs request/renew.
+          Navigator.of(context).pushReplacementNamed(
+            '/exclusive-access',
+            arguments: _args.channelId,
+          );
+        },
+      );
+      if (!mounted) return true;
+      // If the user dismissed without Renew, back out of the player.
+      Navigator.of(context).maybePop();
+      return true;
+    } catch (_) {
+      // Fail open — a status-endpoint blip must not deny playback to a
+      // user we can't confirm has lost entitlement.
+      return false;
+    }
+  }
+
+  /// The status endpoint returns `expiresAt` as a string that may be an
+  /// ISO date, an epoch-seconds number, or null. Normalize to a human date
+  /// for the sheet; fall back to em-dash on any parse failure.
+  String _resolveExpiry(String? raw) {
+    if (raw == null || raw.isEmpty) return '—';
+    final asInt = int.tryParse(raw);
+    if (asInt != null) {
+      return _formatDate(DateTime.fromMillisecondsSinceEpoch(asInt * 1000));
+    }
+    final parsed = DateTime.tryParse(raw);
+    if (parsed != null) return _formatDate(parsed);
+    return raw;
+  }
+
+  String _formatDate(DateTime d) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${d.day} ${months[d.month - 1]} ${d.year}';
+  }
+
   bool _isEmbedUrl(String url) {
     final lower = url.toLowerCase();
     return lower.contains('youtube.com') ||
+        lower.contains('youtube-nocookie.com') ||
         lower.contains('youtu.be') ||
         _args.videoSourceMode == 'embed';
   }
 
-  void _initEmbedPlayer(String url) {
-    final html = _buildEmbedHtml(url);
-    _embedController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..loadHtmlString(html);
+  String? _extractYouTubeVideoId(String rawUrl) {
+    try {
+      final parsed = Uri.parse(rawUrl);
+      final host = parsed.host.toLowerCase();
+      final segments = parsed.pathSegments;
+
+      if (host.contains('youtu.be') && segments.isNotEmpty) {
+        return segments.first;
+      }
+
+      final v = parsed.queryParameters['v'];
+      if (v != null && v.isNotEmpty) return v;
+
+      final embedIndex = segments.indexOf('embed');
+      if (embedIndex >= 0 && embedIndex + 1 < segments.length) {
+        return segments[embedIndex + 1];
+      }
+
+      if (segments.length >= 2 &&
+          (segments[0] == 'live' || segments[0] == 'shorts')) {
+        return segments[1];
+      }
+
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
-  String _buildEmbedHtml(String url) {
-    String src;
+  bool _isYouTubeUrl(String url) {
     final lower = url.toLowerCase();
-    if (lower.contains('youtube.com/watch?v=')) {
+    return lower.contains('youtube.com') ||
+        lower.contains('youtube-nocookie.com') ||
+        lower.contains('youtu.be');
+  }
+
+  Future<void> _initEmbedPlayer(String url) async {
+    final videoId = _isYouTubeUrl(url) ? _extractYouTubeVideoId(url) : null;
+    final html = _buildEmbedHtml(url, videoId);
+
+    late final PlatformWebViewControllerCreationParams creationParams;
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      creationParams = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: <PlaybackMediaTypes>{},
+      );
+    } else {
+      creationParams = const PlatformWebViewControllerCreationParams();
+    }
+
+    final ctrl = WebViewController.fromPlatformCreationParams(creationParams)
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..setUserAgent(
+        'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            if (mounted) setState(() => _loading = false);
+          },
+        ),
+      );
+
+    final platform = ctrl.platform;
+    if (platform is AndroidWebViewController) {
+      AndroidWebViewController.enableDebugging(false);
+      await platform.setMediaPlaybackRequiresUserGesture(false);
+    }
+
+    await ctrl.loadHtmlString(
+      html,
+      baseUrl: 'https://www.youtube-nocookie.com',
+    );
+
+    _embedController = ctrl;
+  }
+
+  String _buildEmbedHtml(String url, String? videoId) {
+    final lower = url.toLowerCase();
+    final String src;
+
+    if (videoId != null && videoId.isNotEmpty) {
+      src = Uri.https('www.youtube-nocookie.com', '/embed/$videoId', {
+        'autoplay': '1',
+        'controls': '1',
+        'mute': '0',
+        'playsinline': '1',
+        'enablejsapi': '1',
+        'rel': '0',
+        'iv_load_policy': '3',
+        'modestbranding': '1',
+        'origin': 'https://www.youtube-nocookie.com',
+      }).toString();
+    } else if (lower.contains('youtube.com/watch?v=')) {
       final id = Uri.parse(url).queryParameters['v'] ?? '';
-      src = 'https://www.youtube.com/embed/$id?autoplay=1&enablejsapi=1';
+      src = 'https://www.youtube-nocookie.com/embed/$id?autoplay=1&enablejsapi=1&rel=0&origin=https://www.youtube-nocookie.com';
     } else if (lower.contains('youtu.be/')) {
       final id = url.split('/').last.split('?').first;
-      src = 'https://www.youtube.com/embed/$id?autoplay=1&enablejsapi=1';
+      src = 'https://www.youtube-nocookie.com/embed/$id?autoplay=1&enablejsapi=1&rel=0&origin=https://www.youtube-nocookie.com';
     } else {
       src = url;
     }
@@ -175,14 +344,14 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     return '''<!DOCTYPE html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
     iframe { width: 100%; height: 100%; border: 0; }
   </style>
 </head>
 <body>
-  <iframe src="$src" allowfullscreen allow="autoplay; encrypted-media"></iframe>
+  <iframe src="$src" allowfullscreen allow="autoplay; encrypted-media; fullscreen; picture-in-picture"></iframe>
 </body>
 </html>''';
   }
@@ -193,6 +362,12 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
 
   void _onPlaybackCompleted() {
     _saveProgress();
+    // Guard: only auto-advance if the video actually played for at least 10
+    // seconds. Without this, a failed load (zero duration) can fire
+    // "completed" immediately and cascade through every episode, landing on
+    // the last one regardless of which the user selected.
+    final played = _controller?.position.inSeconds ?? 0;
+    if (played < 10) return;
     if (_args.mediaType == 'episode' && _nextEpisodeId != null && _isAutoPlayEnabled) {
       _autoAdvanceToNext();
     }
@@ -249,7 +424,7 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
   Future<void> _saveProgress() async {
     final position = _controller?.position.inSeconds ?? 0;
     final duration = _controller?.duration.inSeconds ?? _args.duration;
-    if (duration <= 0) return;
+    if (position <= 0) return;
 
     try {
       await VodService.saveProgress(
@@ -653,10 +828,12 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
                         fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                       ),
                     ),
-                    subtitle: Text(
-                      _formatDuration(Duration(seconds: ep.duration)),
-                      style: const TextStyle(color: AppColors.hintText),
-                    ),
+                    subtitle: ep.duration > 0
+                      ? Text(
+                          _formatDuration(Duration(seconds: ep.duration)),
+                          style: const TextStyle(color: AppColors.hintText),
+                        )
+                      : null,
                     onTap: () {
                       Navigator.of(ctx).pop();
                       _playEpisode(ep);

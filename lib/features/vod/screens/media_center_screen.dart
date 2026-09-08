@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/nocturne_theme.dart';
@@ -5,13 +6,23 @@ import '../../subscription/models/channel_subscription_model.dart';
 import '../../subscription/screens/channel_subscription_screen.dart';
 import '../../subscription/services/channel_subscription_service.dart';
 import '../../subscription/widgets/exclusive_membership_sheets.dart';
+import '../../auth/models/user_model.dart';
+import '../../auth/services/auth_service.dart';
+import '../../broadcast/models/channel_library_models.dart';
+import '../../broadcast/services/channel_library_service.dart';
+import '../../channel/models/channel_model.dart';
+import '../../channel/services/channel_service.dart';
+import '../models/media_center_hero_model.dart';
 import '../models/movie_model.dart';
 import '../models/series_model.dart';
+import '../services/media_center_service.dart';
 import '../services/vod_service.dart';
+import '../../../core/utils/image_cache_key.dart';
+import 'catch_up_tab.dart';
 import 'movie_detail_screen.dart';
 import 'series_detail_screen.dart';
 
-enum _MediaTab { movies, series, library }
+enum _MediaTab { catchUp, movies, series, library }
 
 class MediaCenterScreen extends StatefulWidget {
   const MediaCenterScreen({super.key});
@@ -21,7 +32,9 @@ class MediaCenterScreen extends StatefulWidget {
 }
 
 class _MediaCenterScreenState extends State<MediaCenterScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
+  late final TabController _tabController;
+  final _catchUpKey = GlobalKey<CatchUpTabState>();
   bool _loading = true;
   String? _error;
   List<MovieModel> _movies = [];
@@ -30,8 +43,30 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   List<_ExclusiveSeries> _exclusiveSeries = [];
   List<ChannelSubscriptionModel> _expiringSoon = [];
   List<ChannelSubscriptionModel> _expiredExclusive = [];
+  List<_LibraryEntry> _libraryItems = const <_LibraryEntry>[];
+  bool _libraryLoading = false;
+  List<ChannelModel> _nonMemberExclusive = const <ChannelModel>[];
+  UserModel? _currentUser;
   bool _bannerDismissed = false;
-  _MediaTab _tab = _MediaTab.movies;
+
+  /// Filter chip active for the current tab. `'all'` means unfiltered.
+  /// See `_buildChipRow` for the full set. `_activeChip` is a tapped chip;
+  /// tapping the same chip again does NOT reset — the `All` chip is the
+  /// explicit clear (per media_center_completion.md Phase 1).
+  String _activeChip = 'all';
+  _MediaTab _tab = _MediaTab.catchUp;
+
+  /// Media Center hero banners loaded from GET /media-center/heroes.
+  /// Empty on failure or when admin has published nothing.
+  List<MediaCenterHero> _heroes = const <MediaCenterHero>[];
+
+  /// Continue-watching items across every media type — populates the
+  /// Continue Watching rail on Movies and Series tabs. Empty hides the rail.
+  List<ContinueWatchingItem> _continueWatching =
+      const <ContinueWatchingItem>[];
+
+  /// Number of seconds considered "this week" for the New This Week rail.
+  static const int _kNewThisWeekWindowSec = 7 * 86400;
 
   static const int _kExpiringWindowDays = 7;
 
@@ -41,7 +76,155 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: _MediaTab.values.length, vsync: this)
+      ..addListener(_onTabControllerChanged);
     _loadData();
+    _loadLibrary();
+    _loadHeroes();
+    _loadContinueWatching();
+  }
+
+  /// Keeps `_tab` (the enum every render branch switches on) in sync with
+  /// swipe gestures on the TabBarView, not just explicit tab-button taps.
+  void _onTabControllerChanged() {
+    final next = _MediaTab.values[_tabController.index];
+    if (next == _tab) return;
+    setState(() => _tab = next);
+    if (next == _MediaTab.library) _loadLibrary();
+  }
+
+  @override
+  void dispose() {
+    _tabController
+      ..removeListener(_onTabControllerChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  /// Continue-watching items — fail-tolerant. Empty list hides the rail.
+  Future<void> _loadContinueWatching() async {
+    try {
+      final items = await VodService.getContinueWatchingCached(
+        onCached: (cached) {
+          if (!mounted) return;
+          setState(() => _continueWatching = cached);
+        },
+      );
+      if (!mounted) return;
+      setState(() => _continueWatching = items);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _continueWatching = const <ContinueWatchingItem>[]);
+    }
+  }
+
+  /// Media Center hero banners — fail-tolerant. Empty list hides the rail.
+  Future<void> _loadHeroes() async {
+    try {
+      final heroes = await MediaCenterService.getHeroesCached(
+        onCached: (cached) {
+          if (!mounted) return;
+          setState(() => _heroes = cached);
+        },
+      );
+      if (!mounted) return;
+      setState(() => _heroes = heroes);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _heroes = const <MediaCenterHero>[]);
+    }
+  }
+
+  /// Aggregates readable library items (books, magazines, comics, journals)
+  /// from every exclusive channel the user is an active member of.
+  ///
+  /// Membership rule (per media_center_completion.md Phase 2): ANY active
+  /// membership counts, regardless of whether it carries a fee. The
+  /// fee-based rule (`amount > 0 || isPremium`) only governs Renew/paywall
+  /// surfaces — it must not gate content visibility for fee-free/comped
+  /// memberships (e.g. admin-granted or referral-based access).
+  ///
+  /// Fail-tolerant per-channel fetch — a failing channel is skipped, others
+  /// still surface.
+  Future<void> _loadLibrary() async {
+    if (_libraryLoading) return;
+    setState(() => _libraryLoading = true);
+    try {
+      final res = await ChannelSubscriptionService.getMine();
+      if (res['success'] != true) {
+        if (!mounted) return;
+        setState(() {
+          _libraryItems = const <_LibraryEntry>[];
+          _libraryLoading = false;
+        });
+        return;
+      }
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final subs = (res['subscriptions'] as List<dynamic>? ?? [])
+          .whereType<ChannelSubscriptionModel>()
+          .where((s) {
+            if (!s.isActive) return false;
+            final nb = s.nextBilling;
+            return nb == null || nb > nowSec;
+          })
+          .toList();
+      if (subs.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _libraryItems = const <_LibraryEntry>[];
+          _libraryLoading = false;
+        });
+        return;
+      }
+
+      final calls = subs
+          .map((s) => ChannelLibraryService.getChannelLibraryCached(
+                s.channelId,
+                limit: 48,
+              ).catchError((_) => const ChannelLibraryListResponse(
+                    items: <ChannelLibraryItemModel>[],
+                    page: 1,
+                    limit: 48,
+                    total: 0,
+                    pages: 1,
+                  )))
+          .toList();
+      final results = await Future.wait(calls);
+
+      final items = <_LibraryEntry>[];
+      for (int i = 0; i < subs.length; i++) {
+        final s = subs[i];
+        final resp = results[i];
+        for (final it in resp.items) {
+          items.add(_LibraryEntry(
+            item: it,
+            channelName: s.channelName,
+            channelTag: _tagFor(s.channelName),
+          ));
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _libraryItems = items;
+        _libraryLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _libraryItems = const <_LibraryEntry>[];
+        _libraryLoading = false;
+      });
+    }
+  }
+
+  void _openLibraryItem(_LibraryEntry entry) {
+    Navigator.of(context).pushNamed(
+      '/channel-library/item',
+      arguments: {
+        'channelId': entry.item.channelId,
+        'itemId': entry.item.id,
+      },
+    );
   }
 
   Future<void> _loadData() async {
@@ -78,6 +261,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
           },
         ),
         _loadExclusive(),
+        _loadNonMemberExclusive(),
       ]);
       final movieResponse = results[0] as MovieListResponse;
       final seriesResponse = results[1] as SeriesListResponse;
@@ -106,30 +290,82 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   ///
   /// Failure of any single channel's fetch never sinks the whole load: it
   /// is swallowed silently so the remaining channels still surface.
+  /// Load the exclusive channels the user is NOT a member of, so the
+  /// Media Center can surface an About/Request info card per channel
+  /// (state K in the design). Non-KYC users see nothing here — the guard
+  /// keeps discovery quiet until they verify.
+  ///
+  /// Fail-tolerant: on any error, non-member cards simply don't render.
+  Future<void> _loadNonMemberExclusive() async {
+    try {
+      final userFuture = AuthService.getCurrentUser().then<UserModel?>((u) => u);
+      final channelsFuture = ChannelService.getPublicChannels()
+          .then<List<ChannelModel>>((c) => c)
+          .catchError((_) => const <ChannelModel>[]);
+      final subsFuture = ChannelSubscriptionService.getMine();
+
+      final user = await userFuture;
+      final channels = await channelsFuture;
+      final subsRes = await subsFuture;
+
+      // Every channel_id the user has ANY membership record for — active,
+      // expired, cancelled. All of those already produce their own surface
+      // (content shelf / renew card), so the info card shouldn't duplicate.
+      final coveredIds = <String>{};
+      if (subsRes['success'] == true) {
+        for (final s in (subsRes['subscriptions'] as List<dynamic>? ?? [])
+            .whereType<ChannelSubscriptionModel>()) {
+          coveredIds.add(s.channelId);
+        }
+      }
+
+      final nonMember = channels
+          .where((c) => c.isExclusive && !coveredIds.contains(c.id))
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _currentUser = user;
+        _nonMemberExclusive = nonMember;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _nonMemberExclusive = const <ChannelModel>[];
+      });
+    }
+  }
+
   Future<_ExclusiveBundle> _loadExclusive() async {
     try {
       final res = await ChannelSubscriptionService.getMine();
       if (res['success'] != true) return const _ExclusiveBundle.empty();
-      // Every exclusive-channel membership the user has, regardless of state.
-      // Exclusive == amount > 0 or is_premium (per the fee-based rule).
-      final allExclusive = (res['subscriptions'] as List<dynamic>? ?? [])
+      // Split memberships (per media_center_completion.md Phase 2):
+      //   - allMemberships → drives the CONTENT shelves (any active membership,
+      //     regardless of whether it carries a fee). This fixes admin-granted
+      //     / referral-comped Xlounge Extreme memberships not surfacing.
+      //   - feeBasedMemberships → drives Renew card / paywall (the fee-based
+      //     rule still applies for money-moving flows).
+      final all = (res['subscriptions'] as List<dynamic>? ?? [])
           .whereType<ChannelSubscriptionModel>()
-          .where((s) => s.amount > 0 || s.isPremium)
           .toList();
-      if (allExclusive.isEmpty) return const _ExclusiveBundle.empty();
+      if (all.isEmpty) return const _ExclusiveBundle.empty();
+
+      final feeBased = all.where((s) => s.amount > 0 || s.isPremium).toList();
 
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final windowSec = _kExpiringWindowDays * 86400;
 
-      // Entitled (fetch content): active + not-yet-past-billing.
-      final subs = allExclusive.where((s) {
+      // Entitled (fetch content): ANY active + not-yet-past-billing membership.
+      final subs = all.where((s) {
         if (!s.isActive) return false;
         final nb = s.nextBilling;
         return nb == null || nb > nowSec;
       }).toList();
 
-      // Expired (render a Renew card in place of the shelf).
-      final expired = allExclusive.where((s) {
+      // Expired (render a Renew card in place of the shelf). Fee-based only —
+      // fee-free memberships don't have a paywall to renew back into.
+      final expired = feeBased.where((s) {
         if (!s.isActive) return true;
         final nb = s.nextBilling;
         return nb != null && nb <= nowSec;
@@ -167,15 +403,15 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
           ).catchError((_) => <SeriesModel>[]),
         );
       }
-      final all = await Future.wait(calls);
+      final results = await Future.wait(calls);
 
       final movies = <_ExclusiveMovie>[];
       final series = <_ExclusiveSeries>[];
       for (int i = 0; i < subs.length; i++) {
         final s = subs[i];
         final tag = _tagFor(s.channelName);
-        final mList = all[i * 2];
-        final sList = all[i * 2 + 1];
+        final mList = results[i * 2];
+        final sList = results[i * 2 + 1];
         for (final m in mList.whereType<MovieModel>()) {
           movies.add(_ExclusiveMovie(m, s.channelName, tag));
         }
@@ -249,17 +485,104 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   }
 
   Widget _buildBody() {
-    return CustomScrollView(
+    // NestedScrollView keeps the header/chips/tab-bar in the outer scroll
+    // while the TabBarView body swipes between Movies / Series / Library —
+    // each tab gets its own independent scroll position.
+    return NestedScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
+      headerSliverBuilder: (context, innerBoxIsScrolled) => [
         SliverToBoxAdapter(child: _buildHeader()),
         if (_shouldShowExpiringBanner)
           SliverToBoxAdapter(child: _buildExpiringBanner()),
+        if (_heroes.isNotEmpty)
+          SliverToBoxAdapter(child: _buildHeroRail()),
         SliverToBoxAdapter(child: _buildChipRow()),
         SliverToBoxAdapter(child: _buildTabs()),
-        SliverToBoxAdapter(child: _buildTabContent()),
       ],
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildTabBody(_MediaTab.catchUp, const PageStorageKey('mc_catchup')),
+          _buildTabBody(_MediaTab.movies, const PageStorageKey('mc_movies')),
+          _buildTabBody(_MediaTab.series, const PageStorageKey('mc_series')),
+          _buildTabBody(_MediaTab.library, const PageStorageKey('mc_library')),
+        ],
+      ),
     );
+  }
+
+  /// One swipeable page of the TabBarView — independently scrollable so
+  /// each tab keeps its own scroll offset while swiping between them.
+  Widget _buildTabBody(_MediaTab tab, Key key) {
+    return RefreshIndicator(
+      key: ValueKey('refresh_$tab'),
+      onRefresh: () => _refreshTab(tab),
+      color: Nocturne.gold,
+      backgroundColor: Nocturne.surfaceRaised,
+      child: SingleChildScrollView(
+        key: key,
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: tab == _MediaTab.catchUp
+            ? CatchUpTab(key: _catchUpKey)
+            : _buildTabContent(tab),
+      ),
+    );
+  }
+
+  Future<void> _refreshTab(_MediaTab tab) async {
+    final futures = <Future<void>>[
+      _loadContinueWatching(),
+      _loadHeroes(),
+    ];
+    switch (tab) {
+      case _MediaTab.catchUp:
+        final catchUp = _catchUpKey.currentState;
+        if (catchUp != null) futures.add(catchUp.refresh());
+        break;
+      case _MediaTab.library:
+        futures.add(_loadLibrary());
+        break;
+      case _MediaTab.movies:
+      case _MediaTab.series:
+        futures.add(_loadData());
+        break;
+    }
+    await Future.wait(futures);
+  }
+
+  // ───────── HERO RAIL (Phase 4) ─────────
+  Widget _buildHeroRail() {
+    return _HeroRail(
+      heroes: _heroes,
+      onOpen: _openHero,
+    );
+  }
+
+  void _openHero(MediaCenterHero hero) {
+    switch (hero.linkType) {
+      case 'movie':
+        Navigator.of(context).pushNamed(
+          '/movie',
+          arguments: {'movieId': hero.linkTarget},
+        );
+        break;
+      case 'series':
+        Navigator.of(context).pushNamed(
+          '/series',
+          arguments: {'seriesId': hero.linkTarget},
+        );
+        break;
+      case 'channel':
+        Navigator.of(context).pushNamed(
+          '/channel-view',
+          arguments: {'channelId': hero.linkTarget},
+        );
+        break;
+      case 'url':
+      default:
+        // External URL handling left to app-level launcher (out of scope here).
+        break;
+    }
   }
 
   bool get _shouldShowExpiringBanner =>
@@ -450,7 +773,12 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
           ),
           _headerIconBtn(
             icon: Icons.search_rounded,
-            onTap: () => _snack('Search coming soon'),
+            onTap: () => Navigator.of(context).pushNamed('/media/search'),
+          ),
+          const SizedBox(width: 8),
+          _headerIconBtn(
+            icon: Icons.history_rounded,
+            onTap: () => Navigator.of(context).pushNamed('/watch-history'),
           ),
           const SizedBox(width: 8),
           _headerPillBtn(
@@ -502,40 +830,185 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   }
 
   // ───────── CHIPS ─────────
+  /// Chip labels + their filter keys. Toggle-select; tapping the active
+  /// chip resets to `'all'`. Filters apply to the Movies + Series tabs;
+  /// the Library and Catch-up tabs are not filterable, so chips are hidden.
+  static const List<MapEntry<String, String>> _chipDefs = [
+    MapEntry('All', 'all'),
+    MapEntry('New', 'new'),
+    MapEntry('Trending', 'trending'),
+    MapEntry('Free', 'free'),
+    MapEntry('Exclusive', 'exclusive'),
+  ];
+
+  // Trailing fade width — signals "more chips this way" instead of an abrupt
+  // clip at the screen edge, which is what read as "garbled/broken" text.
+  static const double _chipFadeWidth = 28;
+
   Widget _buildChipRow() {
-    const chips = ['New', 'Nollywood', 'Free'];
+    if (_tab == _MediaTab.catchUp) return const SizedBox.shrink();
     return SizedBox(
-      height: 34,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-        children: [
-          for (final c in chips) ...[
-            _chip(c),
-            const SizedBox(width: 7),
+      height: 40,
+      child: ShaderMask(
+        shaderCallback: (bounds) {
+          final fadeStart =
+              (1 - (_chipFadeWidth / bounds.width)).clamp(0.0, 1.0);
+          return LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: const [Colors.black, Colors.black, Colors.transparent],
+            stops: [0.0, fadeStart, 1.0],
+          ).createShader(bounds);
+        },
+        blendMode: BlendMode.dstIn,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(20, 0, 20 + _chipFadeWidth, 14),
+          children: [
+            for (final c in _chipDefs) ...[
+              _chip(c.key, c.value),
+              const SizedBox(width: 8),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Widget _chip(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Nocturne.border, width: 1),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Nocturne.textFaint,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
+  Widget _chip(String label, String key) {
+    final active = _activeChip == key;
+    return GestureDetector(
+      onTap: () {
+        // Per media_center_completion.md Phase 1: taps always set the chip
+        // active. `All` is the explicit clear — never a toggle-off.
+        if (_activeChip != key) setState(() => _activeChip = key);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? Nocturne.gold.withValues(alpha: 0.14) : null,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: active ? Nocturne.gold : Nocturne.border,
+            width: 1,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.visible,
+          style: TextStyle(
+            color: active ? Nocturne.goldLight : Nocturne.textMuted,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            height: 1.0,
+          ),
         ),
       ),
     );
+  }
+
+  // ── Filter/sort helpers driven by _activeChip ─────────────────────────
+  //
+  // Semantics (Phase 1):
+  //   - `all`       → show both public + exclusive shelves
+  //   - `new`       → sort by publishedAt/createdAt desc, no visibility filter
+  //   - `trending`  → sort by totalViews desc (movies) / release recency (series)
+  //   - `free`      → hide exclusive shelf, show public only
+  //   - `exclusive` → hide public shelf, show exclusive only
+  //
+  // Empty results render `_chipEmptyState()` per-tab so we NEVER paint a
+  // blank tab body.
+
+  bool get _hideExclusive => _activeChip == 'free';
+  bool get _hidePublic => _activeChip == 'exclusive';
+
+  List<MovieModel> _shapedMovies() {
+    if (_hidePublic) return const <MovieModel>[];
+    final base = [..._movies];
+    if (_activeChip == 'new') {
+      base.sort((a, b) =>
+          (b.publishedAt ?? b.createdAt).compareTo(a.publishedAt ?? a.createdAt));
+    } else if (_activeChip == 'trending') {
+      base.sort((a, b) => b.totalViews.compareTo(a.totalViews));
+    }
+    return base;
+  }
+
+  List<SeriesModel> _shapedSeries() {
+    if (_hidePublic) return const <SeriesModel>[];
+    final base = [..._series];
+    if (_activeChip == 'new') {
+      base.sort((a, b) =>
+          (b.publishedAt ?? b.createdAt).compareTo(a.publishedAt ?? a.createdAt));
+    }
+    return base;
+  }
+
+  /// Human-readable label for the active chip. Used by empty-state strings.
+  String _activeChipLabel() {
+    for (final c in _chipDefs) {
+      if (c.value == _activeChip) return c.key;
+    }
+    return 'All';
+  }
+
+  /// Empty state rendered when a chip filter drops the tab's dataset to zero.
+  Widget _chipEmptyState({required IconData icon, required String kind}) {
+    return _emptyState(
+      'No ${_activeChipLabel()} $kind content yet.\nTry another filter.',
+      icon,
+    );
+  }
+
+  List<_ExclusiveMovie> _shapedExclusiveMovies() {
+    if (_hideExclusive) return const <_ExclusiveMovie>[];
+    final base = [..._exclusiveMovies];
+    if (_activeChip == 'new') {
+      base.sort((a, b) => (b.movie.publishedAt ?? b.movie.createdAt)
+          .compareTo(a.movie.publishedAt ?? a.movie.createdAt));
+    } else if (_activeChip == 'trending') {
+      base.sort((a, b) => b.movie.totalViews.compareTo(a.movie.totalViews));
+    }
+    return base;
+  }
+
+  String _labelForPublicMovies() {
+    switch (_activeChip) {
+      case 'new':
+        return 'New movies';
+      case 'trending':
+        return 'Trending movies';
+      case 'free':
+        return 'Free movies';
+      default:
+        return 'Popular on AfroVision';
+    }
+  }
+
+  String _labelForPublicSeries() {
+    switch (_activeChip) {
+      case 'new':
+        return 'New series';
+      case 'trending':
+        return 'Trending series';
+      case 'free':
+        return 'Free series';
+      default:
+        return 'Series for you';
+    }
+  }
+
+  List<_ExclusiveSeries> _shapedExclusiveSeries() {
+    if (_hideExclusive) return const <_ExclusiveSeries>[];
+    final base = [..._exclusiveSeries];
+    if (_activeChip == 'new') {
+      base.sort((a, b) => (b.series.publishedAt ?? b.series.createdAt)
+          .compareTo(a.series.publishedAt ?? a.series.createdAt));
+    }
+    return base;
   }
 
   // ───────── TABS ─────────
@@ -547,6 +1020,8 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       ),
       child: Row(
         children: [
+          _tabButton('Catch Up', _MediaTab.catchUp),
+          const SizedBox(width: 20),
           _tabButton('Movies', _MediaTab.movies),
           const SizedBox(width: 20),
           _tabButton('Series', _MediaTab.series),
@@ -560,7 +1035,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   Widget _tabButton(String label, _MediaTab which) {
     final active = _tab == which;
     return GestureDetector(
-      onTap: () => setState(() => _tab = which),
+      onTap: () => _tabController.animateTo(_MediaTab.values.indexOf(which)),
       child: Container(
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 11),
         decoration: active
@@ -583,7 +1058,8 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   }
 
   // ───────── TAB CONTENT ─────────
-  Widget _buildTabContent() {
+  Widget _buildTabContent(_MediaTab tab) {
+    if (tab == _MediaTab.catchUp) return const CatchUpTab();
     if (_loading) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 60),
@@ -592,16 +1068,50 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
     }
     if (_error != null) return _buildError(_error!);
 
-    switch (_tab) {
+    switch (tab) {
       case _MediaTab.movies:
+        final exMovies = _shapedExclusiveMovies();
+        final pubMovies = _shapedMovies();
+        final cw = _continueWatchingForTab(_MediaTab.movies);
+        final newThisWeek = _newThisWeekMovies();
+        final because = _becauseYouWatchedMovies();
         return _buildStack([
-          ..._expiredExclusive.map(_buildRenewCard),
-          if (_exclusiveMovies.isNotEmpty)
+          if (!_hideExclusive)
+            ..._expiredExclusive.map(_buildRenewCard),
+          if (!_hideExclusive) ..._buildNonMemberInfoCards(),
+          if (cw.isNotEmpty) _continueWatchingRail(cw),
+          if (newThisWeek.isNotEmpty)
+            _posterSection(
+              label: 'New this week',
+              note: '${newThisWeek.length} titles',
+              items: newThisWeek
+                  .map((m) => _PosterItem(
+                        title: m.title,
+                        meta: _movieMeta(m),
+                        imageUrl: m.posterUrl,
+                        onTap: () => _openMovie(m),
+                      ))
+                  .toList(),
+            ),
+          if (because != null && because.items.isNotEmpty)
+            _posterSection(
+              label: 'Because you watched ${because.seed}',
+              note: '${because.items.length} titles',
+              items: because.items
+                  .map((m) => _PosterItem(
+                        title: m.title,
+                        meta: _movieMeta(m),
+                        imageUrl: m.posterUrl,
+                        onTap: () => _openMovie(m),
+                      ))
+                  .toList(),
+            ),
+          if (exMovies.isNotEmpty)
             _posterSection(
               label: 'Exclusive · your channels',
-              note: '${_exclusiveMovies.length} titles',
+              note: '${exMovies.length} titles',
               exclusive: true,
-              items: _exclusiveMovies
+              items: exMovies
                   .map((e) => _PosterItem(
                         title: e.movie.title,
                         meta: _movieMeta(e.movie),
@@ -612,11 +1122,11 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
                       ))
                   .toList(),
             ),
-          if (_movies.isNotEmpty)
+          if (pubMovies.isNotEmpty)
             _posterSection(
-              label: 'Popular on AfroVision',
-              note: '${_movies.length} titles',
-              items: _movies
+              label: _labelForPublicMovies(),
+              note: '${pubMovies.length} titles',
+              items: pubMovies
                   .map((m) => _PosterItem(
                         title: m.title,
                         meta: _movieMeta(m),
@@ -625,20 +1135,40 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
                       ))
                   .toList(),
             ),
-          if (_movies.isEmpty &&
-              _exclusiveMovies.isEmpty &&
-              _expiredExclusive.isEmpty)
-            _emptyState('No movies yet.', Icons.movie_outlined),
+          if (pubMovies.isEmpty &&
+              exMovies.isEmpty &&
+              (_hideExclusive || _expiredExclusive.isEmpty))
+            _chipEmptyState(icon: Icons.movie_outlined, kind: 'movie'),
         ]);
       case _MediaTab.series:
+        final exSeries = _shapedExclusiveSeries();
+        final pubSeries = _shapedSeries();
+        final cw = _continueWatchingForTab(_MediaTab.series);
+        final newThisWeek = _newThisWeekSeries();
         return _buildStack([
-          ..._expiredExclusive.map(_buildRenewCard),
-          if (_exclusiveSeries.isNotEmpty)
+          if (!_hideExclusive)
+            ..._expiredExclusive.map(_buildRenewCard),
+          if (!_hideExclusive) ..._buildNonMemberInfoCards(),
+          if (cw.isNotEmpty) _continueWatchingRail(cw),
+          if (newThisWeek.isNotEmpty)
+            _posterSection(
+              label: 'New this week',
+              note: '${newThisWeek.length} titles',
+              items: newThisWeek
+                  .map((s) => _PosterItem(
+                        title: s.title,
+                        meta: _seriesMeta(s),
+                        imageUrl: s.coverUrl,
+                        onTap: () => _openSeries(s),
+                      ))
+                  .toList(),
+            ),
+          if (exSeries.isNotEmpty)
             _posterSection(
               label: 'Exclusive · your channels',
-              note: '${_exclusiveSeries.length} titles',
+              note: '${exSeries.length} titles',
               exclusive: true,
-              items: _exclusiveSeries
+              items: exSeries
                   .map((e) => _PosterItem(
                         title: e.series.title,
                         meta: _seriesMeta(e.series),
@@ -649,11 +1179,11 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
                       ))
                   .toList(),
             ),
-          if (_series.isNotEmpty)
+          if (pubSeries.isNotEmpty)
             _posterSection(
-              label: 'Series for you',
-              note: '${_series.length} titles',
-              items: _series
+              label: _labelForPublicSeries(),
+              note: '${pubSeries.length} titles',
+              items: pubSeries
                   .map((s) => _PosterItem(
                         title: s.title,
                         meta: _seriesMeta(s),
@@ -662,21 +1192,381 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
                       ))
                   .toList(),
             ),
-          if (_series.isEmpty &&
-              _exclusiveSeries.isEmpty &&
-              _expiredExclusive.isEmpty)
-            _emptyState('No series yet.', Icons.tv_outlined),
+          if (pubSeries.isEmpty &&
+              exSeries.isEmpty &&
+              (_hideExclusive || _expiredExclusive.isEmpty))
+            _chipEmptyState(icon: Icons.tv_outlined, kind: 'series'),
         ]);
+      case _MediaTab.catchUp:
+        return const CatchUpTab();
       case _MediaTab.library:
-        return _emptyState(
-          'Your library is empty.\nSaved and downloaded titles will appear here.',
-          Icons.bookmark_border_rounded,
-        );
+        if (_libraryLoading && _libraryItems.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 60),
+            child: Center(
+                child: CircularProgressIndicator(color: Nocturne.gold)),
+          );
+        }
+        if (_libraryItems.isEmpty) {
+          return _emptyState(
+            'Your library is empty.\nDownloaded titles will appear here.',
+            Icons.bookmark_border_rounded,
+          );
+        }
+        return _libraryGrid();
     }
   }
 
+  Widget _libraryGrid() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Your library',
+                  style: TextStyle(
+                    color: Nocturne.text,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Text(
+                '${_libraryItems.length} ${_libraryItems.length == 1 ? 'title' : 'titles'}',
+                style: const TextStyle(
+                  color: Nocturne.textFaint,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            itemCount: _libraryItems.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 9,
+              crossAxisSpacing: 9,
+              childAspectRatio: 2 / 3,
+            ),
+            itemBuilder: (context, i) => _libraryTile(_libraryItems[i]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _libraryTile(_LibraryEntry entry) {
+    final item = entry.item;
+    return GestureDetector(
+      onTap: () => _openLibraryItem(entry),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (item.coverAssetUrl != null && item.coverAssetUrl!.isNotEmpty)
+              CachedNetworkImage(
+                imageUrl: item.coverAssetUrl!,
+                cacheKey: imageCacheKey(item.coverAssetUrl),
+                fit: BoxFit.cover,
+                memCacheWidth: 320,
+                placeholder: (_, __) => _libraryFallback(item.contentType),
+                errorWidget: (_, __, ___) => _libraryFallback(item.contentType),
+              )
+            else
+              _libraryFallback(item.contentType),
+            // Overlay for legibility.
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Nocturne.borderStrong, width: 1),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    const Color(0xFF060B1C).withValues(alpha: 0.85),
+                  ],
+                  stops: const [0.5, 1],
+                ),
+              ),
+            ),
+            // Channel-tag pill.
+            Positioned(
+              top: 6,
+              left: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF423A6A).withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  entry.channelTag,
+                  style: const TextStyle(
+                    color: Color(0xFFF7DCAE),
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
+            // Content-type glyph.
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0B1533).withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Icon(
+                  _iconForContentType(item.contentType),
+                  size: 11,
+                  color: Nocturne.goldLight,
+                ),
+              ),
+            ),
+            Positioned(
+              left: 9,
+              right: 9,
+              bottom: 9,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    item.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Nocturne.text,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _libraryMeta(item),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Nocturne.textFaint,
+                      fontSize: 9.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _libraryMeta(ChannelLibraryItemModel item) {
+    final parts = <String>[_labelForContentType(item.contentType)];
+    if (item.estimatedReadMinutes > 0) {
+      parts.add('${item.estimatedReadMinutes} min read');
+    } else if (item.totalPages > 0) {
+      parts.add('${item.totalPages} pages');
+    }
+    return parts.join(' · ');
+  }
+
+  IconData _iconForContentType(String type) {
+    switch (type.toLowerCase()) {
+      case 'comic':
+        return Icons.auto_stories_rounded;
+      case 'magazine':
+        return Icons.article_rounded;
+      case 'journal':
+        return Icons.receipt_long_rounded;
+      case 'book':
+      default:
+        return Icons.menu_book_rounded;
+    }
+  }
+
+  String _labelForContentType(String type) {
+    switch (type.toLowerCase()) {
+      case 'comic':
+        return 'Comic';
+      case 'magazine':
+        return 'Magazine';
+      case 'journal':
+        return 'Journal';
+      case 'book':
+        return 'Book';
+      default:
+        return 'Reading';
+    }
+  }
+
+  Widget _libraryFallback(String contentType) => Container(
+        color: const Color(0xFF111C3F),
+        alignment: Alignment.center,
+        child: Icon(
+          _iconForContentType(contentType),
+          color: Nocturne.textHint,
+          size: 26,
+        ),
+      );
+
   /// Renew card that replaces an expired exclusive channel's shelf in the
   /// Movies/Series tabs. Matches the design's `isRenew` block.
+  /// One "private membership" info card per exclusive channel the user
+  /// isn't a member of. Rendered only for KYC-verified users — non-KYC
+  /// users don't get exclusive-channel discovery here (`/kyc` is the
+  /// gate). Tapping the card pushes the paywall, which owns the
+  /// referral-based branch (Xlounge → purchase, else → request/About).
+  List<Widget> _buildNonMemberInfoCards() {
+    final u = _currentUser;
+    if (u == null || !u.kycVerified) return const <Widget>[];
+    if (_nonMemberExclusive.isEmpty) return const <Widget>[];
+    return _nonMemberExclusive
+        .map((ch) => Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: _nonMemberInfoCard(ch),
+            ))
+        .toList();
+  }
+
+  Widget _nonMemberInfoCard(ChannelModel ch) {
+    return GestureDetector(
+      onTap: () => Navigator.of(context).pushNamed(
+        '/exclusive-access',
+        arguments: ch,
+      ).then((_) {
+        // Re-check memberships after the user returns — they may have
+        // just joined, in which case the info card drops out.
+        _loadNonMemberExclusive();
+        _loadExclusive();
+      }),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Nocturne.surfaceRaised,
+          borderRadius: BorderRadius.circular(Nocturne.radiusLg),
+          border: Border.all(color: const Color(0xFF4A3A1A), width: 1),
+        ),
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: Nocturne.surfaceInset,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.lock_outline_rounded,
+                    size: 15,
+                    color: Nocturne.goldSoft,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'PREMIUM · PRIVATE MEMBERSHIP',
+                        style: TextStyle(
+                          color: Nocturne.gold,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      Text(
+                        ch.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Nocturne.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${ch.name} is an Exclusive Channel with Private Membership. Only Exclusive Channel members can access its content.',
+              style: const TextStyle(
+                color: Nocturne.textMuted,
+                fontSize: 12.5,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Nocturne.gold, width: 1),
+                    color: Nocturne.gold.withValues(alpha: 0.14),
+                  ),
+                  child: Text(
+                    _isXloungeUser ? 'Purchase membership' : 'Request membership',
+                    style: const TextStyle(
+                      color: Nocturne.goldLight,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Nocturne.border, width: 1),
+                  ),
+                  child: const Text(
+                    'Learn more',
+                    style: TextStyle(
+                      color: Nocturne.textMuted,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool get _isXloungeUser {
+    final src = _currentUser?.referralSource?.trim().toLowerCase();
+    return src == 'xlounge-extreme';
+  }
+
   Widget _buildRenewCard(ChannelSubscriptionModel s) {
     final tag = _tagFor(s.channelName);
     final expiryDate = s.nextBilling == null
@@ -938,10 +1828,14 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
           fit: StackFit.expand,
           children: [
             if (item.imageUrl != null && item.imageUrl!.isNotEmpty)
-              Image.network(
-                item.imageUrl!,
+              CachedNetworkImage(
+                imageUrl: item.imageUrl!,
+                cacheKey: imageCacheKey(item.imageUrl),
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _posterFallback(),
+                // 3-column posters — ~150 wide at 2:3 → cap decoded size.
+                memCacheWidth: 320,
+                placeholder: (_, __) => _posterFallback(),
+                errorWidget: (_, __, ___) => _posterFallback(),
               )
             else
               _posterFallback(),
@@ -1127,16 +2021,6 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
     );
   }
 
-  void _snack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: Nocturne.surfaceInset,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
   void _openMovie(MovieModel movie) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => MovieDetailScreen(movie: movie)),
@@ -1148,6 +2032,231 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       MaterialPageRoute(builder: (_) => SeriesDetailScreen(series: series)),
     );
   }
+
+  // ───────── PHASE 5 RAIL DERIVATIONS ─────────
+
+  /// Filter continue-watching items to the current tab (movies vs series).
+  List<ContinueWatchingItem> _continueWatchingForTab(_MediaTab tab) {
+    if (_continueWatching.isEmpty) return const <ContinueWatchingItem>[];
+    if (tab == _MediaTab.movies) {
+      return _continueWatching.where((i) => i.mediaType == 'movie').toList();
+    }
+    return _continueWatching.where((i) => i.mediaType == 'episode').toList();
+  }
+
+  /// Movies published or created in the last 7 days.
+  List<MovieModel> _newThisWeekMovies() {
+    if (_movies.isEmpty) return const <MovieModel>[];
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return _movies.where((m) {
+      final ts = m.publishedAt ?? m.createdAt;
+      return ts > 0 && (now - ts) <= _kNewThisWeekWindowSec;
+    }).toList()
+      ..sort((a, b) => (b.publishedAt ?? b.createdAt)
+          .compareTo(a.publishedAt ?? a.createdAt));
+  }
+
+  /// Series published or created in the last 7 days.
+  List<SeriesModel> _newThisWeekSeries() {
+    if (_series.isEmpty) return const <SeriesModel>[];
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return _series.where((s) {
+      final ts = s.publishedAt ?? s.createdAt;
+      return ts > 0 && (now - ts) <= _kNewThisWeekWindowSec;
+    }).toList()
+      ..sort((a, b) => (b.publishedAt ?? b.createdAt)
+          .compareTo(a.publishedAt ?? a.createdAt));
+  }
+
+  /// Simple heuristic: seed is the most recently continue-watched movie title;
+  /// items are up to 6 other movies excluding the seed itself. Returns null
+  /// when there's no seed or when there is only one movie in the catalogue.
+  _BecauseYouWatched? _becauseYouWatchedMovies() {
+    if (_movies.length < 2) return null;
+    final seedCw = _continueWatching
+        .where((i) => i.mediaType == 'movie' && (i.movieId ?? '').isNotEmpty)
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    if (seedCw.isEmpty) return null;
+    final seedId = seedCw.first.movieId!;
+    final seedTitle = seedCw.first.title;
+    final pool = _movies.where((m) => m.id != seedId).toList();
+    if (pool.isEmpty) return null;
+    pool.sort((a, b) => b.totalViews.compareTo(a.totalViews));
+    return _BecauseYouWatched(
+      seed: seedTitle.isEmpty ? 'your last title' : seedTitle,
+      items: pool.take(6).toList(),
+    );
+  }
+
+  Widget _continueWatchingRail(List<ContinueWatchingItem> items) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Continue watching',
+                  style: TextStyle(
+                    color: Nocturne.text,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Text(
+                '${items.length} ${items.length == 1 ? 'title' : 'titles'}',
+                style: const TextStyle(
+                  color: Nocturne.textFaint,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 178,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.zero,
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, i) => _continueWatchingCard(items[i]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _continueWatchingCard(ContinueWatchingItem item) {
+    return GestureDetector(
+      onTap: () => _openContinueWatching(item),
+      child: SizedBox(
+        width: 118,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 118,
+                height: 132,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if ((item.posterUrl ?? '').isNotEmpty)
+                      CachedNetworkImage(
+                        imageUrl: item.posterUrl!,
+                        cacheKey: imageCacheKey(item.posterUrl),
+                        fit: BoxFit.cover,
+                        memCacheWidth: 260,
+                        placeholder: (_, __) => _posterFallback(),
+                        errorWidget: (_, __, ___) => _posterFallback(),
+                      )
+                    else
+                      _posterFallback(),
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: Nocturne.borderStrong, width: 1),
+                      ),
+                    ),
+                    Positioned(
+                      left: 6,
+                      right: 6,
+                      bottom: 6,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: item.progress,
+                          minHeight: 3,
+                          backgroundColor:
+                              Colors.white.withValues(alpha: 0.16),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                              Nocturne.gold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              item.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Nocturne.text,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                height: 1.25,
+              ),
+            ),
+            if ((item.episodeTitle ?? '').isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                item.episodeTitle!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Nocturne.textFaint,
+                  fontSize: 9.5,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openContinueWatching(ContinueWatchingItem item) async {
+    if (item.mediaType == 'movie' && (item.movieId ?? '').isNotEmpty) {
+      try {
+        final movie = await VodService.getMovieById(item.movieId!);
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => MovieDetailScreen(movie: movie),
+          ),
+        );
+      } catch (_) {}
+    } else if (item.mediaType == 'episode' && (item.seriesId ?? '').isNotEmpty) {
+      try {
+        final series = await VodService.getSeriesById(item.seriesId!);
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SeriesDetailScreen(series: series),
+          ),
+        );
+      } catch (_) {}
+    }
+  }
+}
+
+class _BecauseYouWatched {
+  final String seed;
+  final List<MovieModel> items;
+  const _BecauseYouWatched({required this.seed, required this.items});
+}
+
+class _LibraryEntry {
+  final ChannelLibraryItemModel item;
+  final String channelName;
+  final String channelTag;
+  const _LibraryEntry({
+    required this.item,
+    required this.channelName,
+    required this.channelTag,
+  });
 }
 
 class _PosterItem {
@@ -1188,4 +2297,160 @@ class _ExclusiveBundle {
   const _ExclusiveBundle.empty()
       : movies = const [],
         series = const [];
+}
+
+/// Media Center hero rail — 3-card swipe with pager dots.
+/// Full-bleed 16:9 art, gradient scrim, title + subtitle overlay, gold CTA.
+class _HeroRail extends StatefulWidget {
+  final List<MediaCenterHero> heroes;
+  final void Function(MediaCenterHero) onOpen;
+  const _HeroRail({required this.heroes, required this.onOpen});
+
+  @override
+  State<_HeroRail> createState() => _HeroRailState();
+}
+
+class _HeroRailState extends State<_HeroRail> {
+  final PageController _pc = PageController(viewportFraction: 0.92);
+  int _index = 0;
+
+  @override
+  void dispose() {
+    _pc.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final heroes = widget.heroes;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 14),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 200,
+            child: PageView.builder(
+              controller: _pc,
+              itemCount: heroes.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemBuilder: (context, i) => _heroCard(heroes[i]),
+            ),
+          ),
+          if (heroes.length > 1) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (int i = 0; i < heroes.length; i++)
+                  Container(
+                    width: i == _index ? 18 : 6,
+                    height: 6,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      color: i == _index
+                          ? Nocturne.gold
+                          : Nocturne.border,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _heroCard(MediaCenterHero h) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: GestureDetector(
+        onTap: () => widget.onOpen(h),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (h.imageUrl.isNotEmpty)
+                CachedNetworkImage(
+                  imageUrl: h.imageUrl,
+                  cacheKey: imageCacheKey(h.imageUrl),
+                  fit: BoxFit.cover,
+                  memCacheWidth: 900,
+                  placeholder: (_, __) => Container(color: Nocturne.surfaceInset),
+                  errorWidget: (_, __, ___) => Container(color: Nocturne.surfaceInset),
+                )
+              else
+                Container(color: Nocturne.surfaceInset),
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      const Color(0xFF060B1C).withValues(alpha: 0.85),
+                    ],
+                    stops: const [0.35, 1],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 14,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      h.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Nocturne.text,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    if ((h.subtitle ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        h.subtitle!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Nocturne.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Nocturne.gold,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Watch now',
+                        style: TextStyle(
+                          color: Color(0xFF26170A),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

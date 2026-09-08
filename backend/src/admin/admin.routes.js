@@ -11,6 +11,7 @@ const cersAdminCtrl = require('./cers.admin.controller');
 const aiVideoAdminCtrl = require('../ai_video/ai_video.admin.controller');
 const referralCtrl = require('../referrals/referral.controller');
 const promoModalCtrl = require('../promo/promo-modal.controller');
+const mediaCenterHeroesCtrl = require('../media_center/media_center_heroes.controller');
 const { upload, uploadSingleToGCS, uploadFieldsToGCS } = require('../utils/upload');
 
 const router = Router();
@@ -180,6 +181,16 @@ router.post('/referrals/recalculate', authenticateToken, referralCtrl.adminRecal
 router.get('/promo-modal', authenticateToken, promoModalCtrl.adminGetPromoModal);
 router.patch('/promo-modal', authenticateToken, promoModalCtrl.adminUpdatePromoModal);
 router.post('/promo-modal/image', authenticateToken, upload.single('file'), uploadSingleToGCS, promoModalCtrl.adminUploadPromoImage);
+
+// Media Center hero banner management
+router.get('/media-center/heroes', authenticateToken, mediaCenterHeroesCtrl.adminListHeroes);
+router.post('/media-center/heroes', authenticateToken, mediaCenterHeroesCtrl.adminCreateHero);
+router.patch('/media-center/heroes/:id', authenticateToken, mediaCenterHeroesCtrl.adminUpdateHero);
+router.delete('/media-center/heroes/:id', authenticateToken, mediaCenterHeroesCtrl.adminDeleteHero);
+router.post('/media-center/heroes/image', authenticateToken, upload.single('file'), uploadSingleToGCS, (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+  res.json({ image_url: req.file.gcsUrl, file_name: req.file.filename });
+});
 
 module.exports = router;
 

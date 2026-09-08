@@ -9,6 +9,7 @@ import '../services/channel_service.dart';
 import '../services/pic_storage_service.dart';
 import '../../auth/services/auth_service.dart';
 import '../../kyc/services/kyc_service.dart';
+import '../../subscription/widgets/exclusive_membership_sheets.dart';
 
 class ExclusiveAccessPaywallScreen extends StatefulWidget {
   const ExclusiveAccessPaywallScreen({super.key});
@@ -42,6 +43,17 @@ class _ExclusiveAccessPaywallScreenState
   bool _picVerified = false;
   String? _error;
   String? _info;
+
+  /// Case-insensitive referral used to pick between direct purchase (Xlounge)
+  /// and the request/approval flow (everyone else). Loaded alongside the
+  /// entitlement status so the noEntitlement card can branch immediately.
+  String? _referralSource;
+  double _walletNgn = 0;
+
+  static const String _xloungeReferral = 'xlounge-extreme';
+
+  bool get _isXlounge =>
+      (_referralSource ?? '').trim().toLowerCase() == _xloungeReferral;
 
   _ExclusiveState _state = _ExclusiveState.loading;
 
@@ -105,6 +117,8 @@ class _ExclusiveAccessPaywallScreenState
     try {
       var status = await ChannelService.getExclusiveAccessStatus(_channelId!);
       final currentUser = await AuthService.getCurrentUser();
+      _referralSource = currentUser.referralSource;
+      _walletNgn = currentUser.cash.toDouble();
       if (!status.eligibleByKyc && currentUser.kycStatus == 'verified') {
         try {
           await KycService.getMe(forceRefresh: true);
@@ -483,19 +497,7 @@ class _ExclusiveAccessPaywallScreenState
           onAction: () => Navigator.pushNamed(context, '/kyc'),
         );
       case _ExclusiveState.noEntitlement:
-        return _buildActionCard(
-          title: _status?.renewalRequired == true
-              ? 'Renew Access'
-              : 'No Active Access',
-          body: _status?.renewalRequired == true
-              ? 'Your previous entitlement has expired. Renew now to continue.'
-              : 'Purchase exclusive access to unlock this channel for 30 days.',
-          icon: Icons.lock_rounded,
-          actionLabel: _status?.renewalRequired == true
-              ? 'Renew Now'
-              : 'Purchase Access',
-          onAction: _purchaseOrRenew,
-        );
+        return _buildNoEntitlementCard();
       case _ExclusiveState.purchaseInProgress:
         return Container(
           width: double.infinity,
@@ -541,6 +543,162 @@ class _ExclusiveAccessPaywallScreenState
       case _ExclusiveState.loading:
         return const SizedBox.shrink();
     }
+  }
+
+  /// noEntitlement branch. Xlounge-Extreme referrals get a direct-purchase
+  /// summary sheet; everyone else gets About + Request-membership buttons
+  /// wired to the disclaimer-gated request flow.
+  Widget _buildNoEntitlementCard() {
+    final isRenewal = _status?.renewalRequired == true;
+    if (isRenewal) {
+      return _buildActionCard(
+        title: 'Renew Access',
+        body: 'Your previous entitlement has expired. Renew now to continue.',
+        icon: Icons.autorenew_rounded,
+        actionLabel: 'Renew Now',
+        onAction: _purchaseOrRenew,
+      );
+    }
+
+    if (_isXlounge) {
+      return _buildActionCard(
+        title: 'Purchase membership',
+        body:
+            'Xlounge referrals unlock this channel instantly from your AfroVision wallet.',
+        icon: Icons.diamond_rounded,
+        actionLabel: 'Purchase membership',
+        onAction: _openXloungePurchaseSummary,
+      );
+    }
+
+    return _buildRequestOrLearnMoreCard();
+  }
+
+  Widget _buildRequestOrLearnMoreCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.lock_rounded, color: AppColors.orange, size: 20),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Private membership',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'This is an Exclusive Channel with Private Membership. Only Exclusive Channel members can access its content.',
+            style: TextStyle(color: AppColors.goldText, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          AppButton(
+            label: 'Request membership',
+            onPressed: _openRequestMembershipFlow,
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton(
+            onPressed: _openAboutChannel,
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppColors.inputBorder),
+              minimumSize: const Size.fromHeight(48),
+              foregroundColor: AppColors.white,
+            ),
+            child: const Text('Learn more'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openXloungePurchaseSummary() async {
+    final fee = _status?.monthlyFeeNgn ?? 0;
+    if (fee <= 0) {
+      // Fee unknown — fall back to the existing direct purchase path.
+      return _purchaseOrRenew();
+    }
+    final name = _channel?.name ?? 'Exclusive channel';
+    final tag = _shortTag(name);
+    final result = await showXloungePurchaseSummarySheet(
+      context,
+      channelId: _channelId!,
+      channelName: name,
+      channelTag: tag,
+      monthlyFeeNgn: fee,
+      walletBalanceNgn: _walletNgn,
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _state = _ExclusiveState.purchaseSuccess;
+      _status = ExclusiveAccessStatusModel(
+        eligibleByKyc: true,
+        hasActiveEntitlement: true,
+        renewalRequired: false,
+        expiresAt: result.expiresAt,
+        monthlyFeeNgn: fee,
+      );
+      if ((result.personalIdentifierCode ?? '').isNotEmpty) {
+        _picController.text = result.personalIdentifierCode!;
+      }
+    });
+    if ((result.personalIdentifierCode ?? '').isNotEmpty) {
+      await PicStorageService.savePic(
+        _channelId!, result.personalIdentifierCode!);
+    }
+  }
+
+  Future<void> _openRequestMembershipFlow() async {
+    final name = _channel?.name ?? 'Exclusive channel';
+    final requestId = await submitExclusiveMembershipRequestFlow(
+      context,
+      channelId: _channelId!,
+      channelName: name,
+    );
+    if (!mounted || requestId == null) return;
+    // Take the user to their request status right after submit.
+    Navigator.of(context).pushNamed(
+      '/exclusive-request-status',
+      arguments: {
+        'channelId': _channelId,
+        'requestId': requestId,
+        'channelName': name,
+      },
+    );
+  }
+
+  void _openAboutChannel() {
+    final name = _channel?.name ?? 'Exclusive channel';
+    showAboutChannelSheet(
+      context,
+      channelName: name,
+      channelNumber: _channel?.channelNumber ?? '—',
+      description: _channel?.description,
+    );
+  }
+
+  String _shortTag(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '★';
+    if (parts.length == 1) {
+      return parts.first.substring(0, parts.first.length.clamp(0, 3)).toUpperCase();
+    }
+    return (parts.first.substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
   }
 
   Widget _buildActionCard({

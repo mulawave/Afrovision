@@ -32,6 +32,8 @@ const DEFAULT_SETTINGS = {
     apk_url: 'https://storage.googleapis.com/afrovision-media/tv-updates/afrovision-tv-latest.apk',
   },
   config_version: 1,
+  imdb_api_key: '',
+  imdb_api_token: '',
 };
 
 async function getSettings() {

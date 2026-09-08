@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/services/auth_service.dart';
 import '../models/channel_model.dart';
@@ -26,6 +27,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
   @override
   void initState() {
     super.initState();
+    KycGuard.enforceOnEntry(context);
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),

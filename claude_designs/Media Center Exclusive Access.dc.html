@@ -609,12 +609,12 @@ class Component extends DCLogic {
         { label: 'Home', icon: 'ph ph-house', size: '19px', style: '',
           go: () => { window.location.href = 'AfroVision Home.dc.html'; } },
         { label: 'Channels', icon: 'ph ph-television-simple', size: '19px', style: '',
-          go: () => this.set({ route: 'tunein' }) },
+          go: () => { window.location.href = 'AfroVision Channels.dc.html'; } },
         { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: 'color:#f0a52a',
           go: () => this.set({ route: 'home' }) },
-        { label: 'Library', icon: 'ph ph-books', size: '19px', style: '',
-          go: () => this.set({ route: 'home', tab: 'library' }) },
-        { label: 'Me', icon: 'ph ph-user-circle', size: '19px', style: '', go: () => {} }
+        { label: 'Waves', icon: 'ph ph-waves', size: '19px', style: '', go: () => {} },
+        { label: 'Assets', icon: 'ph ph-wallet', size: '19px', style: '',
+          go: () => { window.location.href = 'AfroVision Assets.dc.html'; } }
       ],
 
       sheetOpen: !!s.sheet, closeSheet: () => this.set({ sheet: null }),

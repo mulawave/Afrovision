@@ -439,6 +439,178 @@ class ChannelService {
     return ExclusivePurchaseResultModel.fromJson(data);
   }
 
+  /// POST /channels/:id/exclusive/request — submit a membership request for
+  /// an exclusive channel the user is not entitled to. Returns
+  /// `{success, message?, request_id?, status?, code?}`. Never throws.
+  ///
+  /// Backend rules (see Phase 3): one pending request per (user, channel),
+  /// requester must be KYC-verified, and the target channel must have an
+  /// `exclusive_monthly_fee_ngn > 0`.
+  static Future<Map<String, dynamic>> submitExclusiveRequest(
+    String channelId, {
+    required String note,
+    String? referralCode,
+  }) async {
+    try {
+      final data = await ApiService.post(
+        '/channels/$channelId/exclusive/request',
+        {
+          'note': note,
+          if (referralCode != null && referralCode.isNotEmpty)
+            'referral_code': referralCode,
+        },
+      );
+      final root = (data['data'] as Map<String, dynamic>? ?? data);
+      return {
+        'success': true,
+        'message': root['message'] as String? ?? 'Request submitted.',
+        'request_id': root['request_id'] as String?,
+        'status': root['status'] as String? ?? 'pending',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': e.toString(),
+        'code': 'REQUEST_FAILED',
+      };
+    }
+  }
+
+  /// GET /channels/:id/exclusive/requests/:requestId — full record for the
+  /// requester's own status screen. Owner/admin also permitted server-side.
+  /// Returns `{success, request?}`; never throws.
+  static Future<Map<String, dynamic>> fetchExclusiveRequest(
+    String channelId,
+    String requestId,
+  ) async {
+    try {
+      final data = await ApiService.get(
+        '/channels/$channelId/exclusive/requests/$requestId',
+      );
+      final root = (data['data'] as Map<String, dynamic>? ?? data);
+      return {
+        'success': true,
+        'request': root['request'] as Map<String, dynamic>? ?? root,
+      };
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  /// GET /channels/:id/exclusive/requests — owner/admin view of every
+  /// membership request for a channel. Optional [status] filter matches
+  /// the five backend statuses. Returns
+  /// `{success, requests: List<Map>}`; never throws.
+  static Future<Map<String, dynamic>> listExclusiveRequests(
+    String channelId, {
+    String? status,
+  }) async {
+    try {
+      final q = (status != null && status.isNotEmpty) ? '?status=$status' : '';
+      final data = await ApiService.get(
+        '/channels/$channelId/exclusive/requests$q',
+      );
+      final root = (data['data'] as Map<String, dynamic>? ?? data);
+      final rows = (root['requests'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+      return {'success': true, 'requests': rows};
+    } catch (e) {
+      return {'success': false, 'message': e.toString(), 'requests': const []};
+    }
+  }
+
+  /// POST /channels/:id/exclusive/requests/:requestId/approve.
+  static Future<Map<String, dynamic>> approveExclusiveRequest(
+    String channelId,
+    String requestId, {
+    String? adminMessage,
+  }) async {
+    return _postRequestAction(
+      channelId,
+      requestId,
+      'approve',
+      adminMessage: adminMessage,
+    );
+  }
+
+  /// POST /channels/:id/exclusive/requests/:requestId/reject.
+  /// [adminMessage] is optional but strongly recommended so the applicant
+  /// knows why.
+  static Future<Map<String, dynamic>> rejectExclusiveRequest(
+    String channelId,
+    String requestId, {
+    String? adminMessage,
+  }) async {
+    return _postRequestAction(
+      channelId,
+      requestId,
+      'reject',
+      adminMessage: adminMessage,
+    );
+  }
+
+  /// POST /channels/:id/exclusive/requests/:requestId/more-info.
+  /// [adminMessage] is REQUIRED (backend rejects empty).
+  static Future<Map<String, dynamic>> requestMoreInfoExclusiveRequest(
+    String channelId,
+    String requestId, {
+    required String adminMessage,
+  }) async {
+    return _postRequestAction(
+      channelId,
+      requestId,
+      'more-info',
+      adminMessage: adminMessage,
+    );
+  }
+
+  static Future<Map<String, dynamic>> _postRequestAction(
+    String channelId,
+    String requestId,
+    String action, {
+    String? adminMessage,
+  }) async {
+    try {
+      final data = await ApiService.post(
+        '/channels/$channelId/exclusive/requests/$requestId/$action',
+        {
+          if (adminMessage != null && adminMessage.isNotEmpty)
+            'admin_message': adminMessage,
+        },
+      );
+      final root = (data['data'] as Map<String, dynamic>? ?? data);
+      return {
+        'success': true,
+        'request': root['request'] as Map<String, dynamic>?,
+      };
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  /// POST /channels/:id/exclusive/requests/:requestId/reply — requester
+  /// answering a `more_info` admin question. Backend flips status back to
+  /// `pending` and notifies the owner.
+  static Future<Map<String, dynamic>> replyToExclusiveRequest(
+    String channelId,
+    String requestId, {
+    required String reply,
+  }) async {
+    try {
+      final data = await ApiService.post(
+        '/channels/$channelId/exclusive/requests/$requestId/reply',
+        {'reply': reply},
+      );
+      return {
+        'success': true,
+        'message': (data['message'] as String?) ?? 'Reply sent.',
+      };
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
   static Future<ExclusivePicVerificationResultModel> verifyExclusivePic(
     String channelId, {
     required String pic,

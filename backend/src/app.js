@@ -47,6 +47,7 @@ const aiVideoRoutes = require('./ai_video/ai_video.routes');
 const announcementRoutes = require('./announcements/announcement.routes');
 const AnnouncementModel = require('./announcements/announcement.model');
 const distributionRoutes = require('./distribution/distribution.routes');
+const catchupRoutes = require('./catchup/catchup.routes');
 const progressRoutes = require('./watch-progress/progress.routes');
 const { initializeSocketServer } = require('./realtime/socket.service');
 
@@ -139,6 +140,13 @@ function getOpsSecret() {
 // Promo modal — public endpoint (no auth required)
 const promoModalCtrl = require('./promo/promo-modal.controller');
 app.get('/promo-modal', promoModalCtrl.getPromoModal);
+
+// Media Center hero banners — public list (no auth required)
+const mediaCenterHeroesRoutes = require('./media_center/media_center_heroes.routes');
+app.use('/media-center', mediaCenterHeroesRoutes);
+
+// Catch-up discovery feed — public list (no auth required)
+app.use('/catchup', catchupRoutes);
 
 // One-time admin recalculation endpoint — protected by ADMIN_PASSWORD env var
 app.post('/ops/recalculate-payouts', async (req, res) => {

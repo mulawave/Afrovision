@@ -20,6 +20,7 @@ import '../../../core/config/app_config.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/video_cache_service.dart';
 import '../../../core/services/thumbnail_service.dart';
+import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/storage/auth_storage.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
@@ -31,6 +32,13 @@ import '../../channel/models/channel_model.dart';
 import '../../channel/services/channel_service.dart';
 import '../models/wave_model.dart';
 import '../services/wave_service.dart';
+
+/// Which source the feed currently renders: the public discovery feed, or
+/// the signed-in user's saved (bookmarked) waves. Restored per
+/// wips_restoration.md Phase 3 — these were previously two disconnected
+/// surfaces (this screen + the orphaned `/saved-waves` route); they are now
+/// one screen with a segmented switch, matching the pre-regression UX.
+enum _WaveFeedMode { public, fav }
 
 class WaveScreen extends StatefulWidget {
   final bool isActive;
@@ -121,6 +129,11 @@ class _WaveScreenState extends State<WaveScreen> {
   // Tracks whether a specific wave navigation was already applied,
   // so _applyChannelContextIfNeeded doesn't override the target index.
   bool _specificWaveNavigationApplied = false;
+  // Public/Fav segmented feed mode (Phase 3 restoration). Hidden and forced
+  // to `public` whenever a channel or specific-wave deep link is pending —
+  // those contexts always show that channel's own waves, never bookmarks.
+  _WaveFeedMode _feedMode = _WaveFeedMode.public;
+  bool _favLoading = false;
 
   @override
   void initState() {
@@ -338,6 +351,45 @@ class _WaveScreenState extends State<WaveScreen> {
       final isCreator = results[1] as bool;
       final token = results[2] as String?;
       final currentUserId = results[3] as String?;
+
+      // A deep link (shared wave / channel context) always means the public
+      // feed — bookmarks mode has no notion of "jump to this specific wave".
+      final hasDeepLink = (_pendingChannelContextId?.isNotEmpty ?? false) ||
+          (_pendingWaveId?.isNotEmpty ?? false);
+      if (_feedMode == _WaveFeedMode.fav && hasDeepLink) {
+        _feedMode = _WaveFeedMode.public;
+      }
+
+      if (_feedMode == _WaveFeedMode.fav) {
+        final bookmarks = await WaveService.getMyBookmarks();
+        if (!mounted) return;
+        final filteredWaves = await _filterWaves(bookmarks);
+        if (!mounted) return;
+        setState(() {
+          _waves.addAll(filteredWaves);
+          // Bookmarks are returned in full — there is no next page.
+          _nextCursor = null;
+          _isCreator = isCreator;
+          _currentUserId = currentUserId;
+          _isAuthenticated = token != null && token.isNotEmpty;
+          _adultConsentAccepted = false;
+          _waveSessionId = 'wv_${DateTime.now().millisecondsSinceEpoch}';
+          _loading = false;
+        });
+        if (_waves.isNotEmpty) {
+          _preloadWave(_waves.first);
+          _loadPulseMoments(_waves.first.id);
+          for (int i = 1; i < _waves.length && i <= 3; i++) {
+            await Future.delayed(const Duration(milliseconds: 200));
+            if (!mounted) return;
+            _preloadWave(_waves[i]);
+          }
+          _pruneControllers(centerIndex: 0);
+          _markWaveSeen(_waves.first.id);
+          _ensureWaveAccessAndPlay(force: false);
+        }
+        return;
+      }
 
       // If a channel context is provided, load that channel's waves first
       if (_pendingChannelContextId != null &&
@@ -572,8 +624,30 @@ class _WaveScreenState extends State<WaveScreen> {
     _showSnack('Feed refreshed');
   }
 
+  Future<void> _switchFeedMode(_WaveFeedMode mode) async {
+    if (_feedMode == mode || _favLoading) return;
+    setState(() {
+      _feedMode = mode;
+      _favLoading = true;
+    });
+    try {
+      await _loadInitial();
+    } finally {
+      if (mounted) setState(() => _favLoading = false);
+    }
+  }
+
   Future<void> _loadMore() async {
     if (_loadingMore) return;
+    // Bookmarks are fetched in full on _loadInitial — cycle instead of
+    // paginating, mirroring the "exhausted" branch below.
+    if (_feedMode == _WaveFeedMode.fav) {
+      if (_waves.isEmpty) return;
+      setState(() {
+        _waves.addAll((_waves.toList()..shuffle()).take(15));
+      });
+      return;
+    }
 
     setState(() => _loadingMore = true);
     try {
@@ -996,14 +1070,19 @@ class _WaveScreenState extends State<WaveScreen> {
           if (wave.isAdultContent) {
             if (user.kycVerified) {
               filteredWaves.add(wave);
-            } else {
-              filteredWaves.add(wave);
+              // KYC-verified users can view adult content without gating.
               _accessDecisions[wave.id] = const WaveAccessDecision(
-                allowed: false,
+                allowed: true,
                 requiresConsent: false,
-                reason: 'KYC verification is required to view 18+ content.',
-                code: 'AGE_RESTRICTION_KYC_REQUIRED',
+                reason: null,
+                code: 'ADULT_CONTENT_KYC_VERIFIED',
               );
+            } else {
+              // Non-KYC users must not see 18+ waves in the feed at all —
+              // matches the exclusive-non-member path above (line 972) and
+              // Phase 1 Step 5 of the KYC plan. No feed row, no access
+              // decision, no scroll exposure to gated content.
+              continue;
             }
           } else {
             filteredWaves.add(wave);
@@ -1397,6 +1476,7 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   Future<void> _toggleChannelFollow(WaveModel wave) async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
     if (_channelFollowLoading) return;
     setState(() => _channelFollowLoading = true);
     try {
@@ -1484,6 +1564,7 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   Future<void> _onPulse(WaveModel wave, int intensity) async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
     final currentSeconds = (_currentTimes[wave.id] ?? 0).round();
     // Optimistic UI update — instant feedback before network call
     _updateWave(wave.id, (w) => w.copyWith(pulseCount: w.pulseCount + 1));
@@ -1526,6 +1607,7 @@ class _WaveScreenState extends State<WaveScreen> {
   }
 
   Future<void> _onBookmark(WaveModel wave) async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
     try {
       final bookmarked = await WaveService.toggleBookmark(wave.id);
       if (!mounted) return;
@@ -1588,7 +1670,8 @@ class _WaveScreenState extends State<WaveScreen> {
     });
   }
 
-  void _showCommentsSheet(WaveModel wave) {
+  Future<void> _showCommentsSheet(WaveModel wave) async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1998,18 +2081,32 @@ class _WaveScreenState extends State<WaveScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final showFeedSwitch = !_hideAllUI &&
+        _pendingChannelContextId == null &&
+        _pendingWaveId == null;
     return Scaffold(
       body: Container(
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
-        child: _loading
-            ? _buildLoadingState()
-            : _error != null
-            ? _buildErrorState()
-            : _waves.isEmpty
-            ? _buildEmptyState()
-            : _buildWavePager(),
+        child: Stack(
+          children: [
+            _loading
+                ? _buildLoadingState()
+                : _error != null
+                ? _buildErrorState()
+                : _waves.isEmpty
+                ? _buildEmptyState()
+                : _buildWavePager(),
+            if (showFeedSwitch)
+              Positioned(
+                top: 48,
+                left: 0,
+                right: 0,
+                child: Center(child: _buildFeedModeSwitch()),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -2078,9 +2175,9 @@ class _WaveScreenState extends State<WaveScreen> {
               size: 42,
             ),
             const SizedBox(height: 12),
-            const Text(
-              'No Waves yet',
-              style: TextStyle(
+            Text(
+              _feedMode == _WaveFeedMode.fav ? 'No saved Waves yet' : 'No Waves yet',
+              style: const TextStyle(
                 color: AppColors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -2088,23 +2185,32 @@ class _WaveScreenState extends State<WaveScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              _isCreator
-                  ? 'Start publishing your first Wave from Creator Studio.'
-                  : 'Pull to refresh or explore channels while the feed updates.',
+              _feedMode == _WaveFeedMode.fav
+                  ? 'Tap the bookmark icon on a Wave to save it here.'
+                  : _isCreator
+                      ? 'Start publishing your first Wave from Creator Studio.'
+                      : 'Pull to refresh or explore channels while the feed updates.',
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.hintText, fontSize: 13),
             ),
             const SizedBox(height: 18),
-            AppButton(
-              label: _isCreator ? 'Open Creator Studio' : 'Explore Channels',
-              onPressed: () {
-                Navigator.pushNamed(
-                  context,
-                  _isCreator ? '/creator-studio' : '/channels',
-                );
-              },
-              width: 250,
-            ),
+            if (_feedMode == _WaveFeedMode.fav)
+              AppButton(
+                label: 'Browse Public Waves',
+                onPressed: () => _switchFeedMode(_WaveFeedMode.public),
+                width: 250,
+              )
+            else
+              AppButton(
+                label: _isCreator ? 'Open Creator Studio' : 'Explore Channels',
+                onPressed: () {
+                  Navigator.pushNamed(
+                    context,
+                    _isCreator ? '/creator-studio' : '/channels',
+                  );
+                },
+                width: 250,
+              ),
           ],
         ),
       ),
@@ -2152,6 +2258,47 @@ class _WaveScreenState extends State<WaveScreen> {
           ),
         Positioned.fill(child: _LocalFloatingOverlay(key: _floatingOverlayKey)),
       ],
+    );
+  }
+
+  Widget _buildFeedModeSwitch() {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _feedModeTab('Public', _WaveFeedMode.public),
+          _feedModeTab('Fav', _WaveFeedMode.fav),
+        ],
+      ),
+    );
+  }
+
+  Widget _feedModeTab(String label, _WaveFeedMode mode) {
+    final active = _feedMode == mode;
+    return GestureDetector(
+      onTap: () => _switchFeedMode(mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? AppColors.orange : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? AppColors.darkBlue : AppColors.white,
+            fontSize: 13,
+            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+          ),
+        ),
+      ),
     );
   }
 
@@ -2661,7 +2808,10 @@ class _WaveScreenState extends State<WaveScreen> {
     if (code == 'AGE_RESTRICTION_KYC_REQUIRED') {
       actionLabel = 'Complete KYC Verification';
       action = () {
-        Navigator.pushNamed(context, '/kyc-verification');
+        KycGuard.ensureKycVerified(
+          context,
+          onComplete: () => _ensureWaveAccessAndPlay(force: true),
+        );
       };
       return _buildAgeVerificationOverlay(actionLabel, action, decision);
     }
@@ -2680,17 +2830,20 @@ class _WaveScreenState extends State<WaveScreen> {
       return FutureBuilder<String>(
         future: _getChannelType(wave.channelId),
         builder: (context, snapshot) {
-          final channelType = snapshot.data ?? 'public';
-
-          // Skip age blocker if channel is exclusive
-          if (channelType == 'exclusive') {
+          // Skip age blocker if channel is exclusive — the exclusive flow
+          // gates access on membership, not on the adult-content consent.
+          if (wave.belongsToExclusiveChannel) {
             return const SizedBox.shrink();
           }
 
           // Show age verification blocker for public channels
-          actionLabel = 'I am 18+ Continue';
+          // KYC verification is required before any adult consent.
+          actionLabel = 'Complete KYC';
           action = () {
-            _confirmAdultConsent(wave);
+            KycGuard.ensureKycVerified(
+              context,
+              onComplete: () => _confirmAdultConsent(wave),
+            );
           };
 
           return _buildAgeVerificationOverlay(actionLabel, action, decision);
@@ -2699,9 +2852,13 @@ class _WaveScreenState extends State<WaveScreen> {
     }
 
     if (decision.requiresConsent) {
-      actionLabel = 'I am 18+ Continue';
+      // KYC must be verified before any adult consent.
+      actionLabel = 'Complete KYC';
       action = () {
-        _confirmAdultConsent(wave);
+        KycGuard.ensureKycVerified(
+          context,
+          onComplete: () => _confirmAdultConsent(wave),
+        );
       };
     } else {
       if (code == 'AUTH_REQUIRED' || code == 'EXCLUSIVE_LOGIN_REQUIRED') {
@@ -2717,10 +2874,10 @@ class _WaveScreenState extends State<WaveScreen> {
           code == 'EXCLUSIVE_KYC_REQUIRED') {
         actionLabel = 'Complete KYC';
         action = () {
-          Navigator.pushNamed(context, '/kyc').then((_) {
-            if (!mounted) return;
-            _ensureWaveAccessAndPlay(force: true);
-          });
+          KycGuard.ensureKycVerified(
+            context,
+            onComplete: () => _ensureWaveAccessAndPlay(force: true),
+          );
         };
       } else if (isExclusiveBlocked) {
         actionLabel = 'Subscribe — Get Access';

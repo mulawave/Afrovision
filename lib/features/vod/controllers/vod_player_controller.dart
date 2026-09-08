@@ -95,6 +95,11 @@ class VodPlayerController extends ChangeNotifier {
         startPosition: Duration(seconds: startPositionSeconds),
         userHlsBps: bps,
       );
+
+      // Auto-play as soon as the decoder is ready so the user does not have
+      // to tap play a second time after the player screen loads.
+      if (_disposed) return;
+      await _controller!.play();
     } catch (e) {
       debugPrint('[VodPlayerController] Initialize error: $e');
     } finally {

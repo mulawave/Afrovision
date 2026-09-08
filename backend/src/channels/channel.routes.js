@@ -3,6 +3,7 @@ const { authenticateToken, optionalAuth } = require('../utils/jwt');
 const ctrl = require('./channel.controller');
 const premiumCtrl = require('./premium_stream.controller');
 const exclusiveCtrl = require('./exclusive_channel.controller');
+const exclusiveRequestCtrl = require('./exclusive_request.controller');
 const { blockMinors, blockChannelCreationBan } = require('../users/restriction.middleware');
 const { upload, uploadSingleToGCS, uploadFieldsToGCS } = require('../utils/upload');
 
@@ -28,6 +29,15 @@ router.get('/:id/exclusive/subscribers', authenticateToken, exclusiveCtrl.listSu
 router.post('/:id/exclusive/ban-subscriber', authenticateToken, exclusiveCtrl.banSubscriber);
 router.post('/:id/exclusive/cancel-subscription', authenticateToken, exclusiveCtrl.cancelSubscription);
 router.post('/:id/exclusive/gift-subscription', authenticateToken, exclusiveCtrl.giftSubscription);
+
+// Membership-request workflow (Phase 3 — see media-center-kyc-request-approval-plan-aa665b.md).
+router.post('/:id/exclusive/request', authenticateToken, exclusiveRequestCtrl.submitRequest);
+router.get('/:id/exclusive/requests', authenticateToken, exclusiveRequestCtrl.listRequests);
+router.get('/:id/exclusive/requests/:requestId', authenticateToken, exclusiveRequestCtrl.fetchRequest);
+router.post('/:id/exclusive/requests/:requestId/reply', authenticateToken, exclusiveRequestCtrl.replyRequest);
+router.post('/:id/exclusive/requests/:requestId/approve', authenticateToken, exclusiveRequestCtrl.approveRequest);
+router.post('/:id/exclusive/requests/:requestId/reject', authenticateToken, exclusiveRequestCtrl.rejectRequest);
+router.post('/:id/exclusive/requests/:requestId/more-info', authenticateToken, exclusiveRequestCtrl.moreInfoRequest);
 router.get('/number/:channelNumber', authenticateToken, ctrl.getChannelByNumber);
 router.get('/:id', optionalAuth, ctrl.getChannelById);
 router.get('/:id/access', authenticateToken, premiumCtrl.checkAccess);
