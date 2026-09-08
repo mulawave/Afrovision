@@ -250,7 +250,11 @@ class ChannelService {
   }
 
   static Future<ChannelModel> getChannelByNumber(String number) async {
-    final data = await ApiService.get('/channels/number/$number');
+    final normalized = number.trim();
+    final data = await ApiService.get(
+      '/channels/number/${Uri.encodeComponent(normalized)}',
+      noCache: true,
+    );
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
   }
 

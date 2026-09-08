@@ -222,17 +222,33 @@ async function findAnyById(id) {
 }
 
 async function findByNumber(number) {
-  const key = String(number);
-  const seeded = getLocalDevSeedChannels().find((channel) => String(channel.channel_number) === key) || null;
+  const raw = String(number).trim();
+  if (!raw) return null;
+  // Normalize keypad input: strip whitespace and leading zeros so that
+  // "00576" or " 576 " resolve to the canonical stored form "576".
+  const asInt = /^\d+$/.test(raw) ? Number(raw) : null;
+  const key = asInt !== null ? String(asInt) : raw;
+
+  const seeded = getLocalDevSeedChannels().find(
+    (channel) => String(channel.channel_number) === key || String(channel.channel_number) === raw,
+  ) || null;
   if (seeded) return seeded;
 
-  const cached = channelsByNumber.get(key);
+  const cached = channelsByNumber.get(key) || channelsByNumber.get(raw) || null;
   if (cached) return cached.is_active ? cached : null;
   const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION)
+  let snapshot = await db.collection(COLLECTION)
     .where('channel_number', '==', key)
     .limit(1)
     .get();
+  if (snapshot.empty && asInt !== null) {
+    // Legacy rows may store channel_number as a numeric type — Firestore
+    // equality is type-sensitive, so retry with the int form.
+    snapshot = await db.collection(COLLECTION)
+      .where('channel_number', '==', asInt)
+      .limit(1)
+      .get();
+  }
   if (snapshot.empty) return null;
   const channel = cacheChannel({ ...snapshot.docs[0].data(), id: snapshot.docs[0].id });
   return channel.is_active ? channel : null;

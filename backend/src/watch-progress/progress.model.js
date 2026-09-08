@@ -38,8 +38,8 @@ async function getProgress(userId, mediaType, mediaId) {
 
 /**
  * List a user's most-recently-updated in-progress items across every mediaType.
- * "In progress" == 0 < position_seconds < duration_seconds - 30 (guards
- * against near-finished playbacks that are effectively "watched").
+ * "In progress" == position_seconds > 0 and not effectively finished — i.e.
+ * position/duration < 0.95 AND not within the final 30 seconds of the media.
  */
 async function listMine(userId, { limit = 20 } = {}) {
   const db = getFirestore();
@@ -55,7 +55,7 @@ async function listMine(userId, { limit = 20 } = {}) {
       const pos = Number(p.position_seconds) || 0;
       const dur = Number(p.duration_seconds) || 0;
       if (pos <= 0) return false;
-      if (dur > 0 && pos >= dur - 30) return false;
+      if (dur > 0 && (pos >= dur * 0.95 || pos >= dur - 30)) return false;
       return true;
     });
 }
@@ -65,4 +65,6 @@ module.exports = {
   saveProgress,
   getProgress,
   listMine,
+  // Generic listProgress(userId) alias for the watch-history endpoint.
+  listProgress: listMine,
 };

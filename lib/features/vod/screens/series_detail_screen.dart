@@ -1,10 +1,11 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/nocturne_theme.dart';
+import '../../../core/widgets/wave_thumbnail.dart';
 import '../models/series_model.dart';
-import '../widgets/episode_thumbnail.dart';
 import '../models/vod_playback_args.dart';
 import '../services/vod_service.dart';
 import 'vod_player_screen.dart';
@@ -58,8 +59,12 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     for (final ep in episodes) {
       try {
         final progress = await VodService.getProgress('episode', ep.id);
-        if (progress != null && progress.positionSeconds > 0 && mounted) {
-          _episodeProgress[ep.id] = progress.positionSeconds;
+        if (progress != null && mounted) {
+          final pos = progress.positionSeconds;
+          final dur = progress.durationSeconds;
+          final resumable =
+              pos > 0 && (dur <= 0 || pos < dur * 0.95);
+          if (resumable) _episodeProgress[ep.id] = pos;
         }
       } catch (_) {}
       if (!mounted) return;
@@ -332,10 +337,50 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             child: SizedBox(
               width: 64,
               height: 44,
-              child: EpisodeThumbnail(
-                posterUrl: ep.posterUrl,
-                videoUrl: ep.playbackUrl,
-                episodeNumber: ep.episodeNumber,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  WaveThumbnail(
+                    thumbnailUrl: (ep.posterUrl ?? '').isNotEmpty
+                        ? AppConfig.mediaUrl(ep.posterUrl!)
+                        : '',
+                    videoUrl: (ep.playbackUrl ?? '').isNotEmpty
+                        ? AppConfig.mediaUrl(ep.playbackUrl!)
+                        : '',
+                    memCacheWidth: 128,
+                    memCacheHeight: 88,
+                    placeholder: Container(
+                      color: Nocturne.surfaceRaised,
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.video_library_rounded,
+                        color: Nocturne.textHint,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 4,
+                    bottom: 4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF060B1C)
+                            .withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'E${ep.episodeNumber}',
+                        style: const TextStyle(
+                          color: Nocturne.gold,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
