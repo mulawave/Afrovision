@@ -166,7 +166,7 @@ data class ActivationResponse(
     @SerialName("device_token") val deviceToken: String = "",
     @SerialName("device_id") val deviceId: String = "",
     val owner: ActivationOwner? = null,
-    @SerialName("config_version") val configVersion: String? = null
+    @SerialName("config_version") val configVersion: Int? = null
 )
 
 @Serializable
@@ -186,7 +186,7 @@ data class HeartbeatResponse(
     @SerialName("disabled_reason") val disabledReason: String? = null,
     @SerialName("app_update") val appUpdate: AppUpdate? = null,
     @SerialName("unread_messages") val unreadMessages: Int = 0,
-    @SerialName("config_version") val configVersion: String? = null,
+    @SerialName("config_version") val configVersion: Int? = null,
     @SerialName("server_time") val serverTime: String? = null
 )
 
