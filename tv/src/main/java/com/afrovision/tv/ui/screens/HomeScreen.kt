@@ -16,7 +16,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,13 +42,7 @@ fun HomeScreen(viewModel: TvViewModel) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
-            modifier = Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to nocturne.accent900.copy(alpha = 0.35f),
-                    0.45f to nocturne.background.copy(alpha = 0.94f),
-                    1f to nocturne.background
-                )
-            )
+            modifier = Modifier.fillMaxSize().background(nocturne.primaryGradient)
         )
 
         Row(
