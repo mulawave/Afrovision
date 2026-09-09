@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
@@ -30,7 +31,7 @@ fun RailRow(
     items: List<MediaCard>,
     viewModel: TvViewModel,
     aspect: Pair<Float, Float> = 16f to 9f,
-    cardWidth: Int = 392
+    cardWidth: Int = 180
 ) {
     val nocturne = LocalNocturne.current
 
@@ -76,7 +77,7 @@ fun RailRow(
                         item = item,
                         aspect = aspect,
                         onClick = { viewModel.play(item.toPlayerMedia()) },
-                        modifier = Modifier
+                        modifier = Modifier.width(cardWidth.dp)
                     )
                 }
             }

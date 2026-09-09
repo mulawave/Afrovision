@@ -297,7 +297,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 val library = api.getChannelLibrary()
                 homeState.copy(
                     continueWatching = LoadState.Success(progress.data),
-                    liveChannels = LoadState.Success(live.data.filter { !it.isExclusive }),
+                    liveChannels = LoadState.Success(live.channels.filter { !it.isExclusive }),
                     newMovies = LoadState.Success(movies.data),
                     newSeries = LoadState.Success(series.data),
                     waves = LoadState.Success(waves.data),
@@ -324,7 +324,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             liveChannels = LoadState.Loading
             liveChannels = try {
                 val response = api.getChannels(mapOf("live" to "true"))
-                LoadState.Success(response.data.filter { !it.isExclusive })
+                LoadState.Success(response.channels)
             } catch (e: Exception) {
                 LoadState.Error(e.message ?: "Unknown")
             }

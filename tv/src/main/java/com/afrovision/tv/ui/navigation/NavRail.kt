@@ -150,7 +150,7 @@ private fun NavRailItem(
     val nocturne = LocalNocturne.current
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "railScale")
     val background by animateColorAsState(
-        targetValue = if (selected) nocturne.accent900 else if (focused) nocturne.surface else nocturne.background,
+        targetValue = if (selected) nocturne.accent900 else if (focused) nocturne.goldWash else nocturne.background,
         label = "railBg"
     )
     val contentColor by animateColorAsState(
