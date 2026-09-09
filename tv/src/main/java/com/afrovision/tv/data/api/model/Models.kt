@@ -8,7 +8,7 @@ data class Channel(
     val id: String = "",
     val name: String = "",
     val description: String? = null,
-    @SerialName("poster_url") val posterUrl: String? = null,
+    @SerialName("logo_url") val posterUrl: String? = null,
     @SerialName("channel_number") val channelNumber: Int? = null,
     @SerialName("is_live") val isLive: Boolean = false,
     @SerialName("is_exclusive") val isExclusive: Boolean = false,
@@ -274,7 +274,7 @@ data class FeedResponse(
 data class CatchUpCredit(
     val id: String = "",
     val name: String = "",
-    @SerialName("profile_url") val profileUrl: String? = null,
+    @SerialName("profileUrl") val profileUrl: String? = null,
     val character: String? = null,
     val job: String? = null
 )
@@ -285,8 +285,8 @@ data class CatchUpItem(
     val type: String = "",
     val title: String = "",
     val overview: String = "",
-    @SerialName("poster_url") val posterUrl: String? = null,
-    @SerialName("backdrop_url") val backdropUrl: String? = null,
+    @SerialName("posterUrl") val posterUrl: String? = null,
+    @SerialName("backdropUrl") val backdropUrl: String? = null,
     @SerialName("trailer_url") val trailerUrl: String? = null,
     val rating: Double = 0.0,
     @SerialName("release_date") val releaseDate: String? = null,
@@ -302,7 +302,7 @@ data class CatchUpItem(
 data class CatchUpPerson(
     val id: String = "",
     val name: String = "",
-    @SerialName("profile_url") val profileUrl: String? = null,
+    @SerialName("profileUrl") val profileUrl: String? = null,
     @SerialName("known_for") val knownFor: List<String> = emptyList()
 )
 

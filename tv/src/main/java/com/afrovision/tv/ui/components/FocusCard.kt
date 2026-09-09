@@ -39,7 +39,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.util.Log
 import coil.compose.AsyncImage
+import com.afrovision.tv.TV_APP_TAG
 import com.afrovision.tv.data.MediaCard
 import com.afrovision.tv.data.PlayerMedia
 import com.afrovision.tv.ui.theme.LocalNocturne
@@ -82,7 +84,8 @@ fun FocusCard(
                 model = item.imageUrl,
                 contentDescription = item.title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                onError = { Log.e(TV_APP_TAG, "Image load failed for ${item.title}: ${item.imageUrl}", it.result.throwable) }
             )
         } else {
             Box(
