@@ -20,9 +20,10 @@ class RepsProgressCard extends StatelessWidget {
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: Nocturne.surfaceRaised,
+            gradient: Nocturne.walletGradient,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: Nocturne.borderCard),
+            boxShadow: Nocturne.cardShadow,
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
           child: Row(

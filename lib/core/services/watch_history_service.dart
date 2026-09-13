@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'app_preferences_service.dart';
 
 class WatchHistoryEntry {
   final String id;
@@ -62,6 +63,7 @@ class WatchHistoryService {
     String? channelLogo,
     String? channelBanner,
   }) async {
+    if (!await AppPreferencesService.saveWatchHistory) return;
     final prefs = await SharedPreferences.getInstance();
     final history = await getHistory();
     history.removeWhere((e) => e.id == channelId);

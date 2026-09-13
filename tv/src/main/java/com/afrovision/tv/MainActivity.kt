@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import com.afrovision.tv.data.TvViewModel
 import com.afrovision.tv.ui.TvApp
 import com.afrovision.tv.ui.theme.AfroVisionTVTheme
+import com.afrovision.tv.ui.theme.DesignCanvas
 
 class MainActivity : ComponentActivity() {
 
@@ -18,8 +19,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         viewModel.handleDeeplink(intent.data)
         setContent {
-            AfroVisionTVTheme {
-                TvApp(viewModel)
+            DesignCanvas {
+                AfroVisionTVTheme {
+                    TvApp(viewModel)
+                }
             }
         }
     }

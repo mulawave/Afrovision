@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +47,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -74,7 +77,19 @@ private val Neutral800 = Color(0xFF3F424D)
 private val ErrorRed = Color(0xFFFF6B6B)
 private val SuccessGreen = Color(0xFF6FD39A)
 
-private enum class SetupStep { Details, Code, Done }
+// Choice/Register/SignIn are all "step 1" (who you are) in the 3-step intro
+// pane - an existing-account owner should never have to retype their name/
+// email/phone from scratch just to activate a TV (that's how duplicate or
+// misattributed accounts happened before), so Choice branches into a real
+// password-verified Sign in or a fresh Register, both landing on the same
+// Code step afterward.
+private enum class SetupStep { Choice, Register, SignIn, Code, Done }
+
+private fun SetupStep.introGroup(): Int = when (this) {
+    SetupStep.Choice, SetupStep.Register, SetupStep.SignIn -> 0
+    SetupStep.Code -> 1
+    SetupStep.Done -> 2
+}
 
 private const val MAX_CODE_LENGTH = 18
 
@@ -97,16 +112,26 @@ fun ActivationScreen(viewModel: TvViewModel) {
     val state = viewModel.activationState
     val alreadyPaired by viewModel.isPaired.collectAsState()
 
-    var step by rememberSaveable { mutableStateOf(SetupStep.Details) }
+    var step by rememberSaveable { mutableStateOf(SetupStep.Choice) }
+    var chosenMode by rememberSaveable { mutableStateOf("register") }
     var fullName by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
     var phone by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
     var showQr by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state) {
-        if (state is ActivationState.Activated) step = SetupStep.Done
+        // QR pairing completes asynchronously from the phone, while the TV
+        // may still be sitting on the QR pane (showQr=true) - without also
+        // clearing showQr here, that pane keeps rendering forever even
+        // though `step` has already correctly moved to Done underneath it,
+        // so nothing on screen ever visibly reacts to a successful pairing.
+        if (state is ActivationState.Activated) {
+            step = SetupStep.Done
+            showQr = false
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(nocturne.background)) {
@@ -147,7 +172,25 @@ fun ActivationScreen(viewModel: TvViewModel) {
                 } else {
                     AnimatedContent(targetState = step, label = "setupStep") { current ->
                         when (current) {
-                            SetupStep.Details -> DetailsStep(
+                            SetupStep.Choice -> ChoiceStep(
+                                onSignIn = { chosenMode = "signin"; validationError = null; step = SetupStep.SignIn },
+                                onRegister = { chosenMode = "register"; validationError = null; step = SetupStep.Register },
+                                onUseQr = { showQr = true },
+                                onCancel = if (alreadyPaired) ({ viewModel.navigateTo(com.afrovision.tv.ui.navigation.Screen.Home) }) else null
+                            )
+                            SetupStep.SignIn -> SignInStep(
+                                email = email,
+                                password = password,
+                                error = validationError,
+                                onEmail = { email = it; validationError = null },
+                                onPassword = { password = it; validationError = null },
+                                onContinue = {
+                                    validationError = validateSignIn(email, password)
+                                    if (validationError == null) step = SetupStep.Code
+                                },
+                                onBack = { validationError = null; step = SetupStep.Choice }
+                            )
+                            SetupStep.Register -> DetailsStep(
                                 fullName = fullName,
                                 email = email,
                                 phone = phone,
@@ -159,8 +202,7 @@ fun ActivationScreen(viewModel: TvViewModel) {
                                     validationError = validateDetails(fullName, email, phone)
                                     if (validationError == null) step = SetupStep.Code
                                 },
-                                onUseQr = { showQr = true },
-                                onCancel = if (alreadyPaired) ({ viewModel.navigateTo(com.afrovision.tv.ui.navigation.Screen.Home) }) else null
+                                onBack = { validationError = null; step = SetupStep.Choice }
                             )
                             SetupStep.Code -> CodeStep(
                                 code = code,
@@ -176,13 +218,17 @@ fun ActivationScreen(viewModel: TvViewModel) {
                                         validationError = "Enter the full 12-character activation code (AV-XXXX-XXXX-XXXX)."
                                     } else {
                                         validationError = null
-                                        viewModel.activate(formatActivationCode(code), fullName, email, phone)
+                                        if (chosenMode == "signin") {
+                                            viewModel.activate(formatActivationCode(code), "", email, "", mode = "signin", ownerPassword = password)
+                                        } else {
+                                            viewModel.activate(formatActivationCode(code), fullName, email, phone, mode = "register")
+                                        }
                                     }
                                 },
                                 onBack = {
                                     viewModel.resetActivation()
                                     validationError = null
-                                    step = SetupStep.Details
+                                    step = if (chosenMode == "signin") SetupStep.SignIn else SetupStep.Register
                                 }
                             )
                             SetupStep.Done -> DoneStep(
@@ -231,7 +277,11 @@ private fun SetupIntroPane(step: SetupStep, modifier: Modifier = Modifier) {
                 .border(1.dp, Accent600, RoundedCornerShape(18.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text(text = "A", color = Accent200, fontSize = 30.sp, fontWeight = FontWeight.Medium)
+            Image(
+                painter = androidx.compose.ui.res.painterResource(com.afrovision.tv.R.drawable.logo_dark),
+                contentDescription = "AfroVision",
+                modifier = Modifier.size(40.dp)
+            )
         }
         Spacer(modifier = Modifier.height(34.dp))
         Text(
@@ -252,9 +302,9 @@ private fun SetupIntroPane(step: SetupStep, modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(40.dp))
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            StepRow(number = 1, label = "Your details", active = step == SetupStep.Details, done = step.ordinal > 0)
-            StepRow(number = 2, label = "Activation code", active = step == SetupStep.Code, done = step.ordinal > 1)
-            StepRow(number = 3, label = "Start watching", active = step == SetupStep.Done, done = false)
+            StepRow(number = 1, label = "Sign in or register", active = step.introGroup() == 0, done = step.introGroup() > 0)
+            StepRow(number = 2, label = "Activation code", active = step.introGroup() == 1, done = step.introGroup() > 1)
+            StepRow(number = 3, label = "Start watching", active = step.introGroup() == 2, done = false)
         }
     }
 }
@@ -290,6 +340,117 @@ private fun StepLabel(text: String) {
 }
 
 @Composable
+private fun ChoiceStep(
+    onSignIn: () -> Unit,
+    onRegister: () -> Unit,
+    onUseQr: () -> Unit,
+    onCancel: (() -> Unit)? = null
+) {
+    val signInButton = remember { FocusRequester() }
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(placed) {
+        if (placed) {
+            kotlinx.coroutines.delay(350)
+            try { signInButton.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.onGloballyPositioned { if (!placed) placed = true }
+    ) {
+        StepLabel("Step 1 of 3 · who's activating")
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = "Already have an AfroVision account?",
+            color = Neutral300,
+            fontSize = 21.sp
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            SetupButton(label = "Sign in", primary = true, onClick = onSignIn, focusRequester = signInButton)
+            SetupButton(label = "Create a new account", primary = false, onClick = onRegister)
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            SetupButton(label = "Pair with phone instead", primary = false, onClick = onUseQr)
+            if (onCancel != null) {
+                SetupButton(label = "Cancel", primary = false, onClick = onCancel)
+            }
+        }
+        StatusLine(
+            text = "Signing in links this TV to your existing account - no need to retype your details. New here? Create an account instead.",
+            isError = false
+        )
+    }
+}
+
+@Composable
+private fun SignInStep(
+    email: String,
+    password: String,
+    error: String?,
+    onEmail: (String) -> Unit,
+    onPassword: (String) -> Unit,
+    onContinue: () -> Unit,
+    onBack: () -> Unit
+) {
+    val focusManager = LocalFocusManager.current
+    val firstField = remember { FocusRequester() }
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(placed) {
+        if (placed) {
+            kotlinx.coroutines.delay(350)
+            try { firstField.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.onGloballyPositioned { if (!placed) placed = true }
+    ) {
+        StepLabel("Step 1 of 3 · sign in")
+        Spacer(modifier = Modifier.height(10.dp))
+        SetupField(
+            label = "Email",
+            value = email,
+            onValueChange = onEmail,
+            placeholder = "amara.dike@mail.com",
+            keyboardType = KeyboardType.Email,
+            imeAction = ImeAction.Next,
+            onImeAction = { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) },
+            focusRequester = firstField
+        )
+        SetupField(
+            label = "Password",
+            value = password,
+            onValueChange = onPassword,
+            placeholder = "••••••••",
+            keyboardType = KeyboardType.Password,
+            imeAction = ImeAction.Done,
+            onImeAction = { focusManager.clearFocus(); onContinue() },
+            isPassword = true
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            SetupButton(label = "Continue", primary = true, onClick = onContinue)
+            SetupButton(label = "Back", primary = false, onClick = onBack)
+        }
+        StatusLine(
+            text = error ?: "Sign in with your existing AfroVision account. Your activation code comes next.",
+            isError = error != null
+        )
+    }
+}
+
+private fun validateSignIn(email: String, password: String): String? {
+    val e = email.trim()
+    if (!e.contains("@") || !e.substringAfter("@").contains(".")) return "Please enter a valid email address."
+    if (password.isEmpty()) return "Please enter your password."
+    return null
+}
+
+@Composable
 private fun DetailsStep(
     fullName: String,
     email: String,
@@ -299,15 +460,23 @@ private fun DetailsStep(
     onEmail: (String) -> Unit,
     onPhone: (String) -> Unit,
     onContinue: () -> Unit,
-    onUseQr: () -> Unit,
-    onCancel: (() -> Unit)? = null
+    onBack: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
     val firstField = remember { FocusRequester() }
-    LaunchedEffect(Unit) { firstField.requestFocus() }
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(placed) {
+        if (placed) {
+            kotlinx.coroutines.delay(350)
+            try { firstField.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
 
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        StepLabel("Step 1 of 3 · your details")
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.onGloballyPositioned { if (!placed) placed = true }
+    ) {
+        StepLabel("Step 1 of 3 · create your account")
         Spacer(modifier = Modifier.height(10.dp))
         SetupField(
             label = "Full name",
@@ -341,10 +510,7 @@ private fun DetailsStep(
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             SetupButton(label = "Continue", primary = true, onClick = onContinue)
-            SetupButton(label = "Pair with phone instead", primary = false, onClick = onUseQr)
-            if (onCancel != null) {
-                SetupButton(label = "Cancel", primary = false, onClick = onCancel)
-            }
+            SetupButton(label = "Back", primary = false, onClick = onBack)
         }
         StatusLine(
             text = error ?: "These details register the owner of this TV. Your activation code comes next.",
@@ -364,12 +530,21 @@ private fun CodeStep(
 ) {
     val focusManager = LocalFocusManager.current
     val codeField = remember { FocusRequester() }
-    LaunchedEffect(Unit) { codeField.requestFocus() }
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(placed) {
+        if (placed) {
+            kotlinx.coroutines.delay(350)
+            try { codeField.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
 
     val activating = state is ActivationState.Activating
     val serverError = (state as? ActivationState.Error)?.message
 
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.onGloballyPositioned { if (!placed) placed = true }
+    ) {
         StepLabel("Step 2 of 3 · activation code")
         Spacer(modifier = Modifier.height(10.dp))
         SetupField(
@@ -408,9 +583,18 @@ private fun CodeStep(
 private fun DoneStep(state: ActivationState.Activated?, onEnter: () -> Unit) {
     val nocturne = LocalNocturne.current
     val button = remember { FocusRequester() }
-    LaunchedEffect(Unit) { button.requestFocus() }
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(placed) {
+        if (placed) {
+            kotlinx.coroutines.delay(350)
+            try { button.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
 
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.onGloballyPositioned { if (!placed) placed = true }
+    ) {
         StepLabel("Step 3 of 3 · start watching")
         Spacer(modifier = Modifier.height(10.dp))
         Box(
@@ -452,6 +636,7 @@ private fun QrPairingPane(viewModel: TvViewModel, onBack: () -> Unit, onCancel: 
     var pairingCode by remember { mutableStateOf<String?>(null) }
     var failed by remember { mutableStateOf(false) }
     val backButton = remember { FocusRequester() }
+    var placed by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val session = viewModel.createSession()
@@ -461,10 +646,19 @@ private fun QrPairingPane(viewModel: TvViewModel, onBack: () -> Unit, onCancel: 
             qrUrl = session.qrUrl
             pairingCode = session.pairingCode
         }
-        backButton.requestFocus()
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LaunchedEffect(placed) {
+        if (placed) {
+            kotlinx.coroutines.delay(350)
+            try { backButton.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.onGloballyPositioned { if (!placed) placed = true }
+    ) {
         StepLabel("Pair with your phone")
         Spacer(modifier = Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(40.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -549,7 +743,8 @@ private fun SetupField(
     valueFontSize: androidx.compose.ui.unit.TextUnit = 23.sp,
     valueLetterSpacing: androidx.compose.ui.unit.TextUnit = 0.sp,
     trailing: String? = null,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    isPassword: Boolean = false
 ) {
     val nocturne = LocalNocturne.current
     var focused by remember { mutableStateOf(false) }
@@ -583,6 +778,7 @@ private fun SetupField(
                 enabled = enabled,
                 textStyle = TextStyle(color = nocturne.text, fontSize = valueFontSize, letterSpacing = valueLetterSpacing),
                 cursorBrush = SolidColor(nocturne.accent),
+                visualTransformation = if (isPassword) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = keyboardType,
                     imeAction = imeAction,
@@ -614,7 +810,8 @@ private fun SetupButton(
     focusRequester: FocusRequester = remember { FocusRequester() }
 ) {
     val nocturne = LocalNocturne.current
-    var focused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, tween(180), label = "btnScale")
     val borderColor = when {
         focused -> nocturne.accent
@@ -628,9 +825,7 @@ private fun SetupButton(
             .background(if (focused) nocturne.accent900 else Color.Transparent)
             .border(if (focused) 2.dp else 1.dp, borderColor, RoundedCornerShape(nocturne.radiusMd.dp))
             .focusRequester(focusRequester)
-            .focusable(enabled)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null, onClick = onClick)
             .padding(horizontal = if (primary) 30.dp else 26.dp, vertical = 17.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -646,7 +841,7 @@ private fun SetupButton(
     }
 }
 
-private fun generateQrBitmap(data: String, size: Int): Bitmap {
+fun generateQrBitmap(data: String, size: Int): Bitmap {
     val bits = QRCodeWriter().encode(data, BarcodeFormat.QR_CODE, size, size)
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
     for (x in 0 until size) {

@@ -913,187 +913,8 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
             child: Column(
               children: [
                 const SizedBox(height: 16),
-                // Banner
-                if (ch.bannerUrl != null)
-                  Container(
-                    width: double.infinity,
-                    height: 140,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: ch.isPremiumChannel
-                            ? const Color(0xFFFFD700).withAlpha(120)
-                            : AppColors.inputBorder,
-                        width: ch.isPremiumChannel ? 1.5 : 1,
-                      ),
-                      image: DecorationImage(
-                        image: NetworkImage(AppConfig.mediaUrl(ch.bannerUrl!)),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                // Channel logo
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: ch.logoUrl == null
-                        ? (ch.isPremiumChannel
-                              ? const LinearGradient(
-                                  colors: [
-                                    Color(0xFFFFD700),
-                                    Color(0xFFB8860B),
-                                  ],
-                                )
-                              : LinearGradient(
-                                  colors: [
-                                    AppColors.orange.withValues(alpha: 0.25),
-                                    AppColors.lightOrange.withValues(
-                                      alpha: 0.1,
-                                    ),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ))
-                        : null,
-                    border: Border.all(
-                      color: AppColors.orange.withValues(alpha: 0.4),
-                      width: 2,
-                    ),
-                    image: ch.logoUrl != null
-                        ? DecorationImage(
-                            image: NetworkImage(
-                              AppConfig.mediaUrl(ch.logoUrl!),
-                            ),
-                            fit: BoxFit.cover,
-                          )
-                        : null,
-                  ),
-                  child: ch.logoUrl == null
-                      ? Icon(
-                          ch.isPrivate
-                              ? Icons.lock_rounded
-                              : Icons.live_tv_rounded,
-                          color: AppColors.orange,
-                          size: 36,
-                        )
-                      : null,
-                ),
+                _buildProfileHeader(ch),
                 const SizedBox(height: 16),
-                Text(
-                  ch.name,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                // Type badge
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: ch.isExclusive
-                        ? AppColors.orange.withValues(alpha: 0.12)
-                        : ch.isPrivate
-                        ? AppColors.errorRed.withValues(alpha: 0.12)
-                        : const Color(0xFF4CAF50).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: ch.isExclusive
-                          ? AppColors.orange.withValues(alpha: 0.4)
-                          : ch.isPrivate
-                          ? AppColors.errorRed.withValues(alpha: 0.4)
-                          : const Color(0xFF4CAF50).withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        ch.isExclusive
-                            ? Icons.verified_user_rounded
-                            : ch.isPrivate
-                            ? Icons.lock_rounded
-                            : Icons.public_rounded,
-                        color: ch.isExclusive
-                            ? AppColors.orange
-                            : ch.isPrivate
-                            ? AppColors.errorRed
-                            : const Color(0xFF4CAF50),
-                        size: 14,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        ch.isExclusive
-                            ? 'EXCLUSIVE'
-                            : ch.isPrivate
-                            ? 'PRIVATE'
-                            : 'PUBLIC',
-                        style: TextStyle(
-                          color: ch.isExclusive
-                              ? AppColors.orange
-                              : ch.isPrivate
-                              ? AppColors.errorRed
-                              : const Color(0xFF4CAF50),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                GestureDetector(
-                  onTap: () => _watchLive(ch),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: BoxDecoration(
-                      gradient: _isStreamPlayable(ch)
-                          ? AppColors.buttonGradient
-                          : null,
-                      color: _isStreamPlayable(ch)
-                          ? null
-                          : AppColors.inputBorder,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.play_circle_fill_rounded,
-                          color: _isStreamPlayable(ch)
-                              ? AppColors.white
-                              : AppColors.hintText,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _watchLiveLabel(ch),
-                          style: TextStyle(
-                            color: _isStreamPlayable(ch)
-                                ? AppColors.white
-                                : AppColors.hintText,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
                 _buildSectionBar(ch),
                 const SizedBox(height: 16),
                 _buildSectionContent(ch),
@@ -1103,6 +924,260 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
           ),
         ),
       ),
+    );
+  }
+
+  /// Single consolidated profile block: banner, avatar, name, membership
+  /// badges and a stat strip, followed by the primary Watch Live action.
+  /// Replaces the previously scattered banner / avatar / badge widgets so
+  /// a viewer's access level reads as one unit before reaching the tabs.
+  Widget _buildProfileHeader(ChannelModel ch) {
+    final isActiveMember = _subscription != null && _subscription!.isActive;
+    final titleCount = _channelMovies.length + _channelSeries.length;
+    final priceLabel = ch.isExclusive
+        ? 'NGN ${ch.exclusiveMonthlyFeeNgn.toStringAsFixed(0)}'
+        : (ch.requiresPayment
+              ? (ch.entryFeeType == 'ngn'
+                    ? '₦${ch.entryFeeNgn.toStringAsFixed(0)}'
+                    : '${ch.entryFeeVptUnits} vPT')
+              : 'Free');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: Column(
+        children: [
+          if (ch.bannerUrl != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: double.infinity,
+                height: 140,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: ch.isPremiumChannel
+                        ? const Color(0xFFFFD700).withAlpha(120)
+                        : AppColors.inputBorder,
+                    width: ch.isPremiumChannel ? 1.5 : 1,
+                  ),
+                  image: DecorationImage(
+                    image: NetworkImage(AppConfig.mediaUrl(ch.bannerUrl!)),
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+            ),
+          // Channel logo
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: ch.logoUrl == null
+                  ? (ch.isPremiumChannel
+                        ? const LinearGradient(
+                            colors: [Color(0xFFFFD700), Color(0xFFB8860B)],
+                          )
+                        : LinearGradient(
+                            colors: [
+                              AppColors.orange.withValues(alpha: 0.25),
+                              AppColors.lightOrange.withValues(alpha: 0.1),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ))
+                  : null,
+              border: Border.all(
+                color: AppColors.orange.withValues(alpha: 0.4),
+                width: 2,
+              ),
+              image: ch.logoUrl != null
+                  ? DecorationImage(
+                      image: NetworkImage(AppConfig.mediaUrl(ch.logoUrl!)),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
+            child: ch.logoUrl == null
+                ? Icon(
+                    ch.isPrivate ? Icons.lock_rounded : Icons.live_tv_rounded,
+                    color: AppColors.orange,
+                    size: 36,
+                  )
+                : null,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            ch.name,
+            style: const TextStyle(
+              color: AppColors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          // Membership / access badges, grouped together so the viewer's
+          // access level is legible before they reach the Watch Live button.
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildBadge(
+                icon: ch.isExclusive
+                    ? Icons.verified_user_rounded
+                    : ch.isPrivate
+                    ? Icons.lock_rounded
+                    : Icons.public_rounded,
+                label: ch.isExclusive
+                    ? 'EXCLUSIVE'
+                    : ch.isPrivate
+                    ? 'PRIVATE'
+                    : 'PUBLIC',
+                color: ch.isExclusive
+                    ? AppColors.orange
+                    : ch.isPrivate
+                    ? AppColors.errorRed
+                    : AppColors.successGreen,
+              ),
+              if (ch.isExclusive || ch.requiresPayment)
+                _buildBadge(
+                  icon: isActiveMember
+                      ? Icons.check_circle_rounded
+                      : Icons.remove_circle_outline_rounded,
+                  label: isActiveMember ? 'MEMBER · ACTIVE' : 'NOT SUBSCRIBED',
+                  color: isActiveMember
+                      ? AppColors.successGreen
+                      : AppColors.hintText,
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Stat strip: Members / Titles / Price-per-month.
+          Row(
+            children: [
+              Expanded(
+                child: _buildStat('Members', _formatCount(_followersCount)),
+              ),
+              _statDivider(),
+              Expanded(child: _buildStat('Titles', '$titleCount')),
+              _statDivider(),
+              Expanded(child: _buildStat('Price/mo', priceLabel)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () => _watchLive(ch),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                gradient: _isStreamPlayable(ch)
+                    ? AppColors.buttonGradient
+                    : null,
+                color: _isStreamPlayable(ch) ? null : AppColors.inputBorder,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: _isStreamPlayable(ch)
+                        ? AppColors.white
+                        : AppColors.hintText,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _watchLiveLabel(ch),
+                    style: TextStyle(
+                      color: _isStreamPlayable(ch)
+                          ? AppColors.white
+                          : AppColors.hintText,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBadge({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStat(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: AppColors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 3),
+        Text(
+          label,
+          style: TextStyle(
+            color: AppColors.hintText,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _statDivider() {
+    return Container(
+      width: 1,
+      height: 30,
+      color: AppColors.inputBorder,
     );
   }
 
@@ -1119,8 +1194,11 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       if (_canManage) ChannelSection.manage,
     ];
 
+    // Horizontally scrollable so the tab row never clips a pill at either
+    // edge, regardless of how many sections are available for this channel.
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Row(
         children: sections.map((section) {
           final selected = _activeSection == section;
@@ -1570,20 +1648,29 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     );
   }
 
-  Widget _buildMoviesSection(ChannelModel ch) {
+  /// Shared shell for a "context strip then poster grid" tab: a helper
+  /// info card followed by loading / error / empty / grid states rendered
+  /// the same way across every content tab (Movies, Series, ...).
+  Widget _buildGridTabShell({
+    required IconData icon,
+    required String label,
+    required String helperText,
+    required bool loading,
+    required String? error,
+    required VoidCallback onRetry,
+    required String emptyText,
+    required int itemCount,
+    required Widget Function(int index) itemBuilder,
+  }) {
     return Column(
       children: [
-        _buildInfoCard(
-          icon: Icons.movie_outlined,
-          label: 'Movies',
-          value: 'Movies published by this channel.',
-        ),
-        if (_moviesLoading)
+        _buildInfoCard(icon: icon, label: label, value: helperText),
+        if (loading)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: CircularProgressIndicator(color: AppColors.orange),
           )
-        else if (_moviesError != null)
+        else if (error != null)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -1594,28 +1681,25 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
             ),
             child: Column(
               children: [
-                const Text(
-                  'Unable to load movies.',
-                  style: TextStyle(
+                Text(
+                  'Unable to load $label.',
+                  style: const TextStyle(
                     color: AppColors.white,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _moviesError!,
+                  error,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: AppColors.hintText),
                 ),
                 const SizedBox(height: 10),
-                TextButton(
-                  onPressed: _loadChannelMovies,
-                  child: const Text('Retry'),
-                ),
+                TextButton(onPressed: onRetry, child: const Text('Retry')),
               ],
             ),
           )
-        else if (_channelMovies.isEmpty)
+        else if (itemCount == 0)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -1624,10 +1708,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppColors.inputBorder),
             ),
-            child: const Text(
-              'This channel has no published movies yet.',
+            child: Text(
+              emptyText,
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.hintText),
+              style: const TextStyle(color: AppColors.hintText),
             ),
           )
         else
@@ -1640,11 +1724,25 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
               mainAxisSpacing: 10,
               childAspectRatio: 2 / 3,
             ),
-            itemCount: _channelMovies.length,
-            itemBuilder: (context, index) =>
-                _buildMovieCard(_channelMovies[index]),
+            itemCount: itemCount,
+            itemBuilder: (context, index) => itemBuilder(index),
           ),
       ],
+    );
+  }
+
+  Widget _buildMoviesSection(ChannelModel ch) {
+    return _buildGridTabShell(
+      icon: Icons.movie_outlined,
+      label: 'Movies',
+      helperText: 'Movies published by this channel.'
+          '${ch.isExclusive ? ' Exclusive to active members.' : ''}',
+      loading: _moviesLoading,
+      error: _moviesError,
+      onRetry: _loadChannelMovies,
+      emptyText: 'This channel has no published movies yet.',
+      itemCount: _channelMovies.length,
+      itemBuilder: (index) => _buildMovieCard(_channelMovies[index]),
     );
   }
 
@@ -1707,80 +1805,17 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   }
 
   Widget _buildSeriesSection(ChannelModel ch) {
-    return Column(
-      children: [
-        _buildInfoCard(
-          icon: Icons.tv_outlined,
-          label: 'Series',
-          value: 'Series published by this channel.',
-        ),
-        if (_seriesLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: CircularProgressIndicator(color: AppColors.orange),
-          )
-        else if (_seriesError != null)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.inputBorder),
-            ),
-            child: Column(
-              children: [
-                const Text(
-                  'Unable to load series.',
-                  style: TextStyle(
-                    color: AppColors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _seriesError!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.hintText),
-                ),
-                const SizedBox(height: 10),
-                TextButton(
-                  onPressed: _loadChannelSeries,
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
-          )
-        else if (_channelSeries.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.inputFill,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.inputBorder),
-            ),
-            child: const Text(
-              'This channel has no published series yet.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.hintText),
-            ),
-          )
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              childAspectRatio: 2 / 3,
-            ),
-            itemCount: _channelSeries.length,
-            itemBuilder: (context, index) =>
-                _buildSeriesCard(_channelSeries[index]),
-          ),
-      ],
+    return _buildGridTabShell(
+      icon: Icons.tv_outlined,
+      label: 'Series',
+      helperText: 'Series published by this channel.'
+          '${ch.isExclusive ? ' Exclusive to active members.' : ''}',
+      loading: _seriesLoading,
+      error: _seriesError,
+      onRetry: _loadChannelSeries,
+      emptyText: 'This channel has no published series yet.',
+      itemCount: _channelSeries.length,
+      itemBuilder: (index) => _buildSeriesCard(_channelSeries[index]),
     );
   }
 

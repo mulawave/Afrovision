@@ -70,9 +70,10 @@ class _ActivityHistoryCardState extends State<ActivityHistoryCard> {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Nocturne.surfaceRaised,
+        gradient: Nocturne.walletGradient,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Nocturne.borderCard),
+        boxShadow: Nocturne.cardShadow,
       ),
       padding: const EdgeInsets.all(13),
       child: Column(

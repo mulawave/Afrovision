@@ -431,6 +431,34 @@ async function purchaseExclusiveAccess(req, res) {
       monthlyFeeNgn: amount,
     });
 
+    // The wallet debit above already happened - a user must never be able
+    // to see a real debit with no matching transaction record. This used
+    // to be fire-and-forget post-processing (best-effort, silently dropped
+    // on failure), which is exactly how a real debit ended up with nothing
+    // in wallet history. Kept synchronous and in the critical path so a
+    // failure here surfaces (falls into the catch below, which queues it
+    // for reconciliation) instead of vanishing.
+    await Ledger.create({
+      uid: req.userId,
+      type: 'EXCLUSIVE_CHANNEL_ACCESS_PAYMENT',
+      direction: 'debit',
+      currency: 'ngn',
+      amount_ngn: amount,
+      status: 'success',
+      channel_id: channel.id,
+      reference_id: paymentReference,
+      meta: {
+        creator_cash: creatorCash,
+        community_pool_ngn: communityPoolNgn,
+        operations_pool_ngn: operationsPoolNgn,
+        referral_pool_ngn: referralPoolNgn,
+        creator_vpt_ngn: creatorVptNgn,
+        creator_vpt_units: creatorVptUnits,
+        access_id: access.id,
+      },
+      description: `Exclusive channel access payment - ${channel.name}`,
+    });
+
     // ── Access is now granted. Send the response immediately so the
     // client gets a success even if non-critical post-processing fails. ──
     const responsePayload = {
@@ -473,27 +501,6 @@ async function purchaseExclusiveAccess(req, res) {
           channelName: channel.name,
           isRenewal,
         });
-
-        await Ledger.create({
-          uid: req.userId,
-          type: 'EXCLUSIVE_CHANNEL_ACCESS_PAYMENT',
-          direction: 'debit',
-          currency: 'ngn',
-          amount_ngn: amount,
-          status: 'success',
-          channel_id: channel.id,
-          reference_id: paymentReference,
-          meta: {
-            creator_cash: creatorCash,
-            community_pool_ngn: communityPoolNgn,
-            operations_pool_ngn: operationsPoolNgn,
-            referral_pool_ngn: referralPoolNgn,
-            creator_vpt_ngn: creatorVptNgn,
-            creator_vpt_units: creatorVptUnits,
-            access_id: access.id,
-          },
-          description: `Exclusive channel access payment - ${channel.name}`,
-        }).catch((err) => console.error('[Exclusive] ledger creation failed:', err.message));
 
         // If the client tied this purchase to a prior membership request
         // (approved_pending_payment), flip that request to `approved` and

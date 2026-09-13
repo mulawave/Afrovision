@@ -356,7 +356,16 @@ class WaveService {
   }
 
   static Future<List<WaveCommentModel>> getComments(String waveId) async {
-    final data = await ApiService.getPublic('/wave/$waveId/comments');
+    // Comments are highly mutable (post/edit/delete/react can all happen
+    // within seconds of each other) so this always hits the network —
+    // ApiService.getPublic's 2-minute response cache previously made a
+    // freshly-posted comment "disappear" if the sheet was closed and
+    // reopened (or the app backgrounded/foregrounded) before the cache
+    // entry expired, which read to users as "posting doesn't work".
+    final data = await ApiService.getPublic(
+      '/wave/$waveId/comments',
+      noCache: true,
+    );
     if (data is! List) return <WaveCommentModel>[];
     return data
         .whereType<Map<String, dynamic>>()
@@ -406,7 +415,12 @@ class WaveService {
     String waveId,
     String commentId,
   ) async {
-    final data = await ApiService.getPublic('/wave/$waveId/comments/$commentId/replies');
+    // Same reasoning as getComments — replies must not be served from the
+    // stale response cache right after posting one.
+    final data = await ApiService.getPublic(
+      '/wave/$waveId/comments/$commentId/replies',
+      noCache: true,
+    );
     if (data is! List) return <WaveCommentModel>[];
     return data
         .whereType<Map<String, dynamic>>()

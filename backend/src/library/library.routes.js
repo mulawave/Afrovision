@@ -212,6 +212,11 @@ router.delete(
 // ============================================
 
 /**
+ * GET /me/library/continue-reading
+ */
+router.get('/me/library/continue-reading', authenticateToken, viewerController.getContinueReading);
+
+/**
  * GET /me/favorites/library
  * Get user's favorites across all channels (filtered by entitlement)
  */

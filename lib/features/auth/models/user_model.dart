@@ -35,6 +35,7 @@ class UserModel {
   final String createdAt;
   final int reputationLevel;
   final double totalReps;
+  final String? walletReference;
 
   UserModel({
     required this.id,
@@ -73,6 +74,7 @@ class UserModel {
     required this.createdAt,
     this.reputationLevel = 0,
     this.totalReps = 0,
+    this.walletReference,
   });
 
   bool get isViewer => role == 'viewer';
@@ -164,6 +166,7 @@ class UserModel {
       createdAt: (json['created_at'] ?? '') as String,
       reputationLevel: (json['reputation_level'] as num?)?.toInt() ?? 0,
       totalReps: _toDouble(json['total_reps']),
+      walletReference: json['wallet_reference'] as String?,
     );
   }
 }

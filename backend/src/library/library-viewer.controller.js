@@ -786,6 +786,26 @@ exports.getRecommendations = async (req, res) => {
  *  2. Any channel where the item has isPublic=true (opt-in)
  * Supports pagination and optional contentType filter.
  */
+/**
+ * GET /me/library/continue-reading
+ * "Continue reading" rail: this user's in-progress items across all
+ * channels, most recently read first.
+ */
+exports.getContinueReading = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const limit = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 12));
+    const records = await libraryService.getContinueReadingForUser(userId, limit);
+    return res.status(200).json({ success: true, data: records });
+  } catch (error) {
+    console.error('Error getting continue-reading list:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+    });
+  }
+};
+
 exports.listPublicLibrary = async (req, res) => {
   try {
     const { page = 1, limit = 24, contentType } = req.query;

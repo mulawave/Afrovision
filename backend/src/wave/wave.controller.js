@@ -361,7 +361,7 @@ async function evaluateExclusiveChannelAccess({ channel, userId, user }) {
     };
   }
 
-  const isOwnerOrAdmin = channel.owner_id === userId || user.role === 'admin';
+  const isOwnerOrAdmin = channel.owner_id === userId || user?.role === 'admin';
   if (isOwnerOrAdmin) {
     console.log('[ExclusiveAccess] User is owner or admin, allowing access');
     return {

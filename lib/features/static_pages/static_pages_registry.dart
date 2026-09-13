@@ -76,6 +76,36 @@ class StaticPagesRegistry {
       summary: 'Anti-money-laundering policy details.',
       path: '/aml',
     ),
+    StaticPageEntry(
+      route: '/community-rules',
+      title: 'Community Rules',
+      summary: 'Conduct standards for chat, streams, and comments.',
+      path: '/community-rules',
+    ),
+    StaticPageEntry(
+      route: '/exclusive-channel-policy',
+      title: 'Exclusive Channel Policy',
+      summary: 'How exclusive channel membership and access work.',
+      path: '/exclusive-channel-policy',
+    ),
+    StaticPageEntry(
+      route: '/creator-agreement',
+      title: 'Creator Agreement',
+      summary: 'Creator eligibility, licensing, and payout terms.',
+      path: '/creator-agreement',
+    ),
+    StaticPageEntry(
+      route: '/advertising-guidelines',
+      title: 'Advertising Guidelines',
+      summary: 'Accepted ad content and campaign review process.',
+      path: '/advertising-guidelines',
+    ),
+    StaticPageEntry(
+      route: '/licenses-attributions',
+      title: 'Licences & Attributions',
+      summary: 'Open-source software used across AfroVision apps.',
+      path: '/licenses-attributions',
+    ),
   ];
 
   static const List<StaticPageEntry> webOnlyEntries = [

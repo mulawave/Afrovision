@@ -10,6 +10,7 @@ const model = require('./distribution.model');
 const auth = require('./distribution.auth');
 const User = require('../users/user.model');
 const { getFirestore } = require('../utils/firestore');
+const { generateToken } = require('../utils/jwt');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -78,16 +79,8 @@ async function safeEnrichChannel(channel, owner) {
  * TV users live in the same `users` collection with account_type: 'tv'
  * so they are explicitly distinguishable from app users.
  */
-async function ensureTvOwnerUser({ email, fullName, phone, deviceId, activationCode }) {
+async function linkTvDevice(user, { deviceId, activationCode, fullName, phone }) {
   const db = getFirestore();
-  let user = await User.findByEmail(email);
-
-  if (!user) {
-    const randomPassword = crypto.randomBytes(24).toString('hex');
-    const passwordHash = await bcrypt.hash(randomPassword, 10);
-    user = await User.create({ email, passwordHash });
-  }
-
   const existingDeviceIds = Array.isArray(user.tv_device_ids) ? user.tv_device_ids : [];
   const tvFields = {
     // Explicit TV-user flag. Existing app users keep their account_type
@@ -98,13 +91,55 @@ async function ensureTvOwnerUser({ email, fullName, phone, deviceId, activationC
       ? existingDeviceIds
       : [...existingDeviceIds, deviceId],
     tv_activation_code: activationCode,
-    name: user.name || fullName,
-    phoneNumber: user.phoneNumber || phone,
+    ...(fullName ? { name: user.name || fullName } : {}),
+    ...(phone ? { phoneNumber: user.phoneNumber || phone } : {}),
   };
-
   await db.collection('users').doc(user.id).set(tvFields, { merge: true });
   await User.reloadFromFirestore(user.id);
   return User.findById(user.id);
+}
+
+/**
+ * "Register" path: brand new account. Errors out instead of silently
+ * merging into an existing account of the same email - that silent-merge
+ * behavior was how a mistyped-but-coincidentally-valid email, or someone
+ * who forgot they already had an account, could accidentally end up
+ * merged into a stranger's account (or, just as bad, fail to notice they
+ * already had one and think "Register" made them a fresh one). If the
+ * email is already taken, the TV should send the user to "Sign in" instead.
+ */
+async function resolveOwnerForRegister({ email, fullName, phone, deviceId, activationCode }) {
+  const existing = await User.findByEmail(email);
+  if (existing) {
+    return { error: 'EMAIL_ALREADY_REGISTERED', message: 'An account with this email already exists. Choose "Sign in" instead.', status: 409 };
+  }
+  const randomPassword = crypto.randomBytes(24).toString('hex');
+  const passwordHash = await bcrypt.hash(randomPassword, 10);
+  const user = await User.create({ email, passwordHash });
+  const linked = await linkTvDevice(user, { deviceId, activationCode, fullName, phone });
+  return { user: linked };
+}
+
+/**
+ * "Sign in" path: links the TV to an existing account, the same real
+ * password check /auth/login uses (bcrypt against password_hash) - not a
+ * fuzzy email match. This is what actually prevents duplicate/misattributed
+ * accounts: the owner proves who they are instead of just typing an email.
+ */
+async function resolveOwnerForSignIn({ email, password, deviceId, activationCode }) {
+  const user = await User.findByEmail(email);
+  if (!user || !user.password_hash) {
+    return { error: 'INVALID_CREDENTIALS', message: 'Invalid email or password.', status: 401 };
+  }
+  const match = await bcrypt.compare(password, user.password_hash);
+  if (!match) {
+    return { error: 'INVALID_CREDENTIALS', message: 'Invalid email or password.', status: 401 };
+  }
+  if (user.is_banned && user.role !== 'admin') {
+    return { error: 'ACCOUNT_BANNED', message: 'Your account has been banned. Contact support.', status: 403 };
+  }
+  const linked = await linkTvDevice(user, { deviceId, activationCode });
+  return { user: linked };
 }
 
 /**
@@ -114,28 +149,70 @@ async function ensureTvOwnerUser({ email, fullName, phone, deviceId, activationC
  * One code = one TV, forever. A code that was already used can only
  * re-activate the exact device it is bound to (e.g. after a factory reset).
  */
+/**
+ * POST /distribution/tv/crash-report  (public, no auth)
+ * Body: { report: string } - a plain-text stack trace + device info,
+ * persisted locally by the TV app when it crashes and uploaded on the next
+ * launch (see TvApplication.persistCrashReport / CrashReportUploader.kt).
+ * There is no way to attach a debugger or pull logcat off a real viewer's
+ * TV, so this is the only way a crash ever becomes visible at all - logged
+ * to stdout (captured by Cloud Run/gcloud logging) and stored in Firestore
+ * so it can be queried later without having to search raw logs.
+ */
+exports.reportCrash = async (req, res) => {
+  try {
+    const report = typeof req.body?.report === 'string' ? req.body.report.slice(0, 8000) : '';
+    if (!report.trim()) {
+      return res.status(400).json({ error: 'report is required' });
+    }
+    console.error('[TV Crash Report]\n' + report);
+    try {
+      const db = getFirestore();
+      await db.collection('tv_crash_reports').add({
+        report,
+        ip: clientIp(req),
+        created_at: new Date(),
+      });
+    } catch (firestoreErr) {
+      console.error('[TV Crash Report] failed to persist to Firestore:', firestoreErr.message);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[TV Crash Report] handler error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 exports.activate = async (req, res) => {
   try {
     const {
       code,
+      mode,
       owner_email,
       owner_name,
       owner_phone,
+      owner_password,
       device_id,
       device_name,
       app_version,
     } = req.body || {};
 
+    const isSignIn = mode === 'signin';
     const email = String(owner_email || '').trim().toLowerCase();
     const fullName = String(owner_name || '').trim();
     const phone = String(owner_phone || '').trim();
+    const password = String(owner_password || '');
     const deviceId = String(device_id || '').trim();
 
     if (!code) return res.status(400).json({ error: 'Activation code is required' });
     if (!deviceId) return res.status(400).json({ error: 'Device ID is required' });
     if (!EMAIL_REGEX.test(email)) return res.status(400).json({ error: 'A valid owner email is required' });
-    if (fullName.length < 2) return res.status(400).json({ error: 'Owner full name is required' });
-    if (phone.length < 6) return res.status(400).json({ error: 'Owner phone number is required' });
+    if (isSignIn) {
+      if (!password) return res.status(400).json({ error: 'Password is required' });
+    } else {
+      if (fullName.length < 2) return res.status(400).json({ error: 'Owner full name is required' });
+      if (phone.length < 6) return res.status(400).json({ error: 'Owner phone number is required' });
+    }
 
     const entry = await model.findActivationCode(code);
     if (!entry) {
@@ -166,12 +243,14 @@ exports.activate = async (req, res) => {
         app_version: app_version || device?.app_version || null,
       });
       const settings = await model.getSettings();
+      const userToken = device?.owner_user_id ? await generateToken(device.owner_user_id) : null;
       return res.status(200).json({
         success: true,
         reactivated: true,
         device_token: deviceToken,
+        user_token: userToken,
         device_id: deviceId,
-        owner: { email, name: fullName },
+        owner: { email: device?.owner_email || email, name: device?.owner_name || fullName },
         config_version: settings.config_version,
       });
     }
@@ -183,13 +262,15 @@ exports.activate = async (req, res) => {
     }
 
     const settings = await model.getSettings();
-    const owner = await ensureTvOwnerUser({
-      email,
-      fullName,
-      phone,
-      deviceId,
-      activationCode: entry.code,
-    });
+    const resolved = isSignIn
+      ? await resolveOwnerForSignIn({ email, password, deviceId, activationCode: entry.code })
+      : await resolveOwnerForRegister({ email, fullName, phone, deviceId, activationCode: entry.code });
+    if (resolved.error) {
+      return res.status(resolved.status).json({ error: resolved.error, message: resolved.message });
+    }
+    const owner = resolved.user;
+    const ownerName = owner.name || fullName;
+    const ownerPhone = owner.phoneNumber || phone;
 
     await model.updateActivationCode(entry.code, {
       status: 'activated',
@@ -202,8 +283,8 @@ exports.activate = async (req, res) => {
       activation_code: entry.code,
       owner_user_id: owner.id,
       owner_email: email,
-      owner_name: fullName,
-      owner_phone: phone,
+      owner_name: ownerName,
+      owner_phone: ownerPhone,
       distributor_id: entry.distributor_id,
       marketer_id: entry.marketer_id,
       device_name: device_name || 'AfroVision TV',
@@ -242,12 +323,14 @@ exports.activate = async (req, res) => {
     }
 
     const deviceToken = await auth.generateDeviceToken(deviceId);
+    const userToken = await generateToken(owner.id);
     return res.status(200).json({
       success: true,
       reactivated: false,
       device_token: deviceToken,
+      user_token: userToken,
       device_id: deviceId,
-      owner: { email, name: fullName },
+      owner: { email, name: ownerName },
       config_version: settings.config_version,
     });
   } catch (error) {
@@ -286,10 +369,18 @@ exports.heartbeat = async (req, res) => {
     const lastRead = device.last_read_message_at || device.activated_at || '';
     const unreadCount = messages.filter((m) => (m.created_at || '') > lastRead).length;
 
+    let chatSummary = { unread_messages: 0, pending_requests: 0, total: 0 };
+    if (device.owner_user_id) {
+      const chatModel = require('../chat/chat.model');
+      chatSummary = await chatModel.getUnreadSummary(device.owner_user_id);
+    }
+
     return res.status(200).json({
       enabled: true,
       config_version: settings.config_version,
-      unread_messages: unreadCount,
+      unread_messages: unreadCount + chatSummary.total,
+      unread_admin_messages: unreadCount,
+      unread_chat: chatSummary,
       app_update: {
         latest_version_code: settings.tv_app?.latest_version_code || 1,
         latest_version_name: settings.tv_app?.latest_version_name || '1.0.0',
@@ -400,6 +491,47 @@ exports.getChannels = async (req, res) => {
     return res.status(200).json({ channels: enriched });
   } catch (error) {
     console.error('[Distribution] TV getChannels error:', error);
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+};
+
+/**
+ * GET /distribution/tv/exclusive/access  (device token)
+ * Real status of the device owner's exclusive-channel access, so the TV's
+ * Exclusive screen can show something truthful instead of a fake "join"
+ * button - the platform has no single membership tier, access is granted
+ * per exclusive channel (request/approve or paid unlock on mobile/web).
+ */
+exports.getExclusiveAccessSummary = async (req, res) => {
+  try {
+    const Channel = require('../channels/channel.model');
+    const ownerUid = req.device?.owner_user_id;
+    if (!ownerUid) {
+      return res.status(200).json({ accesses: [], total: 0 });
+    }
+
+    const db = getFirestore();
+    const snapshot = await db.collection('exclusive_channel_access')
+      .where('user_uid', '==', ownerUid)
+      .where('status', '==', 'active')
+      .get();
+
+    const accesses = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+    const channelIds = [...new Set(accesses.map((a) => a.channel_id))];
+    const channelDocs = await Promise.all(channelIds.map((id) => Channel.findById(id)));
+    const channelsById = {};
+    channelDocs.forEach((channel) => { if (channel) channelsById[channel.id] = channel; });
+
+    const enriched = accesses.map((access) => ({
+      channel_id: access.channel_id,
+      channel_name: channelsById[access.channel_id]?.name || 'Unknown channel',
+      expires_at: access.expires_at || null,
+      monthly_fee_ngn: access.monthly_fee_ngn || null,
+    }));
+
+    return res.status(200).json({ accesses: enriched, total: enriched.length });
+  } catch (error) {
+    console.error('[Distribution] TV getExclusiveAccessSummary error:', error);
     return res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 };

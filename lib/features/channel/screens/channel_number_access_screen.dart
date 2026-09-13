@@ -36,6 +36,12 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
   bool _loading = false;
   String? _recentNumber;
   String? _recentName;
+  // The paywall needs the channel's real Firestore doc ID, not the number
+  // the user typed - the backend's exclusive-access routes look up by ID
+  // only, so passing the raw dial string 404s with "Channel not found".
+  // Stashed here from the same getChannelByNumber() lookup _access() already
+  // does, so _openPaywall() can hand over the resolved channel instead.
+  ChannelModel? _lockedExclusiveChannel;
 
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -87,9 +93,16 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
       // The check/submit key actually tunes in to the currently entered number.
       _access();
     } else {
+      if (_dial.length >= 6) return;
       setState(() {
         _dialError = null;
-        _dial = (_dial + key).substring(0, 6);
+        // Cap at 6 digits. `.substring(0, 6)` on a shorter string throws
+        // RangeError — that was the actual root cause of the keypad
+        // appearing "dead": every first few digits threw inside setState,
+        // silently discarding the state update in release mode with no
+        // visible crash.
+        final next = _dial + key;
+        _dial = next.length > 6 ? next.substring(0, 6) : next;
       });
     }
   }
@@ -116,6 +129,7 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
         if (!canWatch) {
           setState(() {
             _loading = false;
+            _lockedExclusiveChannel = channel;
             _dialError =
                 '${channel.name} is an Exclusive Channel with Private Membership — membership is verified before watch.';
           });
@@ -174,11 +188,13 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
   }
 
   void _openPaywall() {
-    // Requires a loaded exclusive channel. If the user has typed an
-    // exclusive number but has no access, the paywall is the next step.
-    // The number itself is enough to identify the channel; the paywall
-    // will resolve the channel and its access status again.
-    Navigator.pushNamed(context, '/exclusive-access', arguments: _dial);
+    // Pass the resolved ChannelModel (real doc ID), not the raw typed
+    // number - the paywall's access-status/purchase calls hit
+    // /channels/:id/exclusive/..., which is a Firestore-doc-ID lookup, and
+    // 404s as "Channel not found" on a channel_number string like "31".
+    final channel = _lockedExclusiveChannel;
+    if (channel == null) return;
+    Navigator.pushNamed(context, '/exclusive-access', arguments: channel);
   }
 
   @override
@@ -471,7 +487,9 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
 
                       const SizedBox(height: 14),
 
-                      // Recent recall
+                      // Recent recall — quick-jump straight back into the
+                      // last-tuned channel instead of just prefilling the
+                      // dial (the user still has to press Access Channel).
                       if (hasRecent)
                         _tappable(
                           onTap: () {
@@ -479,6 +497,7 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
                               _dial = _recentNumber!;
                               _dialError = null;
                             });
+                            _access();
                           },
                           child: RichText(
                             text: TextSpan(

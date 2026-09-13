@@ -1,10 +1,14 @@
 package com.afrovision.tv.ui.screens
 
+import com.afrovision.tv.ui.components.rememberCacheableImageRequest
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,10 +22,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
@@ -29,27 +32,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import coil.compose.AsyncImage
 import com.afrovision.tv.data.LoadState
 import com.afrovision.tv.data.MediaCard
 import com.afrovision.tv.data.TvViewModel
+import com.afrovision.tv.ui.focus.autoRequestFocus
+import com.afrovision.tv.ui.sound.TvSoundManager
 import com.afrovision.tv.data.api.model.CatchUpCredit
 import com.afrovision.tv.data.api.model.CatchUpHome
 import com.afrovision.tv.data.api.model.CatchUpItem
@@ -57,9 +64,9 @@ import com.afrovision.tv.data.api.model.CatchUpPerson
 import com.afrovision.tv.ui.components.FocusCard
 import com.afrovision.tv.ui.components.HeroBanner
 import com.afrovision.tv.ui.components.HeroSlide
-import com.afrovision.tv.ui.components.TopChrome
 import com.afrovision.tv.ui.theme.LocalNocturne
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun CatchUpScreen(viewModel: TvViewModel) {
@@ -77,53 +84,33 @@ fun CatchUpScreen(viewModel: TvViewModel) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(nocturne.primaryGradient)
-        )
-
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                TopChrome(
-                    userName = viewModel.userName.collectAsState().value,
-                    userAvatar = viewModel.userName.collectAsState().value,
-                    modifier = Modifier.fillMaxSize()
-                )
+        when (catchUp) {
+            is LoadState.Loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Loading Catch Up…",
+                        color = nocturne.textFaint,
+                        fontSize = 22.sp
+                    )
+                }
             }
-
-            when (catchUp) {
-                is LoadState.Loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Loading Catch Up…",
-                            color = nocturne.textFaint,
-                            fontSize = 22.sp
-                        )
-                    }
+            is LoadState.Error -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    com.afrovision.tv.ui.components.ConnectionErrorCard(
+                        message = (catchUp as LoadState.Error).message,
+                        onRetry = { viewModel.loadCatchUp() }
+                    )
                 }
-                is LoadState.Error -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Catch Up unavailable: ${(catchUp as LoadState.Error).message}",
-                            color = nocturne.textFaint,
-                            fontSize = 22.sp
-                        )
-                    }
-                }
-                is LoadState.Success -> {
-                    val home = (catchUp as LoadState.Success<CatchUpHome>).data
-                    CatchUpFeed(viewModel, home, heroIndex) { heroIndex = it }
-                }
+            }
+            is LoadState.Success -> {
+                val home = (catchUp as LoadState.Success<CatchUpHome>).data
+                CatchUpFeed(viewModel, home, heroIndex) { heroIndex = it }
             }
         }
 
@@ -143,18 +130,46 @@ private fun CatchUpFeed(
     val nocturne = LocalNocturne.current
     val heroSlides = home.hero.map { it.toHeroSlide() }
     val spotlight = home.episodeSpotlight
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 60.dp)
-    ) {
+    // Episode Spotlight's own rendered height (CatchUpRailRow's title row +
+    // its 16:9 cards at cardWidth=300, see below): ~10dp*2 Column padding +
+    // ~44dp title line + 300*9/16 ~= 169dp image = ~233dp. Sized so hero +
+    // Episode Spotlight together fill almost exactly one screen - Trending
+    // People (the next row down) starts just past the fold, matching what
+    // was asked for instead of guessing at a fixed dp number.
+    val estimatedSpotlightHeight = 236.dp
+
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val heroHeight = (maxHeight - estimatedSpotlightHeight).coerceAtLeast(560.dp)
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 24.dp)
+        ) {
         if (heroSlides.isNotEmpty()) {
             item {
                 HeroBanner(
                     slides = heroSlides,
                     onPlay = { viewModel.playCatchUpTrailer(home.hero[heroIndex]) },
                     onInfo = { viewModel.selectCatchUpItem(home.hero[heroIndex]) },
-                    onIndexChange = onHeroIndexChange
+                    onIndexChange = onHeroIndexChange,
+                    // Back to Crop/cover, matching Home's look exactly (the
+                    // "way it was") now that the box is sized to the screen
+                    // itself - with a hero this tall, Crop's aspect-fill
+                    // reads as vibrant and full rather than visibly cutting
+                    // artwork the way it did at the old, much shorter
+                    // heights. Height is dynamic (screen height minus
+                    // Episode Spotlight's own height, via BoxWithConstraints
+                    // above) rather than a fixed dp, so hero + Spotlight
+                    // together fill essentially one screen and Trending
+                    // People starts just past the fold, on any screen size.
+                    heroHeight = heroHeight,
+                    imageContentScale = ContentScale.Crop,
+                    imageAlignment = Alignment.Center,
+                    onFocusWithin = { scope.launch { listState.animateScrollToItem(0) } }
                 )
             }
         }
@@ -211,6 +226,7 @@ private fun CatchUpFeed(
                 }
             }
         }
+        }
     }
 }
 
@@ -227,7 +243,7 @@ private fun CatchUpRailRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 24.dp)
+            .padding(vertical = 10.dp)
     ) {
         Text(
             text = title,
@@ -236,7 +252,7 @@ private fun CatchUpRailRow(
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 60.dp, vertical = 12.dp)
+            modifier = Modifier.padding(horizontal = 60.dp, vertical = 4.dp)
         )
 
         LazyRow(
@@ -267,7 +283,7 @@ private fun PeopleRailRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 24.dp)
+            .padding(vertical = 10.dp)
     ) {
         Text(
             text = title,
@@ -276,7 +292,7 @@ private fun PeopleRailRow(
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 60.dp, vertical = 12.dp)
+            modifier = Modifier.padding(horizontal = 60.dp, vertical = 4.dp)
         )
 
         LazyRow(
@@ -302,12 +318,16 @@ private fun CatchUpDetailOverlay(viewModel: TvViewModel, initialItem: CatchUpIte
     val detail = viewModel.catchUpDetail
     val item = (detail as? LoadState.Success)?.data ?: initialItem
 
-    BackHandler { viewModel.clearCatchUpDetail() }
+    Dialog(
+        onDismissRequest = { viewModel.clearCatchUpDetail() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        BackHandler { TvSoundManager.play("back"); viewModel.clearCatchUpDetail() }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(nocturne.background.copy(alpha = 0.96f)),
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(nocturne.background.copy(alpha = 0.96f)),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -328,7 +348,7 @@ private fun CatchUpDetailOverlay(viewModel: TvViewModel, initialItem: CatchUpIte
                 ) {
                     if (!item.posterUrl.isNullOrBlank()) {
                         AsyncImage(
-                            model = item.posterUrl,
+                            model = rememberCacheableImageRequest(item.posterUrl),
                             contentDescription = item.title,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -336,7 +356,10 @@ private fun CatchUpDetailOverlay(viewModel: TvViewModel, initialItem: CatchUpIte
                 }
 
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
@@ -397,27 +420,19 @@ private fun CatchUpDetailOverlay(viewModel: TvViewModel, initialItem: CatchUpIte
                         ) {
                             itemsIndexed(item.recommendations, key = { _, r -> r.id }) { _, rec ->
                                 val card = rec.toMediaCard()
-                                var focused by remember { mutableStateOf(false) }
-                                val scale by androidx.compose.animation.core.animateFloatAsState(
-                                    if (focused) 1.06f else 1f,
-                                    label = "recScale"
-                                )
                                 FocusCard(
                                     item = card,
                                     aspect = 2f to 3f,
                                     onClick = { viewModel.selectCatchUpItem(rec) },
-                                    modifier = Modifier
-                                        .width(140.dp)
-                                        .scale(scale)
+                                    modifier = Modifier.width(140.dp)
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
-
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        modifier = Modifier.focusGroup().padding(top = 16.dp)
                     ) {
                         if (!item.trailerUrl.isNullOrBlank()) {
                             DetailButton(
@@ -434,10 +449,15 @@ private fun CatchUpDetailOverlay(viewModel: TvViewModel, initialItem: CatchUpIte
                             onClick = { viewModel.clearCatchUpDetail() }
                         )
                     }
+
+                    // Extra breathing room below the buttons so the scroll
+                    // doesn't stop the instant Close is visible.
+                    Spacer(modifier = Modifier.height(80.dp))
                 }
             }
         }
     }
+}
 }
 
 @Composable
@@ -455,19 +475,25 @@ private fun CreditChips(label: String, credits: List<CatchUpCredit>) {
             modifier = Modifier.padding(top = 10.dp)
         ) {
             credits.take(6).forEach { credit ->
+                val interactionSource = remember { MutableInteractionSource() }
+                val focused by interactionSource.collectIsFocusedAsState()
+                LaunchedEffect(focused) { if (focused) TvSoundManager.play("move") }
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(96.dp)
+                    modifier = Modifier
+                        .width(96.dp)
+                        .clickable(interactionSource = interactionSource, indication = null, onClick = {})
                 ) {
                     Box(
                         modifier = Modifier
                             .size(80.dp)
                             .clip(RoundedCornerShape(99.dp))
                             .background(nocturne.surfaceRaised)
+                            .border(if (focused) 2.dp else 0.dp, if (focused) nocturne.gold else Color.Transparent, RoundedCornerShape(99.dp))
                     ) {
                         if (!credit.profileUrl.isNullOrBlank()) {
                             AsyncImage(
-                                model = credit.profileUrl,
+                                model = rememberCacheableImageRequest(credit.profileUrl),
                                 contentDescription = credit.name,
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -505,16 +531,20 @@ private fun GenresRow(genres: List<String>) {
         modifier = Modifier.padding(top = 8.dp)
     ) {
         genres.forEach { genre ->
+            val interactionSource = remember { MutableInteractionSource() }
+            val focused by interactionSource.collectIsFocusedAsState()
+            LaunchedEffect(focused) { if (focused) TvSoundManager.play("move") }
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(99.dp))
                     .background(nocturne.surfaceRaised)
-                    .border(1.dp, nocturne.borderCard, RoundedCornerShape(99.dp))
+                    .border(if (focused) 2.dp else 1.dp, if (focused) nocturne.gold else nocturne.borderCard, RoundedCornerShape(99.dp))
+                    .clickable(interactionSource = interactionSource, indication = null, onClick = {})
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Text(
                     text = genre,
-                    color = nocturne.text,
+                    color = if (focused) nocturne.goldLight else nocturne.text,
                     fontSize = 16.sp
                 )
             }
@@ -530,35 +560,35 @@ private fun DetailButton(
     onClick: () -> Unit
 ) {
     val nocturne = LocalNocturne.current
-    var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    if (accent) {
-        LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    LaunchedEffect(focused) { if (focused) TvSoundManager.play("move") }
+    val borderColor = if (focused) nocturne.gold else if (accent) nocturne.accent else nocturne.borderCard
+    val bgColor = if (focused) nocturne.gold.copy(alpha = 0.15f) else if (accent) nocturne.accent900 else nocturne.background.copy(alpha = 0.5f)
+    val contentColor = if (focused) nocturne.gold else if (accent) nocturne.accentLight else nocturne.text
 
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
             .border(
-                2.dp,
-                if (focused) nocturne.accent else if (accent) nocturne.accent else nocturne.borderCard,
+                if (focused) 3.dp else 1.dp,
+                borderColor,
                 RoundedCornerShape(10.dp)
             )
-            .background(if (accent) nocturne.accent900 else nocturne.background.copy(alpha = 0.5f))
-            .focusRequester(focusRequester)
-            .focusable(true)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
             .padding(horizontal = 28.dp, vertical = 16.dp)
+            .autoRequestFocus(focusRequester, enabled = accent)
+            .clickable(interactionSource = interactionSource, indication = null, onClick = { TvSoundManager.play("select"); onClick() })
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(imageVector = icon, contentDescription = label, tint = nocturne.accentLight, modifier = Modifier.size(26.dp))
+            Icon(imageVector = icon, contentDescription = label, tint = contentColor, modifier = Modifier.size(26.dp))
             Text(
                 text = label,
-                color = if (accent) nocturne.accentLight else nocturne.text,
+                color = contentColor,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Medium
             )

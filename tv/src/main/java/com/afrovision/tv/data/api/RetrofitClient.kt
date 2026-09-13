@@ -21,15 +21,28 @@ object RetrofitClient {
     }
 
     private val authInterceptor = Interceptor { chain ->
-        val token = TokenHolder.token
-        val request = if (token.isNotBlank()) {
-            chain.request().newBuilder()
+        val request = chain.request()
+        val path = request.url.encodedPath
+        val noAuth = path == "/home/content"
+        // /distribution/tv/* (heartbeat, channels, messages, chat) requires
+        // the "tv_device"-kind JWT specifically - sending the general/user
+        // token there is rejected outright (401), since the backend checks
+        // the token's `kind` claim. Everything else gets the general token,
+        // falling back to the device token pre-QR-pairing so unpaired TVs
+        // keep behaving exactly as before (anonymous/public content).
+        val token = if (path.startsWith("/distribution/tv/")) {
+            TokenHolder.deviceToken
+        } else {
+            TokenHolder.token.ifBlank { TokenHolder.deviceToken }
+        }
+        val newRequest = if (token.isNotBlank() && !noAuth) {
+            request.newBuilder()
                 .header("Authorization", "Bearer $token")
                 .build()
         } else {
-            chain.request()
+            request
         }
-        chain.proceed(request)
+        chain.proceed(newRequest)
     }
 
     private val client = OkHttpClient.Builder()

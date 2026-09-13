@@ -3,7 +3,8 @@ package com.afrovision.tv.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -40,8 +41,15 @@ import com.afrovision.tv.ui.theme.LocalNocturne
 fun DisabledScreen(reason: String, deviceId: String, onRetry: () -> Unit) {
     val nocturne = LocalNocturne.current
     val focus = remember { FocusRequester() }
-    var focused by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(placed) {
+        if (placed) {
+            kotlinx.coroutines.delay(350)
+            try { focus.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -51,7 +59,8 @@ fun DisabledScreen(reason: String, deviceId: String, onRetry: () -> Unit) {
                     colors = listOf(Color(0xFF3A1E2A), Color(0xFF1A1C2C), Color(0xFF0F1018)),
                     radius = 1600f
                 )
-            ),
+            )
+            .onGloballyPositioned { if (!placed) placed = true },
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(60.dp)) {
@@ -96,9 +105,7 @@ fun DisabledScreen(reason: String, deviceId: String, onRetry: () -> Unit) {
                     .background(if (focused) nocturne.accent900 else Color.Transparent)
                     .border(if (focused) 2.dp else 1.dp, nocturne.accent, RoundedCornerShape(nocturne.radiusMd.dp))
                     .focusRequester(focus)
-                    .focusable(true)
-                    .onFocusChanged { focused = it.isFocused }
-                    .clickable(onClick = onRetry)
+                    .clickable(interactionSource = interactionSource, indication = null, onClick = onRetry)
                     .padding(horizontal = 30.dp, vertical = 17.dp)
             ) {
                 Text(text = "Check again", color = Color(0xFFE7E5FE), fontSize = 21.sp)

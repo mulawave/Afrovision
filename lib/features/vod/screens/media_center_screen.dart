@@ -1086,6 +1086,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${newThisWeek.length} titles',
               items: newThisWeek
                   .map((m) => _PosterItem(
+                        id: 'movie_new_${m.id}',
                         title: m.title,
                         meta: _movieMeta(m),
                         imageUrl: m.posterUrl,
@@ -1099,6 +1100,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${because.items.length} titles',
               items: because.items
                   .map((m) => _PosterItem(
+                        id: 'movie_because_${m.id}',
                         title: m.title,
                         meta: _movieMeta(m),
                         imageUrl: m.posterUrl,
@@ -1113,6 +1115,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               exclusive: true,
               items: exMovies
                   .map((e) => _PosterItem(
+                        id: 'movie_ex_${e.movie.id}',
                         title: e.movie.title,
                         meta: _movieMeta(e.movie),
                         imageUrl: e.movie.posterUrl,
@@ -1128,6 +1131,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${pubMovies.length} titles',
               items: pubMovies
                   .map((m) => _PosterItem(
+                        id: 'movie_pub_${m.id}',
                         title: m.title,
                         meta: _movieMeta(m),
                         imageUrl: m.posterUrl,
@@ -1156,6 +1160,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${newThisWeek.length} titles',
               items: newThisWeek
                   .map((s) => _PosterItem(
+                        id: 'series_new_${s.id}',
                         title: s.title,
                         meta: _seriesMeta(s),
                         imageUrl: s.coverUrl,
@@ -1170,6 +1175,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               exclusive: true,
               items: exSeries
                   .map((e) => _PosterItem(
+                        id: 'series_ex_${e.series.id}',
                         title: e.series.title,
                         meta: _seriesMeta(e.series),
                         imageUrl: e.series.coverUrl,
@@ -1185,6 +1191,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               note: '${pubSeries.length} titles',
               items: pubSeries
                   .map((s) => _PosterItem(
+                        id: 'series_pub_${s.id}',
                         title: s.title,
                         meta: _seriesMeta(s),
                         imageUrl: s.coverUrl,
@@ -1257,16 +1264,20 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
               crossAxisSpacing: 9,
               childAspectRatio: 2 / 3,
             ),
-            itemBuilder: (context, i) => _libraryTile(_libraryItems[i]),
+            itemBuilder: (context, i) => _libraryTile(
+              _libraryItems[i],
+              key: ValueKey(_libraryItems[i].item.id),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _libraryTile(_LibraryEntry entry) {
+  Widget _libraryTile(_LibraryEntry entry, {Key? key}) {
     final item = entry.item;
     return GestureDetector(
+      key: key,
       onTap: () => _openLibraryItem(entry),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
@@ -1821,6 +1832,12 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
 
   Widget _buildPoster(_PosterItem item) {
     return GestureDetector(
+      // Stable per-item key — prevents Flutter from reusing this tile's
+      // Element (and its in-flight CachedNetworkImage ImageStream) for a
+      // different poster when the list is rebuilt (chip filter change,
+      // pagination, tab swipe). Without this, movie/series posters can
+      // visually flash or hold the wrong title's image.
+      key: ValueKey(item.id),
       onTap: item.onTap,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
@@ -2260,6 +2277,12 @@ class _LibraryEntry {
 }
 
 class _PosterItem {
+  /// Movie/series id. Used as the GridView item's stable key so Flutter
+  /// never reuses one poster tile's Element (and its CachedNetworkImage's
+  /// in-flight ImageStream) for a different title when the underlying list
+  /// changes shape — the exact cause of movie/series posters visually
+  /// "overriding" each other between rebuilds.
+  final String id;
   final String title;
   final String meta;
   final String? imageUrl;
@@ -2267,6 +2290,7 @@ class _PosterItem {
   final String? channelTag;
   final String? channelName;
   const _PosterItem({
+    required this.id,
     required this.title,
     required this.meta,
     required this.imageUrl,

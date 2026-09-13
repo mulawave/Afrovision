@@ -329,11 +329,23 @@ function findById(id) {
   return cached || loadUserById(id);
 }
 
+/**
+ * A stable, shareable reference that identifies a user's wallet outside the
+ * app — for inter-wallet transfers, support tickets, and any financial
+ * tracking/reconciliation. Independent of the creator-only on-chain BSC
+ * wallet (see wallet.model.js) — every user gets one, viewer or creator.
+ */
+function generateWalletReference() {
+  const code = crypto.randomBytes(5).toString('hex').toUpperCase();
+  return `AVW-${code.slice(0, 5)}-${code.slice(5, 10)}`;
+}
+
 async function create({ email, passwordHash }) {
   const user = {
     id: crypto.randomUUID(),
     email: normalizeEmail(email),
     password_hash: passwordHash,
+    wallet_reference: generateWalletReference(),
     name: null,
     firstName: null,
     lastName: null,
@@ -368,6 +380,28 @@ async function create({ email, passwordHash }) {
   };
   await persistUser(user);
   return user;
+}
+
+/**
+ * Backfills a wallet_reference for users created before this field existed.
+ * Mutates and persists the given (already-fetched) user in place.
+ */
+async function ensureWalletReference(user) {
+  if (!user || user.wallet_reference) return user;
+  user.wallet_reference = generateWalletReference();
+  await persistUser(user);
+  return user;
+}
+
+async function findByWalletReference(reference) {
+  if (!reference) return null;
+  const clean = String(reference).trim().toUpperCase();
+  const cached = getCachedAll(false).find((u) => u.wallet_reference === clean);
+  if (cached) return cached;
+  const db = getFirestore();
+  const snapshot = await db.collection(USERS_COLLECTION).where('wallet_reference', '==', clean).limit(1).get();
+  if (snapshot.empty) return null;
+  return cacheUser(cloneUserDoc(snapshot.docs[0]));
 }
 
 async function updatePassword(userId, passwordHash) {
@@ -862,6 +896,7 @@ function toSafeUser(user) {
     subscription_status: user.subscription_status,
     subscription_expiry: user.subscription_expiry,
     preferred_currency: user.preferred_currency,
+    wallet_reference: user.wallet_reference || null,
     vpt: Number(user.vpt) || 0,
     cash: Number(user.cash) || 0,
     coins: Number(user.coins) || 0,
@@ -1018,6 +1053,8 @@ module.exports = {
   create,
   getAll,
   getCachedAll,
+  ensureWalletReference,
+  findByWalletReference,
   updatePassword,
   updateProfile,
   setRole,

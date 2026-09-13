@@ -31,7 +31,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
   late Animation<double> _fadeIn;
   late Animation<Offset> _slideUp;
 
-  static const bool _stakePositionEnabled = false;
+  static const bool _stakePositionEnabled = true;
   static const int _totalMintedVpt = 400000000;
 
   final GlobalKey _portfolioKey = GlobalKey();

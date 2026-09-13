@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
+import '../../../core/services/app_preferences_service.dart';
 import '../../../core/services/player_settings_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../channel/services/channel_service.dart';
@@ -64,6 +65,9 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     _currentEpisode = _args.episode;
     _nextEpisodeId = _args.nextEpisodeId;
     _isAutoPlayEnabled = true;
+    AppPreferencesService.autoplayNext.then((v) {
+      if (mounted) setState(() => _isAutoPlayEnabled = v);
+    });
     _initialize();
     _startControlsTimer();
   }
@@ -408,7 +412,7 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
       if (mounted) {
         setState(() {
           _autoAdvancing = false;
-          _error = 'Failed to load next episode: $_sanitizeError(e)';
+          _error = 'Failed to load next episode: ${_sanitizeError(e)}';
         });
       }
     } finally {

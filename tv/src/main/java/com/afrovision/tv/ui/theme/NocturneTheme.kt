@@ -44,11 +44,12 @@ data class NocturneTokens(
     val accent900: Color = Color(0xFF2B2741),
     val section: Color = Color(0xFF262A60),
     val green: Color = Color(0xFF5FD39A),
+    val greenDeep: Color = Color(0xFF2E7D4A),
     val red: Color = Color(0xFFE2543F),
     val radiusSm: Float = 4f,
     val radiusMd: Float = 8f,
     val radiusLg: Float = 14f,
-    val spaceRail: Int = 118,
+    val spaceRail: Int = 146,
     val spaceStage: Int = 60,
     val spaceTopChrome: Int = 44,
     val primaryGradient: Brush = Brush.verticalGradient(

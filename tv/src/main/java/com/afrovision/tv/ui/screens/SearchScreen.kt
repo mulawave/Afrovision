@@ -2,6 +2,7 @@ package com.afrovision.tv.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -52,15 +54,26 @@ fun SearchScreen(viewModel: TvViewModel) {
     var query by remember { mutableStateOf(TextFieldValue("")) }
     var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    var placed by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(placed) {
+        if (placed) {
+            kotlinx.coroutines.delay(350)
+            try { focusRequester.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
 
     val results = when (search) {
         is LoadState.Success -> search.data
         else -> emptyList()
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(nocturne.background)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(nocturne.background)
+            .onGloballyPositioned { if (!placed) placed = true }
+    ) {
         Box(
             modifier = Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
@@ -71,9 +84,6 @@ fun SearchScreen(viewModel: TvViewModel) {
             )
         )
         Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.CenterEnd) {
-                TopChrome(userName = userName, userAvatar = userName, modifier = Modifier.fillMaxSize())
-            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(60.dp),
@@ -96,7 +106,8 @@ fun SearchScreen(viewModel: TvViewModel) {
                             .background(nocturne.surface)
                             .padding(horizontal = 24.dp)
                             .focusRequester(focusRequester)
-                            .onFocusChanged { focused = it.isFocused },
+                            .onFocusChanged { focused = it.isFocused }
+                            .focusable(true),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
