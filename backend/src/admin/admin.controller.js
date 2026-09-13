@@ -3664,3 +3664,337 @@ async function adminMigrateFollowsToSubscriptions(req, res) {
 }
 
 module.exports.adminMigrateFollowsToSubscriptions = adminMigrateFollowsToSubscriptions;
+
+// ─── Live Channel Viewers Dashboard ──────────────────────────────────────────
+
+/**
+ * GET /admin/channels/live-overview
+ * A single call that powers the live-viewers admin dashboard: summary cards
+ * (total current viewers, channels live now, all-time views, followers,
+ * watch hours) plus a per-channel table sorted by current viewers.
+ */
+async function adminChannelsLiveOverview(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    const ChannelStats = require('../channels/channel_stats.model');
+    const ChannelLive = require('../channels/channel_live.model');
+    const ChannelSub = require('../subscriptions/channel_subscription.model');
+
+    const channels = await Channel.getEvery();
+    const channelIds = channels.map((c) => c.id);
+
+    const [liveMap, statsMap, followerCounts] = await Promise.all([
+      ChannelLive.getForChannels(channelIds),
+      ChannelStats.getStatsForChannels(channelIds),
+      Promise.all(channelIds.map((id) => ChannelSub.countActiveByChannel(id))),
+    ]);
+
+    const rows = channels.map((channel, idx) => {
+      const live = liveMap.get(channel.id) || { current_viewers: 0, peak_viewers: 0 };
+      const stats = statsMap.get(channel.id) || { total_views: 0, total_watch_seconds: 0 };
+      const followersCount = followerCounts[idx] || 0;
+      const owner = User.findCachedById(channel.owner_id);
+
+      return {
+        id: channel.id,
+        name: channel.name || null,
+        logo_url: channel.logo_url || null,
+        category: channel.category || null,
+        is_active: Boolean(channel.is_active),
+        is_banned: Boolean(channel.is_banned),
+        owner_display_name: owner?.name || owner?.email || channel.owner_id || 'Unknown owner',
+        is_live: (live.current_viewers || 0) > 0 || channel.stream_status === 'live',
+        current_viewers: live.current_viewers || 0,
+        peak_viewers: live.peak_viewers || 0,
+        total_views: stats.total_views || 0,
+        total_watch_hours: Math.round(((stats.total_watch_seconds || 0) / 3600) * 100) / 100,
+        followers_count: followersCount,
+      };
+    });
+
+    rows.sort((a, b) => b.current_viewers - a.current_viewers);
+
+    const summary = rows.reduce((acc, row) => {
+      acc.total_current_viewers += row.current_viewers;
+      acc.total_channels_live += row.is_live ? 1 : 0;
+      acc.total_all_time_views += row.total_views;
+      acc.total_followers += row.followers_count;
+      acc.total_watch_hours += row.total_watch_hours;
+      return acc;
+    }, {
+      total_current_viewers: 0,
+      total_channels_live: 0,
+      total_all_time_views: 0,
+      total_followers: 0,
+      total_watch_hours: 0,
+      total_channels: rows.length,
+    });
+    summary.total_watch_hours = Math.round(summary.total_watch_hours * 100) / 100;
+
+    res.json({
+      summary,
+      top_performers: rows.slice(0, 10),
+      channels: rows,
+    });
+  } catch (error) {
+    console.error('[adminChannelsLiveOverview]', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminChannelsLiveOverview = adminChannelsLiveOverview;
+
+// ─── Channel/Wave Data Injection ─────────────────────────────────────────────
+
+function parsePositiveAmount(raw) {
+  const amount = Math.floor(Number(raw));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return amount;
+}
+
+/**
+ * POST /admin/channels/:id/views/inject  body: { amount }
+ */
+async function adminInjectChannelViews(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const ChannelStats = require('../channels/channel_stats.model');
+  const amount = parsePositiveAmount(req.body?.amount);
+  if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const stats = await ChannelStats.incrementViews(channel.id, amount);
+    await AuditService.logAction(caller.id, 'inject_channel_views', channel.id, { amount });
+    res.json({ message: 'Views injected', total_views: stats.total_views });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminInjectChannelViews = adminInjectChannelViews;
+
+/**
+ * POST /admin/channels/:id/views/remove  body: { amount }
+ */
+async function adminRemoveChannelViews(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const ChannelStats = require('../channels/channel_stats.model');
+  const amount = parsePositiveAmount(req.body?.amount);
+  if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const stats = await ChannelStats.decrementViews(channel.id, amount);
+    await AuditService.logAction(caller.id, 'remove_channel_views', channel.id, { amount });
+    res.json({ message: 'Views removed', total_views: stats.total_views });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminRemoveChannelViews = adminRemoveChannelViews;
+
+/**
+ * POST /admin/channels/:id/followers/inject  body: { amount }
+ * Creates real (synthetic-flagged) channel_subscriptions rows so the
+ * injected count shows up everywhere followers are read from.
+ */
+async function adminInjectChannelFollowers(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const ChannelSub = require('../subscriptions/channel_subscription.model');
+  const amount = parsePositiveAmount(req.body?.amount);
+  if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+  if (amount > 100000) return res.status(400).json({ error: 'amount too large (max 100,000 per request)' });
+
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    await ChannelSub.injectSyntheticFollowers(channel.id, channel.name, channel.owner_id, amount);
+    const followersCount = await ChannelSub.countActiveByChannel(channel.id);
+    await AuditService.logAction(caller.id, 'inject_channel_followers', channel.id, { amount });
+    res.json({ message: 'Followers injected', followers_count: followersCount });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminInjectChannelFollowers = adminInjectChannelFollowers;
+
+/**
+ * POST /admin/channels/:id/followers/remove  body: { amount }
+ * Only removes admin-injected (synthetic) follower rows — never touches
+ * genuine subscriber accounts.
+ */
+async function adminRemoveChannelFollowers(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const ChannelSub = require('../subscriptions/channel_subscription.model');
+  const amount = parsePositiveAmount(req.body?.amount);
+  if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const removed = await ChannelSub.removeSyntheticFollowers(channel.id, amount);
+    const followersCount = await ChannelSub.countActiveByChannel(channel.id);
+    await AuditService.logAction(caller.id, 'remove_channel_followers', channel.id, { requested: amount, removed });
+    res.json({
+      message: removed < amount
+        ? `Removed ${removed} synthetic follower(s) — no more admin-injected followers left to remove`
+        : 'Followers removed',
+      removed,
+      followers_count: followersCount,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminRemoveChannelFollowers = adminRemoveChannelFollowers;
+
+/**
+ * GET /admin/waves/search?channelId=&waveId=&limit=
+ * Lightweight lookup used by the admin data-injection page to find a wave
+ * to act on — by exact id, by channel, or the most recent waves platform-wide.
+ */
+async function adminSearchWaves(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const Wave = require('../wave/wave.model');
+  const { waveId, channelId } = req.query;
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+
+  try {
+    const db = getFirestore();
+    let waves = [];
+
+    if (waveId) {
+      const wave = await Wave.findById(waveId);
+      waves = wave ? [wave] : [];
+    } else if (channelId) {
+      const snapshot = await db.collection('waves')
+        .where('channel_id', '==', channelId)
+        .orderBy('created_at', 'desc')
+        .limit(limit)
+        .get();
+      waves = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+    } else {
+      const snapshot = await db.collection('waves')
+        .orderBy('created_at', 'desc')
+        .limit(limit)
+        .get();
+      waves = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+    }
+
+    const serialized = waves.map((wave) => {
+      const channel = Channel.findCachedById(wave.channel_id);
+      return {
+        id: wave.id,
+        title: wave.title || null,
+        thumbnail_url: wave.thumbnail_url || null,
+        channel_id: wave.channel_id || null,
+        channel_name: channel?.name || null,
+        views_count: wave.views_count || 0,
+        repeat_play_count: wave.repeat_play_count || 0,
+        status: wave.status || null,
+        created_at: wave.created_at || null,
+      };
+    });
+
+    res.json({ waves: serialized });
+  } catch (error) {
+    console.error('[adminSearchWaves]', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminSearchWaves = adminSearchWaves;
+
+/**
+ * POST /admin/waves/:id/views/inject  body: { amount }
+ */
+async function adminInjectWaveViews(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const Wave = require('../wave/wave.model');
+  const amount = parsePositiveAmount(req.body?.amount);
+  if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+
+  try {
+    const wave = await Wave.findById(req.params.id);
+    if (!wave) return res.status(404).json({ error: 'Wave not found' });
+    await Wave.incrementField(wave.id, 'views_count', amount);
+    await AuditService.logAction(caller.id, 'inject_wave_views', wave.id, { amount });
+    const updated = await Wave.findById(wave.id);
+    res.json({ message: 'Views injected', views_count: updated.views_count || 0 });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminInjectWaveViews = adminInjectWaveViews;
+
+/**
+ * POST /admin/waves/:id/views/remove  body: { amount }
+ */
+async function adminRemoveWaveViews(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const Wave = require('../wave/wave.model');
+  const amount = parsePositiveAmount(req.body?.amount);
+  if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+
+  try {
+    const wave = await Wave.findById(req.params.id);
+    if (!wave) return res.status(404).json({ error: 'Wave not found' });
+    const views_count = await Wave.decrementFieldClamped(wave.id, 'views_count', amount);
+    await AuditService.logAction(caller.id, 'remove_wave_views', wave.id, { amount });
+    res.json({ message: 'Views removed', views_count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminRemoveWaveViews = adminRemoveWaveViews;
+
+/**
+ * POST /admin/waves/:id/replays/inject  body: { amount }
+ */
+async function adminInjectWaveReplays(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const Wave = require('../wave/wave.model');
+  const amount = parsePositiveAmount(req.body?.amount);
+  if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+
+  try {
+    const wave = await Wave.findById(req.params.id);
+    if (!wave) return res.status(404).json({ error: 'Wave not found' });
+    await Wave.incrementField(wave.id, 'repeat_play_count', amount);
+    await AuditService.logAction(caller.id, 'inject_wave_replays', wave.id, { amount });
+    const updated = await Wave.findById(wave.id);
+    res.json({ message: 'Replays injected', repeat_play_count: updated.repeat_play_count || 0 });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminInjectWaveReplays = adminInjectWaveReplays;
+
+/**
+ * POST /admin/waves/:id/replays/remove  body: { amount }
+ */
+async function adminRemoveWaveReplays(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const Wave = require('../wave/wave.model');
+  const amount = parsePositiveAmount(req.body?.amount);
+  if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+
+  try {
+    const wave = await Wave.findById(req.params.id);
+    if (!wave) return res.status(404).json({ error: 'Wave not found' });
+    const repeat_play_count = await Wave.decrementFieldClamped(wave.id, 'repeat_play_count', amount);
+    await AuditService.logAction(caller.id, 'remove_wave_replays', wave.id, { amount });
+    res.json({ message: 'Replays removed', repeat_play_count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminRemoveWaveReplays = adminRemoveWaveReplays;

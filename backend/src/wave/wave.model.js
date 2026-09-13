@@ -221,6 +221,22 @@ async function incrementField(id, field, amount = 1) {
   });
 }
 
+/**
+ * Decrement a counter field, floored at 0. FieldValue.increment(-amount)
+ * can't clamp on its own, so this reads the current value first — used by
+ * admin injection tooling to "remove" views/replays without going negative.
+ */
+async function decrementFieldClamped(id, field, amount = 1) {
+  const db = getFirestore();
+  const ref = db.collection(COLLECTION).doc(id);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+  const current = Number(doc.data()[field]) || 0;
+  const next = Math.max(0, current - Math.max(0, Math.floor(amount)));
+  await ref.update({ [field]: next });
+  return next;
+}
+
 async function updatePulseScore(id, score) {
   const db = getFirestore();
   await db.collection(COLLECTION).doc(id).update({ pulse_score: score });
@@ -346,6 +362,7 @@ module.exports = {
   getFollowingFeed,
   getByChannel,
   incrementField,
+  decrementFieldClamped,
   updatePulseScore,
   updateStatus,
   update,

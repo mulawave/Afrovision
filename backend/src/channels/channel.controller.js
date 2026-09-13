@@ -9,6 +9,8 @@ const crypto = require('crypto');
 const StreamResolver = require('./stream_resolver.service');
 const SettingsService = require('../admin/settings.service');
 const ChannelSub = require('../subscriptions/channel_subscription.model');
+const ChannelStats = require('./channel_stats.model');
+const ChannelLive = require('./channel_live.model');
 
 async function getOwnerSafely(ownerId) {
   try {
@@ -619,6 +621,10 @@ async function recordView(req, res) {
     // Increment daily stats for the channel owner
     await CreatorDailyStats.incrementViewers(channel.owner_id, viewerUid);
 
+    // Track lifetime views on the channel itself (surfaced on the admin
+    // live-viewers dashboard).
+    await ChannelStats.incrementViews(channel.id, 1);
+
     // Also increment stream stats if there's an active stream
     const activeStream = await StreamStats.getActiveByChannel(channel.id);
     if (activeStream) {
@@ -629,6 +635,35 @@ async function recordView(req, res) {
   } catch (err) {
     console.error('[Channel] recordView error:', err.message);
     res.status(500).json({ error: 'Failed to record view' });
+  }
+}
+
+/**
+ * POST /channels/:id/watch-ping
+ * Body: { seconds }
+ * Called periodically (e.g. every 30-60s) by a client actively watching a
+ * channel to accumulate real "hours watched" totals. Best-effort — a missed
+ * or duplicated ping just under/over-counts a small window, never blocks
+ * playback.
+ */
+async function recordWatchPing(req, res) {
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const seconds = Number(req.body?.seconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return res.status(400).json({ error: 'seconds must be a positive number' });
+    }
+    // Clamp a single ping to a sane ceiling so a malformed/malicious client
+    // can't inflate watch-time in one call.
+    const safeSeconds = Math.min(seconds, 300);
+
+    await ChannelStats.addWatchSeconds(channel.id, safeSeconds);
+    res.json({ message: 'Watch time recorded' });
+  } catch (err) {
+    console.error('[Channel] recordWatchPing error:', err.message);
+    res.status(500).json({ error: 'Failed to record watch time' });
   }
 }
 
@@ -781,5 +816,6 @@ module.exports = {
   uploadMedia,
   getSubscriberFeed,
   recordView,
+  recordWatchPing,
   adminSetFeatured,
 };

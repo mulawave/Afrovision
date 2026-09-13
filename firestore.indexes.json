@@ -1,6 +1,15 @@
 {
   "indexes": [
     {
+      "collectionGroup": "channel_subscriptions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "channel_id", "order": "ASCENDING" },
+        { "fieldPath": "is_synthetic", "order": "ASCENDING" },
+        { "fieldPath": "subscribed_at", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "media_center_heroes",
       "queryScope": "COLLECTION",
       "fields": [
@@ -14,6 +23,14 @@
       "fields": [
         { "fieldPath": "user_id", "order": "ASCENDING" },
         { "fieldPath": "updated_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "adtv-chat_messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "connection_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
       ]
     },
     {
