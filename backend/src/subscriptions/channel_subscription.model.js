@@ -222,6 +222,89 @@ async function unbanSubscriber(channelId, subscriberUid) {
   return { ...doc.data(), id: doc.id, status: 'active' };
 }
 
+/**
+ * Create `amount` synthetic (admin-injected) follower rows for a channel.
+ * These are real `channel_subscriptions` docs (status 'active', amount 0)
+ * so they count everywhere real followers do (countActiveByChannel, the
+ * public channel payload, etc.) — flagged is_synthetic so they can be
+ * targeted for removal without touching genuine followers.
+ */
+async function injectSyntheticFollowers(channelId, channelName, ownerId, amount) {
+  const db = getFirestore();
+  const now = Date.now();
+  const batchSize = 400; // stay under Firestore's 500-write batch limit
+  let remaining = Math.max(0, Math.floor(amount));
+  const created = [];
+
+  while (remaining > 0) {
+    const chunk = Math.min(remaining, batchSize);
+    const batch = db.batch();
+    for (let i = 0; i < chunk; i++) {
+      const id = crypto.randomUUID();
+      const sub = {
+        id,
+        subscriber_uid: `synthetic:admin:${id}`,
+        channel_id: channelId,
+        channel_name: channelName || '',
+        owner_id: ownerId || '',
+        plan: 'channel_subscription',
+        currency: null,
+        amount: 0,
+        vpt_equivalent: 0,
+        status: 'active',
+        is_premium: false,
+        interval_count: 1,
+        interval_unit: 'month',
+        next_billing: null,
+        subscribed_at: now,
+        last_renewed_at: null,
+        cancelled_at: null,
+        cancel_reason: null,
+        renewal_count: 0,
+        is_synthetic: true,
+      };
+      batch.set(db.collection(COLLECTION).doc(id), sub);
+      created.push(sub);
+    }
+    await batch.commit();
+    remaining -= chunk;
+  }
+
+  return created;
+}
+
+/**
+ * Remove up to `amount` synthetic (admin-injected) follower rows for a
+ * channel, oldest first. Returns the number actually removed (may be less
+ * than requested if there aren't that many synthetic rows left).
+ */
+async function removeSyntheticFollowers(channelId, amount) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .where('is_synthetic', '==', true)
+    .orderBy('subscribed_at', 'asc')
+    .limit(Math.max(0, Math.floor(amount)))
+    .get();
+
+  if (snapshot.empty) return 0;
+
+  const batch = db.batch();
+  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+  return snapshot.size;
+}
+
+async function countSyntheticByChannel(channelId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('channel_id', '==', channelId)
+    .where('is_synthetic', '==', true)
+    .count()
+    .get();
+  return snapshot.data().count || 0;
+}
+
 module.exports = {
   init,
   create,
@@ -238,4 +321,7 @@ module.exports = {
   findBySubscriberAndChannel,
   banSubscriber,
   unbanSubscriber,
+  injectSyntheticFollowers,
+  removeSyntheticFollowers,
+  countSyntheticByChannel,
 };

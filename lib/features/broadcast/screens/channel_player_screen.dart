@@ -46,6 +46,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   WebViewController? _ytWebViewController;
   final GlobalKey<GiftOverlayState> _overlayKey = GlobalKey<GiftOverlayState>();
   Timer? _eventTimer;
+  Timer? _watchPingTimer;
+  static const Duration _watchPingInterval = Duration(seconds: 30);
 
   // Now-playing state
   bool _loading = true;
@@ -190,6 +192,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     // or dispose them — the overlay is still using them.
     if (!_isHandedOffToFloat) unawaited(_stopPlaybackForRetune());
     _eventTimer?.cancel();
+    _watchPingTimer?.cancel();
     _hideControlsTimer?.cancel();
 
     _silentRetryTimer?.cancel();
@@ -205,6 +208,20 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
+  }
+
+  /// Reports watch-time to the backend every [_watchPingInterval] while this
+  /// screen is alive, so the admin live-viewers dashboard can show real
+  /// "hours watched" totals. Best-effort — failures are swallowed since this
+  /// must never interrupt playback.
+  void _startWatchPing(String channelId) {
+    _watchPingTimer?.cancel();
+    _watchPingTimer = Timer.periodic(_watchPingInterval, (_) {
+      ChannelService.recordWatchPing(
+        channelId,
+        _watchPingInterval.inSeconds,
+      ).catchError((_) {});
+    });
   }
 
   // ─── App lifecycle: resync on resume ───
@@ -417,6 +434,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
       // Keep analytics parity with website by recording channel view on open.
       ChannelService.recordView(channelId).catchError((_) {});
+      _startWatchPing(channelId);
+
       _loadFollowStatus();
       _loadSurferChannels();
 

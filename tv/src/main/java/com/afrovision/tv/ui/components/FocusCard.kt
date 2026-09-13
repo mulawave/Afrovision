@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,7 +40,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.util.Log
 import coil.compose.AsyncImage
+import com.afrovision.tv.TV_APP_TAG
 import com.afrovision.tv.data.MediaCard
 import com.afrovision.tv.data.PlayerMedia
 import com.afrovision.tv.ui.theme.LocalNocturne
@@ -56,14 +59,14 @@ fun FocusCard(
     val nocturne = LocalNocturne.current
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "cardScale")
     val borderColor by animateColorAsState(
-        targetValue = if (focused) nocturne.accent else nocturne.borderCard,
+        targetValue = if (focused) nocturne.gold else nocturne.borderCard,
         label = "cardBorder"
     )
-    val containerHeight = (aspect.second / aspect.first * 392.dp.value).dp
 
     Box(
         modifier = modifier
-            .height(containerHeight)
+            .fillMaxWidth()
+            .aspectRatio(aspect.first / aspect.second)
             .scale(scale)
             .clip(RoundedCornerShape(14.dp))
             .border(
@@ -82,7 +85,8 @@ fun FocusCard(
                 model = item.imageUrl,
                 contentDescription = item.title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                onError = { Log.e(TV_APP_TAG, "Image load failed for ${item.title}: ${item.imageUrl}", it.result.throwable) }
             )
         } else {
             Box(
@@ -114,7 +118,7 @@ fun FocusCard(
                     .padding(12.dp)
                     .clip(RoundedCornerShape(99.dp))
                     .background(nocturne.background.copy(alpha = 0.7f))
-                    .border(1.dp, nocturne.accent700, RoundedCornerShape(99.dp))
+                    .border(1.dp, nocturne.gold, RoundedCornerShape(99.dp))
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 Text(

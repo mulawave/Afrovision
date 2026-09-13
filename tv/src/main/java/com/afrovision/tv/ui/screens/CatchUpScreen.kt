@@ -41,7 +41,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,13 +78,7 @@ fun CatchUpScreen(viewModel: TvViewModel) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
-            modifier = Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to nocturne.accent900.copy(alpha = 0.35f),
-                    0.45f to nocturne.background.copy(alpha = 0.94f),
-                    1f to nocturne.background
-                )
-            )
+            modifier = Modifier.fillMaxSize().background(nocturne.primaryGradient)
         )
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -173,7 +166,7 @@ private fun CatchUpFeed(
                     items = listOf(spotlight),
                     viewModel = viewModel,
                     aspect = 16f to 9f,
-                    cardWidth = 420
+                    cardWidth = 300
                 )
             }
         }
@@ -196,7 +189,7 @@ private fun CatchUpFeed(
                         items = rail.items,
                         viewModel = viewModel,
                         aspect = 2f to 3f,
-                        cardWidth = 260
+                        cardWidth = 180
                     )
                 }
             }
@@ -590,7 +583,8 @@ private fun CatchUpItem.toHeroSlide(): HeroSlide {
         title = title,
         subtitle = overview,
         badge = badge,
-        primaryLabel = if (!trailerUrl.isNullOrBlank()) "Watch Trailer" else "Details"
+        primaryLabel = if (!trailerUrl.isNullOrBlank()) "Watch Trailer" else "Details",
+        imageUrl = backdropUrl ?: posterUrl
     )
 }
 

@@ -1,6 +1,11 @@
 const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 const { verifyToken } = require('../utils/jwt');
+const SettingsService = require('../admin/settings.service');
 const ChatService = require('../interactions/chat.service');
+const distributionModel = require('../distribution/distribution.model');
+const adtvChatModel = require('../chat/chat.model');
+const ChannelLive = require('../channels/channel_live.model');
 
 let io = null;
 const roomSockets = new Map();
@@ -31,10 +36,25 @@ function trackLeave(socketId, room) {
   return members.size;
 }
 
+const CHANNEL_ROOM_PREFIX = 'channel:';
+
+function channelIdFromRoom(room) {
+  if (typeof room !== 'string' || !room.startsWith(CHANNEL_ROOM_PREFIX)) return null;
+  return room.slice(CHANNEL_ROOM_PREFIX.length);
+}
+
 function emitViewerCount(room) {
   if (!io) return;
   const viewerCount = roomSockets.get(room)?.size || 0;
   io.to(room).emit('channel:viewer_count', { viewer_count: viewerCount });
+
+  // Persist so the admin live-viewers dashboard can read it without needing
+  // a socket connection of its own. Fire-and-forget — never block the
+  // realtime emit on a Firestore write.
+  const channelId = channelIdFromRoom(room);
+  if (channelId) {
+    ChannelLive.setViewerCount(channelId, viewerCount).catch(() => {});
+  }
 }
 
 function normalizeToken(socket) {
@@ -57,7 +77,23 @@ async function authenticateSocket(socket, next) {
 
   try {
     const payload = await verifyToken(token);
-    socket.data.userId = payload.userId;
+
+    if (payload.kind === 'tv_device') {
+      // AfroVision TV devices authenticate with a distinct device JWT (see
+      // distribution/distribution.auth.js), signed with the same secret but
+      // carrying a deviceId instead of a userId. Resolve it to the device's
+      // linked owner account so TV clients can join their personal room the
+      // same way a phone/web user does.
+      const device = await distributionModel.findDeviceById(payload.deviceId);
+      if (!device?.owner_user_id) {
+        return next(new Error('Device not linked to a user'));
+      }
+      socket.data.userId = device.owner_user_id;
+      socket.data.isTvDevice = true;
+    } else {
+      socket.data.userId = payload.userId;
+    }
+
     socket.data.rooms = new Set();
     return next();
   } catch (error) {
@@ -131,6 +167,47 @@ function registerSendHandler(socket) {
   });
 }
 
+function personalRoom(userId) {
+  return `adtv_user:${userId}`;
+}
+
+function connectionRoom(connectionId) {
+  return `adtv_chat:${connectionId}`;
+}
+
+/**
+ * TV-to-TV chat (see chat/chat.model.js). Namespaced adtv_chat:* so it can
+ * never collide with the existing per-channel live chat above (chat:send /
+ * chat:message / chat:*).
+ */
+function registerAdtvChatHandlers(socket) {
+  socket.join(personalRoom(socket.data.userId));
+
+  socket.on('adtv_chat:join', async (payload = {}, ack = () => {}) => {
+    const connectionId = payload.connectionId;
+    if (!connectionId) {
+      ack({ ok: false, error: 'connectionId is required' });
+      return;
+    }
+    const connection = await adtvChatModel.getConnection(connectionId);
+    if (!connection || (connection.user_a !== socket.data.userId && connection.user_b !== socket.data.userId)) {
+      ack({ ok: false, error: 'Not your connection' });
+      return;
+    }
+    const room = connectionRoom(connectionId);
+    socket.join(room);
+    socket.data.rooms.add(room);
+    ack({ ok: true });
+  });
+
+  socket.on('adtv_chat:leave', (payload = {}, ack = () => {}) => {
+    const room = connectionRoom(payload.connectionId);
+    socket.leave(room);
+    socket.data.rooms?.delete(room);
+    ack({ ok: true });
+  });
+}
+
 function registerDisconnectHandler(socket) {
   socket.on('disconnect', () => {
     for (const room of socket.data.rooms || []) {
@@ -154,6 +231,7 @@ function initializeSocketServer(server) {
     registerJoinHandler(socket);
     registerLeaveHandler(socket);
     registerSendHandler(socket);
+    registerAdtvChatHandlers(socket);
     registerDisconnectHandler(socket);
   });
 
@@ -165,7 +243,27 @@ function emitChannelEvent(channelId, event) {
   io.to(ChatService.getRoomName(channelId)).emit('channel:event', event);
 }
 
+/** Called by chat.controller.js right after a message is persisted. */
+function emitAdtvChatMessage(connectionId, message) {
+  if (!io || !connectionId || !message) return;
+  io.to(connectionRoom(connectionId)).emit('adtv_chat:message', message);
+}
+
+/**
+ * Called after a message send or a connection request/response so both
+ * participants' badge counts can update live without polling. `payload` is
+ * whatever the client needs to refresh its badge (kept minimal - it should
+ * still re-fetch the authoritative count, this is just a "something
+ * changed" nudge).
+ */
+function emitAdtvChatBadge(userId, payload = {}) {
+  if (!io || !userId) return;
+  io.to(personalRoom(userId)).emit('adtv_chat:badge', payload);
+}
+
 module.exports = {
   initializeSocketServer,
   emitChannelEvent,
+  emitAdtvChatMessage,
+  emitAdtvChatBadge,
 };

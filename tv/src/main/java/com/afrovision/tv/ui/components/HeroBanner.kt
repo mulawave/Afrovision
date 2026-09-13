@@ -38,7 +38,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.afrovision.tv.ui.theme.LocalNocturne
@@ -84,15 +86,23 @@ fun HeroBanner(
         AnimatedContent(targetState = index, label = "hero") { slideIndex ->
             val slide = slides[slideIndex]
             Box(modifier = Modifier.fillMaxSize()) {
+                if (!slide.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = slide.imageUrl,
+                        contentDescription = slide.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             Brush.linearGradient(
                                 listOf(
-                                    nocturne.accent900.copy(alpha = 0.6f),
-                                    nocturne.surface.copy(alpha = 0.4f),
-                                    nocturne.background.copy(alpha = 0.85f)
+                                    nocturne.background.copy(alpha = 0.1f),
+                                    nocturne.background.copy(alpha = 0.55f),
+                                    nocturne.background.copy(alpha = 0.95f)
                                 )
                             )
                         )
@@ -109,7 +119,7 @@ fun HeroBanner(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(99.dp))
                                 .background(nocturne.background.copy(alpha = 0.6f))
-                                .border(1.dp, nocturne.accent700, RoundedCornerShape(99.dp))
+                                .border(1.dp, nocturne.gold, RoundedCornerShape(99.dp))
                                 .padding(horizontal = 16.dp, vertical = 6.dp)
                         ) {
                             Text(
@@ -225,7 +235,8 @@ data class HeroSlide(
     val title: String,
     val subtitle: String,
     val badge: String = "",
-    val primaryLabel: String = "Watch"
+    val primaryLabel: String = "Watch",
+    val imageUrl: String? = null
 )
 
 fun defaultHeroSlides() = listOf(

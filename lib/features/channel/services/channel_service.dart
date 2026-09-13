@@ -367,6 +367,15 @@ class ChannelService {
     await ApiService.post('/channels/$channelId/view', {});
   }
 
+  /// Reports accumulated watch-time for a channel. Called periodically by
+  /// the player screens while a user is actively watching, so the admin
+  /// live-viewers dashboard can show real "hours watched" totals.
+  static Future<void> recordWatchPing(String channelId, int seconds) async {
+    await ApiService.post('/channels/$channelId/watch-ping', {
+      'seconds': seconds,
+    });
+  }
+
   /// Updates the external stream source for a channel. The backend automatically
   /// classifies and probes the URL, returning the enriched channel with
   /// resolved_playback_url and stream_status populated.

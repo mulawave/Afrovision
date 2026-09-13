@@ -3,6 +3,7 @@ package com.afrovision.tv.ui.navigation
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,13 +44,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.afrovision.tv.R
 import com.afrovision.tv.ui.theme.LocalNocturne
 
 private data class Rail(
@@ -59,12 +64,12 @@ private data class Rail(
 )
 
 private val mainRails = listOf(
-    Rail(Screen.CatchUp, "Catch\nUp", Icons.Filled.PlayArrow),
+    Rail(Screen.CatchUp, "Catch Up", Icons.Filled.PlayArrow),
     Rail(Screen.Search, "Search", Icons.Filled.Search),
     Rail(Screen.Home, "Home", Icons.Filled.Home),
     Rail(Screen.LiveTv, "Live TV", Icons.Filled.PlayArrow),
     Rail(Screen.Waves, "Waves", Icons.Filled.Info),
-    Rail(Screen.MoviesSeries, "Movies\n& Series", Icons.Filled.Favorite),
+    Rail(Screen.MoviesSeries, "Movies & Series", Icons.Filled.Favorite),
     Rail(Screen.Library, "Library", Icons.AutoMirrored.Filled.List),
     Rail(Screen.Exclusive, "Exclusive", Icons.Filled.Star),
     Rail(Screen.Feed, "Feed", Icons.Filled.Menu),
@@ -87,9 +92,9 @@ fun NavRail(
 
     Column(
         modifier = modifier
-            .width(146.dp)
+            .width(118.dp)
             .fillMaxHeight()
-            .background(nocturne.background)
+            .background(nocturne.surfaceRail)
             .padding(horizontal = 12.dp, vertical = 16.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -103,11 +108,10 @@ fun NavRail(
                 .border(1.dp, nocturne.accent700, RoundedCornerShape(13.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = "A",
-                color = nocturne.accentLight,
-                fontSize = 20.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+            Image(
+                painter = painterResource(R.drawable.logo_dark),
+                contentDescription = "AfroVision",
+                modifier = Modifier.size(40.dp)
             )
         }
 
@@ -146,7 +150,7 @@ private fun NavRailItem(
     val nocturne = LocalNocturne.current
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "railScale")
     val background by animateColorAsState(
-        targetValue = if (selected) nocturne.accent900 else if (focused) nocturne.surface else nocturne.background,
+        targetValue = if (selected) nocturne.accent900 else if (focused) nocturne.goldWash else nocturne.background,
         label = "railBg"
     )
     val contentColor by animateColorAsState(
@@ -154,18 +158,27 @@ private fun NavRailItem(
         label = "railColor"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (focused) nocturne.accent else nocturne.borderCard,
+        targetValue = if (focused) nocturne.gold else nocturne.borderCard,
         label = "railBorder"
     )
+    val glow = if (focused) {
+        Modifier.shadow(
+            elevation = 8.dp,
+            shape = RoundedCornerShape(13.dp),
+            ambientColor = nocturne.gold,
+            spotColor = nocturne.gold
+        )
+    } else Modifier
 
     Box(
         modifier = Modifier
-            .fillMaxWidth()
+            .width(84.dp)
             .height(if (rail.screen == Screen.MoviesSeries) 72.dp else 60.dp)
             .focusRequester(focusRequester)
             .focusable(true)
             .onFocusChanged { focused = it.isFocused }
             .scale(scale)
+            .then(glow)
             .border(
                 BorderStroke(
                     if (focused) 2.dp else 1.dp,
@@ -209,9 +222,12 @@ private fun NavRailItem(
             Text(
                 text = rail.label,
                 color = contentColor,
-                fontSize = 11.sp,
-                lineHeight = 13.sp,
-                textAlign = TextAlign.Center
+                fontSize = 9.sp,
+                lineHeight = 12.sp,
+                textAlign = TextAlign.Center,
+                softWrap = false,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

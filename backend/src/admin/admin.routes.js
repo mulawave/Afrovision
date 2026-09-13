@@ -130,6 +130,22 @@ router.get('/channels/:id/audit/asset-flow', authenticateToken, ctrl.adminChanne
 router.get('/channels/:id/audit/logs', authenticateToken, ctrl.adminChannelAuditLogs);
 router.post('/channels/migrate-follows-to-subscriptions', authenticateToken, ctrl.adminMigrateFollowsToSubscriptions);
 
+// Live viewers dashboard
+router.get('/channels/live-overview', authenticateToken, ctrl.adminChannelsLiveOverview);
+
+// Data injection — channels (views/followers)
+router.post('/channels/:id/views/inject', authenticateToken, ctrl.adminInjectChannelViews);
+router.post('/channels/:id/views/remove', authenticateToken, ctrl.adminRemoveChannelViews);
+router.post('/channels/:id/followers/inject', authenticateToken, ctrl.adminInjectChannelFollowers);
+router.post('/channels/:id/followers/remove', authenticateToken, ctrl.adminRemoveChannelFollowers);
+
+// Data injection — waves (views/replays)
+router.get('/waves/search', authenticateToken, ctrl.adminSearchWaves);
+router.post('/waves/:id/views/inject', authenticateToken, ctrl.adminInjectWaveViews);
+router.post('/waves/:id/views/remove', authenticateToken, ctrl.adminRemoveWaveViews);
+router.post('/waves/:id/replays/inject', authenticateToken, ctrl.adminInjectWaveReplays);
+router.post('/waves/:id/replays/remove', authenticateToken, ctrl.adminRemoveWaveReplays);
+
 // Site-wide withdrawals toggle
 router.post('/settings/withdrawals-toggle', authenticateToken, ctrl.toggleWithdrawalsSiteWide);
 

@@ -92,30 +92,32 @@ private fun NetworkChip() {
     val nocturne = LocalNocturne.current
     Row(
         modifier = Modifier
-            .height(40.dp)
+            .height(52.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(nocturne.surface)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(
             imageVector = Icons.Filled.CheckCircle,
             contentDescription = "Network",
-            tint = nocturne.accent,
-            modifier = Modifier.size(20.dp)
+            tint = nocturne.gold,
+            modifier = Modifier.size(22.dp)
         )
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = "Excellent",
-                color = nocturne.accentLight,
+                color = nocturne.goldLight,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
             )
             Text(
                 text = "Afrovision Fibre · 86.4 Mbps",
                 color = nocturne.textFaint,
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                maxLines = 1
             )
         }
     }
