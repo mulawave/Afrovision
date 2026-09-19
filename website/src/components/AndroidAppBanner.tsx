@@ -17,7 +17,10 @@ export function AndroidAppBanner() {
 
     const ua = navigator.userAgent;
     const android = /Android/i.test(ua);
-    if (!android) return;
+    // Skip banner if viewing in in-app webview (detected by URL parameter, custom user agent, or lack of browser features)
+    const urlParams = new URLSearchParams(window.location.search);
+    const isInAppWebView = urlParams.get('in_app') === 'true' || /afrovision/i.test(ua) || !window.open;
+    if (!android || isInAppWebView) return;
 
     setIsAndroid(true);
 

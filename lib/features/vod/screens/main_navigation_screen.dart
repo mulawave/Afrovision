@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../channel/screens/channel_list_screen.dart';
 import '../../profile/screens/profile_screen.dart';
-import '../../wallet/screens/digital_assets_overview_screen.dart';
 import '../../wave/screens/wave_screen.dart';
 import 'media_center_screen.dart';
 
@@ -13,8 +12,7 @@ import 'media_center_screen.dart';
 ///   0. Media Center
 ///   1. Channels
 ///   2. Waves
-///   3. Assets
-///   4. Profile
+///   3. Profile
 ///
 /// Each tab is kept alive via [IndexedStack] so the VOD feed, channel list,
 /// and wave list maintain scroll position and state while the user switches.
@@ -32,7 +30,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     MediaCenterScreen(),
     ChannelListScreen(),
     WaveScreen(),
-    DigitalAssetsScreen(),
     ProfileScreen(),
   ];
 
@@ -40,7 +37,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     _NavItem(Icons.movie, 'Media Center'),
     _NavItem(Icons.live_tv, 'Channels'),
     _NavItem(Icons.waves, 'Waves'),
-    _NavItem(Icons.account_balance_wallet, 'Assets'),
     _NavItem(Icons.person, 'Profile'),
   ];
 

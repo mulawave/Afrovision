@@ -475,7 +475,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
                   color: AppColors.orange, size: 16),
               const SizedBox(width: 10),
               const Text(
-                'www.afrovision.com',
+                'afrovision.online',
                 style: TextStyle(
                   color: AppColors.lightOrange,
                   fontSize: 13.5,

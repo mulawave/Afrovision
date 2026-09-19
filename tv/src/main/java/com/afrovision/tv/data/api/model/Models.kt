@@ -529,7 +529,7 @@ data class ChannelLibraryResponse(
 // different, unrelated feature (a user's saved/followed TV channels).
 
 @Serializable
-data class LibraryItem(
+data class LibraryFeedItem(
     val id: String = "",
     @SerialName("channelId") val channelId: String = "",
     val title: String = "",
@@ -542,7 +542,7 @@ data class LibraryItem(
 
 @Serializable
 data class LibraryFeedPage(
-    val items: List<LibraryItem> = emptyList()
+    val items: List<LibraryFeedItem> = emptyList()
 )
 
 @Serializable
@@ -551,88 +551,13 @@ data class LibraryFeedResponse(
     val data: LibraryFeedPage = LibraryFeedPage()
 )
 
-// ── Reader flow: GET/PUT /distribution/tv/library/{channelId}/{itemId}* ──
-// Mirrors the website's channel-scoped reader exactly (see
-// website/src/app/channel/[id]/library/[itemId]/page.tsx and
-// backend/src/library/library-viewer.controller.js).
-
-@Serializable
-data class LibraryProgress(
-    @SerialName("currentSpreadIndex") val currentSpreadIndex: Int = 0,
-    @SerialName("currentPageLeft") val currentPageLeft: Int? = null,
-    @SerialName("currentPageRight") val currentPageRight: Int? = null,
-    @SerialName("isCompleted") val isCompleted: Boolean = false
-)
-
-@Serializable
-data class LibraryNavigation(
-    @SerialName("previousItemId") val previousItemId: String? = null,
-    @SerialName("nextItemId") val nextItemId: String? = null
-)
-
-@Serializable
-data class LibraryItemDetail(
-    val item: LibraryItem = LibraryItem(),
-    val progress: LibraryProgress? = null,
-    val navigation: LibraryNavigation = LibraryNavigation()
-)
-
-@Serializable
-data class LibraryItemDetailResponse(
-    val success: Boolean = false,
-    val data: LibraryItemDetail = LibraryItemDetail()
-)
-
-@Serializable
-data class LibraryReaderManifestInfo(
-    @SerialName("manifestUrl") val manifestUrl: String = "",
-    @SerialName("itemId") val itemId: String = "",
-    @SerialName("totalPages") val totalPages: Int? = null
-)
-
-@Serializable
-data class LibraryReaderManifestInfoResponse(
-    val success: Boolean = false,
-    val data: LibraryReaderManifestInfo = LibraryReaderManifestInfo()
-)
-
-/** The actual page manifest, fetched directly from `manifestUrl` (a public GCS JSON file, not our API). */
-@Serializable
-data class ReaderPage(
-    @SerialName("pageNumber") val pageNumber: Int = 0,
-    @SerialName("imageUrl") val imageUrl: String = ""
-)
-
-@Serializable
-data class ReaderSpread(
-    @SerialName("spreadIndex") val spreadIndex: Int = 0,
-    @SerialName("leftPageNumber") val leftPageNumber: Int? = null,
-    @SerialName("rightPageNumber") val rightPageNumber: Int? = null
-)
-
-@Serializable
-data class ReaderManifest(
-    @SerialName("sourceType") val sourceType: String? = null,
-    @SerialName("pdfUrl") val pdfUrl: String? = null,
-    @SerialName("pageImageUrls") val pageImageUrls: List<String>? = null,
-    @SerialName("totalPages") val totalPages: Int? = null,
-    val pages: List<ReaderPage>? = null,
-    val spreads: List<ReaderSpread>? = null
-)
-
-@Serializable
-data class LibraryProgressResponse(
-    val success: Boolean = false,
-    val data: LibraryProgress = LibraryProgress()
-)
-
 @Serializable
 data class ContinueReadingRecord(
     @SerialName("currentSpreadIndex") val currentSpreadIndex: Int = 0,
     @SerialName("isCompleted") val isCompleted: Boolean = false,
     @SerialName("channelId") val channelId: String = "",
     @SerialName("itemId") val itemId: String = "",
-    val item: LibraryItem? = null
+    val item: LibraryFeedItem? = null
 )
 
 @Serializable

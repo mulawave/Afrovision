@@ -26,17 +26,6 @@ data class LibraryItem(
 )
 
 @Serializable
-data class LibraryFeedPage(
-    val items: List<LibraryItem> = emptyList()
-)
-
-@Serializable
-data class LibraryFeedResponse(
-    val success: Boolean = false,
-    val data: LibraryFeedPage = LibraryFeedPage()
-)
-
-@Serializable
 data class LibraryNavigation(
     val previousItemId: String? = null,
     val nextItemId: String? = null

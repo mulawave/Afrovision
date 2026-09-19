@@ -147,7 +147,7 @@ fun RailRow(
                         onClick = {
                             // Books open the reader; everything else plays.
                             val channelId = item.channelId
-                            if (item.mediaType == "library" && !channelId.isNullOrBlank()) {
+                            if (item.mediaType == "library" && channelId != null) {
                                 viewModel.openReaderItem(channelId, item.id)
                             } else {
                                 viewModel.play(item.toPlayerMedia())

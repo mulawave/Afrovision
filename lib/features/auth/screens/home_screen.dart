@@ -28,6 +28,7 @@ import '../../channel/services/channel_service.dart';
 import '../../challenge/services/challenge_service.dart';
 import '../../challenge/models/challenge_model.dart';
 import '../../announcements/services/announcement_service.dart';
+import '../../profile/screens/profile_screen.dart';
 import '../../../core/widgets/marquee_ticker_widget.dart';
 import '../../../core/widgets/grace_period_banner.dart';
 import '../../vod/screens/media_center_screen.dart';
@@ -604,7 +605,7 @@ class _HomeScreenState extends State<HomeScreen>
           const ChannelListScreen(),
           const MediaCenterScreen(),
           WaveScreen(isActive: _currentIndex == 3),
-          const DigitalAssetsScreen(),
+          ProfileScreen(),
         ],
       ),
       bottomNavigationBar: _buildNocturneNav(),
@@ -618,7 +619,7 @@ class _HomeScreenState extends State<HomeScreen>
       _NavItem(label: 'Channels', icon: Icons.live_tv_rounded, size: 20),
       _NavItem(label: 'Media', icon: Icons.play_circle_fill_rounded, size: 26),
       _NavItem(label: 'Waves', icon: Icons.waves_rounded, size: 20),
-      _NavItem(label: 'Assets', icon: Icons.account_balance_wallet_rounded, size: 20),
+      _NavItem(label: 'Profile', icon: Icons.person_rounded, size: 20),
     ];
     return Container(
       decoration: const BoxDecoration(

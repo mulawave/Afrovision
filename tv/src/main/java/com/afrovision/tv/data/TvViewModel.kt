@@ -94,7 +94,7 @@ data class HomeState(
     val newMovies: LoadState<List<Movie>> = LoadState.Loading,
     val newSeries: LoadState<List<Series>> = LoadState.Loading,
     val waves: LoadState<List<Wave>> = LoadState.Loading,
-    val library: LoadState<List<com.afrovision.tv.data.api.model.LibraryItem>> = LoadState.Loading,
+    val library: LoadState<List<com.afrovision.tv.data.api.model.LibraryFeedItem>> = LoadState.Loading,
     val heroSlides: List<com.afrovision.tv.ui.components.HeroSlide> = com.afrovision.tv.ui.components.defaultHeroSlides(),
     val heroAutoRotateMs: Long = 8000L
 )
@@ -117,7 +117,8 @@ data class MediaCard(
     val streamUrl: String? = null,
     val externalUrl: String? = null,
     val duration: Long = 0L,
-    val channelNumber: Int? = null
+    val channelNumber: Int? = null,
+    val channelId: String? = null
 )
 
 data class PlayerMedia(
@@ -191,7 +192,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     var moviesSeries by mutableStateOf(MoviesSeriesState())
         private set
 
-    var library by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.LibraryItem>>>(LoadState.Loading)
+    var library by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.LibraryFeedItem>>>(LoadState.Loading)
         private set
 
     var exclusive by mutableStateOf<LoadState<List<MediaCard>>>(LoadState.Loading)
@@ -446,7 +447,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             // Each endpoint loads independently — one failure does NOT kill all rails
             val progressResult = try {
                 val r = api.getWatchProgress()
-                Log.d(TV_APP_TAG, "Home /watch-progress/me: ${r.data.size} items")
+                Log.d(TV_APP_TAG, "Home /watch-progress/me: ${r.data.items.size} items")
                 r
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "Home /watch-progress/me FAILED", e)
@@ -507,8 +508,9 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 seriesResult?.series?.forEach { put(it.id, it) }
                 wavesResult?.data?.forEach { put(it.id, it) }
             }
-            val continueCards = progressResult?.data?.mapNotNull { wp ->
-                when (val media = mediaById[wp.mediaId]) {
+            val continueCards = progressResult?.data?.items?.mapNotNull { wp ->
+                val mediaId = wp.movieId ?: wp.seriesId ?: wp.episodeId ?: ""
+                when (val media = mediaById[mediaId]) {
                     is Channel -> wp.toMediaCard(media)
                     is Movie -> wp.toMediaCard(media)
                     is Series -> wp.toMediaCard(media)
@@ -899,16 +901,25 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         readerManifest = LoadState.Loading
         viewModelScope.launch {
             readerDetail = try {
-                LoadState.Success(api.getLibraryItemDetail(channelId, itemId).data)
+                val response = api.getLibraryItemDetail(channelId, itemId)
+                if (response.data != null) {
+                    LoadState.Success(response.data)
+                } else {
+                    LoadState.Error("Item not found")
+                }
             } catch (e: Exception) {
                 LoadState.Error(e.toUserFacingMessage())
             }
         }
         viewModelScope.launch {
             readerManifest = try {
-                val info = api.getLibraryReaderManifestInfo(channelId, itemId).data
-                val manifest = com.afrovision.tv.data.api.ReaderManifestFetcher.fetch(info.manifestUrl)
-                if (manifest != null) LoadState.Success(manifest) else LoadState.Error("Could not load book pages")
+                val response = api.getLibraryReaderManifestInfo(channelId, itemId)
+                if (response.data != null) {
+                    val manifest = com.afrovision.tv.data.api.ReaderManifestFetcher.fetch(response.data.manifestUrl)
+                    if (manifest != null) LoadState.Success(manifest) else LoadState.Error("Could not load book pages")
+                } else {
+                    LoadState.Error("Manifest info not found")
+                }
             } catch (e: Exception) {
                 LoadState.Error(e.toUserFacingMessage())
             }
@@ -932,7 +943,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     var exclusiveMovies by mutableStateOf<LoadState<List<Movie>>>(LoadState.Loading)
     var exclusiveSeries by mutableStateOf<LoadState<List<Series>>>(LoadState.Loading)
-    var exclusiveLibrary by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.LibraryItem>>>(LoadState.Loading)
+    var exclusiveLibrary by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.LibraryFeedItem>>>(LoadState.Loading)
     var exclusiveAccess by mutableStateOf<LoadState<com.afrovision.tv.data.api.model.ExclusiveAccessSummary>>(LoadState.Loading)
     // Every exclusive channel the device can see, regardless of membership -
     // needed (alongside exclusiveAccess/channelSubscriptions) to work out
@@ -1311,7 +1322,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             feed = LoadState.Loading
             feed = try {
-                LoadState.Success(api.getFeed().data)
+                LoadState.Success(api.getFeed().waves)
             } catch (e: Exception) {
                 LoadState.Error(e.toUserFacingMessage())
             }
@@ -1331,11 +1342,11 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                     posts = user.posts.map { p ->
                         FeedPost(
                             id = p.id,
-                            authorName = p.authorName,
-                            authorAvatar = p.authorAvatar,
-                            time = p.time,
-                            body = p.body,
-                            mediaUrl = p.mediaUrl
+                            title = p.title,
+                            description = p.description,
+                            thumbnailUrl = p.thumbnailUrl,
+                            videoUrl = p.videoUrl,
+                            createdAt = p.createdAt
                         )
                     }
                 )

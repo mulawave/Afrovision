@@ -78,6 +78,7 @@ class _StaticPageViewerScreenState extends State<StaticPageViewerScreen>
           enableJavaScript: true,
           enableDomStorage: true,
         ),
+        webOnlyWindowName: '_self',
       );
 
       if (!mounted) return;

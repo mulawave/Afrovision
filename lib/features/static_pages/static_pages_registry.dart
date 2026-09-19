@@ -13,7 +13,7 @@ class StaticPageEntry {
 }
 
 class StaticPagesRegistry {
-  static const String websiteBaseUrl = 'https://www.afrovision.com';
+  static const String websiteBaseUrl = 'https://afrovision.online';
 
   static const List<StaticPageEntry> inAppEntries = [
     StaticPageEntry(
@@ -142,6 +142,6 @@ class StaticPagesRegistry {
   }
 
   static Uri uriForEntry(StaticPageEntry entry) {
-    return Uri.parse('$websiteBaseUrl${entry.path}');
+    return Uri.parse('$websiteBaseUrl${entry.path}').replace(queryParameters: {'in_app': 'true'});
   }
 }

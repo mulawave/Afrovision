@@ -1,6 +1,12 @@
 package com.afrovision.tv.ui.screens
 
 import com.afrovision.tv.ui.components.rememberCacheableImageRequest
+import com.afrovision.tv.data.LoadState
+import com.afrovision.tv.data.TvViewModel
+import com.afrovision.tv.data.api.model.FeedPost
+import com.afrovision.tv.ui.theme.LocalNocturne
+import com.afrovision.tv.ui.sound.TvSoundManager
+import com.afrovision.tv.R
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,7 +18,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,7 +31,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,18 +38,36 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.afrovision.tv.R
-import com.afrovision.tv.data.LoadState
-import com.afrovision.tv.data.TvViewModel
-import com.afrovision.tv.data.api.model.FeedPost
-import com.afrovision.tv.ui.sound.TvSoundManager
-import com.afrovision.tv.ui.theme.LocalNocturne
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private fun formatTimestamp(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    val seconds = diff / 1000
+    val minutes = seconds / 60
+    val hours = minutes / 60
+    val days = hours / 24
+
+    return when {
+        seconds < 60 -> "Just now"
+        minutes < 60 -> "${minutes}m ago"
+        hours < 24 -> "${hours}h ago"
+        days < 7 -> "${days}d ago"
+        else -> {
+            val sdf = SimpleDateFormat("MMM d", Locale.getDefault())
+            sdf.format(Date(timestamp))
+        }
+    }
+}
 
 private val feedFilters = listOf("Following", "Popular", "Nearby")
 
@@ -180,7 +202,7 @@ private fun FeedCard(post: FeedPost, viewModel: TvViewModel) {
             )
             .background(nocturne.surface)
             .clickable(interactionSource = interactionSource, indication = null) {
-                post.mediaUrl?.let { viewModel.playVideoUrl(it) }
+                post.videoUrl?.let { viewModel.playVideoUrl(it) }
             }
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -194,21 +216,17 @@ private fun FeedCard(post: FeedPost, viewModel: TvViewModel) {
                     .border(1.dp, nocturne.accent700, RoundedCornerShape(50)),
                 contentAlignment = Alignment.Center
             ) {
-                if (!post.authorAvatar.isNullOrBlank()) {
-                    AsyncImage(model = rememberCacheableImageRequest(post.authorAvatar), contentDescription = null, modifier = Modifier.fillMaxSize())
-                } else {
-                    Text(text = post.authorName.take(2).uppercase(), color = nocturne.accentLight, fontSize = 16.sp)
-                }
+                Text(text = post.title.take(2).uppercase(), color = nocturne.accentLight, fontSize = 16.sp)
             }
             Column {
-                Text(text = post.authorName, color = nocturne.text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-                Text(text = post.time, color = nocturne.textFaint, fontSize = 15.sp)
+                Text(text = post.title, color = nocturne.text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                Text(text = formatTimestamp(post.createdAt), color = nocturne.textFaint, fontSize = 15.sp)
             }
         }
-        Text(text = post.body, color = nocturne.text, fontSize = 18.sp, lineHeight = 26.sp)
-        if (!post.mediaUrl.isNullOrBlank()) {
+        Text(text = post.description ?: "", color = nocturne.text, fontSize = 18.sp, lineHeight = 26.sp)
+        if (!post.thumbnailUrl.isNullOrBlank()) {
             AsyncImage(
-                model = rememberCacheableImageRequest(post.mediaUrl),
+                model = rememberCacheableImageRequest(post.thumbnailUrl),
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -221,12 +239,12 @@ private fun FeedCard(post: FeedPost, viewModel: TvViewModel) {
             FeedActionIcon(icon = androidx.compose.ui.res.painterResource(com.afrovision.tv.R.drawable.ic_ph_heart), label = "Like")
             FeedActionIcon(icon = androidx.compose.ui.res.painterResource(com.afrovision.tv.R.drawable.ic_ph_chat_circle), label = "Comment")
             FeedActionIcon(icon = androidx.compose.ui.res.painterResource(com.afrovision.tv.R.drawable.ic_ph_repeat), label = "Reshare")
-            if (!post.mediaUrl.isNullOrBlank()) {
+            if (!post.videoUrl.isNullOrBlank()) {
                 FeedActionIcon(
                     icon = androidx.compose.ui.res.painterResource(com.afrovision.tv.R.drawable.ic_ph_play_circle),
                     label = "Watch",
                     highlighted = true,
-                    onClick = { viewModel.playVideoUrl(post.mediaUrl) }
+                    onClick = { viewModel.playVideoUrl(post.videoUrl) }
                 )
             }
         }

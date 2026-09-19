@@ -1,7 +1,7 @@
 package com.afrovision.tv.data
 
 import com.afrovision.tv.data.api.model.Channel
-import com.afrovision.tv.data.api.model.LibraryItem
+import com.afrovision.tv.data.api.model.LibraryFeedItem
 import com.afrovision.tv.data.api.model.Movie
 import com.afrovision.tv.data.api.model.Series
 import com.afrovision.tv.data.api.model.WatchProgress
@@ -38,13 +38,14 @@ fun Series.toMediaCard() = MediaCard(
     mediaType = "series"
 )
 
-fun LibraryItem.toMediaCard() = MediaCard(
+fun LibraryFeedItem.toMediaCard() = MediaCard(
     id = id,
     title = title,
     subtitle = subtitle ?: author ?: "",
     imageUrl = coverAssetUrl,
     mediaType = "library",
-    badge = contentType.replaceFirstChar { it.uppercase() }
+    badge = contentType.replaceFirstChar { it.uppercase() },
+    channelId = channelId
 )
 
 fun Wave.toMediaCard() = MediaCard(
@@ -62,13 +63,13 @@ fun Wave.toMediaCard() = MediaCard(
 )
 
 fun WatchProgress.toMediaCard(channel: Channel): MediaCard {
-    val total = if (duration > 0) duration else 0L
+    val total = if (durationSeconds > 0) durationSeconds else 0L
     return MediaCard(
-        id = mediaId,
+        id = movieId ?: seriesId ?: episodeId ?: "",
         title = channel.name,
         subtitle = channel.description ?: "",
         imageUrl = channel.posterUrl,
-        progress = if (total > 0) position.toFloat() / total else 0f,
+        progress = if (total > 0) positionSeconds.toFloat() / total else 0f,
         badge = if (channel.isLive) "LIVE" else "",
         mediaType = "channel",
         streamUrl = channel.streamUrl,
@@ -78,13 +79,13 @@ fun WatchProgress.toMediaCard(channel: Channel): MediaCard {
 }
 
 fun WatchProgress.toMediaCard(movie: Movie): MediaCard {
-    val total = if (duration > 0) duration else (movie.duration ?: 0).toLong()
+    val total = if (durationSeconds > 0) durationSeconds else (movie.duration ?: 0).toLong()
     return MediaCard(
-        id = mediaId,
+        id = movieId ?: "",
         title = movie.title,
         subtitle = movie.description ?: "",
         imageUrl = movie.posterUrl,
-        progress = if (total > 0) position.toFloat() / total else 0f,
+        progress = if (total > 0) positionSeconds.toFloat() / total else 0f,
         badge = "",
         mediaType = "movie",
         streamUrl = movie.streamUrl,
@@ -94,13 +95,13 @@ fun WatchProgress.toMediaCard(movie: Movie): MediaCard {
 }
 
 fun WatchProgress.toMediaCard(series: Series): MediaCard {
-    val total = if (duration > 0) duration else 0L
+    val total = if (durationSeconds > 0) durationSeconds else 0L
     return MediaCard(
-        id = mediaId,
+        id = seriesId ?: "",
         title = series.title,
         subtitle = series.description ?: "",
         imageUrl = series.posterUrl,
-        progress = if (total > 0) position.toFloat() / total else 0f,
+        progress = if (total > 0) positionSeconds.toFloat() / total else 0f,
         badge = "",
         mediaType = "series",
         streamUrl = null,
@@ -110,13 +111,13 @@ fun WatchProgress.toMediaCard(series: Series): MediaCard {
 }
 
 fun WatchProgress.toMediaCard(wave: Wave): MediaCard {
-    val total = duration
+    val total = durationSeconds
     return MediaCard(
-        id = mediaId,
+        id = movieId ?: "",
         title = wave.title,
         subtitle = wave.creatorName ?: wave.description ?: "",
         imageUrl = wave.thumbnailUrl,
-        progress = if (total > 0) position.toFloat() / total else 0f,
+        progress = if (total > 0) positionSeconds.toFloat() / total else 0f,
         badge = "",
         mediaType = "wave",
         streamUrl = wave.streamUrl,
@@ -126,15 +127,15 @@ fun WatchProgress.toMediaCard(wave: Wave): MediaCard {
 }
 
 fun WatchProgress.toMediaCard(): MediaCard {
-    val pct = if (this.duration > 0) this.position.toFloat() / this.duration else 0f
+    val pct = if (this.durationSeconds > 0) this.positionSeconds.toFloat() / this.durationSeconds else 0f
     return MediaCard(
-        id = mediaId,
-        title = mediaId,
-        subtitle = mediaType,
-        imageUrl = null,
+        id = movieId ?: seriesId ?: episodeId ?: "",
+        title = title,
+        subtitle = episodeTitle ?: mediaType,
+        imageUrl = posterUrl,
         progress = pct,
         mediaType = mediaType,
-        duration = this.duration
+        duration = this.durationSeconds
     )
 }
 

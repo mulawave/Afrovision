@@ -110,7 +110,6 @@ router.get('/tv/chat/unread-summary', auth.authenticateTvDevice, attachDeviceCha
 // (channels/:channelId/library/*), just behind device auth instead of a
 // user JWT, so the TV reader is byte-for-byte the same flow/data.
 
-const libraryViewerCtrl = require('../library/library-viewer.controller');
 
 function attachDeviceLibraryUser(req, res, next) {
   req.userId = req.device?.owner_user_id || null;

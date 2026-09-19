@@ -81,7 +81,7 @@ fun HomeScreen(viewModel: TvViewModel) {
         is LoadState.Success -> library.data
         else -> emptyList()
     }
-    val libraryItems = rawLibraryItems.map { it.toMediaCard() }
+    val libraryItems = rawLibraryItems.map { (it as com.afrovision.tv.data.api.model.LibraryFeedItem).toMediaCard() }
     val rawLibraryById = rawLibraryItems.associateBy { it.id }
 
     Log.d(TV_APP_TAG, "HomeScreen render: recent=${recentItems.size} featured=${featuredItems.size} continue=${continueItems.size} movies=${movieItems.size} series=${seriesItems.size} waves=${waveItems.size} library=${libraryItems.size}")

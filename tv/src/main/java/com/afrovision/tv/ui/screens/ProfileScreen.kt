@@ -149,7 +149,7 @@ fun ProfileScreen(viewModel: TvViewModel) {
                     val pagePosts = profile.posts.drop(page * POSTS_PER_PAGE).take(POSTS_PER_PAGE)
                     Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         pagePosts.forEach { post ->
-                            ProfilePostCard(body = post.body, imageUrl = post.mediaUrl)
+                            ProfilePostCard(body = post.description ?: "", imageUrl = post.thumbnailUrl)
                         }
                     }
                 }

@@ -21,7 +21,7 @@ import com.afrovision.tv.data.api.model.FeedResponse
 import com.afrovision.tv.data.api.model.HomepageContentResponse
 import com.afrovision.tv.data.api.model.LibraryFeedResponse
 import com.afrovision.tv.data.api.model.LibraryItemDetailResponse
-import com.afrovision.tv.data.api.model.LibraryReaderManifestInfoResponse
+import com.afrovision.tv.data.api.model.ReaderManifestResponse
 import com.afrovision.tv.data.api.model.LibraryProgress
 import com.afrovision.tv.data.api.model.LibraryProgressResponse
 import com.afrovision.tv.data.api.model.ContinueReadingResponse
@@ -98,7 +98,7 @@ interface ApiService {
     suspend fun getLibraryReaderManifestInfo(
         @Path("channelId") channelId: String,
         @Path("itemId") itemId: String
-    ): LibraryReaderManifestInfoResponse
+    ): ReaderManifestResponse
 
     @GET("/distribution/tv/library/{channelId}/{itemId}/progress")
     suspend fun getLibraryProgress(
