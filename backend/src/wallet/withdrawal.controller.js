@@ -472,13 +472,42 @@ async function fundWallet(req, res) {
       return res.status(403).json({ error: 'Admin only' });
     }
 
-    const { uid, amount_ngn, amount_vpt_units } = req.body;
+    const { uid, idempotency_key } = req.body;
     if (!uid) return res.status(400).json({ error: 'uid is required' });
+
+    // Amounts arrive over JSON but the client can send a string (or anything
+    // else) — string + number performs concatenation, not addition, so this
+    // must be validated and coerced before it ever reaches a balance update.
+    const amount_ngn = _parseFundAmount(req.body.amount_ngn);
+    const amount_vpt_units = _parseFundAmount(req.body.amount_vpt_units);
+    if (req.body.amount_ngn !== undefined && amount_ngn === null) {
+      return res.status(400).json({ error: 'amount_ngn must be a finite positive number' });
+    }
+    if (req.body.amount_vpt_units !== undefined && amount_vpt_units === null) {
+      return res.status(400).json({ error: 'amount_vpt_units must be a finite positive number' });
+    }
     if (!amount_ngn && !amount_vpt_units) {
       return res.status(400).json({ error: 'amount_ngn or amount_vpt_units is required' });
     }
+    const MAX_FUND_AMOUNT = 100_000_000; // sanity ceiling against fat-finger / injection
+    if ((amount_ngn && amount_ngn > MAX_FUND_AMOUNT) || (amount_vpt_units && amount_vpt_units > MAX_FUND_AMOUNT)) {
+      return res.status(400).json({ error: 'Amount exceeds the maximum allowed per request' });
+    }
 
     const db = getFirestore();
+
+    // Idempotency guard: the same key (one per confirm-dialog click) must
+    // only ever apply once, so a slow response + repeated clicks (or a
+    // client-side retry) can't double-credit the wallet.
+    if (idempotency_key) {
+      const idKey = `fund_wallet:${req.userId}:${idempotency_key}`;
+      const idRef = db.collection('idempotency_keys').doc(idKey);
+      const idDoc = await idRef.get();
+      if (idDoc.exists) {
+        return res.json(idDoc.data().response);
+      }
+    }
+
     const walletRef = db.collection('users').doc(uid);
 
     await db.runTransaction(async (tx) => {
@@ -531,11 +560,32 @@ async function fundWallet(req, res) {
       amount_vpt_units: amount_vpt_units || 0,
     });
 
-    res.json({ message: 'Wallet funded', uid, amount_ngn, amount_vpt_units });
+    const response = { message: 'Wallet funded', uid, amount_ngn, amount_vpt_units };
+
+    if (idempotency_key) {
+      const idKey = `fund_wallet:${req.userId}:${idempotency_key}`;
+      await db.collection('idempotency_keys').doc(idKey).set({
+        response,
+        created_at: Date.now(),
+      });
+    }
+
+    res.json(response);
   } catch (err) {
     console.error('[Withdrawal] fundWallet error');
     res.status(500).json({ error: 'Failed to fund wallet' });
   }
+}
+
+/// Coerce a fund-amount field into a finite positive number, or null if the
+/// field was provided but is not a valid amount (e.g. a numeric string like
+/// "500" — accepted since form inputs commonly serialize as strings — but
+/// not NaN, Infinity, negative, or non-numeric garbage).
+function _parseFundAmount(raw) {
+  if (raw === undefined || raw === null || raw === '') return 0;
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return num;
 }
 
 // ─── Create Reversal (Admin) ─────────────────────────────

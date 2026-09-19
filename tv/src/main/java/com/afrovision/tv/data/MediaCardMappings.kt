@@ -46,16 +46,28 @@ fun Wave.toMediaCard() = MediaCard(
     externalUrl = externalUrl
 )
 
+/** mediaType "library" is what RailRow uses to open the reader instead of the player. */
+fun com.afrovision.tv.data.api.model.LibraryItem.toMediaCard() = MediaCard(
+    id = id,
+    channelId = channelId,
+    title = title,
+    subtitle = description ?: "",
+    imageUrl = coverImageUrl,
+    mediaType = "library"
+)
+
 fun WatchProgress.toMediaCard(): MediaCard {
-    val pct = if (this.duration > 0) this.position.toFloat() / this.duration else 0f
+    val pct = if (durationSeconds > 0) positionSeconds.toFloat() / durationSeconds else 0f
     return MediaCard(
-        id = mediaId,
-        title = mediaId,
-        subtitle = mediaType,
-        imageUrl = null,
-        progress = pct,
+        // Episodes resolve to the parent series card, so the id that matters
+        // for resuming is the episode's; movies carry their own.
+        id = episodeId ?: movieId ?: seriesId ?: "",
+        title = title,
+        subtitle = episodeTitle ?: "",
+        imageUrl = posterUrl,
+        progress = pct.coerceIn(0f, 1f),
         mediaType = mediaType,
-        duration = this.duration
+        duration = durationSeconds
     )
 }
 

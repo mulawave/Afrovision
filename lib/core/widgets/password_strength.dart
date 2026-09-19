@@ -51,7 +51,7 @@ class PasswordStrengthIndicator extends StatelessWidget {
   static const _barColors = [
     Color(0xFFFF4D4D), // weak - red
     Color(0xFFF49617), // medium - orange
-    Color(0xFFFFD700), // strong - yellow
+    Color(0xFFF5C266), // strong - yellow
     Color(0xFF00E676), // superb - green
   ];
 

@@ -39,6 +39,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
@@ -114,7 +115,11 @@ fun HeroBanner(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.Start
                 ) {
-                    if (slide.badge.isNotBlank()) {
+                    if (slide.badges.isNotEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            slide.badges.forEach { badge -> HeroBadgePill(badge) }
+                        }
+                    } else if (slide.badge.isNotBlank()) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(99.dp))
@@ -141,7 +146,7 @@ fun HeroBanner(
                         modifier = Modifier.padding(top = 22.dp)
                     )
                     Text(
-                        text = slide.subtitle,
+                        text = slide.subtitle.orEmpty(),
                         color = nocturne.textMuted,
                         fontSize = 23.sp,
                         lineHeight = 30.sp,
@@ -199,6 +204,41 @@ fun HeroBanner(
 }
 
 @Composable
+private fun HeroBadgePill(badge: HeroBadge) {
+    val nocturne = LocalNocturne.current
+    val outline = if (badge.isLive) nocturne.accent else nocturne.gold
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(99.dp))
+            .background(nocturne.background.copy(alpha = 0.6f))
+            .border(1.dp, outline, RoundedCornerShape(99.dp))
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (badge.icon != null) {
+                Icon(
+                    painter = painterResource(id = badge.icon),
+                    contentDescription = null,
+                    tint = nocturne.accentLight,
+                    modifier = Modifier.size(17.dp)
+                )
+            } else if (!badge.emoji.isNullOrBlank()) {
+                Text(text = badge.emoji, fontSize = 15.sp)
+            }
+            Text(
+                text = badge.label.uppercase(),
+                color = nocturne.accentLight,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
 private fun HeroButton(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -233,10 +273,27 @@ private fun HeroButton(
 
 data class HeroSlide(
     val title: String,
-    val subtitle: String,
+    val subtitle: String?,
     val badge: String = "",
     val primaryLabel: String = "Watch",
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    val titleHighlight: String = "",
+    val badges: List<HeroBadge> = emptyList(),
+    val primaryIcon: Int? = null,
+    val secondaryLabel: String? = null,
+    val secondaryIcon: Int? = null,
+    val showBookmark: Boolean = false,
+    val href: String? = null
+)
+
+/// A pill shown above the hero title. `icon` is a drawable resource id;
+/// `emoji` is the fallback when the backend sends an icon name with no
+/// local drawable mapped to it.
+data class HeroBadge(
+    val label: String,
+    val icon: Int? = null,
+    val emoji: String? = null,
+    val isLive: Boolean = false
 )
 
 fun defaultHeroSlides() = listOf(

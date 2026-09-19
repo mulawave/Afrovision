@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../../core/config/app_config.dart';
@@ -473,7 +474,7 @@ class _ChannelListScreenState extends State<ChannelListScreen>
         child: ListView.builder(
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(16, 2, 16, 20),
-          itemCount: items.length + (maxPage > 1 ? 1 : 0),
+          itemCount: items.length + (maxPage > 1 ? 1 : 0) + 1,
           itemBuilder: (context, index) {
             if (index < items.length) {
               final channel = items[index];
@@ -482,7 +483,10 @@ class _ChannelListScreenState extends State<ChannelListScreen>
                 child: _buildCard(channel),
               );
             }
-            return _buildPaginator(maxPage);
+            if (maxPage > 1 && index == items.length) {
+              return _buildPaginator(maxPage);
+            }
+            return const PangleBigBanner();
           },
         ),
       ),

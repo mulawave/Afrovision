@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/nocturne_theme.dart';
@@ -437,7 +438,7 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
     return Scaffold(
       backgroundColor: Nocturne.bg,
       body: Column(
-        children: [
+          children: [
           AssetsHeader(
             title: 'Assets',
             subtitle: 'Snapshot, wallets and activity',
@@ -523,6 +524,9 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
                                       const SizedBox(height: 24),
                                     ]),
                                   ),
+                                ),
+                                const SliverToBoxAdapter(
+                                  child: PangleBigBanner(),
                                 ),
                               ],
                             ),

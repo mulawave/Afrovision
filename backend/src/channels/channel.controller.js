@@ -11,17 +11,24 @@ const SettingsService = require('../admin/settings.service');
 const ChannelSub = require('../subscriptions/channel_subscription.model');
 const ChannelStats = require('./channel_stats.model');
 const ChannelLive = require('./channel_live.model');
+const { normalizePlatform } = require('../utils/platform');
 
+// Despite the name, this used to re-throw in production when a single
+// channel's owner lookup failed (stale/missing owner_id, a transient
+// Firestore error, etc). Since getPublicChannels/getFeaturedChannels run
+// this inside a bare Promise.all with no surrounding try/catch, one bad
+// owner_id took down the ENTIRE channel list for every user — every
+// channel disappeared app-wide (Home carousel, Channels screen, channel
+// surfer) instead of just the one broken channel. Owner lookup failures
+// are never fatal to listing channels: every caller already treats a null
+// owner as "show a generic/fallback name," so this must always degrade
+// gracefully, in every environment.
 async function getOwnerSafely(ownerId) {
   try {
     return await User.findById(ownerId);
   } catch (error) {
-    const env = String(process.env.ENVIRONMENT || process.env.NODE_ENV || '').toLowerCase();
-    if (['development', 'dev', 'local', 'test'].includes(env)) {
-      console.warn('[Channel] owner lookup skipped in local development:', error.message);
-      return null;
-    }
-    throw error;
+    console.warn('[Channel] owner lookup failed, continuing without owner:', error.message, 'owner_id=', ownerId);
+    return null;
   }
 }
 
@@ -423,6 +430,10 @@ async function enrichChannel(channel, owner, requesterId) {
     ownerDetailsVisible = false;
   }
 
+  // followers_count and subscriber_count are the same query — was run
+  // twice per channel, doubling the read cost for no reason.
+  const followersCount = await ChannelSub.countActiveByChannel(channel.id);
+
   return {
     id: channel.id,
     name: channel.name,
@@ -436,8 +447,8 @@ async function enrichChannel(channel, owner, requesterId) {
     created_at: channel.created_at,
     owner_id: channel.owner_id,
     owner_name: publicOwnerName,
-    followers_count: await ChannelSub.countActiveByChannel(channel.id),
-    subscriber_count: await ChannelSub.countActiveByChannel(channel.id),
+    followers_count: followersCount,
+    subscriber_count: followersCount,
     owner_display_mode: ownerDisplayMode,
     owner_brand_name: ownerBrandName,
     owner_details_visible: ownerDetailsVisible,
@@ -600,12 +611,30 @@ async function getSubscriberFeed(req, res) {
  * POST /channels/:id/view
  * Records a view event for analytics.
  */
+// Public live-viewer count for the Watch Screen's LIVE badge. The admin
+// dashboard already reads this data (ChannelLive.getForChannels); this is
+// the first user-facing exposure of it — real numbers only, never a
+// fabricated placeholder count.
+async function getLiveStats(req, res) {
+  try {
+    const stats = await ChannelLive.getForChannel(req.params.id);
+    res.json({
+      current_viewers: stats.current_viewers || 0,
+      updated_at: stats.updated_at || null,
+    });
+  } catch (err) {
+    console.error('[Channel] getLiveStats error:', err.message);
+    res.status(500).json({ error: 'Failed to load live stats' });
+  }
+}
+
 async function recordView(req, res) {
   try {
     const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
     const viewerUid = req.userId;
+    const platform = normalizePlatform(req.body?.platform);
 
     // Record view event in channel_events
     const db = getFirestore();
@@ -614,6 +643,7 @@ async function recordView(req, res) {
       channel_id: channel.id,
       type: 'view',
       sender_uid: viewerUid,
+      platform,
       created_at: Date.now(),
     };
     await db.collection('channel_events').doc(event.id).set(event);
@@ -621,9 +651,9 @@ async function recordView(req, res) {
     // Increment daily stats for the channel owner
     await CreatorDailyStats.incrementViewers(channel.owner_id, viewerUid);
 
-    // Track lifetime views on the channel itself (surfaced on the admin
-    // live-viewers dashboard).
-    await ChannelStats.incrementViews(channel.id, 1);
+    // Track lifetime views on the channel itself, tagged by platform
+    // (surfaced on the admin live-viewers dashboard).
+    await ChannelStats.incrementViews(channel.id, 1, platform);
 
     // Also increment stream stats if there's an active stream
     const activeStream = await StreamStats.getActiveByChannel(channel.id);
@@ -658,8 +688,9 @@ async function recordWatchPing(req, res) {
     // Clamp a single ping to a sane ceiling so a malformed/malicious client
     // can't inflate watch-time in one call.
     const safeSeconds = Math.min(seconds, 300);
+    const platform = normalizePlatform(req.body?.platform);
 
-    await ChannelStats.addWatchSeconds(channel.id, safeSeconds);
+    await ChannelStats.addWatchSeconds(channel.id, safeSeconds, platform);
     res.json({ message: 'Watch time recorded' });
   } catch (err) {
     console.error('[Channel] recordWatchPing error:', err.message);
@@ -815,6 +846,7 @@ module.exports = {
   recheckStreamHealth,
   uploadMedia,
   getSubscriberFeed,
+  getLiveStats,
   recordView,
   recordWatchPing,
   adminSetFeatured,

@@ -74,6 +74,7 @@ class ChannelSeries {
   final String description;
   final String? coverUrl;
   final String status;
+  final String ageClassification;
   final int? publishedAt;
   final int? createdAt;
 
@@ -84,6 +85,7 @@ class ChannelSeries {
     this.description = '',
     this.coverUrl,
     this.status = 'draft',
+    this.ageClassification = 'teen',
     this.publishedAt,
     this.createdAt,
   });
@@ -96,6 +98,7 @@ class ChannelSeries {
       description: json['description'] ?? '',
       coverUrl: json['cover_url'],
       status: json['status'] ?? 'draft',
+      ageClassification: json['age_classification'] ?? 'teen',
       publishedAt: json['published_at'] is int
           ? json['published_at']
           : (json['published_at'] as num?)?.toInt(),
@@ -321,9 +324,12 @@ class ChannelContentService {
     }
   }
 
-  static Future<ChannelSeriesDetail?> getSeriesDetail(String seriesId) async {
+  static Future<ChannelSeriesDetail?> getSeriesDetail(
+    String channelId,
+    String seriesId,
+  ) async {
     try {
-      final data = await ApiService.get('/series/$seriesId');
+      final data = await ApiService.get('/channels/$channelId/series/$seriesId');
       final root = data['data'] as Map<String, dynamic>? ?? data;
       final rawSeries = root['series'] ?? root;
       if (rawSeries is! Map<String, dynamic>) return null;

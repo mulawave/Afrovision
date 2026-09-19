@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/reputation_badge.dart';
@@ -233,8 +234,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   Widget _buildList() {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      itemCount: _entries.length + 1, // +1 for load-more / end sentinel
+      itemCount: _entries.length + 2, // +1 load-more / end sentinel, +1 ad
       itemBuilder: (context, index) {
+        if (index == _entries.length + 1) return const PangleBigBanner();
         if (index == _entries.length) {
           if (_hasMore) {
             return Padding(

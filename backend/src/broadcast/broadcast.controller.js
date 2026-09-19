@@ -1286,6 +1286,12 @@ async function getUpcomingAll(_req, res) {
   }
 }
 
+// ─── PLAYBACK CAPABILITIES (PUBLIC) ──────────────────────
+
+async function getPlaybackCapabilities(_req, res) {
+  res.json(TranscoderService.getCapabilities());
+}
+
 // ─── REMINDERS ───────────────────────────────────────────
 
 async function createReminder(req, res) {
@@ -1415,6 +1421,7 @@ module.exports = {
   getServerTime,
   goLive,
   getUpcomingAll,
+  getPlaybackCapabilities,
   createReminder,
   removeReminder,
   getMyReminders,

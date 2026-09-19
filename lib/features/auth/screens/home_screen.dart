@@ -12,6 +12,7 @@ import '../../../core/config/app_config.dart';
 import '../../../core/widgets/active_floating_player_banner.dart';
 import '../../../core/services/widget_service.dart';
 import '../../broadcast/widgets/banner_ad_widget.dart';
+import '../../../core/ads/pangle_widgets.dart';
 import '../../../core/utils/app_rating.dart';
 import '../../../core/utils/kyc_gender_checker.dart';
 import '../../../core/services/notification_service.dart';
@@ -33,6 +34,7 @@ import '../../vod/screens/media_center_screen.dart';
 import '../../channel/screens/channel_list_screen.dart';
 import '../../wave/screens/wave_screen.dart';
 import '../../wallet/screens/digital_assets_overview_screen.dart';
+import '../../../core/widgets/shimmer_box.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -165,7 +167,15 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _loadData() async {
     try {
       final results = await Future.wait([
-        ProfileService.getProfile(),
+        // Unlike its 6 siblings below, this had no fallback — any failure
+        // (a transient network blip, a momentary 401) rejected the whole
+        // batch and left the entire home screen blank with _loading=false,
+        // since every content section null-guards on _user. Fall back to
+        // AuthService's own cached user (already used elsewhere in the
+        // app) before giving up.
+        ProfileService.getProfile().catchError(
+          (_) => AuthService.getCurrentUser(),
+        ),
         HomeService.getStats(forceRefresh: true).catchError(
           (_) => HomeStats(
             totalVpt: 0,
@@ -192,11 +202,20 @@ class _HomeScreenState extends State<HomeScreen>
           limit: 3,
         ).catchError((_) => <Announcement>[]),
         HomeService.getHomeContentCached(
+          // Applies cached channel/content data as soon as it's available so
+          // that section repaints instantly once the skeleton is gone — but
+          // must NOT flip `_loading` false itself. `_user`/`_stats` come from
+          // other futures in this same batch and are still null at this
+          // point; every content section null-guards on them, so ending the
+          // loading state here reveals a half-populated, still-blank shell
+          // instead of the skeleton — exactly what happened on re-login,
+          // where a stale cache exists and this callback fires almost
+          // instantly. `_loading` is only set false once below, after the
+          // whole batch (including `_user`/`_stats`) has resolved.
           onCached: (cached) {
             if (!mounted) return;
             setState(() {
               _applyHomeContent(cached);
-              _loading = false;
             });
           },
         ).catchError((_) => <String, dynamic>{}),
@@ -516,13 +535,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const MarqueeTickerWidget(),
                   Expanded(
                     child: _loading
-                        ? const Center(
-                            child: CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                AppColors.orange,
-                              ),
-                            ),
-                          )
+                        ? _buildHomeSkeleton()
                         : RefreshIndicator(
                             color: AppColors.orange,
                             backgroundColor: AppColors.inputFill,
@@ -576,6 +589,7 @@ class _HomeScreenState extends State<HomeScreen>
                                       ],
                                       _buildTwoColumnSection(),
                                       const SizedBox(height: 20),
+                                      const PangleBigBanner(),
                                     ],
                                   ),
                                 ),
@@ -628,6 +642,67 @@ class _HomeScreenState extends State<HomeScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ───────── HOME SKELETON (shown while _loading) ─────────
+  // A blank page with a spinner reads as broken/unfinished — this mirrors
+  // the shape of the real content sections below (assets row, featured
+  // carousel, action cards, adverts, subscriptions, two-column list) so the
+  // screen never looks empty, whether the user waited out the splash screen
+  // or tapped "Skip splash".
+  Widget _buildHomeSkeleton() {
+    Widget card({required double width, required double height, BorderRadius? radius}) =>
+        ShimmerBox(width: width, height: height, borderRadius: radius ?? BorderRadius.circular(14));
+
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // My Assets row — 3 stat cards
+          Row(
+            children: [
+              Expanded(child: card(width: double.infinity, height: 74)),
+              const SizedBox(width: 10),
+              Expanded(child: card(width: double.infinity, height: 74)),
+              const SizedBox(width: 10),
+              Expanded(child: card(width: double.infinity, height: 74)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          // Featured channels carousel
+          card(width: double.infinity, height: 150, radius: BorderRadius.circular(18)),
+          const SizedBox(height: 20),
+          // Action cards row
+          Row(
+            children: List.generate(4, (i) {
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: i == 3 ? 0 : 10),
+                  child: card(width: double.infinity, height: 76),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 20),
+          // Adverts banner
+          card(width: double.infinity, height: 90),
+          const SizedBox(height: 20),
+          // Subscriptions card
+          card(width: double.infinity, height: 64),
+          const SizedBox(height: 20),
+          // Two-column section
+          Row(
+            children: [
+              Expanded(child: card(width: double.infinity, height: 130)),
+              const SizedBox(width: 12),
+              Expanded(child: card(width: double.infinity, height: 130)),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1564,6 +1639,7 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
           ),
+          const PangleSpotlightBanner(margin: EdgeInsets.only(top: 9)),
           const SizedBox(height: 9),
           // Plan CTA
           GestureDetector(
@@ -1929,7 +2005,7 @@ class _HomeScreenState extends State<HomeScreen>
         icon: Icons.groups_rounded,
         title: 'Refer & Earn',
         subtitle: 'Earn vPT for every friend you invite.',
-        color: const Color(0xFF4CAF50),
+        color: const Color(0xFF5FD39A),
         route: '/referral',
       ),
     ];
@@ -2038,6 +2114,10 @@ class _HomeScreenState extends State<HomeScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const PangleNativeAd(
+            height: 300,
+            margin: EdgeInsets.only(bottom: 14),
+          ),
           // Updates tabbed card
           Container(
             decoration: BoxDecoration(
@@ -2140,6 +2220,10 @@ class _HomeScreenState extends State<HomeScreen>
                   (_user?.subscriptionPlanDisplay ?? 'NONE').toUpperCase(),
                   Nocturne.goldLight),
             ],
+          ),
+          const PangleNativeAd(
+            height: 300,
+            margin: EdgeInsets.only(top: 14),
           ),
         ],
       ),

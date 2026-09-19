@@ -1,4 +1,5 @@
 const { getFirestore } = require('../utils/firestore');
+const { emptyPlatformBreakdown } = require('../utils/platform');
 
 const COLLECTION = 'channel_live_stats';
 
@@ -7,19 +8,26 @@ const COLLECTION = 'channel_live_stats';
 const cache = new Map();
 
 /**
- * Persist the current viewer count for a channel (called from the socket
- * server on join/leave/disconnect). Debounced naturally by socket.io event
- * volume — this is a cheap merge write, not a transaction, since exact
- * precision isn't required for a live dashboard number.
+ * Persist the current viewer count (and per-platform breakdown) for a
+ * channel — called from the socket server on join/leave/disconnect.
+ * Debounced naturally by socket.io event volume — this is a cheap merge
+ * write, not a transaction, since exact precision isn't required for a
+ * live dashboard number.
  */
-async function setViewerCount(channelId, count) {
+async function setViewerCount(channelId, count, platformBreakdown = null) {
   const safeCount = Math.max(0, Number(count) || 0);
-  const existing = cache.get(channelId) || { channel_id: channelId, current_viewers: 0, peak_viewers: 0 };
+  const existing = cache.get(channelId) || {
+    channel_id: channelId,
+    current_viewers: 0,
+    peak_viewers: 0,
+    current_viewers_by_platform: emptyPlatformBreakdown(),
+  };
   const peak = Math.max(existing.peak_viewers || 0, safeCount);
   const data = {
     channel_id: channelId,
     current_viewers: safeCount,
     peak_viewers: peak,
+    current_viewers_by_platform: platformBreakdown || existing.current_viewers_by_platform || emptyPlatformBreakdown(),
     updated_at: Date.now(),
   };
   cache.set(channelId, data);
@@ -36,7 +44,9 @@ async function getForChannel(channelId) {
   if (cache.has(channelId)) return cache.get(channelId);
   const db = getFirestore();
   const doc = await db.collection(COLLECTION).doc(channelId).get();
-  const data = doc.exists ? doc.data() : { channel_id: channelId, current_viewers: 0, peak_viewers: 0, updated_at: null };
+  const data = doc.exists
+    ? doc.data()
+    : { channel_id: channelId, current_viewers: 0, peak_viewers: 0, current_viewers_by_platform: emptyPlatformBreakdown(), updated_at: null };
   cache.set(channelId, data);
   return data;
 }
@@ -64,7 +74,9 @@ async function getForChannels(channelIds) {
     const docs = await db.getAll(...refs);
     docs.forEach((doc, idx) => {
       const id = toFetch[idx];
-      const data = doc.exists ? doc.data() : { channel_id: id, current_viewers: 0, peak_viewers: 0, updated_at: null };
+      const data = doc.exists
+        ? doc.data()
+        : { channel_id: id, current_viewers: 0, peak_viewers: 0, current_viewers_by_platform: emptyPlatformBreakdown(), updated_at: null };
       cache.set(id, data);
       results.set(id, data);
     });

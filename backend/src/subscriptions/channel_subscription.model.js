@@ -151,13 +151,25 @@ async function markRenewed(id) {
   return sub;
 }
 
+// Uses Firestore's server-side count aggregation (`.count().get()`) instead
+// of `.get()` + `snapshot.size`, which pulled every matching document's full
+// data into memory just to count them. That was cheap for genuine follower
+// counts but became a production incident the moment a channel had tens of
+// thousands of admin-injected synthetic followers: this function runs twice
+// per channel (see enrichChannel below) on every single `/channels` list
+// request, for every channel, concurrently — so one heavily-injected channel
+// was enough to blow the Node process's heap and crash it (SIGABRT) on every
+// request, taking the entire channel list down for all users. The count
+// aggregation is computed server-side and returns just a number, with
+// memory cost independent of how many documents match.
 async function countActiveByChannel(channelId) {
   const db = getFirestore();
   const snapshot = await db.collection(COLLECTION)
     .where('channel_id', '==', channelId)
     .where('status', '==', 'active')
+    .count()
     .get();
-  return snapshot.size;
+  return snapshot.data().count;
 }
 
 async function getActiveSubscriberUids(channelId) {

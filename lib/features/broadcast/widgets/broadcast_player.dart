@@ -61,6 +61,13 @@ class BroadcastPlayer extends ChangeNotifier {
   bool isRecovering = false;
   String? errorMessage;
 
+  // Only one channel player may exist at a time. A player that leaked (e.g.
+  // its async start-up outlived a channel switch) is force-disposed as soon as
+  // the next one starts, so the previous channel's audio can never keep
+  // playing under the new channel.
+  static BroadcastPlayer? _current;
+  Future<void>? _disposeFuture;
+
   // Sync / settings
   bool _disposed = false;
   bool _adPaused = false;
@@ -243,8 +250,16 @@ class BroadcastPlayer extends ChangeNotifier {
     _isContinuousStream =
         adaptiveStream && !(startTime > 0 && endTime > startTime);
 
+    final previous = _current;
+    _current = this;
+    if (previous != null && !identical(previous, this)) {
+      await previous.disposeAsync();
+    }
+    if (_disposed) return;
+
     // Load persisted user settings.
     await PlayerSettingsService.instance.initialize();
+    if (_disposed) return;
     final settings = PlayerSettingsService.instance.current;
     _liveDelaySeconds = liveDelaySeconds ?? settings.liveDelaySeconds;
     _userHlsBps = userHlsBps ?? settings.quality.bps;
@@ -265,6 +280,7 @@ class BroadcastPlayer extends ChangeNotifier {
     );
 
     await _disposeEngines();
+    if (_disposed) return;
 
     if (shouldUseMediaKit) {
       _mkInitAttempts = 0;
@@ -403,11 +419,13 @@ class BroadcastPlayer extends ChangeNotifier {
       if (_mkInitAttempts < _maxMkAttempts && onRefreshUrl != null) {
         try {
           final freshUrl = await onRefreshUrl!();
+          if (_disposed) return;
           if (freshUrl != null && freshUrl.isNotEmpty) {
             _baseVideoUrl = freshUrl;
             final refreshed = _withQuality(freshUrl, selectedQuality);
             _currentVideoUrl = refreshed;
             await _disposeMk();
+            if (_disposed) return;
             await _initMediaKit(
               effectiveUrl: refreshed,
               positionSec: positionSec,
@@ -428,7 +446,9 @@ class BroadcastPlayer extends ChangeNotifier {
           'error': sanitizeError(e),
         },
       );
+      if (_disposed) return;
       await _disposeMk();
+      if (_disposed) return;
       await _initLegacy(
         effectiveUrl: _currentVideoUrl ?? effectiveUrl,
         positionSec: positionSec,
@@ -440,6 +460,7 @@ class BroadcastPlayer extends ChangeNotifier {
     required String effectiveUrl,
     required int positionSec,
   }) async {
+    if (_disposed) return;
     isRecovering = false;
     notifyListeners();
 
@@ -462,6 +483,11 @@ class BroadcastPlayer extends ChangeNotifier {
       quality: selectedQuality,
       liveDelaySeconds: _liveDelaySeconds,
     );
+    if (_disposed) {
+      // Engine disposal already ran; make sure this one can't linger.
+      if (identical(_legacyPlayer, legacy)) await _disposeLegacy();
+      return;
+    }
     // Volume is controlled at the device level; leave player gain at max.
     legacy.setVolume(1.0);
 
@@ -569,6 +595,8 @@ class BroadcastPlayer extends ChangeNotifier {
 
       final position = _mkController!.value.position.inSeconds;
       final effectiveUrl = _withQuality(baseUrl, quality);
+      await _disposeMk();
+      if (_disposed) return;
       await _initMediaKit(
         effectiveUrl: effectiveUrl,
         positionSec: position,
@@ -650,20 +678,34 @@ class BroadcastPlayer extends ChangeNotifier {
 
   void _preDispose() {
     _disposed = true;
+    if (identical(_current, this)) _current = null;
     _settingsReinitTimer?.cancel();
     PlayerSettingsService.instance.notifier.removeListener(_onSettingsChanged);
   }
 
-  Future<void> disposeAsync() async {
-    _preDispose();
-    await _disposeEngines();
+  bool _notifierDisposed = false;
+
+  void _disposeNotifier() {
+    if (_notifierDisposed) return;
+    _notifierDisposed = true;
     super.dispose();
   }
 
+  Future<void> _teardown() async {
+    _preDispose();
+    await _disposeEngines();
+    _disposeNotifier();
+  }
+
+  /// Idempotent: safe to call from the screen, the floating player and the
+  /// single-player guard in any order.
+  Future<void> disposeAsync() => _disposeFuture ??= _teardown();
+
   @override
   void dispose() {
-    _preDispose();
-    _disposeEngines();
+    _disposeFuture ??= _teardown();
+    if (_notifierDisposed) return;
+    _notifierDisposed = true;
     super.dispose();
   }
 }

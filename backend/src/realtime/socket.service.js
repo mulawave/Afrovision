@@ -6,9 +6,11 @@ const ChatService = require('../interactions/chat.service');
 const distributionModel = require('../distribution/distribution.model');
 const adtvChatModel = require('../chat/chat.model');
 const ChannelLive = require('../channels/channel_live.model');
+const { emptyPlatformBreakdown } = require('../utils/platform');
 
 let io = null;
 const roomSockets = new Map();
+const roomPlatformCounts = new Map();
 
 function getAllowedOrigins() {
   if (!process.env.ALLOWED_ORIGINS) {
@@ -17,23 +19,49 @@ function getAllowedOrigins() {
   return process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);
 }
 
-function trackJoin(socketId, room) {
+function trackJoin(socketId, room, platform) {
   const members = roomSockets.get(room) || new Set();
   members.add(socketId);
   roomSockets.set(room, members);
+
+  const counts = roomPlatformCounts.get(room) || emptyPlatformBreakdown();
+  counts[platform] = (counts[platform] || 0) + 1;
+  roomPlatformCounts.set(room, counts);
+
   return members.size;
 }
 
-function trackLeave(socketId, room) {
+function trackLeave(socketId, room, platform) {
   const members = roomSockets.get(room);
   if (!members) return 0;
   members.delete(socketId);
+
+  const counts = roomPlatformCounts.get(room);
+  if (counts && platform) {
+    counts[platform] = Math.max(0, (counts[platform] || 0) - 1);
+    roomPlatformCounts.set(room, counts);
+  }
+
   if (members.size === 0) {
     roomSockets.delete(room);
+    roomPlatformCounts.delete(room);
     return 0;
   }
   roomSockets.set(room, members);
   return members.size;
+}
+
+/**
+ * Resolve which platform a socket represents for live-viewer analytics.
+ * TV devices are trusted server-side (proven by their device JWT, set at
+ * auth time) rather than a client-supplied field, so a spoofed payload
+ * can't misattribute viewers to/from the TV bucket. Everything else falls
+ * back to whatever the client claims, restricted to web/android.
+ */
+function resolvePlatform(socket, payload) {
+  if (socket.data.isTvDevice) return 'tv';
+  const claimed = String(payload?.platform || '').toLowerCase();
+  return claimed === 'android' ? 'android' : 'web';
 }
 
 const CHANNEL_ROOM_PREFIX = 'channel:';
@@ -53,7 +81,8 @@ function emitViewerCount(room) {
   // realtime emit on a Firestore write.
   const channelId = channelIdFromRoom(room);
   if (channelId) {
-    ChannelLive.setViewerCount(channelId, viewerCount).catch(() => {});
+    const breakdown = { ...emptyPlatformBreakdown(), ...(roomPlatformCounts.get(room) || {}) };
+    ChannelLive.setViewerCount(channelId, viewerCount, breakdown).catch(() => {});
   }
 }
 
@@ -115,10 +144,13 @@ function registerJoinHandler(socket) {
       return;
     }
 
+    const platform = resolvePlatform(socket, payload);
+    socket.data.platform = platform;
+
     const room = ChatService.getRoomName(channelId);
     socket.join(room);
     socket.data.rooms.add(room);
-    const viewerCount = trackJoin(socket.id, room);
+    const viewerCount = trackJoin(socket.id, room, platform);
     emitViewerCount(room);
     ack({ ok: true, viewer_count: viewerCount });
   });
@@ -135,7 +167,7 @@ function registerLeaveHandler(socket) {
     const room = ChatService.getRoomName(channelId);
     socket.leave(room);
     socket.data.rooms?.delete(room);
-    const viewerCount = trackLeave(socket.id, room);
+    const viewerCount = trackLeave(socket.id, room, socket.data.platform);
     emitViewerCount(room);
     ack({ ok: true, viewer_count: viewerCount });
   });
@@ -211,7 +243,7 @@ function registerAdtvChatHandlers(socket) {
 function registerDisconnectHandler(socket) {
   socket.on('disconnect', () => {
     for (const room of socket.data.rooms || []) {
-      trackLeave(socket.id, room);
+      trackLeave(socket.id, room, socket.data.platform);
       emitViewerCount(room);
     }
   });

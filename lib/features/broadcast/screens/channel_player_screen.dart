@@ -45,12 +45,24 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   BroadcastPlayer? _player;
   WebViewController? _ytWebViewController;
   final GlobalKey<GiftOverlayState> _overlayKey = GlobalKey<GiftOverlayState>();
+  final GlobalKey _engagementPanelKey = GlobalKey();
+  // Chat/Live-Activity panel is hidden by default and only slides out when
+  // the "Chat" action card is tapped — tapping it again (or the panel's own
+  // close button) hides it again. The Chat card itself reflects this in its
+  // own visual state (active/highlighted while open) so open/closed is
+  // legible without needing to look at the panel.
+  bool _engagementPanelOpen = false;
   Timer? _eventTimer;
   Timer? _watchPingTimer;
   static const Duration _watchPingInterval = Duration(seconds: 30);
 
   // Now-playing state
   bool _loading = true;
+  int _tuneInStep = 0;
+  Timer? _tuneInStepTimer;
+  int? _liveViewerCount;
+  Timer? _liveViewerTimer;
+  bool _liveBadgeDismissed = false;
   String? _error;
   bool _premiumBlocked = false;
   Map<String, dynamic>? _nowPlaying;
@@ -137,6 +149,14 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   // ── Freeze detection ──
   Duration? _lastKnownPosition;
   Timer? _freezeWatchdogTimer;
+  // Require 2 consecutive stalled checks (20s of no progress) before acting —
+  // a single 10s window can land during a legitimate buffer-refill that
+  // hasn't flipped `isBuffering` yet, and reacting to that false positive was
+  // producing the seek-recover-freeze-recover loop users saw as a scene
+  // repeating over and over.
+  int _consecutiveFreezeHits = 0;
+  static const int _maxFreezeRecoveries = 3;
+  int _freezeRecoveryCount = 0;
 
   @override
   void initState() {
@@ -169,6 +189,38 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         _startFreezeWatchdog();
       }
     });
+
+    // Advances the tune-in step copy/progress while _loading is true, and
+    // resets it for the next tune-in (e.g. a manual channel switch) once
+    // loading finishes — a single ongoing ticker rather than hooking every
+    // `_loading = true` assignment site individually.
+    _tuneInStepTimer = Timer.periodic(const Duration(milliseconds: 1400), (_) {
+      if (!mounted) return;
+      if (_loading) {
+        if (_tuneInStep < _tuneInSteps.length - 1) {
+          setState(() => _tuneInStep++);
+        }
+      } else if (_tuneInStep != 0) {
+        _tuneInStep = 0;
+      }
+    });
+
+    // LIVE badge viewer count (design: Watch Screen mock) — real number
+    // from the channel's live-stats endpoint, refreshed on the same 20s
+    // cadence already used for live activity elsewhere on this screen.
+    _fetchLiveViewerCount();
+    _liveViewerTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => _fetchLiveViewerCount(),
+    );
+  }
+
+  Future<void> _fetchLiveViewerCount() async {
+    final channelId = _channelId;
+    if (channelId == null) return;
+    final count = await ChannelService.getLiveViewerCount(channelId);
+    if (!mounted || _channelId != channelId) return;
+    setState(() => _liveViewerCount = count);
   }
 
   @override
@@ -179,6 +231,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       if (_channelId != null) {
         _fetchNowPlaying();
         _loadReminders();
+        _fetchLiveViewerCount();
       }
     }
   }
@@ -194,6 +247,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     _eventTimer?.cancel();
     _watchPingTimer?.cancel();
     _hideControlsTimer?.cancel();
+    _tuneInStepTimer?.cancel();
+    _liveViewerTimer?.cancel();
 
     _silentRetryTimer?.cancel();
     _errorDebounceTimer?.cancel();
@@ -1142,7 +1197,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     };
 
     player.addListener(() {
-      if (!mounted) return;
+      if (!mounted || !identical(_player, player)) return;
       setState(() {
         if (player.isRecovering) {
           _isReconnecting = true;
@@ -1191,7 +1246,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         loop: loop,
         renditions: renditions,
       );
-      if (!mounted) return;
+      // A channel switch retired this player while it was starting up.
+      if (!mounted || !identical(_player, player)) return;
 
       _startEventPolling();
       _startFreezeWatchdog();
@@ -1206,6 +1262,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       // Enable automatic PiP entry so the video continues when user leaves app.
       unawaited(PipService.setAutoEnterEnabled(true));
     } catch (e, st) {
+      if (!mounted || !identical(_player, player)) return;
       TelemetryService.error(
         'channel_player_init_broadcast',
         e,
@@ -1553,6 +1610,8 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   void _startFreezeWatchdog() {
     _freezeWatchdogTimer?.cancel();
     _lastKnownPosition = null;
+    _consecutiveFreezeHits = 0;
+    _freezeRecoveryCount = 0;
     _freezeWatchdogTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _checkForFreeze();
     });
@@ -1562,39 +1621,70 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     if (_isInBackground) return;
     final player = _player;
     if (player == null || !player.value.isInitialized) return;
-    if (!player.value.isPlaying || player.isBuffering) return;
+    if (!player.value.isPlaying || player.isBuffering) {
+      _consecutiveFreezeHits = 0;
+      return;
+    }
 
     final pos = player.value.position;
     final last = _lastKnownPosition;
     if (last != null &&
         (pos - last).abs() < const Duration(milliseconds: 400)) {
-      // Position hasn't advanced — player is frozen. Recover silently.
+      _consecutiveFreezeHits++;
+    } else {
+      _consecutiveFreezeHits = 0;
+    }
+    _lastKnownPosition = pos;
+
+    // Wait for two consecutive stalled windows (~20s of zero progress) before
+    // acting. A single window can land during a legitimate buffer refill that
+    // hasn't flipped `isBuffering` yet; recovering on that false positive was
+    // the source of the seek-recover-freeze-recover loop that looked like a
+    // scene repeating over and over.
+    if (_consecutiveFreezeHits >= 2) {
+      _consecutiveFreezeHits = 0;
       TelemetryService.marker(
         'channel_player_freeze_detected',
         parameters: {'channel_id': _channelId},
       );
-      _recoverFrozenPlayer();
+      _recoverFrozenPlayer(player);
     }
-    _lastKnownPosition = pos;
   }
 
-  Future<void> _recoverFrozenPlayer() async {
+  Future<void> _recoverFrozenPlayer(BroadcastPlayer player) async {
+    // Give up on silent seek-recovery after repeated failures on the same
+    // playback session and fall back to a full re-tune instead of looping
+    // forever — each retry is a visible skip/repeat to the user.
+    if (_freezeRecoveryCount >= _maxFreezeRecoveries) {
+      _freezeWatchdogTimer?.cancel();
+      if (mounted && !_isInBackground) _fetchNowPlaying();
+      return;
+    }
+    _freezeRecoveryCount++;
+
     TelemetryService.marker(
       'channel_player_freeze_recover',
-      parameters: {'channel_id': _channelId},
+      parameters: {'channel_id': _channelId, 'attempt': _freezeRecoveryCount},
     );
     _freezeWatchdogTimer?.cancel();
     _lastKnownPosition = null;
-    final player = _player;
-    if (player == null || !player.value.isInitialized) return;
     try {
       // Seek to current position + 1s to kick the engine out of the freeze.
       final target = player.value.position + const Duration(seconds: 1);
       await player.seekTo(target);
+      // The player may have been retired (channel switch, dispose, or a
+      // fallback to another engine) while the seek/play awaits above were in
+      // flight. Acting on a stale reference here was letting the old
+      // channel's audio keep running (and sometimes layering on top of the
+      // newly tuned-in channel), since seekTo/play don't check disposal.
+      if (_player != player) return;
       await player.play();
+      if (_player != player) return;
     } catch (_) {
+      if (_player != player) return;
       // If seek fails, do a full silent refresh.
       if (mounted && !_isInBackground) _fetchNowPlaying();
+      return;
     }
     _startFreezeWatchdog();
   }
@@ -1854,13 +1944,30 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   }
 
   // ─── Branded Loading Screen ───
+  // "Tune-in" transitional state (design: images 2-4 of the Watch Screen
+  // mock) — real step progress instead of static dots, a membership note
+  // for exclusive channels, and a way to bypass the animation.
+
+  static const List<String> _tuneInSteps = [
+    'Please wait a moment...',
+    'Authorising your membership...',
+    'Locking on to channel...',
+  ];
 
   Widget _buildLoadingState() {
+    final step = _tuneInStep.clamp(0, _tuneInSteps.length - 1);
+    final channelNumber = _channel?.channelNumber;
+    final stepText = step == _tuneInSteps.length - 1 &&
+            channelNumber != null &&
+            channelNumber.isNotEmpty
+        ? 'Locking on to channel $channelNumber...'
+        : _tuneInSteps[step];
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Animated TV signal icon
+          // Animated TV signal icon with its gold halo
           _LoadingTvWidget(),
           const SizedBox(height: 28),
           const Text(
@@ -1874,24 +1981,83 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
           ),
           const SizedBox(height: 8),
           Text(
-            'Please wait a moment...',
-            style: TextStyle(color: AppColors.goldText, fontSize: 12),
+            stepText,
+            style: const TextStyle(color: AppColors.goldText, fontSize: 12),
           ),
           const SizedBox(height: 28),
           SizedBox(
             width: 180,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(4),
-              child: const LinearProgressIndicator(
-                backgroundColor: Color(0xFF1A2B5C),
+              child: LinearProgressIndicator(
+                value: (step + 1) / _tuneInSteps.length,
+                backgroundColor: const Color(0xFF1A2B5C),
                 color: AppColors.orange,
                 minHeight: 3,
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          // Scanning dots
-          const _DotsLoader(),
+          const SizedBox(height: 10),
+          // Step dots — one per tune-in stage, current one lit gold.
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(_tuneInSteps.length, (i) {
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i <= step
+                      ? AppColors.orange
+                      : AppColors.inputBorder.withValues(alpha: 0.6),
+                ),
+              );
+            }),
+          ),
+          if (_channel?.isExclusive == true) ...[
+            const SizedBox(height: 24),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 40),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.successGreen.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.successGreen.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.verified_rounded,
+                    color: AppColors.successGreen,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'Membership verified — stream authorised for this device.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.successGreen.withValues(alpha: 0.9),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          TextButton(
+            onPressed: () => setState(() => _loading = false),
+            child: const Text(
+              'Skip to stream',
+              style: TextStyle(color: AppColors.hintText, fontSize: 12.5),
+            ),
+          ),
         ],
       ),
     );
@@ -2255,10 +2421,13 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
     if (isNativePlaying || isYouTubePlaying) {
       // Enter native Android Picture-in-Picture so the video keeps playing in
-      // a system window on top of other apps and the home screen.
-      if (await PipService.isSupported) {
-        await PipService.enter();
-      } else if (mounted) {
+      // a system window on top of other apps and the home screen. Attempted
+      // directly rather than gated behind PipService.isSupported — that
+      // check reflects an AppOps flag some OEM skins leave revoked by
+      // default even when PiP itself works fine, which made this button
+      // always report "not supported" without ever actually trying.
+      final entered = await PipService.enter();
+      if (!entered && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
@@ -2314,6 +2483,71 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     );
 
     Navigator.pop(context);
+  }
+
+  Widget _buildLiveBadgeRow() {
+    final channelNumber = _channel?.channelNumber;
+    final countLabel = _liveViewerCount != null
+        ? ' · ${_liveViewerCount!} watching'
+        : '';
+    final channelLabel = channelNumber != null && channelNumber.isNotEmpty
+        ? 'CH $channelNumber$countLabel'
+        : (_liveViewerCount != null ? '${_liveViewerCount!} watching' : null);
+
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE2543F),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.circle, color: Colors.white, size: 7),
+              SizedBox(width: 5),
+              Text(
+                'LIVE',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (channelLabel != null) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              channelLabel,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+        const Spacer(),
+        GestureDetector(
+          onTap: () => setState(() => _liveBadgeDismissed = true),
+          child: Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.close_rounded, color: Colors.white, size: 15),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildTimerOverlay(BroadcastPlayer player) {
@@ -2452,11 +2686,16 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Wrap(
-                  alignment: WrapAlignment.end,
-                  crossAxisAlignment: WrapCrossAlignment.end,
-                  spacing: 0,
-                  runSpacing: 2,
+                // Was a Wrap — on narrow screens the 5th icon (channel
+                // number dialpad) had nowhere to go and dropped to its own
+                // line, breaking the header layout. A horizontal scroller
+                // keeps every icon on one row and reachable at any width,
+                // instead of wrapping.
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
+                  child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     GestureDetector(
                       onTap: _onManualPiPTap,
@@ -2476,6 +2715,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     GestureDetector(
                       onTap: _shareChannel,
                       child: Container(
@@ -2494,6 +2734,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     GestureDetector(
                       onTap: _goDashboard,
                       child: Container(
@@ -2512,6 +2753,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     GestureDetector(
                       onTap: _openWatchSettings,
                       child: Container(
@@ -2530,6 +2772,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     GestureDetector(
                       onTap: _openChannelNumberSheet,
                       child: Container(
@@ -2549,6 +2792,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                       ),
                     ),
                   ],
+                  ),
                 ),
                 if (_channel != null) ...[
                   const SizedBox(height: 8),
@@ -2851,10 +3095,10 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
               decoration: BoxDecoration(
-                color: const Color(0xFFE53935).withValues(alpha: 0.15),
+                color: const Color(0xFFE2543F).withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: const Color(0xFFE53935).withValues(alpha: 0.4),
+                  color: const Color(0xFFE2543F).withValues(alpha: 0.4),
                 ),
               ),
               child: const Row(
@@ -2862,14 +3106,14 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                 children: [
                   Icon(
                     Icons.wifi_tethering_error_rounded,
-                    color: Color(0xFFE53935),
+                    color: Color(0xFFE2543F),
                     size: 13,
                   ),
                   SizedBox(width: 6),
                   Text(
                     'SIGNAL LOST',
                     style: TextStyle(
-                      color: Color(0xFFE53935),
+                      color: Color(0xFFE2543F),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.5,
@@ -3005,7 +3249,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
       if (reason == 'current' && videoMissing) {
         title = 'Scheduled video is missing\nor not uploaded yet';
         subtitle = 'The creator needs to upload or fix the scheduled video.';
-        accent = const Color(0xFFE53935);
+        accent = const Color(0xFFE2543F);
       } else if (reason == 'upcoming' && upcoming.isNotEmpty) {
         final start = (upcoming['start_time'] as num?)?.toInt() ?? 0;
         final startTime = DateTime.fromMillisecondsSinceEpoch(start);
@@ -3034,7 +3278,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
       if (current.isNotEmpty) {
         title = 'Scheduled video is missing\nor not uploaded yet';
         subtitle = 'The creator needs to upload or fix the scheduled video.';
-        accent = const Color(0xFFE53935);
+        accent = const Color(0xFFE2543F);
       } else if (upcoming.isNotEmpty) {
         final start = (upcoming['start_time'] as num?)?.toInt() ?? 0;
         final startTime = DateTime.fromMillisecondsSinceEpoch(start);
@@ -3426,12 +3670,12 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                             ),
                             decoration: BoxDecoration(
                               color: const Color(
-                                0xFFE53935,
+                                0xFFE2543F,
                               ).withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: const Color(
-                                  0xFFE53935,
+                                  0xFFE2543F,
                                 ).withValues(alpha: 0.4),
                               ),
                             ),
@@ -3440,14 +3684,14 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                               children: [
                                 Icon(
                                   Icons.wifi_tethering_error_rounded,
-                                  color: Color(0xFFE53935),
+                                  color: Color(0xFFE2543F),
                                   size: 13,
                                 ),
                                 SizedBox(width: 6),
                                 Text(
                                   'SIGNAL LOST',
                                   style: TextStyle(
-                                    color: Color(0xFFE53935),
+                                    color: Color(0xFFE2543F),
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: 1.5,
@@ -3515,12 +3759,23 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
                       onComplete: _onAdBreakComplete,
                     ),
                   ),
-                // Timer overlay (top-left)
+                // LIVE badge + viewer count + dismiss (design: Watch Screen
+                // mock — "● LIVE  CH 2 · 1,204 watching" over the stage).
+                if (!_liveBadgeDismissed && _nowPlaying != null && !_isLoop)
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    right: 8,
+                    child: _buildLiveBadgeRow(),
+                  ),
+                // Timer overlay (top-left, below the LIVE row)
                 if (initialized)
-                  Positioned(top: 8, left: 8, child: _buildTimerOverlay(player)),
-                // Channel logo + name badge (top-right)
+                  Positioned(top: 44, left: 8, child: _buildTimerOverlay(player)),
+                // Channel logo + name badge (top-right, below the LIVE row —
+                // it used to sit at top:8 too, which the new full-width LIVE
+                // row now occupies, so the two were drawing on top of each other)
                 if (_channel != null)
-                  Positioned(top: 8, right: 8, child: _buildChannelBadge()),
+                  Positioned(top: 44, right: 8, child: _buildChannelBadge()),
                 if (!useYouTubeEmbed &&
                     (_player?.availableRenditions.isNotEmpty ?? false))
                   Positioned(
@@ -3661,6 +3916,10 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
                 const SizedBox(height: 16),
 
+                // Channel surfer and reactions sit above the action row —
+                // both are quick, glanceable strips, while the four-up
+                // action row is the persistent control surface directly
+                // under them.
                 _buildSurferBar(),
 
                 const SizedBox(height: 16),
@@ -3670,7 +3929,44 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
                 const SizedBox(height: 16),
 
-                _buildEngagementTabsPanel(),
+                // Design (Watch Screen mock): "Actions sit under the video —
+                // Gift, chat, share and PiP as one four-up row." These reuse
+                // the same handlers as the header icons / gift button below;
+                // this row is the single canonical action surface.
+                _buildPlayerActionRow(),
+
+                const SizedBox(height: 16),
+
+                // Hidden by default — only the Chat action card reveals it,
+                // sliding/fading in in place rather than always occupying
+                // space on screen.
+                KeyedSubtree(
+                  key: _engagementPanelKey,
+                  child: AnimatedSize(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOut,
+                    alignment: Alignment.topCenter,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      transitionBuilder: (child, animation) => FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0, -0.06),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        ),
+                      ),
+                      child: _engagementPanelOpen
+                          ? KeyedSubtree(
+                              key: const ValueKey('engagement-visible'),
+                              child: _buildEngagementTabsPanel(),
+                            )
+                          : const SizedBox.shrink(key: ValueKey('engagement-hidden')),
+                    ),
+                  ),
+                ),
 
                 // Up next
                 if (_nextProgram != null) ...[
@@ -3813,12 +4109,12 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: _isLoop
-            ? const Color(0xFFE53935).withValues(alpha: 0.2)
+            ? const Color(0xFFE2543F).withValues(alpha: 0.2)
             : AppColors.orange.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: _isLoop
-              ? const Color(0xFFE53935).withValues(alpha: 0.5)
+              ? const Color(0xFFE2543F).withValues(alpha: 0.5)
               : AppColors.orange.withValues(alpha: 0.5),
         ),
       ),
@@ -3826,7 +4122,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
         mainAxisSize: MainAxisSize.min,
         children: [
           _isLoop
-              ? _PulsingDot(color: const Color(0xFFE53935))
+              ? _PulsingDot(color: const Color(0xFFE2543F))
               : Container(
                   width: 8,
                   height: 8,
@@ -3840,7 +4136,7 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
             _isLoop ? 'RERUN' : 'LIVE',
             style: TextStyle(
               color: _isLoop
-                  ? const Color(0xFFE53935)
+                  ? const Color(0xFFE2543F)
                   : AppColors.orange,
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -4033,125 +4329,146 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     );
   }
 
+  // Design (Watch Screen mock): "Up next belongs to the player — guide
+  // entries with bell affordances". Previously this rendered only the
+  // single _nextProgram, not a short guide list — build the list from the
+  // channel's already-loaded schedule instead.
+  List<Map<String, dynamic>> _upcomingScheduleEntries({int limit = 3}) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final upcoming = _schedule
+        .cast<Map<String, dynamic>>()
+        .where((p) => ((p['start_time'] as num?)?.toInt() ?? 0) > now)
+        .toList()
+      ..sort((a, b) => ((a['start_time'] as num?)?.toInt() ?? 0)
+          .compareTo((b['start_time'] as num?)?.toInt() ?? 0));
+    return upcoming.take(limit).toList();
+  }
+
   Widget _buildUpNextCard() {
-    final title = _nextProgram!['video_title'] as String? ?? 'Unknown';
-    final description = _nextProgram!['video_description'] as String? ?? '';
-    final programId = _nextProgram!['program_id'] as String? ?? '';
-    final startMs = (_nextProgram!['start_time'] as num?)?.toInt() ?? 0;
+    final entries = _upcomingScheduleEntries();
+    if (entries.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      // Design cards carry no drop shadow, only the 1px inset ring.
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppColors.inputBorder.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'UP NEXT ON THIS CHANNEL',
+            style: TextStyle(
+              color: AppColors.lightOrange,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (int i = 0; i < entries.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            _buildUpNextEntry(entries[i]),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpNextEntry(Map<String, dynamic> program) {
+    final title = program['video_title'] as String? ?? 'Unknown';
+    final description = program['video_description'] as String? ?? '';
+    final programId = program['program_id'] as String? ?? '';
+    final startMs = (program['start_time'] as num?)?.toInt() ?? 0;
+    final endMs = (program['end_time'] as num?)?.toInt() ?? 0;
     final dt = DateTime.fromMillisecondsSinceEpoch(startMs);
     final timeStr =
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final durationMin = endMs > startMs ? ((endMs - startMs) / 60000).round() : null;
+    final metaStr = durationMin != null ? '$timeStr · $durationMin min' : timeStr;
     final hasReminder =
         programId.isNotEmpty && _remindedProgramIds.contains(programId);
 
     return GestureDetector(
       onTap: () => _showDescriptionPopup(title, description, timeStr: timeStr),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.cardBg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.inputBorder.withValues(alpha: 0.3),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.lightOrange.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.play_arrow_rounded,
+              color: AppColors.lightOrange,
+              size: 20,
+            ),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.lightOrange.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.skip_next,
-                color: AppColors.lightOrange,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'UP NEXT',
-                    style: TextStyle(
-                      color: AppColors.lightOrange,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
-                    ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: AppColors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              timeStr,
-              style: const TextStyle(
-                color: AppColors.hintText,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            if (programId.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => _toggleReminder(programId),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: hasReminder
-                        ? AppColors.orange.withValues(alpha: 0.15)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: _reminderLoading
-                      ? const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.orange,
-                          ),
-                        )
-                      : Icon(
-                          hasReminder
-                              ? Icons.notifications_active
-                              : Icons.notifications_none,
-                          color: hasReminder
-                              ? AppColors.orange
-                              : AppColors.goldText,
-                          size: 18,
-                        ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 2),
+                Text(
+                  metaStr,
+                  style: const TextStyle(
+                    color: AppColors.hintText,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (programId.isNotEmpty)
+            GestureDetector(
+              onTap: () => _toggleReminder(programId),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: hasReminder
+                      ? AppColors.orange.withValues(alpha: 0.15)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: _reminderLoading
+                    ? const Padding(
+                        padding: EdgeInsets.all(7),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.orange,
+                        ),
+                      )
+                    : Icon(
+                        hasReminder
+                            ? Icons.notifications_active
+                            : Icons.notifications_none,
+                        color: hasReminder ? AppColors.orange : AppColors.goldText,
+                        size: 17,
+                      ),
               ),
-            ],
-            const SizedBox(width: 8),
-            Icon(Icons.info_outline, color: AppColors.goldText, size: 18),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -4159,6 +4476,104 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   // ── Interaction bar ──────────────────────────────────────────────────
 
   static const _reactionEmojis = ['❤️', '🔥', '😂', '👏', '😮', '💯'];
+
+  /// Opens the chat/live-activity panel if closed (and scrolls it into
+  /// view once it's mounted), or closes it if already open — this is the
+  /// Chat card's sole job; the panel is otherwise never shown.
+  void _toggleChatPanel() {
+    final opening = !_engagementPanelOpen;
+    setState(() => _engagementPanelOpen = opening);
+    if (opening) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final ctx = _engagementPanelKey.currentContext;
+        if (ctx == null) return;
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+  }
+
+  Widget _buildPlayerActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool active = false,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: active
+                ? AppColors.orange.withValues(alpha: 0.16)
+                : AppColors.cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active
+                  ? AppColors.orange.withValues(alpha: 0.55)
+                  : AppColors.inputBorder.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                color: active ? AppColors.orange : AppColors.lightOrange,
+                size: 18,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: active ? AppColors.orange : AppColors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayerActionRow() {
+    return Row(
+      children: [
+        _buildPlayerActionButton(
+          icon: Icons.card_giftcard_rounded,
+          label: 'Gift',
+          onTap: _onGiftTap,
+        ),
+        const SizedBox(width: 8),
+        _buildPlayerActionButton(
+          icon: _engagementPanelOpen
+              ? Icons.chat_bubble_rounded
+              : Icons.chat_bubble_outline_rounded,
+          label: _engagementPanelOpen ? 'Chat ▲' : 'Chat',
+          onTap: _toggleChatPanel,
+          active: _engagementPanelOpen,
+        ),
+        const SizedBox(width: 8),
+        _buildPlayerActionButton(
+          icon: Icons.share_rounded,
+          label: 'Share',
+          onTap: _shareChannel,
+        ),
+        const SizedBox(width: 8),
+        _buildPlayerActionButton(
+          icon: Icons.picture_in_picture_alt_rounded,
+          label: 'PiP',
+          onTap: _onManualPiPTap,
+        ),
+      ],
+    );
+  }
 
   Widget _buildInteractionBar() {
     return Row(
@@ -4247,14 +4662,41 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TabBar(
-              labelColor: AppColors.white,
-              unselectedLabelColor: AppColors.goldText,
-              indicatorColor: AppColors.orange,
-              indicatorWeight: 3,
-              tabs: const [
-                Tab(text: 'Live Chat'),
-                Tab(text: 'Live Activity'),
+            Row(
+              children: [
+                Expanded(
+                  child: TabBar(
+                    labelColor: AppColors.white,
+                    unselectedLabelColor: AppColors.goldText,
+                    indicatorColor: AppColors.orange,
+                    indicatorWeight: 3,
+                    tabs: const [
+                      Tab(text: 'Live Chat'),
+                      Tab(text: 'Live Activity'),
+                    ],
+                  ),
+                ),
+                // Returns the panel to its default hidden state — the same
+                // toggle the Chat action card itself drives.
+                GestureDetector(
+                  onTap: _toggleChatPanel,
+                  child: Container(
+                    margin: const EdgeInsets.only(left: 8),
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppColors.inputFill,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.inputBorder.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.close_rounded,
+                      color: AppColors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -4906,60 +5348,6 @@ class _LoadingTvWidgetState extends State<_LoadingTvWidget>
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Animated scanning dots for the channel loading screen.
-class _DotsLoader extends StatefulWidget {
-  const _DotsLoader();
-
-  @override
-  State<_DotsLoader> createState() => _DotsLoaderState();
-}
-
-class _DotsLoaderState extends State<_DotsLoader>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (_, __) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (i) {
-            final delay = i * 0.33;
-            final t = (_ctrl.value - delay).clamp(0.0, 1.0);
-            final opacity = (t < 0.5 ? t * 2 : (1 - t) * 2).clamp(0.2, 1.0);
-            return Container(
-              width: 7,
-              height: 7,
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.orange.withValues(alpha: opacity),
-              ),
-            );
-          }),
-        );
-      },
     );
   }
 }

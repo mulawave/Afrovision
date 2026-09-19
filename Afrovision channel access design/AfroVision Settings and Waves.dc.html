@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#080e21;color:#eef1f8;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#f0a52a}a:hover{color:#f7c66a}
+.av-scroll::-webkit-scrollbar{width:0;height:0}
+.av-scroll{scrollbar-width:none}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetUp{from{transform:translateY(103%)}to{transform:translateY(0)}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;gap:44px;padding:44px 48px 64px;align-items:flex-start;justify-content:center">
+
+<div style="flex:none;width:390px;height:844px;position:relative;border-radius:42px;background:#0b1533;box-shadow:0 0 0 1px #22325e,0 30px 80px rgba(0,0,0,.65);overflow:hidden;display:flex;flex-direction:column">
+
+<sc-if value="{{ isPanel }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;background:linear-gradient(168deg,#17295e,#0e1a3f 86%);padding:14px 16px 12px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:500;color:#c3cde6;margin-bottom:10px">
+<span>5:26</span>
+<span style="display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;background:#04070f;color:#eef1f8;font-size:11px"><i class="ph-fill ph-broadcast" style="font-size:13px;color:#5b9dff"></i>2</span>
+<span style="display:flex;align-items:center;gap:6px"><i class="ph ph-moon" style="font-size:12px"></i><i class="ph ph-cell-signal-full" style="font-size:12px"></i><span style="width:16px;height:9px;border-radius:2px;box-shadow:inset 0 0 0 1px #7d8bad;background:linear-gradient(to right,#eef1f8 92%,transparent 92%)"></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:9px">
+<button onClick="{{ back }}" aria-label="Back" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#c3cde6;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(255,255,255,.07);color:#eef1f8"><i class="ph ph-caret-left" style="font-size:16px"></i></button>
+<div style="flex:1;min-width:0">
+<div style="font-size:18px;font-weight:600;letter-spacing:-.01em">{{ screenTitle }}</div>
+<div style="font-size:10.5px;color:#8fa0c8">{{ screenSub }}</div>
+</div>
+<sc-if value="{{ headAction }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ headAction.tap }}" aria-label="{{ headAction.label }}" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#f0a52a;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.14)"><i class="{{ headAction.icon }}" style="font-size:16px"></i></button>
+</sc-if>
+</div>
+</div>
+
+<div class="av-scroll" ref="{{ scrollRef }}" style="flex:1;min-height:0;overflow-y:auto;padding:12px 16px 24px;display:flex;flex-direction:column;gap:11px">
+
+<sc-if value="{{ isSettings }}" hint-placeholder-val="{{ true }}">
+<sc-for list="{{ groups }}" as="g" hint-placeholder-count="4">
+<div style="flex:none">
+<div style="display:flex;align-items:center;gap:7px;font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a;margin:2px 0 8px 2px"><i class="{{ g.icon }}" style="font-size:12px"></i>{{ g.title }}</div>
+<div style="display:flex;flex-direction:column;gap:1px;border-radius:14px;overflow:hidden;box-shadow:inset 0 0 0 1px #24345f">
+<sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:11px;padding:12px 13px;background:#101d43">
+<span style="width:30px;height:30px;flex:none;border-radius:9px;background:{{ r.iconBg }};display:grid;place-items:center"><i class="{{ r.icon }}" style="font-size:15px;color:{{ r.tint }}"></i></span>
+<span style="flex:1;min-width:0">
+<span style="display:block;font-size:13px;font-weight:600;color:{{ r.fg }}">{{ r.label }}</span>
+<span style="display:block;font-size:10.5px;color:#8fa0c8;margin-top:1px">{{ r.note }}</span>
+</span>
+<sc-if value="{{ r.isToggle }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ r.tap }}" aria-label="{{ r.label }}" style="flex:none;width:42px;height:24px;border-radius:999px;border:0;padding:3px;cursor:pointer;display:flex;justify-content:{{ r.justify }};background:{{ r.trackBg }}">
+<span style="width:18px;height:18px;border-radius:50%;background:{{ r.knobBg }}"></span>
+</button>
+</sc-if>
+<sc-if value="{{ r.isValue }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ r.tap }}" style="flex:none;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:6px 10px;border-radius:9px;border:1px solid #2a3a6b;background:transparent;color:#f5c266;font-family:inherit;cursor:pointer" style-hover="border-color:#f0a52a">{{ r.value }}<i class="ph ph-caret-right" style="font-size:11px"></i></button>
+</sc-if>
+<sc-if value="{{ r.isLink }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ r.tap }}" aria-label="{{ r.label }}" style="flex:none;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:#7d8bad;cursor:pointer" style-hover="color:#f5c266"><i class="ph ph-caret-right" style="font-size:15px"></i></button>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+<div style="flex:none;text-align:center;font-size:10.5px;color:#7d8bad;padding:4px 0 2px">AfroVision 2.0.4 · build 2026.09 · Device ID AV-8814-RO</div>
+</sc-if>
+
+<sc-if value="{{ isNotifications }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;display:flex;gap:6px;overflow-x:auto" class="av-scroll">
+<sc-for list="{{ notifFilters }}" as="f" hint-placeholder-count="4">
+<button onClick="{{ f.pick }}" style="flex:none;font-size:11.5px;font-weight:500;padding:7px 14px;border-radius:999px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ f.style }}" style-hover="border-color:#f0a52a">{{ f.label }}</button>
+</sc-for>
+</div>
+<sc-if value="{{ notifEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;padding:40px 20px;text-align:center">
+<i class="ph ph-bell-simple-slash" style="font-size:44px;color:#3d4d7d"></i>
+<div style="font-size:16px;font-weight:600">Nothing here</div>
+<div style="font-size:12px;color:#8fa0c8;max-width:230px">No {{ notifFilterLabel }} notifications right now.</div>
+</div>
+</sc-if>
+<sc-for list="{{ notifications }}" as="n" hint-placeholder-count="6">
+<button onClick="{{ n.tap }}" style="flex:none;display:flex;gap:11px;align-items:flex-start;text-align:left;padding:12px;border:0;border-radius:14px;background:{{ n.bg }};box-shadow:inset 0 0 0 1px {{ n.border }};color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<span style="width:34px;height:34px;flex:none;border-radius:10px;background:{{ n.iconBg }};display:grid;place-items:center"><i class="{{ n.icon }}" style="font-size:16px;color:{{ n.tint }}"></i></span>
+<span style="flex:1;min-width:0">
+<span style="display:flex;align-items:center;gap:7px"><span style="font-size:13px;font-weight:600">{{ n.title }}</span><sc-if value="{{ n.unread }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:50%;background:#f0a52a"></span></sc-if></span>
+<span style="display:block;font-size:11.5px;color:#8fa0c8;margin-top:2px;text-wrap:pretty">{{ n.body }}</span>
+<span style="display:block;font-size:10px;color:#7d8bad;margin-top:4px">{{ n.when }}</span>
+</span>
+</button>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{ isCodes }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;display:flex;gap:9px;align-items:flex-start;padding:12px;border-radius:14px;background:rgba(240,165,42,.07);box-shadow:inset 0 0 0 1px #4a3a1a">
+<i class="ph-fill ph-lock-key" style="font-size:15px;color:#f5c266;margin-top:1px"></i>
+<span style="font-size:11.5px;color:#f0c88f">These codes identify your account and device to AfroVision support. Never share them in public channels or chats.</span>
+</div>
+<sc-for list="{{ codes }}" as="c" hint-placeholder-count="4">
+<div style="flex:none;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:32px;height:32px;flex:none;border-radius:9px;background:rgba(240,165,42,.12);display:grid;place-items:center"><i class="{{ c.icon }}" style="font-size:15px;color:#f5c266"></i></span>
+<div style="flex:1;min-width:0">
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">{{ c.label }}</div>
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:1px">{{ c.note }}</div>
+</div>
+<button onClick="{{ c.copy }}" aria-label="Copy" style="flex:none;width:30px;height:30px;border:0;border-radius:9px;background:rgba(255,255,255,.06);color:#f5c266;cursor:pointer" style-hover="background:rgba(240,165,42,.22)"><i class="ph ph-copy" style="font-size:14px"></i></button>
+</div>
+<div style="margin-top:10px;padding:11px;border-radius:11px;background:rgba(0,0,0,.24);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);font-family:ui-monospace,monospace;font-size:12.5px;letter-spacing:.06em;color:#dbe2f2;word-break:break-all">{{ c.value }}</div>
+</div>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{ isLegal }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ legal }}" as="l" hint-placeholder-count="7">
+<button onClick="{{ l.tap }}" style="display:flex;align-items:center;gap:11px;text-align:left;padding:13px 14px;border:0;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<span style="width:32px;height:32px;flex:none;border-radius:9px;background:rgba(255,255,255,.06);display:grid;place-items:center"><i class="{{ l.icon }}" style="font-size:15px;color:#c3cde6"></i></span>
+<span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:600">{{ l.label }}</span><span style="display:block;font-size:10.5px;color:#8fa0c8;margin-top:1px">{{ l.note }}</span></span>
+<i class="ph ph-arrow-square-out" style="font-size:15px;color:#7d8bad"></i>
+</button>
+</sc-for>
+</div>
+<div style="flex:none;text-align:center;font-size:10.5px;color:#7d8bad;padding:6px 0 2px">© 2026 AfroVision · Lagos, Nigeria</div>
+</sc-if>
+</div>
+</sc-if>
+
+<div style="flex:none;display:flex;padding:8px 10px 20px;background:#0a1330;box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 2px;border:0;background:transparent;font-family:inherit;font-size:9.5px;font-weight:500;color:#7d8bad;cursor:pointer;{{ n.style }}"><i class="{{ n.icon }}" style="font-size:{{ n.size }}"></i>{{ n.label }}</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:16px;right:16px;bottom:94px;padding:11px 13px;border-radius:12px;background:#16255c;box-shadow:0 0 0 1px #2f4483,0 12px 30px rgba(0,0,0,.5);font-size:12px;color:#dbe2f2;animation:fadeIn .16s ease;display:flex;align-items:center;gap:9px"><i class="ph-fill ph-info" style="font-size:15px;color:#f5c266"></i>{{ toast }}</div>
+</sc-if>
+</div>
+
+<div style="flex:none;width:280px;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f0a52a;margin-bottom:6px">AfroVision · settings</div>
+<h1 style="font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.16;margin:0 0 10px">The last<br>pending screens</h1>
+<p style="margin:0 0 16px;font-size:12.5px;color:#8fa0c8;text-wrap:pretty">Settings, notifications, identifier codes and legal pages — the four places the other screens linked to but had nothing behind.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px">
+<sc-for list="{{ jump }}" as="j" hint-placeholder-count="5">
+<button onClick="{{ j.go }}" style="font-size:11px;padding:6px 11px;border-radius:8px;border:1px solid #1e2c55;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ j.style }}" style-hover="border-color:#f0a52a;color:#f5c266">{{ j.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="3">
+<div style="border-radius:8px;padding:11px 12px;box-shadow:0 0 0 1px #1e2c55">
+<div style="font-size:12px;font-weight:600;margin-bottom:3px">{{ n.title }}</div>
+<p style="margin:0;font-size:11.5px;color:#8fa0c8">{{ n.body }}</p>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:800,&quot;height&quot;:940}}">
+const GOLD = '#f5c266';
+const NOTIFS = [
+  { k: 'channels', title: 'X-Lounge Extreme is live', body: 'Midnight Lounge Session started on channel 2.', when: '4 min ago', unread: true, icon: 'ph-fill ph-broadcast', tint: '#f1789a', iconBg: 'rgba(226,84,63,.14)' },
+  { k: 'wallet', title: 'Subscriber vPT reward', body: '2 vPT (≈ ₦1,500) credited for your premium plan renewal.', when: '2h ago', unread: true, icon: 'ph-fill ph-gift', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.15)' },
+  { k: 'system', title: 'Membership renews in 24 days', body: 'Premium · Creator renews Oct 4, 2026 for ₦10,000 + 13.33 vPT.', when: '6h ago', unread: false, icon: 'ph-fill ph-medal', tint: GOLD, iconBg: 'rgba(240,165,42,.13)' },
+  { k: 'channels', title: 'Reminder: Guest Set — Ada K.', body: 'Starts at 7:00 PM on X-Lounge Extreme.', when: '8h ago', unread: false, icon: 'ph ph-bell', tint: GOLD, iconBg: 'rgba(240,165,42,.13)' },
+  { k: 'wallet', title: 'Withdrawal approved', body: '₦2,250 sent to PalmPay · 81******34.', when: 'Yesterday', unread: false, icon: 'ph-fill ph-bank', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.15)' },
+  { k: 'system', title: 'Ad campaign in review', body: 'Doc Series Pre-roll is awaiting admin approval.', when: '2d ago', unread: false, icon: 'ph-fill ph-megaphone', tint: '#c0a4ff', iconBg: 'rgba(139,92,246,.16)' },
+  { k: 'channels', title: 'New wave from 24 Movies', body: 'First look at Lagos After Dark.', when: '2d ago', unread: false, icon: 'ph ph-waves', tint: '#7fc4ff', iconBg: 'rgba(127,196,255,.14)' }
+];
+
+const NOTES = {
+  settings: [['Grouped, not listed', 'Playback, notifications, privacy and app settings as four labelled groups instead of one long menu.'],
+             ['Toggles are real', 'Every switch holds state, so the screen demonstrates its own on/off treatment.'],
+             ['Version line closes the page', 'Build and device ID sit at the foot, where support asks for them.']],
+  notifications: [['One inbox, four filters', 'All / Channels / Wallet / System, with an empty state per filter.'],
+                  ['Unread is a dot, not a colour flood', 'Unread rows keep a gold dot and a slightly lifted border.']],
+  codes: [['Codes are copyable, not editable', 'Each identifier is monospaced with its own copy control.'],
+          ['Warning sits first', 'The do-not-share note leads the screen, before any code is visible.']],
+  legal: [['Static pages as one list', 'Terms, privacy, community rules, licences and support in a single card family.']],
+};
+
+class Component extends DCLogic {
+  scrollRef = React.createRef();
+  state = { route: 'settings', notifFilter: 'All', toast: '',
+            t: { autoplay: true, hd: false, dataSaver: false, pip: true, live: true, rewards: true, reminders: true, ads: false,
+                 private: false, history: true, adult: true, biometric: false } };
+
+  set = (p) => this.setState(p);
+  say(msg) { this.setState({ toast: msg }); clearTimeout(this._to); this._to = setTimeout(() => this.setState({ toast: '' }), 1900); }
+  componentWillUnmount() { clearTimeout(this._to); }
+  toggle(k, label) { const next = !this.state.t[k]; this.setState(s => ({ t: { ...s.t, [k]: next } })); this.say(label + (next ? ' on' : ' off')); }
+
+  sw(k, label, note, icon, tint, iconBg) {
+    const on = this.state.t[k];
+    return { label, note, icon, tint, iconBg, fg: '#eef1f8', isToggle: true,
+      justify: on ? 'flex-end' : 'flex-start',
+      trackBg: on ? 'linear-gradient(96deg,#ef9615,#f8c96f)' : 'rgba(255,255,255,.1)',
+      knobBg: on ? '#26170a' : '#7d8bad',
+      tap: () => this.toggle(k, label) };
+  }
+  val(label, note, value, icon, tint, iconBg) {
+    return { label, note, value, icon, tint, iconBg, fg: '#eef1f8', isValue: true, tap: () => this.say(label + ' · ' + value) };
+  }
+  link(label, note, icon, tint, iconBg, tap) {
+    return { label, note, icon, tint, iconBg, fg: '#eef1f8', isLink: true, tap };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const go = (r) => () => { this.set({ route: r }); const el = this.scrollRef.current; if (el) el.scrollTop = 0; };
+    const titles = { settings: ['Settings', 'Playback, alerts, privacy'], notifications: ['Notifications', 'Your alerts inbox'],
+      codes: ['Personal Identifier Codes', 'Account and device codes'], legal: ['Legal & Static Pages', 'Terms, privacy and support'] };
+    const t = titles[s.route] || titles.settings;
+    const notifs = s.notifFilter === 'All' ? NOTIFS : NOTIFS.filter(n => n.k === s.notifFilter.toLowerCase());
+
+    return {
+      isPanel: true,
+      isSettings: s.route === 'settings', isNotifications: s.route === 'notifications',
+      isCodes: s.route === 'codes', isLegal: s.route === 'legal',
+      screenTitle: t[0], screenSub: t[1], scrollRef: this.scrollRef,
+      back: () => { window.location.href = 'AfroVision Account.dc.html'; },
+      headAction: s.route === 'notifications' ? { label: 'Mark all read', icon: 'ph ph-checks', tap: () => this.say('All notifications marked read') }
+        : (s.route === 'settings' ? { label: 'Notifications', icon: 'ph ph-bell', tap: () => this.set({ route: 'notifications' }) } : null),
+
+      groups: [
+        { title: 'Playback', icon: 'ph-fill ph-play-circle', rows: [
+          this.sw('autoplay', 'Autoplay next', 'Play the next item automatically', 'ph-fill ph-play', GOLD, 'rgba(240,165,42,.13)'),
+          this.sw('hd', 'Always stream HD', 'Uses more data on mobile networks', 'ph-fill ph-high-definition', GOLD, 'rgba(240,165,42,.13)'),
+          this.sw('dataSaver', 'Data saver', 'Cap streams at 480p off Wi-Fi', 'ph ph-cell-signal-medium', '#7fc4ff', 'rgba(127,196,255,.14)'),
+          this.sw('pip', 'Picture in picture', 'Keep watching while you browse', 'ph ph-picture-in-picture', '#7fc4ff', 'rgba(127,196,255,.14)'),
+          this.val('Default quality', 'Applies to new streams', 'Auto', 'ph ph-gauge', GOLD, 'rgba(240,165,42,.13)')
+        ] },
+        { title: 'Notifications', icon: 'ph ph-bell', rows: [
+          this.sw('live', 'Channel goes live', 'Push when a subscribed channel starts', 'ph-fill ph-broadcast', '#f1789a', 'rgba(226,84,63,.14)'),
+          this.sw('rewards', 'Wallet & rewards', 'vPT rewards, withdrawals, referrals', 'ph-fill ph-wallet', '#5fd39a', 'rgba(47,158,107,.15)'),
+          this.sw('reminders', 'Programme reminders', 'Alerts you set on schedules', 'ph ph-bell-ringing', GOLD, 'rgba(240,165,42,.13)'),
+          this.sw('ads', 'Offers and promotions', 'Occasional AfroVision offers', 'ph-fill ph-megaphone', '#c0a4ff', 'rgba(139,92,246,.16)'),
+          this.link('Notification inbox', 'View all your alerts', 'ph ph-tray', GOLD, 'rgba(240,165,42,.13)', () => this.set({ route: 'notifications' }))
+        ] },
+        { title: 'Privacy & security', icon: 'ph-fill ph-shield-check', rows: [
+          this.sw('private', 'Private profile', 'Hide your activity from other members', 'ph ph-eye-slash', '#7fc4ff', 'rgba(127,196,255,.14)'),
+          this.sw('history', 'Save watch history', 'Powers Continue Watching', 'ph ph-clock-counter-clockwise', '#7fc4ff', 'rgba(127,196,255,.14)'),
+          this.sw('adult', 'Adult content (18+)', 'Required for exclusive channels', 'ph-fill ph-warning-octagon', '#f1789a', 'rgba(226,84,63,.14)'),
+          this.sw('biometric', 'Biometric unlock', 'Face or fingerprint on app open', 'ph-fill ph-fingerprint', '#5fd39a', 'rgba(47,158,107,.15)'),
+          this.link('Personal identifier codes', 'Account, device and referral codes', 'ph ph-identification-card', '#f5a04a', 'rgba(245,160,74,.16)', () => this.set({ route: 'codes' }))
+        ] },
+        { title: 'App', icon: 'ph ph-gear-six', rows: [
+          this.val('Language', 'Interface language', 'English', 'ph ph-translate', '#c3cde6', 'rgba(255,255,255,.06)'),
+          this.val('Preferred currency', 'Prices and balances', '₦ NGN', 'ph ph-currency-circle-dollar', GOLD, 'rgba(240,165,42,.13)'),
+          this.val('Clear cache', 'Frees up device storage', '284 MB', 'ph ph-broom', '#c3cde6', 'rgba(255,255,255,.06)'),
+          this.link('Legal & static pages', 'Terms, privacy, community rules', 'ph-fill ph-book-open', '#c3cde6', 'rgba(255,255,255,.06)', () => this.set({ route: 'legal' })),
+          this.link('Help & support', 'Contact the AfroVision team', 'ph-fill ph-lifebuoy', '#5fd39a', 'rgba(47,158,107,.15)', () => this.say('Support request started'))
+        ] }
+      ],
+
+      notifFilters: ['All', 'Channels', 'Wallet', 'System'].map(f => ({ label: f,
+        style: s.notifFilter === f ? 'border-color:#f0a52a;background:rgba(240,165,42,.13);color:#f5c266' : '',
+        pick: () => this.set({ notifFilter: f }) })),
+      notifFilterLabel: s.notifFilter.toLowerCase(),
+      notifEmpty: notifs.length === 0,
+      notifications: notifs.map(n => ({ ...n,
+        bg: n.unread ? 'rgba(240,165,42,.06)' : '#101d43',
+        border: n.unread ? '#4a3a1a' : '#24345f',
+        tap: () => this.say(n.title) })),
+
+      codes: [
+        { label: 'Account identifier', note: 'Your permanent AfroVision ID', value: 'AV-RO-4E28E82D-2026', icon: 'ph ph-identification-card', copy: () => this.say('Account identifier copied') },
+        { label: 'Device code', note: 'This device only · revoke in settings', value: 'DEV-8814-RO-PIXEL7', icon: 'ph-fill ph-device-mobile', copy: () => this.say('Device code copied') },
+        { label: 'Referral code', note: 'Share to earn across 5 levels', value: '4E28E82D', icon: 'ph-fill ph-gift', copy: () => this.say('Referral code copied') },
+        { label: 'Wallet reference', note: 'Quote this for withdrawal support', value: 'WLT-NG-77120-OBROH', icon: 'ph-fill ph-wallet', copy: () => this.say('Wallet reference copied') }
+      ],
+
+      legal: [
+        ['Terms of Service', 'Last updated Jul 2026', 'ph-fill ph-scroll'],
+        ['Privacy Policy', 'How we handle your data', 'ph-fill ph-shield-check'],
+        ['Community Rules', 'Channel and chat conduct', 'ph-fill ph-users-three'],
+        ['Exclusive Channel Policy', 'Membership, access and expiry', 'ph-fill ph-seal-check'],
+        ['Creator Agreement', 'Payouts, splits and rights', 'ph-fill ph-video-camera'],
+        ['Advertising Guidelines', 'What campaigns are accepted', 'ph-fill ph-megaphone'],
+        ['Licences & Attributions', 'Open source and media credits', 'ph-fill ph-book-open'],
+        ['Contact & Support', 'support@afrovision.tv', 'ph-fill ph-lifebuoy']
+      ].map(l => ({ label: l[0], note: l[1], icon: l[2], tap: () => this.say(l[0] + ' — opening') })),
+
+      navItems: [
+        { label: 'Home', icon: 'ph ph-house', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Home.dc.html'; } },
+        { label: 'Channels', icon: 'ph ph-television-simple', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Channels.dc.html'; } },
+        { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: '', go: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; } },
+        { label: 'Waves', icon: 'ph ph-waves', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Waves.dc.html'; } },
+        { label: 'Profile', icon: 'ph-fill ph-user-circle', size: '19px', style: 'color:#f0a52a', go: () => { window.location.href = 'AfroVision Account.dc.html'; } }
+      ],
+      toast: s.toast,
+
+      jump: [['Settings', 'settings'], ['Notifications', 'notifications'], ['Identifier codes', 'codes'], ['Legal pages', 'legal']]
+        .map(x => ({ label: x[0], go: go(x[1]), style: s.route === x[1] ? 'border-color:#f0a52a;color:#f5c266' : '' })),
+      notes: (NOTES[s.route] || NOTES.settings).map(n => ({ title: n[0], body: n[1] }))
+    };
+  }
+}
+</script>
+</body>
+</html>

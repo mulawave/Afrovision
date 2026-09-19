@@ -60,8 +60,13 @@ fun ExclusiveScreen(viewModel: TvViewModel) {
                     item { RailRow(title = "Exclusive content", subtitle = "", items = items, viewModel = viewModel, aspect = 2f to 3f) }
                 } else {
                     item {
+                        val message = when (exclusive) {
+                            is LoadState.Loading -> "Loading exclusive…"
+                            is LoadState.Error -> "Couldn't load exclusive content. ${exclusive.message}"
+                            else -> "No exclusive channels yet. Unlock one in the AfroVision app and it will appear here."
+                        }
                         Box(modifier = Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
-                            Text(text = "Loading exclusive…", color = nocturne.textFaint, fontSize = 22.sp)
+                            Text(text = message, color = nocturne.textFaint, fontSize = 22.sp)
                         }
                     }
                 }

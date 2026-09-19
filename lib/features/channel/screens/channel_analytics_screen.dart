@@ -349,7 +349,7 @@ class _ChannelAnalyticsScreenState extends State<ChannelAnalyticsScreen>
         'label': 'Peak Viewers',
         'value': _fmt(ov['peak_viewers'] ?? 0),
         'icon': Icons.trending_up_rounded,
-        'color': const Color(0xFF4CAF50),
+        'color': const Color(0xFF5FD39A),
       },
       {
         'label': 'Peak Hour',
@@ -679,7 +679,7 @@ class _ChannelAnalyticsScreenState extends State<ChannelAnalyticsScreen>
             'Best Single Day',
             '$bestDayViews views',
             bestDayDate,
-            const Color(0xFF4CAF50),
+            const Color(0xFF5FD39A),
           ),
           _buildHighRow(
             'Last 7 Days',

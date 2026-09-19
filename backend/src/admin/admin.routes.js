@@ -1,5 +1,6 @@
 const { Router } = require('express');
-const { authenticateToken } = require('../utils/jwt');
+const { authenticateToken, requireAdminRole } = require('../utils/jwt');
+const { adminLimiter } = require('../utils/rate_limit');
 const ctrl = require('./admin.controller');
 const premiumCtrl = require('../channels/premium_stream.controller');
 const creatorSubCtrl = require('../subscriptions/creator_subscription.controller');
@@ -15,6 +16,12 @@ const mediaCenterHeroesCtrl = require('../media_center/media_center_heroes.contr
 const { upload, uploadSingleToGCS, uploadFieldsToGCS } = require('../utils/upload');
 
 const router = Router();
+
+// Router-level gate: every route mounted on this router requires an admin
+// role, closing any handler that forgot its own per-handler check (or has
+// one with a missing await). Per-handler checks below are now redundant
+// but left in place — they fail safe (403) if this gate is ever bypassed.
+router.use(authenticateToken, requireAdminRole, adminLimiter);
 
 router.post('/set-role', authenticateToken, ctrl.setRole);
 router.post('/set-premium', authenticateToken, ctrl.setPremium);

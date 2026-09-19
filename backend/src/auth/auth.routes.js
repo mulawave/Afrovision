@@ -1,17 +1,18 @@
 const { Router } = require('express');
 const { authenticateToken } = require('../utils/jwt');
+const { authLimiter } = require('../utils/rate_limit');
 const ctrl = require('./auth.controller');
 const tvSessionCtrl = require('./tv_session.controller');
 
 const router = Router();
 
-router.post('/register', ctrl.register);
-router.post('/login', ctrl.login);
-router.post('/pak-login', ctrl.pakLogin);
-router.post('/wallet-login', ctrl.walletLogin);
+router.post('/register', authLimiter, ctrl.register);
+router.post('/login', authLimiter, ctrl.login);
+router.post('/pak-login', authLimiter, ctrl.pakLogin);
+router.post('/wallet-login', authLimiter, ctrl.walletLogin);
 router.get('/me', authenticateToken, ctrl.me);
-router.post('/forgot-password', ctrl.forgotPassword);
-router.post('/reset-password', ctrl.resetPassword);
+router.post('/forgot-password', authLimiter, ctrl.forgotPassword);
+router.post('/reset-password', authLimiter, ctrl.resetPassword);
 router.post('/logout', ctrl.logout);
 
 // Android TV account linking (QR code pairing)

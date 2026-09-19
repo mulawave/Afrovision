@@ -64,7 +64,10 @@ class ApiService {
   }
 
   static Future<Map<String, String>> _headers() async {
-    final token = await AuthStorage.getToken();
+    return _headersForToken(await AuthStorage.getToken());
+  }
+
+  static Map<String, String> _headersForToken(String? token) {
     final headers = <String, String>{
       'Content-Type': 'application/json',
       'Accept-Encoding': 'gzip',
@@ -75,21 +78,36 @@ class ApiService {
     return headers;
   }
 
-  static dynamic _readCache(String path) {
-    final entry = _cache[path];
+  static dynamic _readCache(String key) {
+    final entry = _cache[key];
     if (entry == null) return null;
     if (DateTime.now().isAfter(entry.expiry)) {
-      _cache.remove(path);
+      _cache.remove(key);
       return null;
     }
     return entry.data;
   }
 
-  static void _writeCache(String path, dynamic data) {
-    _cache[path] = _CacheEntry(
+  static void _writeCache(String key, dynamic data) {
+    _cache[key] = _CacheEntry(
       data: data,
       expiry: DateTime.now().add(_cacheTtl),
     );
+  }
+
+  /// Cache key for authenticated GETs — includes the current token so a
+  /// cached response for one account can never be served to another after
+  /// a fast logout/login (the cache is never otherwise keyed per-user).
+  ///
+  /// Takes the token as a parameter rather than reading secure storage
+  /// itself — reading it separately from `_headers()` meant every GET hit
+  /// the keystore twice. On devices with a flaky Keystore (confirmed on at
+  /// least one test device: intermittent "unwrap key failed" errors),
+  /// `AuthStorage.getToken()` treats a failed read as "no token" and
+  /// deletes whatever was stored — doubling the read count doubled the
+  /// odds of a transient glitch wiping a perfectly valid session mid-batch.
+  static String _authCacheKey(String path, String? token) {
+    return '$path::${token ?? 'anon'}';
   }
 
   /// Safely decode JSON from a response body.
@@ -133,13 +151,15 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> get(String path, {bool noCache = false}) async {
+    final token = await AuthStorage.getToken();
+    final cacheKey = _authCacheKey(path, token);
     if (!noCache) {
-      final cached = _readCache(path);
+      final cached = _readCache(cacheKey);
       if (cached != null) return cached as Map<String, dynamic>;
     }
     final result = await _safeRequest(() => _withRetry(() async {
       final response = await http
-          .get(Uri.parse('$_baseUrl$path'), headers: await _headers())
+          .get(Uri.parse('$_baseUrl$path'), headers: _headersForToken(token))
           .timeout(_timeout);
       final data = _decodeJson(response);
       if (response.statusCode >= 400) {
@@ -151,7 +171,7 @@ class ApiService {
       return data;
     }));
     if (!noCache) {
-      _writeCache(path, result);
+      _writeCache(cacheKey, result);
     }
     return result;
   }
@@ -315,12 +335,16 @@ class ApiService {
   }
 
   /// Authenticated GET — sends auth header, returns dynamic (can be List or Map)
-  static Future<dynamic> getDynamic(String path) async {
-    final cached = _readCache(path);
-    if (cached != null) return cached;
+  static Future<dynamic> getDynamic(String path, {bool noCache = false}) async {
+    final token = await AuthStorage.getToken();
+    final cacheKey = _authCacheKey(path, token);
+    if (!noCache) {
+      final cached = _readCache(cacheKey);
+      if (cached != null) return cached;
+    }
     final result = await _safeRequest(() => _withRetry(() async {
       final response = await http
-          .get(Uri.parse('$_baseUrl$path'), headers: await _headers())
+          .get(Uri.parse('$_baseUrl$path'), headers: _headersForToken(token))
           .timeout(_timeout);
       final body = response.body.trimLeft();
       if (body.startsWith('<')) {
@@ -338,7 +362,9 @@ class ApiService {
       }
       return data;
     }));
-    _writeCache(path, result);
+    if (!noCache) {
+      _writeCache(cacheKey, result);
+    }
     return result;
   }
 }

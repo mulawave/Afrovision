@@ -185,7 +185,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
             'Profile data updated successfully!',
             style: TextStyle(color: AppColors.white),
           ),
-          backgroundColor: Color(0xFF4CAF50),
+          backgroundColor: Color(0xFF5FD39A),
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 4),
         ),
@@ -540,11 +540,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
                                     Container(
                                       padding: const EdgeInsets.all(20),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF4CAF50)
+                                        color: const Color(0xFF5FD39A)
                                             .withValues(alpha: 0.08),
                                         borderRadius: BorderRadius.circular(16),
                                         border: Border.all(
-                                          color: const Color(0xFF4CAF50)
+                                          color: const Color(0xFF5FD39A)
                                               .withValues(alpha: 0.3),
                                         ),
                                       ),
@@ -552,14 +552,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
                                         children: [
                                           const Icon(
                                             Icons.check_circle_rounded,
-                                            color: Color(0xFF4CAF50),
+                                            color: Color(0xFF5FD39A),
                                             size: 40,
                                           ),
                                           const SizedBox(height: 12),
                                           const Text(
                                             'Profile Saved Successfully!',
                                             style: TextStyle(
-                                              color: Color(0xFF4CAF50),
+                                              color: Color(0xFF5FD39A),
                                               fontSize: 16,
                                               fontWeight: FontWeight.w700,
                                             ),

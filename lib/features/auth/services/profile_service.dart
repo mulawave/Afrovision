@@ -1,6 +1,8 @@
 import 'dart:io';
 import '../../../core/api/api_service.dart';
+import '../../../core/widgets/profile_setup_guard.dart';
 import '../models/user_model.dart';
+import 'auth_service.dart';
 
 class ProfileService {
   static Future<UserModel> getProfile() async {
@@ -34,6 +36,8 @@ class ProfileService {
     if (referralSource != null) body['referralSource'] = referralSource;
     if (referralSourceDetail != null) body['referralSourceDetail'] = referralSourceDetail;
     final data = await ApiService.put('/users/update-profile', body);
+    AuthService.clearCache();
+    ProfileSetupGuard.clearCache();
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 
@@ -43,6 +47,8 @@ class ProfileService {
       file,
       fieldName: 'avatar',
     );
+    AuthService.clearCache();
+    ProfileSetupGuard.clearCache();
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 

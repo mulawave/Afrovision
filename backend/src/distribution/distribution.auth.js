@@ -106,6 +106,28 @@ async function authenticateTvDevice(req, res, next) {
   }
 }
 
+/**
+ * Authenticates the TV device, then acts as the AfroVision account the TV is
+ * paired to by exposing that account as `req.userId`.
+ *
+ * This lets device-token requests reuse the ordinary user-auth controllers
+ * (library, reader, progress) unchanged, so entitlement rules stay defined in
+ * exactly one place instead of being reimplemented for TV and drifting.
+ */
+async function authenticateTvDeviceAsOwner(req, res, next) {
+  return authenticateTvDevice(req, res, () => {
+    const ownerUid = req.device && req.device.owner_user_id;
+    if (!ownerUid) {
+      return res.status(403).json({
+        error: 'NO_LINKED_ACCOUNT',
+        message: 'This TV is not linked to an AfroVision account yet.',
+      });
+    }
+    req.userId = ownerUid;
+    next();
+  });
+}
+
 module.exports = {
   generateDistributorToken,
   generateMarketerToken,
@@ -113,4 +135,5 @@ module.exports = {
   authenticateDistributor,
   authenticateMarketer,
   authenticateTvDevice,
+  authenticateTvDeviceAsOwner,
 };

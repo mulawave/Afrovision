@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -192,101 +193,130 @@ class _ChannelGridScreenState extends State<ChannelGridScreen>
                         opacity: _fadeAnim,
                         child: SlideTransition(
                           position: _slideAnim,
-                          child: GridView.builder(
-                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                  childAspectRatio: 0.86,
+                          child: CustomScrollView(
+                            slivers: [
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  20,
+                                  8,
+                                  20,
+                                  22,
                                 ),
-                            itemCount: _channels.length,
-                            itemBuilder: (context, i) {
-                              final channel = _channels[i];
-                              return GestureDetector(
-                                onTap: () => Navigator.pushNamed(
-                                  context,
-                                  '/channel-view',
-                                  arguments: channel,
-                                ),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: AppColors.cardBg,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: AppColors.inputBorder,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Expanded(
-                                        child: ClipRRect(
-                                          borderRadius:
-                                              const BorderRadius.vertical(
-                                                top: Radius.circular(16),
-                                              ),
-                                          child: _logo(channel),
-                                        ),
+                                sliver: SliverGrid(
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: 2,
+                                        crossAxisSpacing: 12,
+                                        mainAxisSpacing: 12,
+                                        childAspectRatio: 0.86,
                                       ),
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                          10,
-                                          10,
-                                          10,
-                                          12,
+                                  delegate: SliverChildBuilderDelegate((
+                                    context,
+                                    i,
+                                  ) {
+                                    final channel = _channels[i];
+                                    return GestureDetector(
+                                      onTap: () => Navigator.pushNamed(
+                                        context,
+                                        '/channel-view',
+                                        arguments: channel,
+                                      ),
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: AppColors.cardBg,
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          border: Border.all(
+                                            color: AppColors.inputBorder,
+                                          ),
                                         ),
                                         child: Column(
                                           crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                              CrossAxisAlignment.stretch,
                                           children: [
-                                            Text(
-                                              channel.name,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: AppColors.white,
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w700,
+                                            Expanded(
+                                              child: ClipRRect(
+                                                borderRadius:
+                                                    const BorderRadius.vertical(
+                                                      top: Radius.circular(16),
+                                                    ),
+                                                child: _logo(channel),
                                               ),
                                             ),
-                                            const SizedBox(height: 8),
-                                            Container(
+                                            Padding(
                                               padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 4,
+                                                  const EdgeInsets.fromLTRB(
+                                                    10,
+                                                    10,
+                                                    10,
+                                                    12,
                                                   ),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.orange
-                                                    .withValues(alpha: 0.14),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: AppColors.orange
-                                                      .withValues(alpha: 0.28),
-                                                ),
-                                              ),
-                                              child: Text(
-                                                _accessLabel(channel),
-                                                style: const TextStyle(
-                                                  color: AppColors.lightOrange,
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.w700,
-                                                  letterSpacing: 0.35,
-                                                ),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    channel.name,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      color: AppColors.white,
+                                                      fontSize: 14,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 4,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.orange
+                                                          .withValues(
+                                                            alpha: 0.14,
+                                                          ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            8,
+                                                          ),
+                                                      border: Border.all(
+                                                        color: AppColors.orange
+                                                            .withValues(
+                                                              alpha: 0.28,
+                                                            ),
+                                                      ),
+                                                    ),
+                                                    child: Text(
+                                                      _accessLabel(channel),
+                                                      style: const TextStyle(
+                                                        color: AppColors
+                                                            .lightOrange,
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        letterSpacing: 0.35,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                           ],
                                         ),
                                       ),
-                                    ],
-                                  ),
+                                    );
+                                  }, childCount: _channels.length),
                                 ),
-                              );
-                            },
+                              ),
+                              const SliverToBoxAdapter(
+                                child: PangleBigBanner(),
+                              ),
+                            ],
                           ),
                         ),
                       ),

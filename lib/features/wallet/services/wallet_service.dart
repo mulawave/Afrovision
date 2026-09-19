@@ -148,9 +148,11 @@ class WalletService {
     return ApiService.delete('/wallet/disconnect-external');
   }
 
-  /// Get connected external wallet info with live balances.
+  /// Get connected external wallet info with live balances. `scan=true` is
+  /// required or the backend skips the (slow) on-chain balance scan and
+  /// balances read as zero.
   static Future<Map<String, dynamic>?> getConnectedWallet() async {
-    final data = await ApiService.get('/wallet/connected');
+    final data = await ApiService.get('/wallet/connected?scan=true', noCache: true);
     return data['connected'] as Map<String, dynamic>?;
   }
 

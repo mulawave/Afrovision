@@ -382,7 +382,7 @@ class _WaveCard extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFD700).withValues(alpha: 0.85),
+                      color: const Color(0xFFF5C266).withValues(alpha: 0.85),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(

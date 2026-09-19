@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/reputation_badge.dart';
@@ -212,6 +213,7 @@ class _ReputationScreenState extends State<ReputationScreen>
           _buildHowToEarnCard(),
           const SizedBox(height: 24),
           _buildLeaderboardButton(),
+          const PangleBigBanner(margin: EdgeInsets.only(top: 16)),
           const SizedBox(height: 32),
         ],
       ),

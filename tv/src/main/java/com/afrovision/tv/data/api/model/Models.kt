@@ -98,18 +98,27 @@ data class WaveListResponse(
 
 @Serializable
 data class WatchProgress(
-    val id: String = "",
-    @SerialName("media_id") val mediaId: String = "",
     @SerialName("media_type") val mediaType: String = "",
-    val position: Long = 0,
-    val duration: Long = 0,
-    @SerialName("last_updated") val lastUpdated: String? = null
+    @SerialName("movie_id") val movieId: String? = null,
+    @SerialName("series_id") val seriesId: String? = null,
+    @SerialName("episode_id") val episodeId: String? = null,
+    val title: String = "",
+    @SerialName("episode_title") val episodeTitle: String? = null,
+    @SerialName("poster_url") val posterUrl: String? = null,
+    @SerialName("position_seconds") val positionSeconds: Long = 0,
+    @SerialName("duration_seconds") val durationSeconds: Long = 0,
+    @SerialName("updated_at") val updatedAt: Long = 0
+)
+
+@Serializable
+data class WatchProgressData(
+    val items: List<WatchProgress> = emptyList()
 )
 
 @Serializable
 data class WatchProgressResponse(
-    val items: List<WatchProgress> = emptyList(),
-    val data: List<WatchProgress> = emptyList()
+    val success: Boolean = false,
+    val data: WatchProgressData = WatchProgressData()
 )
 
 @Serializable
@@ -239,13 +248,28 @@ data class SubscribeRequest(
 )
 
 @Serializable
+data class ChannelViewRequest(
+    @SerialName("platform") val platform: String = "tv"
+)
+
+@Serializable
+data class WatchPingRequest(
+    @SerialName("seconds") val seconds: Int,
+    @SerialName("platform") val platform: String = "tv"
+)
+
+@Serializable
+/**
+ * The "feed" is the viewer's following feed of waves — the backend has no
+ * separate social-post entity, so these fields mirror a wave document.
+ */
 data class FeedPost(
     val id: String = "",
-    @SerialName("author_name") val authorName: String = "",
-    @SerialName("author_avatar") val authorAvatar: String? = null,
-    val time: String = "",
-    val body: String = "",
-    @SerialName("media_url") val mediaUrl: String? = null
+    val title: String = "",
+    val description: String? = null,
+    @SerialName("thumbnail_url") val thumbnailUrl: String? = null,
+    @SerialName("video_url") val videoUrl: String? = null,
+    @SerialName("created_at") val createdAt: Long = 0
 )
 
 @Serializable
@@ -266,8 +290,8 @@ data class ChannelLibraryResponse(
 
 @Serializable
 data class FeedResponse(
-    val posts: List<FeedPost> = emptyList(),
-    val data: List<FeedPost> = emptyList()
+    val waves: List<FeedPost> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null
 )
 
 @Serializable

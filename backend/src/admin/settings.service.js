@@ -151,12 +151,16 @@ function _inferType(definition, effectiveValue) {
 
 function buildPublicSetting(key, definition, storedData) {
   const effectiveValue = storedData ? normalizeStoredValue(storedData) : definition.defaultValue;
+  const isSecret = Boolean(storedData ? storedData.is_secret : definition.sensitive);
+  const hasValue = effectiveValue !== null && effectiveValue !== undefined && effectiveValue !== '';
 
   return {
     key,
-    value: effectiveValue,
+    value: isSecret ? null : effectiveValue,
+    has_value: hasValue,
+    value_preview: isSecret && hasValue ? `••••${String(effectiveValue).slice(-4)}` : undefined,
     type: _inferType(definition, effectiveValue),
-    is_secret: Boolean(storedData ? storedData.is_secret : definition.sensitive),
+    is_secret: isSecret,
     category: definition.category,
     category_label: SETTING_CATEGORIES[definition.category],
     description: definition.description,

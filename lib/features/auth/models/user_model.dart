@@ -36,6 +36,11 @@ class UserModel {
   final int reputationLevel;
   final double totalReps;
 
+  /// Persisted, unique identifier for inter-wallet transfers / financial
+  /// tracking (`users/{id}.wallet_reference` on the backend — generated once
+  /// at account creation, or backfilled lazily for older accounts).
+  final String? walletReference;
+
   UserModel({
     required this.id,
     required this.email,
@@ -73,6 +78,7 @@ class UserModel {
     required this.createdAt,
     this.reputationLevel = 0,
     this.totalReps = 0,
+    this.walletReference,
   });
 
   bool get isViewer => role == 'viewer';
@@ -164,6 +170,7 @@ class UserModel {
       createdAt: (json['created_at'] ?? '') as String,
       reputationLevel: (json['reputation_level'] as num?)?.toInt() ?? 0,
       totalReps: _toDouble(json['total_reps']),
+      walletReference: json['wallet_reference'] as String?,
     );
   }
 }

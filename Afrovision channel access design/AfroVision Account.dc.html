@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#080e21;color:#eef1f8;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#f0a52a}a:hover{color:#f7c66a}
+.av-scroll::-webkit-scrollbar{width:0;height:0}
+.av-scroll{scrollbar-width:none}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetUp{from{transform:translateY(103%)}to{transform:translateY(0)}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;gap:44px;padding:44px 48px 64px;align-items:flex-start;justify-content:center">
+
+<div style="flex:none;width:390px;height:844px;position:relative;border-radius:42px;background:#0b1533;box-shadow:0 0 0 1px #22325e,0 30px 80px rgba(0,0,0,.65);overflow:hidden;display:flex;flex-direction:column">
+
+<div style="flex:none;background:linear-gradient(168deg,#17295e,#0e1a3f 86%);padding:14px 16px 12px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:500;color:#c3cde6;margin-bottom:10px">
+<span>5:20</span>
+<span style="display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;background:#04070f;color:#eef1f8;font-size:11px"><i class="ph-fill ph-broadcast" style="font-size:13px;color:#5b9dff"></i>2</span>
+<span style="display:flex;align-items:center;gap:6px"><i class="ph ph-moon" style="font-size:12px"></i><i class="ph ph-cell-signal-full" style="font-size:12px"></i><span style="width:16px;height:9px;border-radius:2px;box-shadow:inset 0 0 0 1px #7d8bad;background:linear-gradient(to right,#eef1f8 92%,transparent 92%)"></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:9px">
+<button onClick="{{ back }}" aria-label="Back" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#c3cde6;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(255,255,255,.07);color:#eef1f8"><i class="ph ph-caret-left" style="font-size:16px"></i></button>
+<div style="flex:1;min-width:0">
+<div style="font-size:18px;font-weight:600;letter-spacing:-.01em">{{ screenTitle }}</div>
+<div style="font-size:10.5px;color:#8fa0c8">{{ screenSub }}</div>
+</div>
+<sc-if value="{{ headAction }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ headAction.tap }}" aria-label="{{ headAction.label }}" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#f0a52a;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.14)"><i class="{{ headAction.icon }}" style="font-size:16px"></i></button>
+</sc-if>
+</div>
+<sc-if value="{{ tabs }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:4px;margin-top:11px;padding:4px;border-radius:13px;background:rgba(4,8,20,.4);box-shadow:inset 0 0 0 1px #22325e">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+<button onClick="{{ t.pick }}" style="flex:1;padding:10px 4px;border:0;border-radius:10px;background:transparent;color:#9aa6c4;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;{{ t.style }}" style-hover="color:#f5c266">{{ t.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+
+<div class="av-scroll" ref="{{ scrollRef }}" style="flex:1;min-height:0;overflow-y:auto;padding:12px 16px 24px;display:flex;flex-direction:column;gap:11px">
+
+<sc-if value="{{ isProfile }}" hint-placeholder-val="{{ true }}">
+<sc-if value="{{ banner }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:12px;background:rgba(240,165,42,.08);box-shadow:inset 0 0 0 1px #4a3a1a">
+<i class="ph-fill ph-megaphone" style="font-size:15px;color:#f5c266"></i>
+<span style="flex:1;font-size:11px;color:#f0c88f">AfroVision 2.0 is live on Google Play — update for Waves and the new media centre.</span>
+<button onClick="{{ dismissBanner }}" aria-label="Dismiss" style="flex:none;width:24px;height:24px;border:0;border-radius:7px;background:transparent;color:#8fa0c8;cursor:pointer" style-hover="color:#eef1f8"><i class="ph ph-x" style="font-size:12px"></i></button>
+</div>
+</sc-if>
+
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:14px">
+<div style="display:flex;align-items:center;gap:12px">
+<span style="width:56px;height:56px;flex:none;border-radius:50%;background:linear-gradient(150deg,#f0a52a,#8b5cf6);display:grid;place-items:center;font-size:20px;font-weight:600;color:#fff">RO</span>
+<div style="flex:1;min-width:0">
+<div style="font-size:17px;font-weight:600;letter-spacing:-.01em">Richard U. Obroh</div>
+<div style="font-size:11px;color:#8fa0c8">@richardobroh · Member since Apr 9, 2026</div>
+<div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9px;font-weight:700;letter-spacing:.06em;padding:4px 9px;border-radius:999px;background:rgba(47,158,107,.16);color:#5fd39a;box-shadow:inset 0 0 0 1px rgba(95,211,154,.3)"><i class="ph-fill ph-seal-check" style="font-size:11px"></i>KYC VERIFIED</span>
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9px;font-weight:700;letter-spacing:.06em;padding:4px 9px;border-radius:999px;background:rgba(240,165,42,.12);color:#f5c266;box-shadow:inset 0 0 0 1px #4a3a1a">PREMIUM · ACTIVE</span>
+</div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px">
+<sc-for list="{{ profileStats }}" as="p" hint-placeholder-count="3">
+<div style="padding:10px 11px;border-radius:12px;box-shadow:inset 0 0 0 1px #22325e">
+<div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:#8fa0c8">{{ p.label }}</div>
+<div style="font-size:13px;font-weight:600;margin-top:3px;color:{{ p.tint }}">{{ p.value }}</div>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:14px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+<div>
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">vPT balance</div>
+<div style="font-size:27px;font-weight:600;letter-spacing:-.02em;margin-top:4px">235 vPT</div>
+<div style="font-size:11px;color:#8fa0c8">≈ ₦176,525</div>
+</div>
+<span style="flex:none;font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:5px 10px;border-radius:999px;background:rgba(226,84,63,.14);color:#f1789a;box-shadow:inset 0 0 0 1px rgba(241,120,154,.28);margin-top:14px">LOW</span>
+</div>
+<button onClick="{{ openReps }}" style="width:100%;display:block;text-align:left;margin-top:12px;padding:12px;border:0;border-radius:13px;background:rgba(139,92,246,.1);box-shadow:inset 0 0 0 1px #4b3a86;color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #8b5cf6">
+<span style="display:flex;align-items:center;gap:10px">
+<span style="width:32px;height:32px;flex:none;border-radius:10px;background:rgba(167,124,255,.18);display:grid;place-items:center"><i class="ph-fill ph-shield-star" style="font-size:16px;color:#c0a4ff"></i></span>
+<span style="flex:1"><span style="display:block;font-size:15px;font-weight:600">30.5K Reps</span><span style="display:block;font-size:10.5px;color:#b3a3dd">Level 3 · Max level</span></span>
+<i class="ph ph-caret-right" style="font-size:15px;color:#8fa0c8"></i>
+</span>
+<span style="display:block;height:6px;border-radius:3px;background:rgba(255,255,255,.09);margin-top:10px;overflow:hidden"><span style="display:block;width:100%;height:100%;background:linear-gradient(90deg,#ef9615,#f8c96f)"></span></span>
+</button>
+<div style="display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 12px;border-radius:12px;box-shadow:inset 0 0 0 1px #22325e">
+<i class="ph ph-currency-circle-dollar" style="font-size:17px;color:#f5c266"></i>
+<span style="flex:1;font-size:13px">Preferred currency</span>
+<button onClick="{{ cycleCurrency }}" style="flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:7px 11px;border-radius:9px;border:1px solid #4a3a1a;background:rgba(240,165,42,.1);color:#f5c266;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.2)">{{ currency }}<i class="ph ph-caret-down" style="font-size:11px"></i></button>
+</div>
+</div>
+
+<div style="flex:none;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ menu }}" as="m" hint-placeholder-count="8">
+<button onClick="{{ m.tap }}" style="display:flex;align-items:center;gap:11px;text-align:left;padding:13px 14px;border:0;border-radius:14px;background:{{ m.bg }};box-shadow:inset 0 0 0 1px {{ m.border }};color:{{ m.fg }};font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<span style="width:34px;height:34px;flex:none;border-radius:10px;background:{{ m.iconBg }};display:grid;place-items:center"><i class="{{ m.icon }}" style="font-size:16px;color:{{ m.tint }}"></i></span>
+<span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:600">{{ m.label }}</span><span style="display:block;font-size:10.5px;color:#8fa0c8;margin-top:1px">{{ m.note }}</span></span>
+<i class="ph ph-caret-right" style="font-size:15px;color:#7d8bad"></i>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPlan }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;border-radius:16px;background:linear-gradient(150deg,#1b2a5c,#101c40);box-shadow:inset 0 0 0 1px #2f4483;padding:15px">
+<div style="display:flex;align-items:center;gap:11px">
+<span style="width:40px;height:40px;flex:none;border-radius:12px;background:rgba(47,158,107,.16);display:grid;place-items:center"><i class="ph-fill ph-medal" style="font-size:19px;color:#5fd39a"></i></span>
+<div><div style="font-size:15.5px;font-weight:600">Your current plan</div><div style="font-size:11px;color:#8fa0c8">Active and ready to go</div></div>
+</div>
+<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:.07em;padding:6px 11px;border-radius:999px;background:rgba(47,158,107,.16);color:#5fd39a;box-shadow:inset 0 0 0 1px rgba(95,211,154,.3)"><i class="ph-fill ph-ticket" style="font-size:11px"></i>PREMIUM</span>
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:.07em;padding:6px 11px;border-radius:999px;background:rgba(127,196,255,.14);color:#7fc4ff;box-shadow:inset 0 0 0 1px rgba(127,196,255,.3)"><i class="ph-fill ph-user" style="font-size:11px"></i>CREATOR</span>
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:.07em;padding:6px 11px;border-radius:999px;background:rgba(240,165,42,.12);color:#f5c266;box-shadow:inset 0 0 0 1px #4a3a1a"><i class="ph-fill ph-timer" style="font-size:11px"></i>24 DAYS LEFT</span>
+</div>
+<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.08);margin:13px 0 6px;overflow:hidden"><div style="width:20%;height:100%;background:linear-gradient(90deg,#ef9615,#f8c96f)"></div></div>
+<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#8fa0c8"><span>Cycle started Sep 10</span><span>Renews Oct 4, 2026</span></div>
+<div style="display:flex;flex-direction:column;gap:1px;margin-top:12px;border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 1px #22325e">
+<sc-for list="{{ planRows }}" as="r" hint-placeholder-count="4">
+<div style="display:flex;justify-content:space-between;gap:12px;padding:11px 12px;background:rgba(255,255,255,.02);font-size:12.5px"><span style="color:#8fa0c8">{{ r.k }}</span><span style="font-weight:600;color:{{ r.tint }}">{{ r.v }}</span></div>
+</sc-for>
+</div>
+<button onClick="{{ managePlan }}" style="width:100%;margin-top:12px;padding:14px;border:0;border-radius:13px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 8px 22px rgba(239,150,21,.2)" style-hover="filter:brightness(1.06)">Manage Plan</button>
+</div>
+<div style="flex:none;display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ planOptions }}" as="p" hint-placeholder-count="3">
+<div style="border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px {{ p.border }};padding:13px">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+<span style="font-size:14px;font-weight:600">{{ p.name }}</span>
+<span style="font-size:13px;font-weight:600;color:#f5c266">{{ p.price }}</span>
+</div>
+<div style="font-size:11px;color:#8fa0c8;margin-top:3px">{{ p.blurb }}</div>
+<button onClick="{{ p.tap }}" style="width:100%;margin-top:10px;padding:11px;border-radius:11px;border:1px solid {{ p.btnBorder }};background:{{ p.btnBg }};color:{{ p.btnFg }};font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.08)">{{ p.cta }}</button>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSubs }}" hint-placeholder-val="{{ false }}">
+<sc-for list="{{ subs }}" as="c" hint-placeholder-count="4">
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="display:flex;align-items:center;gap:11px">
+<span style="width:44px;height:44px;flex:none;border-radius:50%;background:{{ c.avatarBg }};box-shadow:0 0 0 2px #4a3a1a;display:grid;place-items:center;font-size:13px;font-weight:700;color:#fff">{{ c.initials }}</span>
+<div style="flex:1;min-width:0">
+<div style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</div>
+<div style="font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#f0a52a;margin-top:2px">{{ c.genre }}</div>
+</div>
+<span style="flex:none;font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:5px 10px;border-radius:999px;background:{{ c.pillBg }};color:{{ c.pillFg }};box-shadow:inset 0 0 0 1px {{ c.pillBorder }}">{{ c.tier }}</span>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:11px;padding:9px 11px;border-radius:11px;background:rgba(0,0,0,.2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)">
+<i class="ph ph-calendar-dots" style="font-size:14px;color:#8fa0c8"></i>
+<span style="flex:1;font-size:11.5px;color:#c3cde6">{{ c.dateLabel }}</span>
+
+</div>
+<div style="display:flex;gap:8px;margin-top:10px">
+<button onClick="{{ c.watch }}" style="flex:1.3;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px;border:0;border-radius:11px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.06)"><i class="ph-fill ph-play-circle" style="font-size:15px"></i>Watch Now</button>
+<button onClick="{{ c.leave }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px;border-radius:11px;border:1px solid rgba(241,120,154,.32);background:rgba(226,84,63,.09);color:#f1789a;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="background:rgba(226,84,63,.18)"><i class="ph ph-x-circle" style="font-size:15px"></i>Unsubscribe</button>
+</div>
+</div>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{ isRefer }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;border-radius:16px;background:linear-gradient(150deg,#1b2a5c,#101c40);box-shadow:inset 0 0 0 1px #2f4483;padding:16px;text-align:center">
+<span style="display:inline-grid;place-items:center;width:52px;height:52px;border-radius:50%;background:linear-gradient(150deg,#f0a52a,#f8c96f)"><i class="ph-fill ph-gift" style="font-size:24px;color:#fff"></i></span>
+<div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:#8fa0c8;margin-top:10px">Your referral code</div>
+<div style="font-size:26px;font-weight:600;letter-spacing:.18em;margin-top:4px">4E28E82D</div>
+<div style="display:flex;gap:8px;margin-top:12px">
+<button onClick="{{ copyCode }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px;border:0;border-radius:12px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.06)"><i class="ph ph-copy" style="font-size:15px"></i>Copy Code</button>
+<button onClick="{{ shareCode }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px;border-radius:12px;border:1px solid #4a3a1a;background:rgba(240,165,42,.1);color:#f5c266;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" style-hover="background:rgba(240,165,42,.2)"><i class="ph ph-share-network" style="font-size:15px"></i>Share</button>
+</div>
+</div>
+<div style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+<sc-for list="{{ referStats }}" as="r" hint-placeholder-count="3">
+<div style="text-align:center;padding:12px 6px;border-radius:13px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<i class="{{ r.icon }}" style="font-size:17px;color:#f5c266"></i>
+<div style="font-size:15px;font-weight:600;margin-top:6px">{{ r.value }}</div>
+<div style="font-size:9.5px;color:#8fa0c8;margin-top:1px">{{ r.label }}</div>
+</div>
+</sc-for>
+</div>
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="font-size:14px;font-weight:600;margin-bottom:10px">Referral levels</div>
+<div style="display:flex;gap:6px">
+<sc-for list="{{ levels }}" as="l" hint-placeholder-count="5">
+<div style="flex:1;text-align:center;padding:11px 2px;border-radius:11px;box-shadow:inset 0 0 0 1px #22325e">
+<div style="font-size:14px;font-weight:600;color:#f5c266">{{ l.pct }}</div>
+<div style="font-size:9.5px;color:#8fa0c8;margin-top:2px">{{ l.tier }}</div>
+</div>
+</sc-for>
+</div>
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:10px">1/3 of the community pool · paid 50% cash + 50% vPT</div>
+</div>
+<div style="flex:none;display:flex;gap:4px;padding:4px;border-radius:13px;background:rgba(4,8,20,.4);box-shadow:inset 0 0 0 1px #22325e">
+<sc-for list="{{ referTabs }}" as="t" hint-placeholder-count="3">
+<button onClick="{{ t.pick }}" style="flex:1;padding:10px 4px;border:0;border-radius:10px;background:transparent;color:#9aa6c4;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;{{ t.style }}" style-hover="color:#f5c266">{{ t.label }}</button>
+</sc-for>
+</div>
+<sc-for list="{{ referRows }}" as="r" hint-placeholder-count="2">
+<div style="flex:none;display:flex;align-items:center;gap:11px;padding:12px;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<span style="width:34px;height:34px;flex:none;border-radius:10px;background:rgba(240,165,42,.12);display:grid;place-items:center;font-size:11px;font-weight:700;color:#f5c266">{{ r.level }}</span>
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</div>
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:1px">{{ r.date }}</div>
+</div>
+<div style="flex:none;text-align:right">
+<div style="font-size:13px;font-weight:600">{{ r.cash }}</div>
+<div style="font-size:10.5px;color:#f5c266">{{ r.vpt }}</div>
+<span style="display:inline-block;font-size:9px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:999px;background:{{ r.pillBg }};color:{{ r.pillFg }};margin-top:4px">{{ r.status }}</span>
+</div>
+</div>
+</sc-for>
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="font-size:14px;font-weight:600;margin-bottom:11px">How it works</div>
+<div style="display:flex;flex-direction:column;gap:11px">
+<sc-for list="{{ how }}" as="h" hint-placeholder-count="4">
+<div style="display:flex;gap:11px;align-items:flex-start">
+<span style="width:32px;height:32px;flex:none;border-radius:10px;background:linear-gradient(150deg,#f0a52a,#f8c96f);display:grid;place-items:center"><i class="{{ h.icon }}" style="font-size:15px;color:#26170a"></i></span>
+<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">{{ h.title }}</div><div style="font-size:11px;color:#8fa0c8;margin-top:1px">{{ h.body }}</div></div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isAds }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ adsEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;padding:40px 20px;text-align:center">
+<i class="ph ph-megaphone" style="font-size:44px;color:#3d4d7d"></i>
+<div style="font-size:16px;font-weight:600">No ads yet</div>
+<div style="font-size:12px;color:#8fa0c8;max-width:230px">Submit your first campaign — an admin reviews it before it goes live.</div>
+<button onClick="{{ goSubmitAd }}" style="margin-top:6px;padding:12px 20px;border:0;border-radius:12px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.06)">Submit an Ad</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ adsForm }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;padding:12px 13px;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<div style="font-size:15px;font-weight:600">Submit a new ad</div>
+<div style="font-size:11.5px;color:#8fa0c8;margin-top:2px">Reviewed by an admin before going live. {{ adFilled }} of 7 fields complete.</div>
+<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.08);margin-top:10px;overflow:hidden"><div style="width:{{ adProgress }};height:100%;background:linear-gradient(90deg,#ef9615,#f8c96f)"></div></div>
+</div>
+<sc-for list="{{ adFields }}" as="f" hint-placeholder-count="6">
+<div style="flex:none">
+<div style="font-size:11px;font-weight:600;color:#f0c88f;margin-bottom:6px">{{ f.label }}</div>
+<sc-if value="{{ f.isText }}" hint-placeholder-val="{{ true }}">
+<input value="{{ f.value }}" onChange="{{ f.onChange }}" placeholder="{{ f.placeholder }}" style="width:100%;padding:13px;border:0;border-radius:12px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f;color:#eef1f8;font-family:inherit;font-size:13.5px;outline:none">
+</sc-if>
+<sc-if value="{{ f.isArea }}" hint-placeholder-val="{{ false }}">
+<textarea value="{{ f.value }}" onChange="{{ f.onChange }}" placeholder="{{ f.placeholder }}" rows="3" style="width:100%;padding:13px;border:0;border-radius:12px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f;color:#eef1f8;font-family:inherit;font-size:13.5px;outline:none;resize:none"></textarea>
+</sc-if>
+<sc-if value="{{ f.isSelect }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ f.cycle }}" style="width:100%;display:flex;align-items:center;gap:10px;padding:13px;border:0;border-radius:12px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f;color:#eef1f8;font-family:inherit;font-size:13.5px;text-align:left;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a"><span style="flex:1">{{ f.value }}</span><i class="ph ph-caret-down" style="font-size:14px;color:#8fa0c8"></i></button>
+</sc-if>
+<sc-if value="{{ f.isFile }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ f.cycle }}" style="width:100%;display:flex;align-items:center;gap:11px;padding:13px;border-radius:12px;border:1px dashed #3d4d7d;background:transparent;color:{{ f.fg }};font-family:inherit;font-size:13px;text-align:left;cursor:pointer" style-hover="border-color:#f0a52a"><i class="ph-fill ph-file-arrow-up" style="font-size:18px;color:#f5c266"></i><span style="flex:1">{{ f.value }}</span></button>
+</sc-if>
+<sc-if value="{{ f.hint }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:5px">{{ f.hint }}</div>
+</sc-if>
+</div>
+</sc-for>
+<button onClick="{{ submitAd }}" style="flex:none;width:100%;padding:14px;border:0;border-radius:13px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;{{ submitStyle }}">Submit Ad</button>
+</sc-if>
+
+<sc-if value="{{ adsAnalytics }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+<sc-for list="{{ adStats }}" as="a" hint-placeholder-count="4">
+<div style="padding:13px;border-radius:13px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<div style="display:flex;align-items:center;gap:7px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#8fa0c8"><i class="{{ a.icon }}" style="font-size:13px;color:#f5c266"></i>{{ a.label }}</div>
+<div style="font-size:19px;font-weight:600;margin-top:5px">{{ a.value }}</div>
+<div style="font-size:10.5px;color:{{ a.tint }};margin-top:1px">{{ a.delta }}</div>
+</div>
+</sc-for>
+</div>
+<div style="flex:none;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="font-size:14px;font-weight:600;margin-bottom:11px">Impressions · last 7 days</div>
+<div style="display:flex;align-items:flex-end;gap:7px;height:96px">
+<sc-for list="{{ bars }}" as="b" hint-placeholder-count="7">
+<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%">
+<div style="width:100%;border-radius:5px 5px 2px 2px;height:{{ b.h }};background:{{ b.bg }}"></div>
+<span style="font-size:9px;color:#7d8bad">{{ b.day }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="flex:none;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="font-size:14px;font-weight:600;margin-bottom:10px">Campaigns</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ campaigns }}" as="c" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:11px;padding:11px;border-radius:12px;box-shadow:inset 0 0 0 1px #22325e">
+<span style="width:32px;height:32px;flex:none;border-radius:9px;background:{{ c.iconBg }};display:grid;place-items:center"><i class="ph-fill ph-megaphone" style="font-size:15px;color:{{ c.tint }}"></i></span>
+<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</div><div style="font-size:10px;color:#8fa0c8">{{ c.meta }}</div></div>
+<span style="flex:none;font-size:9.5px;font-weight:700;letter-spacing:.05em;padding:4px 9px;border-radius:999px;background:{{ c.pillBg }};color:{{ c.tint }}">{{ c.status }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ isReminders }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ remindersEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;padding:40px 20px;text-align:center">
+<i class="ph ph-bell-slash" style="font-size:44px;color:#3d4d7d"></i>
+<div style="font-size:16px;font-weight:600">No reminders set</div>
+<div style="font-size:12px;color:#8fa0c8;max-width:240px">Tap the bell on any upcoming programme in a channel schedule to set a reminder.</div>
+<button onClick="{{ goSchedule }}" style="margin-top:6px;padding:12px 20px;border-radius:12px;border:1px solid #4a3a1a;background:rgba(240,165,42,.1);color:#f5c266;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" style-hover="background:rgba(240,165,42,.2)">Browse a schedule</button>
+</div>
+</sc-if>
+<sc-if value="{{ remindersFilled }}" hint-placeholder-val="{{ true }}">
+<sc-for list="{{ reminders }}" as="r" hint-placeholder-count="3">
+<div style="flex:none;display:flex;align-items:center;gap:11px;padding:12px;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<div style="flex:none;width:52px;text-align:center">
+<div style="font-size:13px;font-weight:600;color:#f5c266">{{ r.time }}</div>
+<div style="font-size:9px;color:#7d8bad">{{ r.day }}</div>
+</div>
+<div style="flex:1;min-width:0">
+<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div>
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:1px">{{ r.meta }}</div>
+</div>
+<button onClick="{{ r.remove }}" aria-label="Remove reminder" style="flex:none;width:32px;height:32px;border-radius:10px;border:1px solid rgba(241,120,154,.3);background:transparent;color:#f1789a;cursor:pointer" style-hover="background:rgba(226,84,63,.16)"><i class="ph ph-bell-slash" style="font-size:14px"></i></button>
+</div>
+</sc-for>
+<button onClick="{{ clearReminders }}" style="flex:none;width:100%;padding:12px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="border-color:#f0a52a;color:#f5c266">Clear all reminders</button>
+</sc-if>
+</sc-if>
+</div>
+
+<div style="flex:none;display:flex;padding:8px 10px 20px;background:#0a1330;box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 2px;border:0;background:transparent;font-family:inherit;font-size:9.5px;font-weight:500;color:#7d8bad;cursor:pointer;{{ n.style }}"><i class="{{ n.icon }}" style="font-size:{{ n.size }}"></i>{{ n.label }}</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:16px;right:16px;bottom:94px;padding:11px 13px;border-radius:12px;background:#16255c;box-shadow:0 0 0 1px #2f4483,0 12px 30px rgba(0,0,0,.5);font-size:12px;color:#dbe2f2;animation:fadeIn .16s ease;display:flex;align-items:center;gap:9px"><i class="ph-fill ph-info" style="font-size:15px;color:#f5c266"></i>{{ toast }}</div>
+</sc-if>
+</div>
+
+<div style="flex:none;width:280px;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f0a52a;margin-bottom:6px">AfroVision · account</div>
+<h1 style="font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.16;margin:0 0 10px">Profile, plan,<br>subs, referrals, ads</h1>
+<p style="margin:0 0 16px;font-size:12.5px;color:#8fa0c8;text-wrap:pretty">Six account screens rebuilt on the same palette and card system as Home, Channels, Media and Assets.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px">
+<sc-for list="{{ jump }}" as="j" hint-placeholder-count="6">
+<button onClick="{{ j.go }}" style="font-size:11px;padding:6px 11px;border-radius:8px;border:1px solid #1e2c55;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ j.style }}" style-hover="border-color:#f0a52a;color:#f5c266">{{ j.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="4">
+<div style="border-radius:8px;padding:11px 12px;box-shadow:0 0 0 1px #1e2c55">
+<div style="font-size:12px;font-weight:600;margin-bottom:3px">{{ n.title }}</div>
+<p style="margin:0;font-size:11.5px;color:#8fa0c8">{{ n.body }}</p>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:800,&quot;height&quot;:940}}">
+const GOLD = '#f5c266';
+const CATS = ['Banner — Home Page', 'Banner — Media Center', 'Pre-roll — Channel Stream', 'Sponsored Wave', 'Interstitial — Tune In'];
+
+const SUBS = [
+  { name: '24 Movies', genre: 'Movie', tier: 'FREE', date: 'Aug 3, 2026', state: 'Renews', initials: '24', avatarBg: 'linear-gradient(150deg,#1f3a63,#13203f)' },
+  { name: 'Ebony TV by Lionsgate', genre: 'Movie', tier: 'FREE', date: 'Jul 24, 2026', state: 'Renews', initials: 'ET', avatarBg: 'linear-gradient(150deg,#4a3a1a,#1d2440)' },
+  { name: 'X-Lounge Extreme', genre: 'Entertainment', tier: 'EXCLUSIVE', date: 'Oct 4, 2026', state: 'Active', initials: 'XL', avatarBg: 'linear-gradient(150deg,#5b2f45,#231a3d)' },
+  { name: 'Afrovision Documentary', genre: 'Documentary', tier: 'FREE', date: 'Apr 28, 2026', state: 'Renews', initials: 'A', avatarBg: 'linear-gradient(150deg,#204a45,#12233a)' }
+];
+
+const REMS = [
+  ['7:00', 'PM', 'Guest Set — Ada K.', 'X-Lounge Extreme · CH 2'],
+  ['8:30', 'PM', 'Naija Docs: Delta', 'Afrovision Documentary · CH 41'],
+  ['9:00', 'PM', 'The Lounge Files E07', 'X-Lounge Extreme · CH 2']
+];
+
+const NOTES = {
+  profile: [['Identity in one card', 'Avatar, name, KYC and plan badges replace the five stacked status rows.'],
+            ['Status becomes a strip', 'Member since, plan status and expiry read as three compact fields instead of three full cards.'],
+            ['Wallet is a summary, not a duplicate', 'vPT and Reps summarise here and link out to Digital Assets rather than repeating it.'],
+            ['Destructive actions stay last', 'Delete and Logout keep their red treatment at the bottom of the menu.']],
+  plan: [['One plan card', 'Badges, cycle progress and the record rows sit in one block above Manage Plan.'],
+         ['Empty space earns content', 'Comparison plans fill what was a blank lower half in the original screen.']],
+  subs: [['Cards carry state', 'Tier pill plus renew/active line, so FREE vs EXCLUSIVE is never ambiguous.'],
+         ['Actions stay paired', 'Watch Now and Unsubscribe at equal weight, destructive in red outline only.']],
+  refer: [['Code first', 'Referral code, copy and share as one hero block; stats follow underneath.'],
+          ['Levels as one row', 'The five-level split reads horizontally with the pool rule stated beneath.'],
+          ['How it works stays', 'Kept verbatim in structure — it is the screen’s explanation of the payout model.']],
+  ads: [['Three real tabs', 'My Ads, Submit Ad and Analytics each have content — the analytics tab is no longer a dead end.'],
+        ['Form shows progress', 'Six-field completion bar, and Submit stays disabled until title, budget and media exist.'],
+        ['Empty state has an exit', 'No ads yet leads straight into the submit form.']],
+  reminders: [['Empty state has an exit', 'The bell instruction is kept, plus a route into a channel schedule.'],
+              ['Filled state included', 'Reminders list with per-item removal, so the screen is designed for both states.']]
+};
+
+class Component extends DCLogic {
+  scrollRef = React.createRef();
+  state = { route: 'profile', adTab: 'Submit Ad', referTab: 'Earnings', currency: '₦ NGN', banner: true,
+            ad: { title: '', desc: '', cat: 0, budget: '', ppi: '1', url: '', file: 0 },
+            subs: SUBS, rems: REMS, toast: '' };
+
+  set = (p) => this.setState(p);
+  setAd = (k, v) => this.setState(s => ({ ad: { ...s.ad, [k]: v } }));
+  say(msg) { this.setState({ toast: msg }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 1900); }
+  componentWillUnmount() { clearTimeout(this._t); }
+  top() { const el = this.scrollRef.current; if (el) el.scrollTop = 0; }
+
+  renderVals() {
+    const s = this.state, a = s.ad;
+    const go = (r) => () => { this.set({ route: r }); setTimeout(() => this.top(), 20); };
+    const titles = { profile: ['Profile', 'Account, wallet and settings'], plan: ['My Plan', 'Premium · Creator'],
+      subs: ['My Subscriptions', s.subs.length + ' channels'], refer: ['Refer & Earn', '5-level referral programme'],
+      ads: ['Advertise', 'Manage your ad campaigns'], reminders: ['My Reminders', 'Upcoming programme alerts'] };
+    const t = titles[s.route];
+    const filled = ['title', 'desc', 'budget', 'ppi', 'url'].filter(k => a[k]).length + 1 + (a.file ? 1 : 0);
+    const canSubmit = a.title && a.budget && a.file;
+
+    const field = (label, key, kind, placeholder, hint) => ({
+      label, placeholder: placeholder || '', hint: hint || '',
+      isText: kind === 'text', isArea: kind === 'area', isSelect: kind === 'select', isFile: kind === 'file',
+      value: kind === 'select' ? CATS[a.cat] : (kind === 'file' ? (a.file ? 'lounge-promo-1080.mp4' : 'Choose image or video file') : a[key]),
+      fg: kind === 'file' ? (a.file ? '#eef1f8' : '#7d8bad') : '#eef1f8',
+      onChange: (e) => this.setAd(key, e.target.value),
+      cycle: () => kind === 'select' ? this.setAd('cat', (a.cat + 1) % CATS.length) : this.setAd('file', a.file ? 0 : 1)
+    });
+
+    return {
+      screenTitle: t[0], screenSub: t[1], scrollRef: this.scrollRef,
+      back: () => { if (s.route !== 'profile') return this.set({ route: 'profile' }); window.location.href = 'AfroVision Home.dc.html'; },
+      isProfile: s.route === 'profile', isPlan: s.route === 'plan', isSubs: s.route === 'subs',
+      isRefer: s.route === 'refer', isAds: s.route === 'ads', isReminders: s.route === 'reminders',
+      headAction: s.route === 'profile' ? { label: 'Settings', icon: 'ph ph-gear-six', tap: () => { window.location.href = 'AfroVision Settings and Waves.dc.html'; } }
+        : (s.route === 'plan' || s.route === 'subs' ? { label: 'Refresh', icon: 'ph ph-arrow-clockwise', tap: () => this.say('Refreshed') } : null),
+      tabs: s.route === 'ads' ? ['My Ads', 'Submit Ad', 'Analytics'].map(x => ({ label: x,
+        style: s.adTab === x ? 'background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a' : '', pick: () => { this.set({ adTab: x }); this.top(); } })) : null,
+
+      banner: s.banner, dismissBanner: () => this.set({ banner: false }),
+      profileStats: [
+        { label: 'Member since', value: 'Apr 9, 2026', tint: '#eef1f8' },
+        { label: 'Plan status', value: 'ACTIVE', tint: '#5fd39a' },
+        { label: 'Expires', value: 'Oct 4, 2026', tint: GOLD }
+      ],
+      currency: s.currency,
+      cycleCurrency: () => this.set({ currency: s.currency === '₦ NGN' ? '$ USD' : '₦ NGN' }),
+      openReps: () => this.say('Level 3 · 30.5K Reps — max level reached'),
+      menu: [
+        ['My Plan', 'Premium · Creator · renews Oct 4', 'ph-fill ph-medal', '#5fd39a', 'rgba(47,158,107,.15)', () => this.set({ route: 'plan' })],
+        ['My Subscriptions', s.subs.length + ' channels subscribed', 'ph-fill ph-television-simple', GOLD, 'rgba(240,165,42,.13)', () => this.set({ route: 'subs' })],
+        ['Digital Assets', 'Wallets, Ravens, withdrawals', 'ph-fill ph-wallet', '#7fc4ff', 'rgba(127,196,255,.14)', () => { window.location.href = 'AfroVision Assets.dc.html'; }],
+        ['Refer & Earn', 'Code 4E28E82D · ₦1,500 earned', 'ph-fill ph-gift', GOLD, 'rgba(240,165,42,.13)', () => this.set({ route: 'refer' })],
+        ['Advertise', 'Manage your ad campaigns', 'ph-fill ph-megaphone', '#c0a4ff', 'rgba(139,92,246,.16)', () => this.set({ route: 'ads' })],
+        ['My Reminders', s.rems.length + ' upcoming alerts', 'ph ph-bell', GOLD, 'rgba(240,165,42,.13)', () => this.set({ route: 'reminders' })],
+        ['Saved Waves', 'Bookmarked short drops', 'ph-fill ph-bookmark-simple', '#f7e06a', 'rgba(247,224,106,.14)', () => { window.location.href = 'AfroVision Settings and Waves.dc.html'; }],
+        ['My Personal Identifier Codes', 'Device and account codes', 'ph ph-identification-card', '#f5a04a', 'rgba(245,160,74,.16)', () => { window.location.href = 'AfroVision Settings and Waves.dc.html'; }],
+        ['Creator Studio', 'Upload, schedule and monetise', 'ph-fill ph-video-camera', '#7fc4ff', 'rgba(127,196,255,.14)', () => this.say('Creator Studio')],
+        ['Settings', 'Playback, notifications, privacy', 'ph ph-gear-six', '#c3cde6', 'rgba(255,255,255,.06)', () => { window.location.href = 'AfroVision Settings and Waves.dc.html'; }],
+        ['Legal & Static Pages', 'Terms, privacy, community rules', 'ph-fill ph-book-open', '#c3cde6', 'rgba(255,255,255,.06)', () => { window.location.href = 'AfroVision Settings and Waves.dc.html'; }]
+      ].map(m => ({ label: m[0], note: m[1], icon: m[2], tint: m[3], iconBg: m[4], tap: m[5], bg: '#101d43', border: '#24345f', fg: '#eef1f8' }))
+        .concat([
+          { label: 'Delete Account', note: 'Permanent — removes all data', icon: 'ph-fill ph-trash', tint: '#f1789a', iconBg: 'rgba(226,84,63,.14)', bg: 'rgba(226,84,63,.07)', border: 'rgba(241,120,154,.28)', fg: '#f1789a', tap: () => this.say('Delete account — confirmation required') },
+          { label: 'Logout', note: 'Sign out on this device', icon: 'ph ph-sign-out', tint: '#f1789a', iconBg: 'rgba(226,84,63,.14)', bg: 'rgba(226,84,63,.07)', border: 'rgba(241,120,154,.28)', fg: '#f1789a', tap: () => this.say('Signed out') }
+        ]),
+
+      planRows: [{ k: 'Status', v: 'ACTIVE', tint: '#5fd39a' }, { k: 'Plan type', v: 'CREATOR', tint: '#eef1f8' },
+                 { k: 'Renewal date', v: 'Oct 4, 2026', tint: '#eef1f8' }, { k: 'Billing', v: '₦10,000 + 13.33 vPT', tint: GOLD }],
+      managePlan: () => this.say('Manage plan — billing options'),
+      planOptions: [
+        { name: 'Premium Creator', price: 'Current', blurb: 'Exclusive channel access, Creator Studio, ad submissions and full referral levels.',
+          border: '#4a3a1a', cta: 'Your plan', btnBorder: '#4a3a1a', btnBg: 'rgba(240,165,42,.1)', btnFg: GOLD, tap: () => this.say('You are on Premium Creator') },
+        { name: 'Premium Viewer', price: '₦6,000 / mo', blurb: 'Exclusive channels and the full media centre, without creator tools.',
+          border: '#24345f', cta: 'Switch plan', btnBorder: '#2a3a6b', btnBg: 'transparent', btnFg: '#dbe2f2', tap: () => this.say('Switch to Premium Viewer') },
+        { name: 'Free', price: '₦0', blurb: 'Public channels only. Exclusive contents stay locked.',
+          border: '#24345f', cta: 'Downgrade', btnBorder: '#2a3a6b', btnBg: 'transparent', btnFg: '#8fa0c8', tap: () => this.say('Downgrade to Free') }
+      ],
+
+      subsCount: s.subs.length,
+      subs: s.subs.map(c => ({ ...c,
+        dateLabel: (c.state === 'Active' ? 'Active until ' : 'Renews ') + c.date,
+        pillBg: c.tier === 'EXCLUSIVE' ? 'rgba(240,165,42,.13)' : 'rgba(47,158,107,.14)',
+        pillFg: c.tier === 'EXCLUSIVE' ? GOLD : '#5fd39a',
+        pillBorder: c.tier === 'EXCLUSIVE' ? '#4a3a1a' : 'rgba(95,211,154,.28)',
+        watch: () => { window.location.href = 'AfroVision Channel Page.dc.html'; },
+        leave: () => { this.setState({ subs: s.subs.filter(x => x.name !== c.name) }); this.say('Unsubscribed from ' + c.name); } })),
+
+      copyCode: () => this.say('Referral code 4E28E82D copied'),
+      shareCode: () => this.say('Share sheet opened'),
+      referStats: [{ icon: 'ph-fill ph-users', value: '1', label: 'Invites' }, { icon: 'ph-fill ph-wallet', value: '₦1,500', label: 'Referral cash' },
+                   { icon: 'ph-fill ph-diamond', value: '2.00 vPT', label: 'Referral vPT' }],
+      levels: [['40%', 'L1'], ['20%', 'L2'], ['15%', 'L3'], ['15%', 'L4'], ['10%', 'L5']].map(l => ({ pct: l[0], tier: l[1] })),
+      referTabs: ['Earnings', 'Referrals', 'Upline'].map(x => ({ label: x,
+        style: s.referTab === x ? 'background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a' : '', pick: () => this.set({ referTab: x }) })),
+      referRows: s.referTab === 'Earnings'
+        ? [{ level: 'L1', name: 'Temitayo Omolowo', date: '11/4/2026', cash: '₦1,500', vpt: '2 vPT', status: 'Pending', pillBg: 'rgba(240,165,42,.14)', pillFg: GOLD }]
+        : (s.referTab === 'Referrals'
+          ? [{ level: 'L1', name: 'Temitayo Omolowo', date: 'Joined 11/4/2026', cash: 'Premium', vpt: 'Active', status: 'Active', pillBg: 'rgba(47,158,107,.16)', pillFg: '#5fd39a' }]
+          : [{ level: 'UP', name: 'Chidi Nwosu', date: 'Your upline sponsor', cash: '—', vpt: '—', status: 'L1 of you', pillBg: 'rgba(127,196,255,.14)', pillFg: '#7fc4ff' }]),
+      how: [
+        { icon: 'ph ph-share-network', title: 'Share your code', body: 'Send your referral code via WhatsApp, SMS or social media.' },
+        { icon: 'ph-fill ph-user-plus', title: 'Friends sign up', body: 'When a friend registers with your code, they join your referral tree.' },
+        { icon: 'ph-fill ph-currency-circle-dollar', title: 'Earn from subscriptions', body: 'When anyone in your 5-level tree subscribes to a creator, you earn a cut.' },
+        { icon: 'ph ph-trend-up', title: '5 levels deep', body: 'L1 40% · L2 20% · L3 15% · L4 15% · L5 10% of the referral pool.' }
+      ],
+
+      adsEmpty: s.adTab === 'My Ads', adsForm: s.adTab === 'Submit Ad', adsAnalytics: s.adTab === 'Analytics',
+      goSubmitAd: () => { this.set({ adTab: 'Submit Ad' }); this.top(); },
+      adFilled: filled, adProgress: Math.round(filled / 7 * 100) + '%',
+      adFields: [
+        field('Ad Title', 'title', 'text', 'Enter ad title'),
+        field('Description', 'desc', 'area', 'Describe your ad'),
+        field('Category', 'cat', 'select'),
+        field('Budget (₦)', 'budget', 'text', 'e.g. 50000', 'Minimum ₦5,000 per campaign'),
+        field('Price Per Impression (₦)', 'ppi', 'text', '1'),
+        field('Click URL', 'url', 'text', 'https://…'),
+        field('Media File', 'file', 'file', '', 'JPG, PNG or MP4 · up to 40MB')
+      ],
+      submitStyle: canSubmit ? 'background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;box-shadow:0 8px 22px rgba(239,150,21,.2)'
+        : 'background:rgba(255,255,255,.05);color:#6d7ba1;pointer-events:none',
+      submitAd: () => this.say('Ad submitted — an admin will review it shortly'),
+      adStats: [
+        { label: 'Impressions', value: '184K', delta: '+12% vs last week', tint: '#5fd39a', icon: 'ph-fill ph-eye' },
+        { label: 'Clicks', value: '3,120', delta: '1.69% CTR', tint: GOLD, icon: 'ph-fill ph-cursor-click' },
+        { label: 'Spend', value: '₦184,000', delta: 'of ₦250,000 budget', tint: '#8fa0c8', icon: 'ph-fill ph-money' },
+        { label: 'Live campaigns', value: '2', delta: '1 in review', tint: '#7fc4ff', icon: 'ph-fill ph-megaphone' }
+      ],
+      bars: [['Mon', 46], ['Tue', 62], ['Wed', 38], ['Thu', 78], ['Fri', 92], ['Sat', 70], ['Sun', 54]].map((b, i) => ({
+        day: b[0], h: b[1] + '%', bg: i === 4 ? 'linear-gradient(180deg,#f8c96f,#ef9615)' : 'rgba(240,165,42,.28)' })),
+      campaigns: [
+        { name: 'Lounge Night Promo', meta: 'Banner — Home Page · ₦80,000', status: 'LIVE', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.15)', pillBg: 'rgba(47,158,107,.16)' },
+        { name: 'Waves Sponsored Drop', meta: 'Sponsored Wave · ₦64,000', status: 'LIVE', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.15)', pillBg: 'rgba(47,158,107,.16)' },
+        { name: 'Doc Series Pre-roll', meta: 'Pre-roll · ₦40,000', status: 'REVIEW', tint: GOLD, iconBg: 'rgba(240,165,42,.13)', pillBg: 'rgba(240,165,42,.14)' }
+      ],
+
+      remindersEmpty: s.rems.length === 0, remindersFilled: s.rems.length > 0,
+      reminders: s.rems.map(r => ({ time: r[0], day: r[1], title: r[2], meta: r[3],
+        remove: () => { this.setState({ rems: s.rems.filter(x => x[2] !== r[2]) }); this.say('Reminder removed'); } })),
+      clearReminders: () => { this.set({ rems: [] }); this.say('All reminders cleared'); },
+      goSchedule: () => { window.location.href = 'AfroVision Channel Page.dc.html'; },
+
+      navItems: [
+        { label: 'Home', icon: 'ph ph-house', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Home.dc.html'; } },
+        { label: 'Channels', icon: 'ph ph-television-simple', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Channels.dc.html'; } },
+        { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: '', go: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; } },
+        { label: 'Waves', icon: 'ph ph-waves', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Waves.dc.html'; } },
+        { label: 'Profile', icon: 'ph-fill ph-user-circle', size: '19px', style: 'color:#f0a52a', go: go('profile') }
+      ],
+      toast: s.toast,
+
+      jump: [['Profile', 'profile'], ['My Plan', 'plan'], ['Subscriptions', 'subs'], ['Refer & Earn', 'refer'], ['Advertise', 'ads'], ['Reminders', 'reminders']]
+        .map(x => ({ label: x[0], go: go(x[1]), style: s.route === x[1] ? 'border-color:#f0a52a;color:#f5c266' : '' })),
+      notes: (NOTES[s.route] || NOTES.profile).map(n => ({ title: n[0], body: n[1] }))
+    };
+  }
+}
+</script>
+</body>
+</html>

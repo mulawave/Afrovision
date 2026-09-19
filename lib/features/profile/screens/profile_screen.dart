@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/role_badge.dart';
@@ -362,7 +363,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   label: 'Subscription Status',
                   value: user.hasActiveSubscription ? user.subscriptionStatus.toUpperCase() : 'EXPIRED',
                   valueColor: user.hasActiveSubscription
-                      ? const Color(0xFF4CAF50)
+                      ? const Color(0xFF5FD39A)
                       : AppColors.hintText,
                 ),
                 if (user.subscriptionExpiry != null)
@@ -383,19 +384,19 @@ class _ProfileScreenState extends State<ProfileScreen>
                       color: AppColors.inputFill,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: const Color(0xFFFFD700).withValues(alpha: 0.35),
+                        color: const Color(0xFFF5C266).withValues(alpha: 0.35),
                       ),
                     ),
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.bookmark_rounded,
-                            color: Color(0xFFFFD700), size: 20),
+                            color: Color(0xFFF5C266), size: 20),
                         SizedBox(width: 8),
                         Text(
                           'Saved Waves',
                           style: TextStyle(
-                            color: Color(0xFFFFD700),
+                            color: Color(0xFFF5C266),
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                           ),
@@ -413,20 +414,21 @@ class _ProfileScreenState extends State<ProfileScreen>
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFF6B35), Color(0xFFFF8C42)],
-                      ),
+                      // Was an off-palette orange gradient that appears in no
+                      // design file — use the app's one gold CTA gradient,
+                      // same as every other primary action button.
+                      gradient: AppColors.buttonGradient,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.pin_rounded, color: AppColors.white, size: 20),
+                        Icon(Icons.pin_rounded, color: AppColors.darkBlue, size: 20),
                         SizedBox(width: 8),
                         Text(
                           'My Personal Identifier Codes',
                           style: TextStyle(
-                            color: AppColors.white,
+                            color: AppColors.darkBlue,
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                           ),
@@ -678,6 +680,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                   ),
                 ),
+                const PangleBigBanner(margin: EdgeInsets.only(top: 16)),
                 const SizedBox(height: 32),
               ],
             ),
@@ -700,7 +703,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: hasEnough
-                ? const Color(0xFF4CAF50).withValues(alpha: 0.3)
+                ? const Color(0xFF5FD39A).withValues(alpha: 0.3)
                 : AppColors.orange.withValues(alpha: 0.3),
           ),
         ),
@@ -755,7 +758,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: hasEnough
-                    ? const Color(0xFF4CAF50).withValues(alpha: 0.1)
+                    ? const Color(0xFF5FD39A).withValues(alpha: 0.1)
                     : AppColors.errorRed.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -763,7 +766,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 hasEnough ? 'Edit Ready' : 'Low',
                 style: TextStyle(
                   color: hasEnough
-                      ? const Color(0xFF4CAF50)
+                      ? const Color(0xFF5FD39A)
                       : AppColors.errorRed,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -956,7 +959,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   Color _kycColor(String status) {
     switch (status) {
       case 'verified':
-        return const Color(0xFF4CAF50);
+        return const Color(0xFF5FD39A);
       case 'pending':
         return AppColors.lightOrange;
       default:

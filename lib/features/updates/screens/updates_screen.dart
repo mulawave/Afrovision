@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import '../../../core/api/api_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -100,9 +101,9 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   Color _getColorForTag(String tag) {
     final tagMap = {
       'New Feature': AppColors.lightOrange,
-      'Monetization': const Color(0xFF4CAF50),
+      'Monetization': const Color(0xFF5FD39A),
       'Enhancement': AppColors.orange,
-      'Economy': const Color(0xFFFFD700),
+      'Economy': const Color(0xFFF5C266),
       'Platform': const Color(0xFF2196F3),
       'Performance': const Color(0xFF9C27B0),
     };
@@ -159,8 +160,11 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                     Expanded(
                       child: ListView.builder(
                         padding: const EdgeInsets.all(20),
-                        itemCount: _getCurrentPageUpdates().length,
+                        itemCount: _getCurrentPageUpdates().length + 1,
                         itemBuilder: (context, index) {
+                          if (index == _getCurrentPageUpdates().length) {
+                            return const PangleBigBanner();
+                          }
                           final update = _getCurrentPageUpdates()[index];
                           return Container(
                             margin: const EdgeInsets.only(bottom: 16),

@@ -68,6 +68,8 @@ async function safeEnrichChannel(channel, owner) {
     external_url: channel.external_url || null,
     resolved_playback_url: channel.resolved_playback_url || null,
     stream_status: channel.stream_status || 'unknown',
+    is_exclusive: channel.type === 'exclusive'
+      || Number(channel.exclusive_monthly_fee_ngn || 0) > 0,
     exclusive_monthly_fee_ngn: Number(channel.exclusive_monthly_fee_ngn || 0),
     exclusive_fee_currency: channel.exclusive_fee_currency || 'NGN',
   };

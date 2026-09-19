@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#080e21;color:#eef1f8;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#f0a52a}a:hover{color:#f7c66a}
+.av-scroll::-webkit-scrollbar{width:0;height:0}
+.av-scroll{scrollbar-width:none}
+@keyframes sheetUp{from{transform:translateY(103%)}to{transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;gap:44px;padding:44px 48px 64px;align-items:flex-start;justify-content:center">
+
+<div style="flex:none;width:390px;height:844px;position:relative;border-radius:42px;background:#0b1533;box-shadow:0 0 0 1px #22325e,0 30px 80px rgba(0,0,0,.65);overflow:hidden;display:flex;flex-direction:column">
+
+<div style="flex:none;background:linear-gradient(168deg,#17295e,#0e1a3f 86%);padding:14px 16px 12px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:500;color:#c3cde6;margin-bottom:10px">
+<span>6:45</span>
+<span style="display:flex;align-items:center;gap:6px"><i class="ph ph-moon" style="font-size:12px"></i><i class="ph ph-cell-signal-full" style="font-size:12px"></i><span style="width:16px;height:9px;border-radius:2px;box-shadow:inset 0 0 0 1px #7d8bad;background:linear-gradient(to right,#eef1f8 55%,transparent 55%)"></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:9px">
+<button onClick="{{ back }}" aria-label="Back" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#c3cde6;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(255,255,255,.07);color:#eef1f8"><i class="ph ph-caret-left" style="font-size:16px"></i></button>
+<div style="flex:1;min-width:0">
+<div style="font-size:18px;font-weight:600;letter-spacing:-.01em">{{ screenTitle }}</div>
+<div style="font-size:10.5px;color:#8fa0c8">{{ screenSub }}</div>
+</div>
+<sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ toggleHide }}" aria-label="Hide balances" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#f0a52a;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.14)"><i class="{{ hideIcon }}" style="font-size:16px"></i></button>
+</sc-if>
+</div>
+</div>
+
+<sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;display:flex;gap:7px;padding:10px 16px;overflow-x:auto" class="av-scroll">
+<sc-for list="{{ jumpChips }}" as="j" hint-placeholder-count="5">
+<button onClick="{{ j.go }}" style="flex:none;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:500;padding:7px 12px;border-radius:999px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;cursor:pointer;{{ j.style }}" style-hover="border-color:#f0a52a;color:#f5c266"><i class="{{ j.icon }}" style="font-size:12px"></i>{{ j.label }}</button>
+</sc-for>
+</div>
+
+<div class="av-scroll" ref="{{ scrollRef }}" style="flex:1;min-height:0;overflow-y:auto;padding:2px 16px 24px;display:flex;flex-direction:column;gap:12px">
+
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:14px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+<div>
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a">Off-chain portfolio value</div>
+<div style="font-size:29px;font-weight:600;letter-spacing:-.02em;margin-top:5px">{{ portfolio }}</div>
+</div>
+<span style="flex:none;display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:4px 9px;border-radius:999px;background:rgba(47,158,107,.16);color:#5fd39a;box-shadow:inset 0 0 0 1px rgba(95,211,154,.32);margin-top:14px"><i class="ph-fill ph-seal-check" style="font-size:11px"></i>PREMIUM</span>
+</div>
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:6px">vPT 474.73 × ₦750 · Ravens 5,537 × ₦10 · Cash ₦7,123</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px">
+<sc-for list="{{ balances }}" as="b" hint-placeholder-count="4">
+<button onClick="{{ b.go }}" style="text-align:left;padding:11px 12px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="border-color:#f0a52a">
+<span style="display:flex;align-items:center;gap:7px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#8fa0c8"><i class="{{ b.icon }}" style="font-size:13px;color:{{ b.tint }}"></i>{{ b.label }}</span>
+<span style="display:block;font-size:16px;font-weight:600;margin-top:5px;letter-spacing:-.01em">{{ b.value }}</span>
+<span style="display:block;font-size:10px;color:#7d8bad;margin-top:1px">{{ b.sub }}</span>
+</button>
+</sc-for>
+</div>
+<div style="display:flex;gap:8px;margin-top:11px">
+<button onClick="{{ goTopUp }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px;border:1px solid #2a3a6b;border-radius:11px;background:rgba(255,255,255,.02);color:#dbe2f2;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="border-color:#f0a52a;color:#f5c266"><i class="ph ph-plus-circle" style="font-size:14px"></i>Top Up</button>
+<button onClick="{{ goConvert }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px;border:1px solid #2a3a6b;border-radius:11px;background:rgba(255,255,255,.02);color:#dbe2f2;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap" style-hover="border-color:#f0a52a;color:#f5c266"><i class="ph ph-arrows-left-right" style="font-size:14px"></i>Convert</button>
+<button onClick="{{ goWithdraw }}" style="flex:1.15;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px;border:0;border-radius:11px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.06)"><i class="ph-fill ph-bank" style="font-size:14px"></i>Withdraw</button>
+</div>
+</div>
+
+<div style="flex:none;border-radius:16px;background:linear-gradient(150deg,#2a1f52,#1a1436);box-shadow:inset 0 0 0 1px #4b3a86;padding:14px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:36px;height:36px;flex:none;border-radius:11px;background:rgba(167,124,255,.16);display:grid;place-items:center"><i class="ph-fill ph-chart-pie-slice" style="font-size:18px;color:#c0a4ff"></i></span>
+<div>
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#c0a4ff">Stake wallet</div>
+<div style="font-size:13.5px;font-weight:600">Token Equity Position</div>
+</div>
+</div>
+<span style="flex:none;font-size:9px;font-weight:700;letter-spacing:.08em;padding:4px 9px;border-radius:999px;color:#d5c4ff;box-shadow:inset 0 0 0 1px #7a5fc4">ON-CHAIN</span>
+</div>
+<div style="font-size:25px;font-weight:600;letter-spacing:-.02em">200,000,000</div>
+<div style="font-size:11px;color:#b3a3dd">vPT tokens staked</div>
+<div style="height:6px;border-radius:4px;background:rgba(255,255,255,.09);margin:11px 0 10px;overflow:hidden"><div style="width:50%;height:100%;border-radius:4px;background:linear-gradient(90deg,#8b5cf6,#c4a2ff)"></div></div>
+<div style="display:flex;justify-content:space-between;gap:12px">
+<div><div style="font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#b3a3dd">Equity share</div><div style="font-size:18px;font-weight:600;margin-top:2px">50.00%</div></div>
+<div style="text-align:right"><div style="font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#b3a3dd">Total minted</div><div style="font-size:18px;font-weight:600;margin-top:2px">400,000,000</div></div>
+</div>
+<div style="display:flex;gap:8px;align-items:flex-start;margin-top:11px;padding:10px 11px;border-radius:11px;background:rgba(255,255,255,.05)">
+<i class="ph-fill ph-info" style="font-size:14px;color:#c0a4ff;margin-top:1px"></i>
+<span style="font-size:11px;color:#cfc3ee">Your proportional equity in the entire vPT ecosystem against the 400M total supply.</span>
+</div>
+</div>
+
+<button onClick="{{ openReps }}" style="flex:none;display:flex;align-items:center;gap:11px;text-align:left;padding:13px 14px;border-radius:16px;border:0;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #8b5cf6">
+<span style="width:36px;height:36px;flex:none;border-radius:11px;background:rgba(139,92,246,.16);display:grid;place-items:center"><i class="ph-fill ph-shield-star" style="font-size:18px;color:#c0a4ff"></i></span>
+<span style="flex:1;min-width:0">
+<span style="display:flex;align-items:baseline;gap:8px"><span style="font-size:12px;font-weight:600;color:#c0a4ff">Level 2</span><span style="font-size:17px;font-weight:600">28.9K Reps</span></span>
+<span style="display:block;height:5px;border-radius:3px;background:rgba(255,255,255,.09);margin:8px 0 5px;overflow:hidden"><span style="display:block;width:96%;height:100%;border-radius:3px;background:linear-gradient(90deg,#8b5cf6,#c4a2ff)"></span></span>
+<span style="display:flex;justify-content:space-between;font-size:10px;color:#8fa0c8"><span>28.9K Reps</span><span>30K needed for Level 3</span></span>
+</span>
+<i class="ph ph-caret-right" style="font-size:15px;color:#7d8bad"></i>
+</button>
+
+<div style="flex:none;display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ wallets }}" as="w" hint-placeholder-count="4">
+<div style="border-radius:16px;background:{{ w.bg }};box-shadow:inset 0 0 0 1px {{ w.border }};padding:13px 14px">
+<div style="display:flex;align-items:flex-start;gap:11px">
+<span style="width:38px;height:38px;flex:none;border-radius:11px;background:{{ w.iconBg }};display:grid;place-items:center"><i class="{{ w.icon }}" style="font-size:18px;color:{{ w.tint }}"></i></span>
+<div style="flex:1;min-width:0">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+<span style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:{{ w.tint }}">{{ w.label }}</span>
+<sc-if value="{{ w.tag }}" hint-placeholder-val="{{ false }}">
+<span style="flex:none;display:inline-flex;align-items:center;gap:5px;font-size:9px;font-weight:700;letter-spacing:.07em;padding:4px 8px;border-radius:999px;color:{{ w.tagFg }};box-shadow:inset 0 0 0 1px {{ w.tagFg }}">{{ w.tag }}</span>
+</sc-if>
+</div>
+<div style="font-size:22px;font-weight:600;letter-spacing:-.02em;margin-top:3px">{{ w.value }}</div>
+<div style="font-size:11px;color:#9aa6c4;margin-top:2px">{{ w.sub }}</div>
+</div>
+</div>
+<sc-if value="{{ w.address }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:9px;margin-top:11px;padding:10px 11px;border-radius:11px;background:rgba(0,0,0,.22);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)">
+<span style="flex:1;min-width:0;font-family:ui-monospace,monospace;font-size:10.5px;color:#c3cde6;word-break:break-all">{{ w.address }}</span>
+<button onClick="{{ w.copy }}" aria-label="Copy address" style="flex:none;width:28px;height:28px;border:0;border-radius:8px;background:rgba(255,255,255,.06);color:#f5c266;cursor:pointer" style-hover="background:rgba(240,165,42,.2)"><i class="ph ph-copy" style="font-size:14px"></i></button>
+</div>
+</sc-if>
+<sc-if value="{{ w.lines }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:7px;margin-top:11px">
+<sc-for list="{{ w.lines }}" as="l" hint-placeholder-count="2">
+<button onClick="{{ l.tap }}" style="display:flex;align-items:center;gap:9px;padding:10px 11px;border:0;border-radius:11px;background:rgba(0,0,0,.2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);color:#dbe2f2;font-family:inherit;cursor:pointer;text-align:left" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<i class="{{ l.icon }}" style="font-size:14px;color:{{ l.tint }}"></i>
+<span style="flex:1;font-size:12.5px">{{ l.label }}</span>
+<span style="font-size:12.5px;font-weight:600;color:{{ l.tint }}">{{ l.value }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ w.actions }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:8px;margin-top:11px">
+<sc-for list="{{ w.actions }}" as="a" hint-placeholder-count="2">
+<button onClick="{{ a.tap }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px;border-radius:11px;border:1px solid {{ a.color }};background:transparent;color:{{ a.color }};font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="background:rgba(255,255,255,.05)"><i class="{{ a.icon }}" style="font-size:14px"></i>{{ a.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px">
+<div style="font-size:14.5px;font-weight:600">Activity History</div>
+<button onClick="{{ goLedger }}" style="flex:none;font-size:11px;font-weight:600;padding:7px 11px;border-radius:9px;border:1px solid #4a3a1a;background:rgba(240,165,42,.1);color:#f5c266;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.2)">Open Full Ledger</button>
+</div>
+<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:11px" class="av-scroll">
+<sc-for list="{{ actFilters }}" as="f" hint-placeholder-count="4">
+<button onClick="{{ f.pick }}" style="flex:none;font-size:11.5px;font-weight:500;padding:6px 13px;border-radius:999px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ f.style }}" style-hover="border-color:#f0a52a">{{ f.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ activity }}" as="a" hint-placeholder-count="5">
+<button onClick="{{ a.tap }}" style="display:flex;gap:10px;align-items:flex-start;text-align:left;padding:11px;border:0;border-radius:12px;background:rgba(255,255,255,.02);box-shadow:inset 0 0 0 1px #22325e;color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<span style="width:32px;height:32px;flex:none;border-radius:10px;background:{{ a.iconBg }};display:grid;place-items:center"><i class="{{ a.icon }}" style="font-size:15px;color:{{ a.tint }}"></i></span>
+<span style="flex:1;min-width:0">
+<span style="display:block;font-size:12.5px;font-weight:600">{{ a.title }}</span>
+<span style="display:block;font-size:10.5px;color:#8fa0c8;margin-top:2px">{{ a.note }}</span>
+</span>
+<span style="flex:none;text-align:right">
+<span style="display:block;font-size:12.5px;font-weight:600;color:{{ a.amountColor }}">{{ a.amount }}</span>
+<span style="display:block;font-size:9.5px;color:#8fa0c8;margin-top:2px">{{ a.approx }}</span>
+<span style="display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:9.5px;color:#8fa0c8;margin-top:3px"><span style="width:5px;height:5px;border-radius:50%;background:{{ a.dot }}"></span>{{ a.when }}</span>
+</span>
+</button>
+</sc-for>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:12px">
+<button onClick="{{ actPrev }}" style="flex:1;padding:10px;border-radius:11px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;{{ actPrevStyle }}" style-hover="border-color:#f0a52a;color:#f5c266">Previous</button>
+<div style="flex:1.1;text-align:center;padding:10px;border-radius:11px;box-shadow:inset 0 0 0 1px #22325e;font-size:12px;color:#c3cde6">{{ actPageLabel }}</div>
+<button onClick="{{ actNext }}" style="flex:1;padding:10px;border:0;border-radius:11px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;{{ actNextStyle }}" style-hover="filter:brightness(1.06)">Next</button>
+</div>
+<div style="font-size:10.5px;color:#7d8bad;text-align:center;margin-top:8px">5 entries per page · tap any entry for the full explanation</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isLedger }}" hint-placeholder-val="{{ false }}">
+<div class="av-scroll" ref="{{ scrollRef }}" style="flex:1;min-height:0;overflow-y:auto;padding:12px 16px 24px;display:flex;flex-direction:column;gap:11px">
+<div style="flex:none;display:flex;gap:9px;align-items:flex-start;padding:12px;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<i class="ph-fill ph-receipt" style="font-size:16px;color:#f5c266;margin-top:1px"></i>
+<span style="font-size:11.5px;color:#f0c88f">Full wallet ledger. Tap any entry to inspect status, reference and timeline details.</span>
+</div>
+<div style="flex:none;display:flex;gap:6px;overflow-x:auto" class="av-scroll">
+<sc-for list="{{ actFilters }}" as="f" hint-placeholder-count="4">
+<button onClick="{{ f.pick }}" style="flex:none;font-size:11.5px;font-weight:500;padding:7px 14px;border-radius:999px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ f.style }}" style-hover="border-color:#f0a52a">{{ f.label }}</button>
+</sc-for>
+</div>
+<sc-for list="{{ ledger }}" as="a" hint-placeholder-count="7">
+<button onClick="{{ a.tap }}" style="flex:none;display:flex;gap:10px;align-items:flex-start;text-align:left;padding:12px;border:0;border-radius:13px;background:#101d43;box-shadow:inset 0 0 0 1px #22325e;color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<span style="width:34px;height:34px;flex:none;border-radius:10px;background:{{ a.iconBg }};display:grid;place-items:center"><i class="{{ a.icon }}" style="font-size:16px;color:{{ a.tint }}"></i></span>
+<span style="flex:1;min-width:0">
+<span style="display:block;font-size:13px;font-weight:600">{{ a.title }}</span>
+<span style="display:block;font-size:11px;color:#8fa0c8;margin-top:2px">{{ a.note }}</span>
+</span>
+<span style="flex:none;text-align:right">
+<span style="display:block;font-size:13px;font-weight:600;color:{{ a.amountColor }}">{{ a.amount }}</span>
+<span style="display:block;font-size:10px;color:#8fa0c8;margin-top:3px">{{ a.when }}</span>
+</span>
+</button>
+</sc-for>
+<div style="flex:none;display:flex;align-items:center;gap:8px;margin-top:2px">
+<button onClick="{{ actPrev }}" style="flex:1;padding:12px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;{{ actPrevStyle }}" style-hover="border-color:#f0a52a;color:#f5c266">Previous</button>
+<div style="flex:1.1;text-align:center;padding:12px;border-radius:12px;box-shadow:inset 0 0 0 1px #22325e;font-size:12.5px;color:#c3cde6">{{ actPageLabel }}</div>
+<button onClick="{{ actNext }}" style="flex:1;padding:12px;border:0;border-radius:12px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;{{ actNextStyle }}" style-hover="filter:brightness(1.06)">Next</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isTopUp }}" hint-placeholder-val="{{ false }}">
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px 24px;display:flex;flex-direction:column;gap:14px">
+<div style="flex:none;border-radius:16px;background:linear-gradient(150deg,#1b2a5c,#101c40);box-shadow:inset 0 0 0 1px #2f4483;padding:16px">
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a">Wallet top-up</div>
+<div style="font-size:32px;font-weight:600;letter-spacing:-.02em;margin-top:6px">{{ topUpDisplay }}</div>
+<div style="font-size:11.5px;color:#8fa0c8;margin-top:3px">{{ topUpHint }}</div>
+</div>
+<div>
+<div style="font-size:11px;font-weight:600;color:#f0c88f;margin-bottom:7px">Top-up amount (NGN)</div>
+<div style="display:flex;align-items:center;gap:10px;padding:13px;border-radius:13px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f">
+<span style="font-size:15px;color:#f5c266">₦</span>
+<input value="{{ topUp }}" onChange="{{ onTopUp }}" placeholder="2000" inputMode="numeric" style="flex:1;min-width:0;border:0;background:transparent;color:#eef1f8;font-family:inherit;font-size:15px;font-weight:600;outline:none">
+</div>
+<div style="display:flex;gap:7px;margin-top:9px">
+<sc-for list="{{ quickAmounts }}" as="q" hint-placeholder-count="4">
+<button onClick="{{ q.pick }}" style="flex:1;font-size:11.5px;font-weight:600;padding:8px 0;border-radius:9px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ q.style }}" style-hover="border-color:#f0a52a;color:#f5c266">{{ q.label }}</button>
+</sc-for>
+</div>
+</div>
+<div>
+<div style="font-size:11px;font-weight:600;color:#f0c88f;margin-bottom:7px">Credit destination</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+<sc-for list="{{ destinations }}" as="d" hint-placeholder-count="2">
+<button onClick="{{ d.pick }}" style="text-align:left;padding:12px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#dbe2f2;font-family:inherit;cursor:pointer;{{ d.style }}" style-hover="border-color:#f0a52a">
+<span style="display:block;font-size:13px;font-weight:600">{{ d.label }}</span>
+<span style="display:block;font-size:10.5px;color:#8fa0c8;margin-top:3px">{{ d.note }}</span>
+</button>
+</sc-for>
+</div>
+</div>
+<div>
+<div style="font-size:11px;font-weight:600;color:#f0c88f;margin-bottom:7px">Payment provider</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ providers }}" as="p" hint-placeholder-count="2">
+<button onClick="{{ p.pick }}" style="display:flex;align-items:center;gap:11px;text-align:left;padding:13px;border-radius:13px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#eef1f8;font-family:inherit;cursor:pointer;{{ p.style }}" style-hover="border-color:#f0a52a">
+<span style="width:20px;height:20px;flex:none;border-radius:50%;display:grid;place-items:center;box-shadow:inset 0 0 0 1.5px {{ p.ring }}"><span style="width:9px;height:9px;border-radius:50%;background:{{ p.dot }}"></span></span>
+<span style="flex:1"><span style="display:block;font-size:13.5px;font-weight:600;color:{{ p.fg }}">{{ p.label }}</span><span style="display:block;font-size:10.5px;color:#8fa0c8;margin-top:2px">{{ p.note }}</span></span>
+</button>
+</sc-for>
+</div>
+</div>
+<div style="border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+<span style="display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:600"><i class="ph-fill ph-google-play-logo" style="font-size:16px;color:#f5c266"></i>Google Play</span>
+<span style="font-size:11px;color:#5fd39a">Available</span>
+</div>
+<button onClick="{{ payGoogle }}" style="width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px;border:0;border-radius:11px;background:#0f8b5f;color:#eafff3;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.08)"><i class="ph-fill ph-android-logo" style="font-size:16px"></i>Pay with Google Play</button>
+</div>
+<div style="border-radius:14px;padding:12px 13px;box-shadow:inset 0 0 0 1px #24345f">
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a;margin-bottom:4px">Status</div>
+<div style="font-size:12.5px;color:#c3cde6">{{ topUpStatus }}</div>
+</div>
+<button onClick="{{ startCheckout }}" style="width:100%;padding:14px;border:0;border-radius:13px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 8px 22px rgba(239,150,21,.2)" style-hover="filter:brightness(1.06)">Start Secure Checkout</button>
+<button onClick="{{ verifyPayment }}" style="width:100%;padding:13px;border:1px solid #4a3a1a;border-radius:13px;background:transparent;color:#f5c266;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer" style-hover="background:rgba(240,165,42,.1)">I completed payment, verify now</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isConvert }}" hint-placeholder-val="{{ false }}">
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px 24px;display:flex;flex-direction:column;gap:13px">
+<div style="flex:none;border-radius:16px;background:linear-gradient(150deg,#1b2a5c,#101c40);box-shadow:inset 0 0 0 1px #2f4483;padding:15px">
+<div style="display:flex;align-items:center;gap:11px">
+<span style="width:40px;height:40px;flex:none;border-radius:12px;background:rgba(240,165,42,.16);display:grid;place-items:center"><i class="ph ph-arrows-left-right" style="font-size:19px;color:#f5c266"></i></span>
+<div>
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a">Live conversion rate</div>
+<div style="font-size:22px;font-weight:600;letter-spacing:-.01em;margin-top:2px">75 Ravens = 1 vPT</div>
+<div style="font-size:11px;color:#8fa0c8;margin-top:2px">1 Raven ≈ ₦10 · 1 vPT ≈ ₦750</div>
+</div>
+</div>
+<div style="display:flex;gap:9px;align-items:flex-start;margin-top:12px;padding:10px 11px;border-radius:11px;background:rgba(0,0,0,.22)">
+<i class="ph-fill ph-info" style="font-size:14px;color:#f5c266;margin-top:1px"></i>
+<span style="font-size:11px;color:#f0c88f">Rate is set by AfroVision admins and updates live. Ravens burned in conversion are non-refundable.</span>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:9px">
+<div style="border-radius:13px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:12px">
+<div style="display:flex;align-items:center;gap:7px;font-size:10.5px;color:#8fa0c8"><i class="ph-fill ph-bird" style="font-size:13px;color:#f5c266"></i>Ravens available</div>
+<div style="font-size:17px;font-weight:600;margin-top:5px">5,537</div>
+</div>
+<div style="border-radius:13px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:12px">
+<div style="display:flex;align-items:center;gap:7px;font-size:10.5px;color:#8fa0c8"><i class="ph-fill ph-gift" style="font-size:13px;color:#7fc4ff"></i>Off-chain vPT</div>
+<div style="font-size:17px;font-weight:600;margin-top:5px">237.3667</div>
+</div>
+</div>
+<div style="border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="font-size:13.5px;font-weight:600;margin-bottom:9px">Ravens to convert</div>
+<div style="display:flex;align-items:center;gap:9px;padding:12px;border-radius:12px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f">
+<i class="ph-fill ph-bird" style="font-size:16px;color:#f5c266"></i>
+<input value="{{ ravens }}" onChange="{{ onRavens }}" placeholder="75" inputMode="numeric" style="flex:1;min-width:0;border:0;background:transparent;color:#eef1f8;font-family:inherit;font-size:15px;font-weight:600;outline:none">
+<button onClick="{{ maxRavens }}" style="flex:none;font-size:11px;font-weight:700;letter-spacing:.06em;padding:7px 12px;border-radius:9px;border:1px solid #f0a52a;background:transparent;color:#f5c266;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.14)">MAX</button>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#8fa0c8;margin-top:8px"><span>Minimum 75 Ravens · whole Ravens only</span><span style="color:#f5c266;font-weight:600">{{ convertOut }}</span></div>
+</div>
+<button onClick="{{ doConvert }}" style="width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:0;border-radius:13px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;{{ convertBtn }}"><i class="ph ph-arrows-left-right" style="font-size:16px"></i>Convert to vPT</button>
+<div style="display:flex;gap:9px;align-items:flex-start;padding:12px;border-radius:13px;box-shadow:inset 0 0 0 1px #24345f">
+<i class="ph-fill ph-lock" style="font-size:14px;color:#8fa0c8;margin-top:1px"></i>
+<span style="font-size:11px;color:#8fa0c8">Ravens are permanently burned upon conversion and cannot be refunded. vPT is credited to your off-chain balance.</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isWithdraw }}" hint-placeholder-val="{{ false }}">
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px 24px;display:flex;flex-direction:column;gap:13px">
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:14px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px">
+<div style="display:flex;align-items:center;gap:11px">
+<span style="width:38px;height:38px;flex:none;border-radius:11px;background:rgba(240,165,42,.14);display:grid;place-items:center"><i class="ph-fill ph-bank" style="font-size:18px;color:#f5c266"></i></span>
+<div style="font-size:14.5px;font-weight:600;line-height:1.25">Withdrawal<br>Bank Account</div>
+</div>
+<span style="flex:none;display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:5px 10px;border-radius:999px;background:rgba(47,158,107,.16);color:#5fd39a;box-shadow:inset 0 0 0 1px rgba(95,211,154,.32)"><i class="ph-fill ph-check-circle" style="font-size:11px"></i>VERIFIED</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+<div><div style="font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#f0a52a">Bank</div><div style="font-size:12.5px;font-weight:600;margin-top:3px">PalmPay</div></div>
+<div><div style="font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#f0a52a">Account no.</div><div style="font-size:12.5px;font-weight:600;margin-top:3px">81******34</div></div>
+<div><div style="font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#f0a52a">Name</div><div style="font-size:12.5px;font-weight:600;margin-top:3px">R. U. OBROH</div></div>
+</div>
+<div style="display:flex;gap:9px;align-items:flex-start;margin-top:12px;padding:10px 11px;border-radius:11px;background:rgba(240,165,42,.07);box-shadow:inset 0 0 0 1px #4a3a1a">
+<i class="ph-fill ph-lock" style="font-size:14px;color:#f5c266;margin-top:1px"></i>
+<span style="font-size:11px;color:#f0c88f">A verified bank account is locked after saving and cannot be edited inside the app.</span>
+</div>
+</div>
+<div style="flex:none;border-radius:16px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:14px">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+<div style="font-size:14.5px;font-weight:600">Request Withdrawal</div>
+<div style="font-size:11.5px;color:#f5c266;font-weight:600">₦7,123 available</div>
+</div>
+<div style="font-size:11px;font-weight:600;color:#f0c88f;margin:12px 0 7px">Withdrawal amount</div>
+<div style="display:flex;align-items:center;gap:10px;padding:13px;border-radius:12px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f">
+<i class="ph-fill ph-money" style="font-size:16px;color:#7d8bad"></i>
+<input value="{{ payout }}" onChange="{{ onPayout }}" placeholder="Enter amount in naira" inputMode="numeric" style="flex:1;min-width:0;border:0;background:transparent;color:#eef1f8;font-family:inherit;font-size:14px;outline:none">
+</div>
+<div style="display:flex;flex-direction:column;gap:1px;margin-top:11px;border-radius:11px;overflow:hidden;box-shadow:inset 0 0 0 1px #22325e">
+<sc-for list="{{ payoutBreak }}" as="b" hint-placeholder-count="4">
+<div style="display:flex;justify-content:space-between;padding:10px 12px;background:rgba(255,255,255,.02);font-size:12px;{{ b.style }}"><span style="color:#8fa0c8">{{ b.label }}</span><span style="font-weight:600">{{ b.value }}</span></div>
+</sc-for>
+</div>
+<button onClick="{{ submitPayout }}" style="width:100%;margin-top:12px;padding:14px;border:0;border-radius:13px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 8px 22px rgba(239,150,21,.2)" style-hover="filter:brightness(1.06)">Submit Request</button>
+</div>
+<button onClick="{{ goHistory }}" style="flex:none;display:flex;align-items:center;gap:11px;text-align:left;padding:13px 14px;border-radius:16px;border:0;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<span style="width:36px;height:36px;flex:none;border-radius:11px;background:rgba(240,165,42,.13);display:grid;place-items:center"><i class="ph-fill ph-receipt" style="font-size:17px;color:#f5c266"></i></span>
+<span style="flex:1"><span style="display:block;font-size:14px;font-weight:600">Withdrawal History</span><span style="display:block;font-size:11.5px;color:#8fa0c8">{{ historySummary }}</span></span>
+<i class="ph ph-caret-right" style="font-size:16px;color:#7d8bad"></i>
+</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+<div class="av-scroll" ref="{{ scrollRef }}" style="flex:1;min-height:0;overflow-y:auto;padding:12px 16px 24px;display:flex;flex-direction:column;gap:11px">
+<div style="flex:none;display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+<sc-for list="{{ historyStats }}" as="h" hint-placeholder-count="4">
+<div style="text-align:center;padding:11px 4px;border-radius:12px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<div style="font-size:17px;font-weight:600;color:{{ h.tint }}">{{ h.value }}</div>
+<div style="font-size:9.5px;color:#8fa0c8;margin-top:2px">{{ h.label }}</div>
+</div>
+</sc-for>
+</div>
+<div style="flex:none;display:flex;gap:6px;overflow-x:auto" class="av-scroll">
+<sc-for list="{{ historyFilters }}" as="f" hint-placeholder-count="4">
+<button onClick="{{ f.pick }}" style="flex:none;font-size:11.5px;font-weight:500;padding:7px 14px;border-radius:999px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ f.style }}" style-hover="border-color:#f0a52a">{{ f.label }}</button>
+</sc-for>
+</div>
+<sc-for list="{{ history }}" as="h" hint-placeholder-count="4">
+<div style="flex:none;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:12px">
+<div style="display:flex;align-items:flex-start;gap:11px">
+<span style="width:34px;height:34px;flex:none;border-radius:10px;background:{{ h.iconBg }};display:grid;place-items:center"><i class="ph-fill ph-bank" style="font-size:16px;color:{{ h.tint }}"></i></span>
+<div style="flex:1;min-width:0">
+<div style="font-size:17px;font-weight:600;letter-spacing:-.01em">{{ h.amount }}</div>
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:1px">{{ h.date }}</div>
+</div>
+<span style="flex:none;font-size:10.5px;font-weight:600;padding:5px 11px;border-radius:999px;background:{{ h.pillBg }};color:{{ h.tint }}">{{ h.status }}</span>
+</div>
+<div style="margin-top:10px;padding:9px 11px;border-radius:10px;background:rgba(0,0,0,.2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.05);font-size:11px;color:#c3cde6">PalmPay · RICHARD UFUOMA OBROH · 81******34</div>
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:8px">Fees ₦100 · VAT ₦7.50 · Total debited {{ h.total }}</div>
+</div>
+</sc-for>
+<div style="flex:none;display:flex;align-items:center;gap:8px;margin-top:2px">
+<button onClick="{{ histPrev }}" style="flex:1;padding:12px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;{{ histPrevStyle }}" style-hover="border-color:#f0a52a;color:#f5c266">Previous</button>
+<div style="flex:1.1;text-align:center;padding:12px;border-radius:12px;box-shadow:inset 0 0 0 1px #22325e;font-size:12.5px;color:#c3cde6">{{ histPageLabel }}</div>
+<button onClick="{{ histNext }}" style="flex:1;padding:12px;border:0;border-radius:12px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;{{ histNextStyle }}" style-hover="filter:brightness(1.06)">Next</button>
+</div>
+</div>
+</sc-if>
+
+<div style="flex:none;position:relative;display:flex;padding:8px 10px 20px;background:#0a1330;box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 2px;border:0;background:transparent;font-family:inherit;font-size:9.5px;font-weight:500;color:#7d8bad;cursor:pointer;{{ n.style }}">
+<i class="{{ n.icon }}" style="font-size:{{ n.size }}"></i>{{ n.label }}
+</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ detail }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closeDetail }}" style="position:absolute;inset:0;background:rgba(4,8,20,.66);animation:fadeIn .16s ease"></div>
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:22px 22px 42px 42px;background:#0b1533;box-shadow:0 0 0 1px #2f4483,0 -20px 50px rgba(0,0,0,.55);padding:16px 18px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;gap:12px">
+<div style="width:38px;height:4px;border-radius:2px;background:#f0a52a;align-self:center"></div>
+<div style="display:flex;align-items:flex-start;gap:11px">
+<span style="width:40px;height:40px;flex:none;border-radius:12px;background:{{ detail.iconBg }};display:grid;place-items:center"><i class="{{ detail.icon }}" style="font-size:19px;color:{{ detail.tint }}"></i></span>
+<div style="flex:1;min-width:0">
+<div style="font-size:16px;font-weight:600">{{ detail.title }}</div>
+<div style="font-size:11.5px;color:#8fa0c8;margin-top:2px">{{ detail.note }}</div>
+</div>
+<div style="flex:none;text-align:right"><div style="font-size:16px;font-weight:600;color:{{ detail.amountColor }}">{{ detail.amount }}</div><div style="font-size:10.5px;color:#8fa0c8;margin-top:2px">{{ detail.approx }}</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:1px;border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 1px #22325e">
+<sc-for list="{{ detail.rows }}" as="r" hint-placeholder-count="4">
+<div style="display:flex;justify-content:space-between;gap:12px;padding:11px 13px;background:rgba(255,255,255,.02);font-size:12.5px"><span style="color:#8fa0c8">{{ r.k }}</span><span style="font-weight:600;text-align:right">{{ r.v }}</span></div>
+</sc-for>
+</div>
+<div style="font-size:11.5px;color:#8fa0c8">{{ detail.explain }}</div>
+<button onClick="{{ closeDetail }}" style="width:100%;padding:12px;border:1px solid #22325e;border-radius:12px;background:transparent;color:#c3cde6;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" style-hover="background:rgba(255,255,255,.05)">Close</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:16px;right:16px;bottom:94px;padding:11px 13px;border-radius:12px;background:#16255c;box-shadow:0 0 0 1px #2f4483,0 12px 30px rgba(0,0,0,.5);font-size:12px;color:#dbe2f2;animation:fadeIn .16s ease;display:flex;align-items:center;gap:9px">
+<i class="ph-fill ph-info" style="font-size:15px;color:#f5c266"></i>{{ toast }}
+</div>
+</sc-if>
+</div>
+
+<div style="flex:none;width:280px;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f0a52a;margin-bottom:6px">AfroVision · assets</div>
+<h1 style="font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.16;margin:0 0 10px">Six screens,<br>one assets surface</h1>
+<p style="margin:0 0 16px;font-size:12.5px;color:#8fa0c8;text-wrap:pretty">Snapshot, wallets, stake, ledger, top-up, convert, withdraw and history — restructured on the Home / Channels palette.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px">
+<sc-for list="{{ jump }}" as="j" hint-placeholder-count="6">
+<button onClick="{{ j.go }}" style="font-size:11px;padding:6px 11px;border-radius:8px;border:1px solid #1e2c55;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ j.style }}" style-hover="border-color:#f0a52a;color:#f5c266">{{ j.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="4">
+<div style="border-radius:8px;padding:11px 12px;box-shadow:0 0 0 1px #1e2c55">
+<div style="font-size:12px;font-weight:600;margin-bottom:3px">{{ n.title }}</div>
+<p style="margin:0;font-size:11.5px;color:#8fa0c8">{{ n.body }}</p>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:800,&quot;height&quot;:940}}">
+const GOLD = '#f5c266';
+const ACT = [
+  { k: 'rewards', title: 'Subscriber vPT Reward', note: 'Subscriber vPT reward — 2 vPT (₦1,500) · premium plan', amount: '2 vPT', approx: '≈ ₦1,500', when: '2h ago',
+    icon: 'ph-fill ph-gift', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.15)', dir: 'in', ref: 'RWD-99312', status: 'Completed',
+    explain: 'Paid automatically from the subscriber reward pool when your premium plan renewed. Credited to off-chain vPT.' },
+  { k: 'payments', title: 'Subscription Payment', note: 'Premium plan subscription via wallet', amount: '₦10,000', approx: '≈ 13.33 vPT', when: '2h ago',
+    icon: 'ph-fill ph-credit-card', tint: '#c3cde6', iconBg: 'rgba(255,255,255,.06)', dir: 'out', ref: 'SUB-44120', status: 'Completed',
+    explain: 'Cash portion of your premium plan renewal, debited from the NGN cash wallet.' },
+  { k: 'payments', title: 'Subscription Payment', note: 'Premium plan subscription via wallet (vPT portion)', amount: '13.33 vPT', approx: '≈ ₦9,999', when: '2h ago',
+    icon: 'ph-fill ph-credit-card', tint: '#c3cde6', iconBg: 'rgba(255,255,255,.06)', dir: 'out', ref: 'SUB-44121', status: 'Completed',
+    explain: 'vPT portion of the same renewal. Split payments post as two entries so each balance reconciles.' },
+  { k: 'splits', title: 'Exclusive Channel Access', note: 'Exclusive channel access payment · X-Lounge Extreme', amount: '₦500', approx: '≈ 0.6667 vPT', when: '12/8/2026',
+    icon: 'ph-fill ph-receipt', tint: '#c3cde6', iconBg: 'rgba(255,255,255,.06)', dir: 'out', ref: 'EXC-20881', status: 'Completed',
+    explain: 'Membership access payment for an exclusive channel. Split between the channel owner and the platform.' },
+  { k: 'splits', title: 'Gift Sent (vPT)', note: 'Gift sent to a creator', amount: '10 vPT', approx: '≈ ₦7,500', when: '24/7/2026',
+    icon: 'ph-fill ph-receipt', tint: '#c3cde6', iconBg: 'rgba(255,255,255,.06)', dir: 'out', ref: 'GFT-77120', status: 'Completed',
+    explain: 'Off-chain vPT gift. Gifts leave your off-chain balance immediately and are non-refundable.' },
+  { k: 'rewards', title: 'Subscriber vPT Reward', note: 'Subscriber vPT reward — 2 vPT (₦1,500) · premium plan', amount: '2 vPT', approx: '≈ ₦1,500', when: '23/7/2026',
+    icon: 'ph-fill ph-gift', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.15)', dir: 'in', ref: 'RWD-99180', status: 'Completed',
+    explain: 'Monthly subscriber reward for the premium plan.' },
+  { k: 'payments', title: 'Subscription Payment', note: 'Premium plan subscription via wallet', amount: '₦10,000', approx: '≈ 13.33 vPT', when: '23/7/2026',
+    icon: 'ph-fill ph-credit-card', tint: '#c3cde6', iconBg: 'rgba(255,255,255,.06)', dir: 'out', ref: 'SUB-43990', status: 'Completed',
+    explain: 'Previous cycle renewal, cash portion.' },
+  { k: 'splits', title: 'Exclusive Channel Access', note: 'Exclusive channel access payment · X-Lounge Extreme', amount: '₦2,500', approx: '≈ 3.33 vPT', when: '11/7/2026',
+    icon: 'ph-fill ph-receipt', tint: '#c3cde6', iconBg: 'rgba(255,255,255,.06)', dir: 'out', ref: 'EXC-20510', status: 'Completed',
+    explain: 'Membership access payment for an exclusive channel.' },
+  { k: 'rewards', title: 'Referral Cash Bonus', note: 'Referral cash credited to NGN wallet', amount: '₦1,200', approx: '≈ 1.6 vPT', when: '2/7/2026',
+    icon: 'ph-fill ph-hand-coins', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.15)', dir: 'in', ref: 'REF-11290', status: 'Completed',
+    explain: 'Referral bonus paid in cash. Cash balances are instantly spendable on subscriptions.' },
+  { k: 'rewards', title: 'Ravens Earned', note: 'Watch-time Ravens for the week', amount: '420 Ravens', approx: '≈ ₦4,200', when: '30/6/2026',
+    icon: 'ph-fill ph-bird', tint: '#f5c266', iconBg: 'rgba(240,165,42,.14)', dir: 'in', ref: 'RVN-33021', status: 'Completed',
+    explain: 'Ravens accrue from watch time and convert to off-chain vPT at 75 Ravens = 1 vPT.' }
+];
+
+const HIST = [
+  { amount: '₦500', total: '₦607.50', status: 'Approved', date: '17/4/2026' },
+  { amount: '₦1,150', total: '₦1,257.50', status: 'Approved', date: '17/4/2026' },
+  { amount: '₦1,400', total: '₦1,507.50', status: 'Rejected', date: '17/4/2026' },
+  { amount: '₦2,250', total: '₦2,357.50', status: 'Approved', date: '17/4/2026' },
+  { amount: '₦1,000', total: '₦1,107.50', status: 'Approved', date: '16/4/2026' },
+  { amount: '₦3,000', total: '₦3,107.50', status: 'Rejected', date: '14/4/2026' },
+  { amount: '₦750', total: '₦857.50', status: 'Approved', date: '9/4/2026' },
+  { amount: '₦1,800', total: '₦1,907.50', status: 'Pending', date: '4/4/2026' }
+];
+
+const PER = 5, HPER = 4;
+
+const NOTES = {
+  overview: [['Snapshot leads with one number', 'Off-chain portfolio value sits above four tapping balances, so the four separate stat cards and the gold banner collapse into one card.'],
+             ['Actions live with the money', 'Top Up, Rav → vPT and Withdraw sit in the snapshot instead of floating between sections.'],
+             ['Wallets keep their identity', 'Off-chain vPT, Cash, Ravens and the external wallets each keep their colour, but share one card shape.'],
+             ['Activity is paginated', 'Five entries a page with filters; the full ledger is one tap away.']],
+  ledger: [['Same data, more room', 'The full ledger drops the approximate values and gives each entry a wider line for its reference.'],
+           ['Filters carry across', 'All / Payments / Rewards / Splits is one shared filter between the snapshot list and the ledger.'],
+           ['Every entry is inspectable', 'Tapping opens the explanation sheet with reference, status and timeline.']],
+  topup: [['One scroll, one action', 'Amount, destination, provider and Google Play in sequence, with checkout and verify pinned at the end.'],
+          ['Quick amounts', 'Preset chips because most top-ups are round numbers.'],
+          ['Unconfigured providers stay visible', 'Flutterwave shows as not configured rather than disappearing.']],
+  convert: [['Rate first', 'The live rate and its caveat sit above the input, since the rate decides the amount.'],
+            ['Live output', 'The vPT you receive updates as you type, with MAX and the 75-Raven minimum enforced.']],
+  withdraw: [['Locked account is stated once', 'Bank details read as a three-column record with the lock note beneath.'],
+             ['Fees before submitting', 'Amount, fee, VAT and total debited compute live so the request holds no surprise.']],
+  history: [['Status at a glance', 'Total / Pending / Approved / Rejected stats sit above the filter row.'],
+            ['Four a page', 'Each request keeps its full fee breakdown, so pagination replaces endless scroll.']]
+};
+
+class Component extends DCLogic {
+  scrollRef = React.createRef();
+  state = { route: 'overview', filter: 'all', actPage: 1, histFilter: 'All', histPage: 1,
+            topUp: '2000', dest: 'NGN Wallet', provider: 'Paystack', ravens: '', payout: '',
+            hide: false, detail: null, toast: '', status: 'Choose a provider and start checkout.' };
+
+  set = (p) => this.setState(p);
+  say(msg) { this.setState({ toast: msg }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 1900); }
+  componentWillUnmount() { clearTimeout(this._t); }
+  top() { const el = this.scrollRef.current; if (el) el.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+  acts() { const f = this.state.filter; return f === 'all' ? ACT : ACT.filter(a => a.k === f); }
+  hists() { const f = this.state.histFilter; return f === 'All' ? HIST : HIST.filter(h => h.status === f); }
+
+  entry(a) {
+    return { ...a, amountColor: a.dir === 'in' ? '#5fd39a' : '#eef1f8', dot: a.dir === 'in' ? '#5fd39a' : '#f5c266',
+      tap: () => this.set({ detail: { ...a, amountColor: a.dir === 'in' ? '#5fd39a' : '#eef1f8',
+        rows: [{ k: 'Reference', v: a.ref }, { k: 'Status', v: a.status }, { k: 'Direction', v: a.dir === 'in' ? 'Credit' : 'Debit' },
+               { k: 'Date', v: a.when }, { k: 'Naira value', v: a.approx.replace('≈ ', '') }] } }) };
+  }
+
+  renderVals() {
+    const s = this.state, mask = (v) => s.hide ? '••••' : v;
+    const acts = this.acts(), maxAct = Math.max(1, Math.ceil(acts.length / PER));
+    const actPage = Math.min(s.actPage, maxAct);
+    const hists = this.hists(), maxH = Math.max(1, Math.ceil(hists.length / HPER));
+    const histPage = Math.min(s.histPage, maxH);
+    const nApproved = HIST.filter(h => h.status === 'Approved').length;
+    const nRejected = HIST.filter(h => h.status === 'Rejected').length;
+    const nPending = HIST.filter(h => h.status === 'Pending').length;
+    const rav = parseInt(s.ravens || '0', 10) || 0;
+    const canConvert = rav >= 75 && rav <= 5537;
+    const pay = parseInt((s.payout || '0').replace(/[^0-9]/g, ''), 10) || 0;
+    const titles = { overview: ['Digital Assets', 'Where each balance lives'], ledger: ['Wallet Transactions', 'Full wallet ledger'],
+      topup: ['Cash Wallet Top-Up', 'Fund your wallet'], convert: ['Convert Ravens → vPT', 'Exchange Ravens for off-chain vPT'],
+      withdraw: ['Withdrawals', 'Cash out to your bank'], history: ['Withdrawal History', HIST.length + ' requests'] };
+    const t = titles[s.route] || titles.overview;
+    const go = (r) => () => { this.set({ route: r, detail: null }); setTimeout(() => this.top(), 30); };
+    const chip = (on) => on ? 'border-color:#f0a52a;background:rgba(240,165,42,.13);color:#f5c266' : '';
+
+    return {
+      screenTitle: t[0], screenSub: t[1],
+      isOverview: s.route === 'overview', isLedger: s.route === 'ledger', isTopUp: s.route === 'topup',
+      isConvert: s.route === 'convert', isWithdraw: s.route === 'withdraw', isHistory: s.route === 'history',
+      back: () => { if (s.route === 'history') return this.set({ route: 'withdraw' }); if (s.route !== 'overview') return this.set({ route: 'overview' }); window.location.href = 'AfroVision Account.dc.html'; },
+      scrollRef: this.scrollRef,
+      hideIcon: s.hide ? 'ph ph-eye-slash' : 'ph ph-eye',
+      toggleHide: () => this.set({ hide: !s.hide }),
+
+      portfolio: mask('₦418,543'),
+      balances: [
+        { label: 'On-chain vPT', value: mask('237.37'), sub: '≈ ₦178,025', icon: 'ph-fill ph-cube', tint: GOLD, go: () => this.say('On-chain vPT · distributed to your main balance') },
+        { label: 'Off-chain vPT', value: mask('237.37'), sub: 'Gifts & rewards', icon: 'ph-fill ph-gift', tint: '#7fc4ff', go: () => this.say('Off-chain vPT · convertible to Ravens') },
+        { label: 'Ravens', value: mask('5,537'), sub: '75 Ravens = 1 vPT', icon: 'ph-fill ph-bird', tint: GOLD, go: () => this.set({ route: 'convert' }) },
+        { label: 'Cash wallet', value: mask('₦7,123'), sub: 'Instant NGN', icon: 'ph-fill ph-wallet', tint: '#5fd39a', go: () => this.set({ route: 'topup' }) }
+      ],
+      historySummary: HIST.length + ' requests · ' + nApproved + ' approved · ' + nRejected + ' rejected',
+      goTopUp: go('topup'), goConvert: go('convert'), goWithdraw: go('withdraw'), goLedger: go('ledger'), goHistory: go('history'),
+      openReps: () => { window.location.href = 'AfroVision Account.dc.html'; },
+
+      wallets: [
+        { label: 'Off-chain vPT', value: mask('237.37 vPT'), sub: 'Combined vPT from gifts, rewards and funding. Convertible to Ravens.',
+          icon: 'ph-fill ph-gift', tint: '#7fc4ff', iconBg: 'rgba(127,196,255,.15)', bg: '#101d43', border: '#24345f',
+          lines: [
+            { label: 'Sent out', value: '-45 vPT', icon: 'ph ph-arrow-up-right', tint: '#f18b78', tap: () => this.say('45 vPT sent out across 6 gifts') },
+            { label: 'Unclassified residual', value: '+282.37 vPT', icon: 'ph ph-magnifying-glass', tint: '#f5c266', tap: () => this.say('Residual awaiting classification by the ledger') }
+          ] },
+        { label: 'Cash balance', value: mask('₦7,123'), sub: 'Instant NGN from referral cash, gifts, deals and other rewards.',
+          icon: 'ph-fill ph-wallet', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.16)', bg: 'linear-gradient(150deg,#122f2a,#0e1f2e)', border: '#25553f',
+          actions: [{ label: 'Top Up', icon: 'ph ph-plus-circle', color: '#5fd39a', tap: () => this.set({ route: 'topup' }) },
+                    { label: 'Withdraw', icon: 'ph-fill ph-bank', color: '#5fd39a', tap: () => this.set({ route: 'withdraw' }) }] },
+        { label: 'Ravens', value: mask('5,537 Ravens'), sub: '1 Raven ≈ ₦10 · 75 Ravens = 1 vPT',
+          icon: 'ph-fill ph-bird', tint: GOLD, iconBg: 'rgba(240,165,42,.14)', bg: 'linear-gradient(150deg,#2b2413,#141a30)', border: '#4a3a1a',
+          actions: [{ label: 'Convert to vPT', icon: 'ph ph-arrows-left-right', color: '#f5c266', tap: () => this.set({ route: 'convert' }) }] },
+        { label: 'External wallet', value: 'MetaMask', sub: 'Connected for on-chain transfers.',
+          icon: 'ph ph-link', tint: '#5fd39a', iconBg: 'rgba(47,158,107,.15)', bg: '#101d43', border: '#24345f',
+          tag: 'CONNECTED', tagFg: '#5fd39a', address: '0x1b872fe25e29b3d83c09d9810a4f1bc862c0799e',
+          copy: () => this.say('Wallet address copied'),
+          actions: [{ label: 'Transfer', icon: 'ph ph-arrows-left-right', color: '#5fd39a', tap: () => this.say('Transfer to external wallet') },
+                    { label: 'Disconnect', icon: 'ph ph-link-break', color: '#f1789a', tap: () => this.say('MetaMask disconnected') }] },
+        { label: 'BSC wallet', value: 'Binance Smart Chain', sub: 'Deposit address for on-chain vPT.',
+          icon: 'ph-fill ph-currency-circle-dollar', tint: '#7fc4ff', iconBg: 'rgba(127,196,255,.15)', bg: '#101d43', border: '#24345f',
+          address: '0xBe627338636c1e48808C98E0d9ef4aBBDb4a4D01', copy: () => this.say('BSC address copied') }
+      ],
+
+      actFilters: [['All','all'], ['Payments','payments'], ['Rewards','rewards'], ['Splits','splits']]
+        .map(f => ({ label: f[0], style: chip(s.filter === f[1]), pick: () => this.set({ filter: f[1], actPage: 1 }) })),
+      activity: acts.slice((actPage - 1) * PER, actPage * PER).map(a => this.entry(a)),
+      ledger: acts.slice((actPage - 1) * PER, actPage * PER).map(a => this.entry(a)),
+      actPageLabel: 'Page ' + actPage + ' of ' + maxAct,
+      actPrev: () => { this.set({ actPage: Math.max(1, actPage - 1) }); this.top(); },
+      actNext: () => { this.set({ actPage: Math.min(maxAct, actPage + 1) }); this.top(); },
+      actPrevStyle: actPage === 1 ? 'opacity:.45;pointer-events:none' : '',
+      actNextStyle: actPage === maxAct ? 'opacity:.45;pointer-events:none' : '',
+
+      topUp: s.topUp,
+      topUpDisplay: '₦' + (parseInt(s.topUp || '0', 10) || 0).toLocaleString(),
+      topUpHint: 'Credits your ' + s.dest + (s.dest === 'NGN Wallet' ? ' — for subscriptions and premium access' : ' — for gifts and vPT spend'),
+      onTopUp: (e) => this.set({ topUp: e.target.value.replace(/[^0-9]/g, '') }),
+      quickAmounts: ['1000', '2000', '5000', '10000'].map(v => ({ label: '₦' + Number(v).toLocaleString(),
+        style: s.topUp === v ? 'border-color:#f0a52a;color:#f5c266;background:rgba(240,165,42,.1)' : '',
+        pick: () => this.set({ topUp: v }) })),
+      destinations: [['NGN Wallet', 'For subscriptions and premium access'], ['Gift Wallet vPT', 'For gifts and vPT spend']]
+        .map(d => ({ label: d[0], note: d[1], style: s.dest === d[0] ? 'border-color:#f0a52a;background:rgba(240,165,42,.09)' : '', pick: () => this.set({ dest: d[0] }) })),
+      providers: [['Paystack', 'Configured in admin settings', true], ['Flutterwave', 'Not configured', false]].map(p => ({
+        label: p[0], note: p[1], fg: p[2] ? '#eef1f8' : '#7d8bad',
+        ring: s.provider === p[0] ? '#f0a52a' : '#3d4d7d',
+        dot: s.provider === p[0] ? '#f0a52a' : 'transparent',
+        style: s.provider === p[0] ? 'border-color:#f0a52a;background:rgba(240,165,42,.07)' : (p[2] ? '' : 'opacity:.6'),
+        pick: () => p[2] ? this.set({ provider: p[0], status: p[0] + ' selected — ready for checkout.' }) : this.say('Flutterwave is not configured') })),
+      topUpStatus: s.status,
+      payGoogle: () => { this.set({ status: 'Google Play checkout opened — complete payment, then verify.' }); this.say('Google Play checkout opened'); },
+      startCheckout: () => { this.set({ status: s.provider + ' checkout started for ₦' + (parseInt(s.topUp || '0', 10) || 0).toLocaleString() + '.' }); this.say('Secure checkout started'); },
+      verifyPayment: () => { this.set({ status: 'Verifying your last payment…' }); this.say('Verifying payment'); },
+
+      ravens: s.ravens,
+      onRavens: (e) => this.set({ ravens: e.target.value.replace(/[^0-9]/g, '') }),
+      maxRavens: () => this.set({ ravens: '5537' }),
+      convertOut: rav >= 75 ? 'You receive ' + (rav / 75).toFixed(4) + ' vPT' : 'Enter at least 75 Ravens',
+      convertBtn: canConvert ? 'background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a'
+        : 'background:rgba(255,255,255,.05);color:#6d7ba1;pointer-events:none',
+      doConvert: () => this.say(rav.toLocaleString() + ' Ravens burned · ' + (rav / 75).toFixed(4) + ' vPT credited'),
+
+      payout: s.payout,
+      onPayout: (e) => this.set({ payout: e.target.value.replace(/[^0-9]/g, '') }),
+      payoutBreak: [
+        { label: 'Amount', value: '₦' + pay.toLocaleString(), style: '' },
+        { label: 'Fee', value: '₦100', style: '' },
+        { label: 'VAT', value: '₦7.50', style: '' },
+        { label: 'Total debited', value: '₦' + (pay + 107.5).toLocaleString(undefined, { minimumFractionDigits: 2 }), style: 'color:#f5c266' }
+      ],
+      submitPayout: () => this.say(pay > 0 ? (pay + 107.5 > 7123 ? 'Amount exceeds your ₦7,123 balance' : 'Withdrawal request submitted for ₦' + pay.toLocaleString()) : 'Enter an amount to withdraw'),
+
+      historyStats: [[String(HIST.length), 'Total', '#eef1f8'], [String(nPending), 'Pending', GOLD],
+        [String(nApproved), 'Approved', '#5fd39a'], [String(nRejected), 'Rejected', '#f1789a']]
+        .map(h => ({ value: h[0], label: h[1], tint: h[2] })),
+      historyFilters: ['All', 'Pending', 'Approved', 'Rejected'].map(f => ({ label: f, style: chip(s.histFilter === f), pick: () => this.set({ histFilter: f, histPage: 1 }) })),
+      history: hists.slice((histPage - 1) * HPER, histPage * HPER).map(h => ({ ...h,
+        tint: h.status === 'Approved' ? '#5fd39a' : (h.status === 'Rejected' ? '#f1789a' : GOLD),
+        iconBg: h.status === 'Approved' ? 'rgba(47,158,107,.15)' : (h.status === 'Rejected' ? 'rgba(226,84,63,.15)' : 'rgba(240,165,42,.14)'),
+        pillBg: h.status === 'Approved' ? 'rgba(47,158,107,.16)' : (h.status === 'Rejected' ? 'rgba(226,84,63,.16)' : 'rgba(240,165,42,.14)') })),
+      histPageLabel: 'Page ' + histPage + ' of ' + maxH,
+      histPrev: () => { this.set({ histPage: Math.max(1, histPage - 1) }); this.top(); },
+      histNext: () => { this.set({ histPage: Math.min(maxH, histPage + 1) }); this.top(); },
+      histPrevStyle: histPage === 1 ? 'opacity:.45;pointer-events:none' : '',
+      histNextStyle: histPage === maxH ? 'opacity:.45;pointer-events:none' : '',
+
+      detail: s.detail, closeDetail: () => this.set({ detail: null }),
+
+      jumpChips: [['Wallets','ph-fill ph-wallet'], ['Stake','ph-fill ph-chart-pie-slice'], ['Activity','ph ph-clock-counter-clockwise']]
+        .map(c => ({ label: c[0], icon: c[1], style: '', go: () => this.say(c[0] + ' section') }))
+        .concat([{ label: 'Full ledger', icon: 'ph-fill ph-receipt', style: '', go: go('ledger') },
+                 { label: 'Withdraw', icon: 'ph-fill ph-bank', style: '', go: go('withdraw') }]),
+
+      navItems: [
+        { label: 'Home', icon: 'ph ph-house', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Home.dc.html'; } },
+        { label: 'Channels', icon: 'ph ph-television-simple', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Channels.dc.html'; } },
+        { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: '', go: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; } },
+        { label: 'Waves', icon: 'ph ph-waves', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Waves.dc.html'; } },
+        { label: 'Profile', icon: 'ph-fill ph-user-circle', size: '19px', style: 'color:#f0a52a', go: () => { window.location.href = 'AfroVision Account.dc.html'; } }
+      ],
+      toast: s.toast,
+
+      jump: [['Snapshot','overview'], ['Full ledger','ledger'], ['Top-up','topup'], ['Convert','convert'], ['Withdraw','withdraw'], ['History','history']]
+        .map(x => ({ label: x[0], go: go(x[1]), style: s.route === x[1] ? 'border-color:#f0a52a;color:#f5c266' : '' })),
+      notes: (NOTES[s.route] || NOTES.overview).map(n => ({ title: n[0], body: n[1] }))
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import '../../../core/api/api_service.dart';
+import '../../../core/services/integrity_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/storage/auth_storage.dart';
 import '../models/user_model.dart';
@@ -42,12 +43,14 @@ class AuthService {
       'email': email,
       'password': password,
       'client': 'mobile',
+      'integrityToken': await _getIntegrityToken(email),
     };
     if (referralCode != null && referralCode.isNotEmpty) {
       body['referral_code'] = referralCode;
     }
     final data = await ApiService.post('/auth/register', body);
     await AuthStorage.saveToken(data['token'] as String);
+    ApiService.clearCache();
     // Register FCM token silently after new account creation
     NotificationService.registerToken();
     final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
@@ -60,8 +63,10 @@ class AuthService {
       'email': email,
       'password': password,
       'client': 'mobile',
+      'integrityToken': await _getIntegrityToken(email),
     });
     await AuthStorage.saveToken(data['token'] as String);
+    ApiService.clearCache();
     // Re-register FCM token on every login (token may have rotated)
     NotificationService.registerToken();
     final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
@@ -69,11 +74,26 @@ class AuthService {
     return user;
   }
 
+  /// Play Integrity token for login/register — the backend requires this
+  /// for `client: 'mobile'` requests (in place of the reCAPTCHA the website
+  /// uses). Returns null on any failure (emulator, no Play Services, device
+  /// not yet recognized by Play) rather than throwing, so the request still
+  /// goes out and the backend's own clear error message is what the user
+  /// sees, instead of an unhandled exception before the request even sends.
+  static Future<String?> _getIntegrityToken(String email) async {
+    try {
+      return await IntegrityService.getToken(email);
+    } catch (e) {
+      return null;
+    }
+  }
+
   static Future<void> logout() async {
     // Remove FCM token from backend before clearing the session
     await NotificationService.unregisterToken();
     await AuthStorage.deleteToken();
     clearCache();
+    ApiService.clearCache();
   }
 
   static Future<void> forgotPassword(String email) async {
@@ -92,6 +112,7 @@ class AuthService {
   static Future<UserModel> pakLogin(String pak) async {
     final data = await ApiService.post('/auth/pak-login', {'pak': pak});
     await AuthStorage.saveToken(data['token'] as String);
+    ApiService.clearCache();
     NotificationService.registerToken();
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }

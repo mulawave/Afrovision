@@ -86,7 +86,7 @@ class LiveChatService {
       _emitSnapshot();
       socket.emitWithAck(
         'channel:join',
-        {'channelId': channelId},
+        {'channelId': channelId, 'platform': 'android'},
         ack: (response) {
           final payload = _toMap(response);
           if (payload['ok'] == true) {

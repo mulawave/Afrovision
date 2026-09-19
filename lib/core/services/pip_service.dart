@@ -36,16 +36,26 @@ class PipService {
 
   /// Enters PiP mode. The activity shrinks into a floating window; the
   /// Flutter widget tree stays alive and the video keeps playing.
-  static Future<void> enter({
+  ///
+  /// Returns whether the OS actually entered PiP. Callers should attempt
+  /// this directly on an explicit user tap rather than pre-gating on
+  /// [isSupported] — that check reflects an AppOps special-access flag that
+  /// defaults to revoked on several OEM Android skins even when the device
+  /// and app both fully support PiP, which made a manual PiP button
+  /// permanently report "not supported" without ever really trying.
+  static Future<bool> enter({
     int aspectWidth = 16,
     int aspectHeight = 9,
   }) async {
     try {
-      await _channel.invokeMethod('enterPiP', {
-        'aspectWidth': aspectWidth,
-        'aspectHeight': aspectHeight,
-      });
-    } catch (_) {}
+      return await _channel.invokeMethod<bool>('enterPiP', {
+            'aspectWidth': aspectWidth,
+            'aspectHeight': aspectHeight,
+          }) ??
+          false;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Enables or disables automatic PiP entry when the user navigates away

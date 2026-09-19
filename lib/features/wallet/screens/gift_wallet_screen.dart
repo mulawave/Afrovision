@@ -285,12 +285,12 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50).withValues(alpha: 0.12),
+                    color: const Color(0xFF5FD39A).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
                     Icons.account_balance_rounded,
-                    color: Color(0xFF4CAF50),
+                    color: Color(0xFF5FD39A),
                     size: 18,
                   ),
                 ),
@@ -426,7 +426,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
               const SizedBox(width: 8),
               _walletSplitChip('Operations', '30%', const Color(0xFF64B5F6)),
               const SizedBox(width: 8),
-              _walletSplitChip('Community Pool', '20%', const Color(0xFF4CAF50)),
+              _walletSplitChip('Community Pool', '20%', const Color(0xFF5FD39A)),
             ],
           ),
         ],
@@ -498,7 +498,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                       style: TextStyle(color: AppColors.white),
                     ),
                     backgroundColor: const Color(
-                      0xFF4CAF50,
+                      0xFF5FD39A,
                     ).withValues(alpha: 0.9),
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
@@ -744,7 +744,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                 primaryAmount,
                 style: TextStyle(
                   color: entry.isIncome
-                      ? const Color(0xFF4CAF50)
+                      ? const Color(0xFF5FD39A)
                       : entry.isExpense
                       ? AppColors.errorRed
                       : AppColors.white,
@@ -762,7 +762,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: entry.isSuccess
-                          ? const Color(0xFF4CAF50)
+                          ? const Color(0xFF5FD39A)
                           : entry.isPending
                           ? AppColors.lightOrange
                           : AppColors.errorRed,
@@ -814,7 +814,7 @@ class _GiftWalletScreenState extends State<GiftWalletScreen>
         return AppColors.errorRed;
       case 'GIFT_RECEIVED_VPT':
       case 'GIFT_RECEIVED_NGN':
-        return const Color(0xFF4CAF50);
+        return const Color(0xFF5FD39A);
       case 'WALLET_FUND':
         return AppColors.orange;
       case 'WITHDRAWAL':

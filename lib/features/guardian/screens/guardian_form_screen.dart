@@ -215,7 +215,7 @@ class _GuardianFormScreenState extends State<GuardianFormScreen>
             'Guardian form submitted! Pending review.',
             style: TextStyle(color: AppColors.white),
           ),
-          backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.9),
+          backgroundColor: const Color(0xFF5FD39A).withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
@@ -310,7 +310,7 @@ class _GuardianFormScreenState extends State<GuardianFormScreen>
     final status = _existing!['status'] as String? ?? 'pending';
     final colors = {
       'pending': AppColors.lightOrange,
-      'verified': const Color(0xFF4CAF50),
+      'verified': const Color(0xFF5FD39A),
       'rejected': Colors.red[400]!,
     };
     final labels = {
@@ -631,16 +631,16 @@ class _GuardianFormScreenState extends State<GuardianFormScreen>
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isUploaded ? const Color(0xFF4CAF50).withValues(alpha: 0.3) : AppColors.inputBorder,
+              color: isUploaded ? const Color(0xFF5FD39A).withValues(alpha: 0.3) : AppColors.inputBorder,
             ),
-            color: isUploaded ? const Color(0xFF4CAF50).withValues(alpha: 0.05) : AppColors.inputFill.withValues(alpha: 0.2),
+            color: isUploaded ? const Color(0xFF5FD39A).withValues(alpha: 0.05) : AppColors.inputFill.withValues(alpha: 0.2),
           ),
           child: isUploading
               ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(AppColors.orange))))
               : Row(
                   children: [
                     Icon(isUploaded ? Icons.check_circle_rounded : Icons.upload_rounded,
-                        color: isUploaded ? const Color(0xFF4CAF50) : AppColors.goldText, size: 20),
+                        color: isUploaded ? const Color(0xFF5FD39A) : AppColors.goldText, size: 20),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
@@ -650,7 +650,7 @@ class _GuardianFormScreenState extends State<GuardianFormScreen>
                           if (hint != null)
                             Text(hint, style: TextStyle(color: AppColors.goldText, fontSize: 10)),
                           if (isUploaded)
-                            Text('Uploaded', style: TextStyle(color: const Color(0xFF4CAF50), fontSize: 10)),
+                            Text('Uploaded', style: TextStyle(color: const Color(0xFF5FD39A), fontSize: 10)),
                         ],
                       ),
                     ),

@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import '../../../core/config/app_config.dart';
 import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/services/watch_history_service.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/nocturne_theme.dart';
 import '../../../core/widgets/wave_thumbnail.dart';
 import '../../auth/services/auth_service.dart';
 import '../../broadcast/services/channel_library_service.dart';
@@ -15,6 +17,7 @@ import '../../subscription/models/channel_subscription_model.dart';
 import '../../subscription/services/channel_subscription_service.dart';
 import '../../wave/models/wave_model.dart';
 import '../../wave/services/wave_service.dart';
+import '../../static_pages/static_pages_registry.dart';
 import '../models/channel_model.dart';
 import '../services/channel_content_service.dart';
 import '../services/channel_service.dart';
@@ -463,7 +466,9 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   }
 
   Future<void> _openChannelSeries(ChannelSeries series) async {
-    final detail = await ChannelContentService.getSeriesDetail(series.id);
+    final channelId = _channel?.id;
+    if (channelId == null) return;
+    final detail = await ChannelContentService.getSeriesDetail(channelId, series.id);
     if (!mounted) return;
     final episodes = detail?.allEpisodes ?? const <ChannelEpisode>[];
     final playable = episodes.where((e) => e.hasVideo).toList();
@@ -594,7 +599,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         content: Text(msg, style: const TextStyle(color: AppColors.white)),
         backgroundColor: isError
             ? AppColors.errorRed.withValues(alpha: 0.9)
-            : const Color(0xFF4CAF50).withValues(alpha: 0.9),
+            : const Color(0xFF5FD39A).withValues(alpha: 0.9),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -859,41 +864,146 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     );
   }
 
+  // Matches the design spec exactly (line 132–138 of AfroVision Channel
+  // Page.dc.html): 36×36 icon chips, radius 11, border #2a3a6b, a near-
+  // transparent white fill; 17px/600 title, 10.5px muted subtitle.
   Widget _buildAppBar() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
           GestureDetector(
             onTap: () => Navigator.pop(context),
             child: Container(
-              padding: const EdgeInsets.all(10),
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.inputBorder),
+                color: Colors.white.withValues(alpha: 0.03),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: Nocturne.borderStrong),
               ),
               child: const Icon(
                 Icons.arrow_back_ios_new_rounded,
-                color: AppColors.white,
-                size: 18,
+                color: Nocturne.textDim,
+                size: 16,
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              _channel?.name ?? 'Channel',
-              style: const TextStyle(
-                color: AppColors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _channel?.name ?? 'Channel',
+                  style: const TextStyle(
+                    color: AppColors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (_channel != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    _channel!.category == null
+                        ? 'Channel ${_channel!.channelNumber}'
+                        : 'Channel ${_channel!.channelNumber} · ${_channel!.category}',
+                    style: const TextStyle(
+                      color: Nocturne.textFaint,
+                      fontSize: 10.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
             ),
           ),
+          if (_channel != null) ...[
+            const SizedBox(width: 10),
+            GestureDetector(
+              onTap: () => _showChannelOptionsSheet(_channel!),
+              child: Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(color: Nocturne.borderStrong),
+                ),
+                child: const Icon(
+                  Icons.more_horiz_rounded,
+                  color: AppColors.orange,
+                  size: 16,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+
+  void _showChannelOptionsSheet(ChannelModel ch) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.inputBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.link_rounded, color: AppColors.white),
+                title: const Text(
+                  'Copy channel link',
+                  style: TextStyle(color: AppColors.white),
+                ),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  final shareUrl =
+                      '${StaticPagesRegistry.websiteBaseUrl}/live/${ch.id}';
+                  await Clipboard.setData(ClipboardData(text: shareUrl));
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Channel link copied')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  _isFollowing ? Icons.close_rounded : Icons.add_rounded,
+                  color: AppColors.white,
+                ),
+                title: Text(
+                  _isFollowing ? 'Unfollow channel' : 'Follow channel',
+                  style: const TextStyle(color: AppColors.white),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  if (!_followLoading) _toggleFollow();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -913,190 +1023,342 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
             child: Column(
               children: [
                 const SizedBox(height: 16),
-                // Banner
-                if (ch.bannerUrl != null)
-                  Container(
-                    width: double.infinity,
-                    height: 140,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: ch.isPremiumChannel
-                            ? const Color(0xFFFFD700).withAlpha(120)
-                            : AppColors.inputBorder,
-                        width: ch.isPremiumChannel ? 1.5 : 1,
+                // Channel logo — a plain circle that stands alone when there's
+                // no banner, or overlaps the bottom edge of the banner (half
+                // in, half out) when there is one, matching the reference
+                // design's overlapping avatar treatment instead of sitting
+                // as a separate block far below the cover image.
+                Builder(
+                  builder: (context) {
+                    final logo = Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: ch.logoUrl == null
+                            ? (ch.isPremiumChannel
+                                  ? const LinearGradient(
+                                      colors: [
+                                        Color(0xFFF5C266),
+                                        Color(0xFFB8860B),
+                                      ],
+                                    )
+                                  : LinearGradient(
+                                      colors: [
+                                        AppColors.orange.withValues(alpha: 0.25),
+                                        AppColors.lightOrange.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ))
+                            : null,
+                        border: Border.all(
+                          color: AppColors.darkBlue,
+                          width: 3,
+                        ),
+                        image: ch.logoUrl != null
+                            ? DecorationImage(
+                                image: NetworkImage(
+                                  AppConfig.mediaUrl(ch.logoUrl!),
+                                ),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
                       ),
-                      image: DecorationImage(
-                        image: NetworkImage(AppConfig.mediaUrl(ch.bannerUrl!)),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                // Channel logo
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: ch.logoUrl == null
-                        ? (ch.isPremiumChannel
-                              ? const LinearGradient(
-                                  colors: [
-                                    Color(0xFFFFD700),
-                                    Color(0xFFB8860B),
-                                  ],
-                                )
-                              : LinearGradient(
-                                  colors: [
-                                    AppColors.orange.withValues(alpha: 0.25),
-                                    AppColors.lightOrange.withValues(
-                                      alpha: 0.1,
-                                    ),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ))
-                        : null,
-                    border: Border.all(
-                      color: AppColors.orange.withValues(alpha: 0.4),
-                      width: 2,
-                    ),
-                    image: ch.logoUrl != null
-                        ? DecorationImage(
-                            image: NetworkImage(
-                              AppConfig.mediaUrl(ch.logoUrl!),
+                      child: ch.logoUrl == null
+                          ? Icon(
+                              ch.isPrivate
+                                  ? Icons.lock_rounded
+                                  : Icons.live_tv_rounded,
+                              color: AppColors.orange,
+                              size: 36,
+                            )
+                          : null,
+                    );
+
+                    if (ch.bannerUrl == null) return logo;
+
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.bottomCenter,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          height: 140,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: ch.isPremiumChannel
+                                  ? const Color(0xFFF5C266).withAlpha(120)
+                                  : AppColors.inputBorder,
+                              width: ch.isPremiumChannel ? 1.5 : 1,
                             ),
-                            fit: BoxFit.cover,
-                          )
-                        : null,
-                  ),
-                  child: ch.logoUrl == null
-                      ? Icon(
-                          ch.isPrivate
-                              ? Icons.lock_rounded
-                              : Icons.live_tv_rounded,
-                          color: AppColors.orange,
-                          size: 36,
-                        )
-                      : null,
+                            image: DecorationImage(
+                              image: NetworkImage(
+                                AppConfig.mediaUrl(ch.bannerUrl!),
+                              ),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        Positioned(bottom: -40, child: logo),
+                      ],
+                    );
+                  },
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: ch.bannerUrl != null ? 56 : 16),
                 Text(
                   ch.name,
                   style: const TextStyle(
                     color: AppColors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
-                // Type badge
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: ch.isExclusive
-                        ? AppColors.orange.withValues(alpha: 0.12)
-                        : ch.isPrivate
-                        ? AppColors.errorRed.withValues(alpha: 0.12)
-                        : const Color(0xFF4CAF50).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
+                const SizedBox(height: 7),
+                // Badge row — the design (AfroVision Channel Page.dc.html,
+                // line 149) puts EXCLUSIVE, MEMBER · ACTIVE and 18+ together
+                // in one wrapped row, not stacked as separate lines.
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    _buildBadgePill(
+                      icon: ch.isExclusive
+                          ? Icons.verified_rounded
+                          : ch.isPrivate
+                          ? Icons.lock_rounded
+                          : Icons.public_rounded,
+                      label: ch.isExclusive
+                          ? 'EXCLUSIVE'
+                          : ch.isPrivate
+                          ? 'PRIVATE'
+                          : 'PUBLIC',
                       color: ch.isExclusive
-                          ? AppColors.orange.withValues(alpha: 0.4)
+                          ? AppColors.lightOrange
+                          : ch.isPrivate
+                          ? AppColors.errorRed
+                          : const Color(0xFF5FD39A),
+                      background: ch.isExclusive
+                          ? AppColors.orange.withValues(alpha: 0.12)
+                          : ch.isPrivate
+                          ? AppColors.errorRed.withValues(alpha: 0.12)
+                          : const Color(0xFF5FD39A).withValues(alpha: 0.16),
+                      borderColor: ch.isExclusive
+                          ? const Color(0xFF4A3A1A)
                           : ch.isPrivate
                           ? AppColors.errorRed.withValues(alpha: 0.4)
-                          : const Color(0xFF4CAF50).withValues(alpha: 0.4),
+                          : const Color(0xFF5FD39A).withValues(alpha: 0.3),
                     ),
+                    // Membership state stated on the page (design: "EXCLUSIVE
+                    // + MEMBER · ACTIVE sit together, so access is legible
+                    // before Watch Live"). Reaching this screen for an
+                    // exclusive channel already implies an active entitlement
+                    // or ownership — the load guard above redirects to
+                    // /exclusive-access otherwise.
+                    if (ch.isExclusive && !_canManage)
+                      _buildBadgePill(
+                        icon: Icons.check_circle_rounded,
+                        label: 'MEMBER · ACTIVE',
+                        color: const Color(0xFF5FD39A),
+                        background: const Color(0xFF5FD39A).withValues(alpha: 0.16),
+                        borderColor: const Color(0xFF5FD39A).withValues(alpha: 0.3),
+                      ),
+                    // Derived from the real age_classification already set on
+                    // this channel's published movies/series (not a
+                    // fabricated flag) — shown once any of that content has
+                    // loaded and is rated 'adult'.
+                    if (_channelMovies.any((m) => m.ageClassification == 'adult') ||
+                        _channelSeries.any((s) => s.ageClassification == 'adult'))
+                      _buildBadgePill(label: '18+', color: Nocturne.textDim),
+                  ],
+                ),
+                const SizedBox(height: 18),
+
+                // Stat strip — the same followers/price data already shown
+                // (buried) in the About tab, surfaced here so it reads
+                // before the tabs rather than requiring a tap to find.
+                // Boxed per the design (a bordered strip, not a bare row).
+                // "Titles" is the real, live count of published movies +
+                // series already fetched for the tabs below (both load
+                // eagerly on channel open) — not a fabricated number, and it
+                // updates in place once those loads resolve.
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppColors.inputFill,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.inputBorder),
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        ch.isExclusive
-                            ? Icons.verified_user_rounded
-                            : ch.isPrivate
-                            ? Icons.lock_rounded
-                            : Icons.public_rounded,
-                        color: ch.isExclusive
-                            ? AppColors.orange
-                            : ch.isPrivate
-                            ? AppColors.errorRed
-                            : const Color(0xFF4CAF50),
-                        size: 14,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        ch.isExclusive
-                            ? 'EXCLUSIVE'
-                            : ch.isPrivate
-                            ? 'PRIVATE'
-                            : 'PUBLIC',
-                        style: TextStyle(
-                          color: ch.isExclusive
-                              ? AppColors.orange
-                              : ch.isPrivate
-                              ? AppColors.errorRed
-                              : const Color(0xFF4CAF50),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.5,
+                      Expanded(
+                        child: _buildHeaderStat(
+                          value: _formatCompactCount(_followersCount),
+                          label: 'Members',
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                GestureDetector(
-                  onTap: () => _watchLive(ch),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: BoxDecoration(
-                      gradient: _isStreamPlayable(ch)
-                          ? AppColors.buttonGradient
-                          : null,
-                      color: _isStreamPlayable(ch)
-                          ? null
-                          : AppColors.inputBorder,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.play_circle_fill_rounded,
-                          color: _isStreamPlayable(ch)
-                              ? AppColors.white
-                              : AppColors.hintText,
-                          size: 20,
+                      Container(width: 1, height: 30, color: AppColors.inputBorder),
+                      Expanded(
+                        child: _buildHeaderStat(
+                          value: _formatCompactCount(
+                            _channelMovies.length + _channelSeries.length,
+                          ),
+                          label: 'Titles',
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _watchLiveLabel(ch),
-                          style: TextStyle(
-                            color: _isStreamPlayable(ch)
-                                ? AppColors.white
-                                : AppColors.hintText,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                      ),
+                      if (ch.isExclusive) ...[
+                        Container(width: 1, height: 30, color: AppColors.inputBorder),
+                        Expanded(
+                          child: _buildHeaderStat(
+                            value: '₦${ch.exclusiveMonthlyFeeNgn.toStringAsFixed(0)}',
+                            label: 'Per month',
+                          ),
+                        ),
+                      ] else if (ch.requiresPayment) ...[
+                        Container(width: 1, height: 30, color: AppColors.inputBorder),
+                        Expanded(
+                          child: _buildHeaderStat(
+                            value: ch.entryFeeType == 'ngn'
+                                ? '₦${ch.entryFeeNgn.toStringAsFixed(0)}'
+                                : '${ch.entryFeeVptUnits} vPT',
+                            label: 'Per access',
                           ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
+                const SizedBox(height: 18),
 
-                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: GestureDetector(
+                        onTap: () => _watchLive(ch),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            // Same gold-CTA token used by other primary
+                            // actions (e.g. the channel-number "Access
+                            // Channel" button) so every gold CTA in the app
+                            // reads as one consistent gradient.
+                            gradient: _isStreamPlayable(ch)
+                                ? Nocturne.goldCta
+                                : null,
+                            color: _isStreamPlayable(ch)
+                                ? null
+                                : AppColors.inputBorder,
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: _isStreamPlayable(ch)
+                                ? [
+                                    BoxShadow(
+                                      color: Nocturne.gold.withValues(alpha: 0.2),
+                                      blurRadius: 22,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // Design source (line 163 of AfroVision Channel
+                              // Page.dc.html) uses a single Phosphor
+                              // "play-circle" fill icon that inherits the
+                              // button's own dark text color — not a
+                              // two-tone white-circle/black-triangle icon.
+                              Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: _isStreamPlayable(ch)
+                                    ? const Color(0xFF26170A)
+                                    : AppColors.hintText,
+                                size: 17,
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  _watchLiveLabel(ch),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: _isStreamPlayable(ch)
+                                        ? const Color(0xFF26170A)
+                                        : AppColors.hintText,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: GestureDetector(
+                        onTap: _followLoading ? null : _toggleFollow,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: _isFollowing
+                                ? AppColors.orange.withValues(alpha: 0.12)
+                                : Colors.white.withValues(alpha: 0.02),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: _isFollowing
+                                  ? const Color(0xFF5FD39A)
+                                  : Nocturne.borderStrong,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _isFollowing
+                                    ? Icons.check_circle_rounded
+                                    : Icons.add_circle_outline_rounded,
+                                color: _isFollowing
+                                    ? const Color(0xFF5FD39A)
+                                    : Nocturne.textDim,
+                                size: 15,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  _followLoading
+                                      ? '...'
+                                      : (_isFollowing ? 'Following' : 'Follow'),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: _isFollowing
+                                        ? const Color(0xFF5FD39A)
+                                        : Nocturne.textDim,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
 
                 _buildSectionBar(ch),
                 const SizedBox(height: 16),
                 _buildSectionContent(ch),
+                const PangleBigBanner(margin: EdgeInsets.only(top: 20)),
                 const SizedBox(height: 32),
               ],
             ),
@@ -1106,49 +1368,96 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     );
   }
 
+  static IconData _sectionIcon(ChannelSection section) {
+    switch (section) {
+      case ChannelSection.about:
+        return Icons.info_outline_rounded;
+      case ChannelSection.streams:
+        return Icons.history_rounded;
+      case ChannelSection.library:
+        return Icons.video_library_rounded;
+      case ChannelSection.movies:
+        return Icons.local_movies_rounded;
+      case ChannelSection.series:
+        return Icons.live_tv_rounded;
+      case ChannelSection.waves:
+        return Icons.waves_rounded;
+      case ChannelSection.schedule:
+        return Icons.calendar_today_rounded;
+      case ChannelSection.requests:
+        return Icons.mail_rounded;
+      case ChannelSection.manage:
+        return Icons.settings_rounded;
+    }
+  }
+
   Widget _buildSectionBar(ChannelModel ch) {
+    // Order matches the design (About → Library → Movies → Series first,
+    // since those are what most viewers want); Past Streams/Waves/Schedule
+    // and management-only tabs follow rather than leading.
     final sections = <ChannelSection>[
       ChannelSection.about,
-      ChannelSection.streams,
       if (ch.isExclusive) ChannelSection.library,
       ChannelSection.movies,
       ChannelSection.series,
+      ChannelSection.streams,
       ChannelSection.waves,
       ChannelSection.schedule,
       if (_canManage && ch.isExclusive) ChannelSection.requests,
       if (_canManage) ChannelSection.manage,
     ];
 
+    // Design (Channels page mock): "Tabs never clip — the tabs scroll in a
+    // padded row so no pill is half cut at either edge." Previously this
+    // scroll view had no padding of its own, so a pill could sit flush
+    // against the screen edge at either end of the scroll range.
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
         children: sections.map((section) {
           final selected = _activeSection == section;
+          // Matches the design's tab-pill spec exactly (line 170 of
+          // AfroVision Channel Page.dc.html): padding 8/14, fully rounded
+          // (999px, not 12px), 12px/weight-500 text, 13px icon. The prior,
+          // larger/less-rounded pills were why only ~3.5 tabs fit on screen
+          // instead of the 4 the design shows.
           return GestureDetector(
             onTap: () => setState(() => _activeSection = section),
             child: Container(
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              margin: const EdgeInsets.only(right: 7),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
                 color: selected
-                    ? AppColors.orange.withValues(alpha: 0.22)
-                    : AppColors.inputFill,
-                borderRadius: BorderRadius.circular(12),
+                    ? AppColors.orange.withValues(alpha: 0.13)
+                    : Colors.white.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(999),
                 border: Border.all(
                   color: selected
-                      ? AppColors.orange.withValues(alpha: 0.45)
-                      : AppColors.inputBorder,
+                      ? AppColors.orange
+                      : Nocturne.border,
                 ),
               ),
-              child: Text(
-                section == ChannelSection.library
-                    ? '${section.label}${_libraryUnreadCount > 0 ? ' (${_libraryUnreadCount > 99 ? '99+' : _libraryUnreadCount})' : ''}'
-                    : section.label,
-                style: TextStyle(
-                  color: selected ? AppColors.lightOrange : AppColors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _sectionIcon(section),
+                    size: 13,
+                    color: selected ? AppColors.lightOrange : Nocturne.textMuted,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    section == ChannelSection.library
+                        ? '${section.label}${_libraryUnreadCount > 0 ? ' (${_libraryUnreadCount > 99 ? '99+' : _libraryUnreadCount})' : ''}'
+                        : section.label,
+                    style: TextStyle(
+                      color: selected ? AppColors.lightOrange : Nocturne.textMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -1207,7 +1516,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                     style: TextStyle(color: AppColors.white),
                   ),
                   backgroundColor: const Color(
-                    0xFF4CAF50,
+                    0xFF5FD39A,
                   ).withValues(alpha: 0.9),
                   behavior: SnackBarBehavior.floating,
                   duration: const Duration(seconds: 2),
@@ -1323,13 +1632,13 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                   ch.isPremiumChannel &&
                       !(_subscription != null && _subscription!.isActive)
                   ? const LinearGradient(
-                      colors: [Color(0xFFFFD700), Color(0xFFB8860B)],
+                      colors: [Color(0xFFF5C266), Color(0xFFB8860B)],
                     )
                   : (_subscription != null && _subscription!.isActive
                         ? LinearGradient(
                             colors: [
-                              const Color(0xFF4CAF50).withValues(alpha: 0.25),
-                              const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                              const Color(0xFF5FD39A).withValues(alpha: 0.25),
+                              const Color(0xFF5FD39A).withValues(alpha: 0.1),
                             ],
                           )
                         : AppColors.buttonGradient),
@@ -1339,7 +1648,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                   color:
                       ch.isPremiumChannel &&
                           !(_subscription != null && _subscription!.isActive)
-                      ? const Color(0xFFFFD700).withAlpha(80)
+                      ? const Color(0xFFF5C266).withAlpha(80)
                       : AppColors.orange.withValues(alpha: 0.3),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
@@ -1576,7 +1885,9 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         _buildInfoCard(
           icon: Icons.movie_outlined,
           label: 'Movies',
-          value: 'Movies published by this channel.',
+          value: ch.isExclusive
+              ? 'Movies published by this channel. Exclusive to active members.'
+              : 'Movies published by this channel.',
         ),
         if (_moviesLoading)
           const Padding(
@@ -1685,6 +1996,8 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                 ),
               ),
             ),
+            if (movie.ageClassification == 'adult')
+              const Positioned(left: 8, top: 8, child: _AgeRatingChip()),
             Positioned(
               left: 8,
               right: 8,
@@ -1712,7 +2025,9 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
         _buildInfoCard(
           icon: Icons.tv_outlined,
           label: 'Series',
-          value: 'Series published by this channel.',
+          value: ch.isExclusive
+              ? 'Series published by this channel. Exclusive to active members.'
+              : 'Series published by this channel.',
         ),
         if (_seriesLoading)
           const Padding(
@@ -1821,6 +2136,8 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                 ),
               ),
             ),
+            if (series.ageClassification == 'adult')
+              const Positioned(left: 8, top: 8, child: _AgeRatingChip()),
             Positioned(
               left: 8,
               right: 8,
@@ -2123,7 +2440,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFD700).withValues(alpha: 0.85),
+                      color: const Color(0xFFF5C266).withValues(alpha: 0.85),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -2405,7 +2722,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  label,
+                  label.toUpperCase(),
                   style: TextStyle(
                     color: AppColors.goldText,
                     fontSize: 11,
@@ -2431,6 +2748,71 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     );
   }
 
+  /// Matches the design's badge pill spec exactly (line 150–152 of
+  /// AfroVision Channel Page.dc.html): 9.5px/700 weight text, a fully
+  /// rounded pill, and — for the plain 18+ variant (no icon, no color) —
+  /// just a border with no fill.
+  Widget _buildBadgePill({
+    IconData? icon,
+    required String label,
+    required Color color,
+    Color? background,
+    Color? borderColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: borderColor ?? Nocturne.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, color: color, size: 11),
+            const SizedBox(width: 5),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.65,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderStat({required String value, required String label}) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: AppColors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(color: AppColors.hintText, fontSize: 11),
+        ),
+      ],
+    );
+  }
+
+  String _formatCompactCount(int count) {
+    if (count >= 1000000) return '${(count / 1000000).toStringAsFixed(1)}M';
+    if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}K';
+    return '$count';
+  }
+
   String _formatDate(String isoDate) {
     final date = DateTime.tryParse(isoDate);
     if (date == null) return isoDate;
@@ -2449,5 +2831,31 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+}
+
+/// "18+" corner chip — shown only when the content's real backend
+/// `age_classification` is `adult` (the same field creators set when
+/// publishing a movie/series). Never shown speculatively.
+class _AgeRatingChip extends StatelessWidget {
+  const _AgeRatingChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Text(
+        '18+',
+        style: TextStyle(
+          color: AppColors.lightOrange,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
   }
 }

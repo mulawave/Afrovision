@@ -41,16 +41,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.afrovision.tv.data.PlayerMedia
 import com.afrovision.tv.data.TvViewModel
+import com.afrovision.tv.player.ChannelViewerSocket
+import com.afrovision.tv.player.PlayerFactory
 import com.afrovision.tv.ui.navigation.Screen
 import com.afrovision.tv.ui.theme.LocalNocturne
 import kotlinx.coroutines.delay
 
+private const val WATCH_PING_INTERVAL_MS = 30_000L
+
+@OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(viewModel: TvViewModel) {
     val nocturne = LocalNocturne.current
@@ -62,18 +70,88 @@ fun PlayerScreen(viewModel: TvViewModel) {
         return
     }
 
-    val player = remember { ExoPlayer.Builder(context).build() }
+    val isLiveChannel = media.mediaType == "channel"
+    val player = remember {
+        PlayerFactory.create(context).also {
+            PlayerFactory.applyQualityCap(it, context, viewModel.settings.defaultQuality)
+        }
+    }
     var isPlaying by remember { mutableStateOf(true) }
     var showOverlay by remember { mutableStateOf(true) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(media) {
-        val url = media.streamUrl ?: media.externalUrl ?: return@LaunchedEffect
-        player.setMediaItem(MediaItem.fromUri(url))
+        val url = media.streamUrl?.takeIf { it.isNotBlank() }
+            ?: media.externalUrl?.takeIf { it.isNotBlank() }
+            ?: return@LaunchedEffect
+        val item = MediaItem.Builder().setUri(url).apply {
+            if (isLiveChannel) {
+                // Sit a little further behind the live edge so a network dip
+                // drains buffer instead of stalling at the edge.
+                setLiveConfiguration(
+                    MediaItem.LiveConfiguration.Builder()
+                        .setTargetOffsetMs(PlayerFactory.LIVE_TARGET_OFFSET_MS)
+                        .setMinPlaybackSpeed(0.97f)
+                        .setMaxPlaybackSpeed(1.03f)
+                        .build()
+                )
+            }
+        }.build()
+        player.setMediaItem(item)
         player.prepare()
         player.playWhenReady = true
         if (media.progress > 0 && !media.isLive) player.seekTo(media.progress)
+    }
+
+    // Recover from stalls instead of freezing on an error: fell behind the
+    // live window -> jump back to the live position; network/IO failure ->
+    // re-prepare with backoff. Counter resets once playback is healthy again.
+    DisposableEffect(player) {
+        var attempts = 0
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) attempts = 0
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    player.seekToDefaultPosition()
+                    player.prepare()
+                    return
+                }
+                if (attempts >= 6) return
+                attempts++
+                val delayMs = (2_000L shl (attempts - 1)).coerceAtMost(15_000L)
+                handler.postDelayed({
+                    if (isLiveChannel) player.seekToDefaultPosition()
+                    player.prepare()
+                    player.playWhenReady = true
+                }, delayMs)
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            handler.removeCallbacksAndMessages(null)
+            player.removeListener(listener)
+        }
+    }
+
+    // Channel view + watch-time + live-viewer presence tracking (admin
+    // live-viewers dashboard).
+    if (media.mediaType == "channel") {
+        LaunchedEffect(media.id) {
+            viewModel.recordChannelView(media.id)
+            ChannelViewerSocket.join(media.id)
+            while (true) {
+                delay(WATCH_PING_INTERVAL_MS)
+                viewModel.recordChannelWatchPing(media.id, (WATCH_PING_INTERVAL_MS / 1000).toInt())
+            }
+        }
+        DisposableEffect(media.id) {
+            onDispose { ChannelViewerSocket.leave() }
+        }
     }
 
     LaunchedEffect(showOverlay) {
@@ -109,13 +187,15 @@ fun PlayerScreen(viewModel: TvViewModel) {
                         if (player.isPlaying) player.pause() else player.play()
                         true
                     }
+                    // Seeking a live channel jumps the stream around and
+                    // restarts buffering; only allow it for VOD.
                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        player.seekForward()
-                        true
+                        if (!isLiveChannel) player.seekForward()
+                        !isLiveChannel
                     }
                     KeyEvent.KEYCODE_DPAD_LEFT -> {
-                        player.seekBack()
-                        true
+                        if (!isLiveChannel) player.seekBack()
+                        !isLiveChannel
                     }
                     else -> false
                 }

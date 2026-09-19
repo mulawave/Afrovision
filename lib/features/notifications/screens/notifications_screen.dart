@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
@@ -229,6 +230,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                   _buildEmptyState()
                                 else
                                   ..._notifications.map(_buildNotificationCard),
+                                const PangleBigBanner(),
                               ],
                             ),
                           ),

@@ -80,7 +80,9 @@ import 'features/updates/screens/updates_screen.dart';
 import 'features/channel/screens/my_pics_screen.dart';
 import 'features/profile/screens/profile_setup_screen.dart';
 import 'features/guardian/screens/guardian_form_screen.dart';
+import 'features/settings/screens/identifier_codes_screen.dart';
 import 'core/widgets/profile_setup_guard.dart';
+import 'core/ads/pangle_ads.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -100,6 +102,7 @@ void main() async {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
+  PangleAds.instance.start();
   runApp(const AfroVisionApp());
 }
 
@@ -122,7 +125,7 @@ class AfroVisionApp extends StatelessWidget {
       title: 'AfroVision',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
-      navigatorObservers: [ProfileSetupGuard()],
+      navigatorObservers: [ProfileSetupGuard(), PangleRouteObserver()],
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: AppColors.darkBlue,
@@ -237,6 +240,7 @@ class AfroVisionApp extends StatelessWidget {
         '/announcements': (_) => const AnnouncementsScreen(),
         '/updates-list': (_) => const UpdatesScreen(),
         '/my-pics': (_) => const MyPicsScreen(),
+        '/identifier-codes': (_) => const IdentifierCodesScreen(),
       },
     );
   }

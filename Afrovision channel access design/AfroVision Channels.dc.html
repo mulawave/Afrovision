@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#080e21;color:#eef1f8;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#f0a52a}a:hover{color:#f7c66a}
+.av-scroll::-webkit-scrollbar{width:0;height:0}
+.av-scroll{scrollbar-width:none}
+@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes sheetUp{from{transform:translateY(103%)}to{transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;gap:44px;padding:44px 48px 64px;align-items:flex-start;justify-content:center">
+
+<div style="flex:none;width:390px;height:844px;position:relative;border-radius:42px;background:#0b1533;box-shadow:0 0 0 1px #22325e,0 30px 80px rgba(0,0,0,.65);overflow:hidden;display:flex;flex-direction:column">
+
+<div style="flex:none;background:linear-gradient(168deg,#17295e,#0e1a3f 86%);padding:14px 16px 12px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:500;color:#c3cde6;margin-bottom:10px">
+<span>6:45</span>
+<span style="display:flex;align-items:center;gap:6px"><i class="ph ph-moon" style="font-size:12px"></i><i class="ph ph-cell-signal-full" style="font-size:12px"></i><span style="width:16px;height:9px;border-radius:2px;box-shadow:inset 0 0 0 1px #7d8bad;background:linear-gradient(to right,#eef1f8 55%,transparent 55%)"></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:9px">
+<button onClick="{{ back }}" aria-label="Back" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#c3cde6;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(255,255,255,.07);color:#eef1f8">
+<i class="ph ph-caret-left" style="font-size:16px"></i>
+</button>
+<div style="flex:1;min-width:0">
+<div style="font-size:18px;font-weight:600;letter-spacing:-.01em">{{ screenTitle }}</div>
+<div style="font-size:10.5px;color:#8fa0c8">{{ screenSub }}</div>
+</div>
+<sc-if value="{{ showHeaderTools }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;gap:7px;flex:none">
+<button onClick="{{ openSearch }}" aria-label="Search channels" style="width:36px;height:36px;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#f0a52a;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.14)"><i class="ph ph-magnifying-glass" style="font-size:16px"></i></button>
+<button onClick="{{ openDial }}" aria-label="Channel number" style="width:36px;height:36px;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#f0a52a;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.14)"><i class="ph-fill ph-dots-nine" style="font-size:16px"></i></button>
+<button onClick="{{ openCreate }}" aria-label="Create channel" style="width:36px;height:36px;border-radius:11px;border:1px solid #4a3a1a;background:rgba(240,165,42,.13);color:#f5c266;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.24)"><i class="ph ph-plus" style="font-size:16px"></i></button>
+</div>
+</sc-if>
+</div>
+</div>
+
+<sc-if value="{{ isList }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none">
+<sc-if value="{{ showLive }}" hint-placeholder-val="{{ true }}">
+<div style="margin:0 16px 10px;display:flex;align-items:center;gap:9px;padding:9px 10px 9px 12px;border-radius:12px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<span style="width:7px;height:7px;flex:none;border-radius:50%;background:#5fd39a;box-shadow:0 0 0 3px rgba(95,211,154,.18)"></span>
+<span style="flex:1;min-width:0;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ liveText }}</span>
+<button onClick="{{ returnLive }}" style="flex:none;font-size:11.5px;font-weight:600;padding:7px 12px;border:0;border-radius:9px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;cursor:pointer" style-hover="filter:brightness(1.06)">Return to Live</button>
+<button onClick="{{ hideLive }}" aria-label="Dismiss" style="flex:none;width:24px;height:24px;border:0;border-radius:7px;background:transparent;color:#7d8bad;cursor:pointer;font-size:13px" style-hover="background:rgba(255,255,255,.06);color:#eef1f8">✕</button>
+</div>
+</sc-if>
+
+<div style="display:flex;gap:7px;padding:10px 16px;overflow-x:auto" class="av-scroll">
+<sc-for list="{{ categories }}" as="c" hint-placeholder-count="7">
+<button onClick="{{ c.pick }}" style="flex:none;font-size:12px;font-weight:500;padding:7px 14px;border-radius:999px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;cursor:pointer;{{ c.style }}" style-hover="border-color:#f0a52a">{{ c.label }}</button>
+</sc-for>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;padding:0 16px 11px">
+<div style="font-size:11.5px;color:#8fa0c8">{{ resultCount }}</div>
+<div style="flex:1;height:1px;background:linear-gradient(to right,rgba(34,50,94,.9),transparent)"></div>
+<div style="display:flex;gap:6px">
+<sc-for list="{{ sorts }}" as="s" hint-placeholder-count="3">
+<button onClick="{{ s.pick }}" style="font-size:10.5px;font-weight:500;padding:5px 10px;border-radius:8px;border:1px solid #22325e;background:transparent;color:#8fa0c8;font-family:inherit;cursor:pointer;{{ s.style }}" style-hover="color:#f5c266">{{ s.label }}</button>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div class="av-scroll" ref="{{ listRef }}" style="flex:1;min-height:0;overflow-y:auto;padding:2px 16px 20px;display:flex;flex-direction:column;gap:11px">
+<sc-for list="{{ channels }}" as="c" hint-placeholder-count="6">
+<div style="flex:none;border-radius:15px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;overflow:hidden">
+<button onClick="{{ c.open }}" style="position:relative;display:block;width:100%;height:112px;padding:0;border:0;cursor:pointer;background:{{ c.bg }}" style-hover="filter:brightness(1.06)">
+<span style="position:absolute;inset:0;display:grid;place-items:center;font-size:26px;font-weight:700;letter-spacing:-.02em;color:rgba(255,255,255,.9);text-shadow:0 2px 16px rgba(0,0,0,.45)">{{ c.wordmark }}</span>
+<span style="position:absolute;top:9px;right:9px;display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:700;letter-spacing:.07em;padding:4px 8px;border-radius:7px;background:{{ c.typeBg }};color:{{ c.typeFg }}"><i class="{{ c.typeIcon }}" style="font-size:10px"></i>{{ c.type }}</span>
+<sc-if value="{{ c.live }}" hint-placeholder-val="{{ false }}">
+<span style="position:absolute;top:9px;left:9px;display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:700;letter-spacing:.07em;padding:4px 8px;border-radius:7px;background:rgba(226,84,63,.92);color:#fff"><span style="width:4px;height:4px;border-radius:50%;background:#fff"></span>LIVE</span>
+</sc-if>
+</button>
+<div style="padding:10px 12px 12px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:38px;height:38px;flex:none;border-radius:50%;background:{{ c.mark }};display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;box-shadow:0 0 0 1px #2a3a6b">{{ c.initials }}</span>
+<div style="flex:1;min-width:0">
+<div style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</div>
+<div style="display:flex;align-items:center;gap:7px;font-size:10.5px;color:#8fa0c8;margin-top:2px;white-space:nowrap;overflow:hidden">
+<span style="overflow:hidden;text-overflow:ellipsis;max-width:96px">By {{ c.owner }}</span>
+<span style="color:#f5c266;font-weight:500">{{ c.genre }}</span>
+<span style="display:inline-flex;align-items:center;gap:3px"><i class="ph-fill ph-users" style="font-size:11px"></i>{{ c.members }}</span>
+<span>#{{ c.number }}</span>
+</div>
+</div>
+<button onClick="{{ c.open }}" aria-label="Channel details" style="flex:none;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:#7d8bad;cursor:pointer" style-hover="background:rgba(255,255,255,.06);color:#f5c266"><i class="ph ph-caret-right" style="font-size:14px"></i></button>
+</div>
+<div style="display:flex;gap:8px;margin-top:11px">
+<button onClick="{{ c.tune }}" style="flex:1.2;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:10px;border:0;border-radius:10px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.06)"><i class="ph-fill ph-play-circle" style="font-size:15px"></i>Tune In</button>
+<button onClick="{{ c.open }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:10px;border:1px solid #2a3a6b;border-radius:10px;background:rgba(255,255,255,.02);color:#dbe2f2;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer" style-hover="border-color:#f0a52a;color:#f5c266"><i class="ph ph-user" style="font-size:14px"></i>Visit Profile</button>
+</div>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{ showPager }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;margin-top:4px;padding:12px;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:10.5px;color:#8fa0c8;margin-bottom:10px">
+<span>{{ pageRange }}</span><span>{{ pageLabel }}</span>
+</div>
+<div style="display:flex;align-items:center;gap:6px">
+<button onClick="{{ firstPage }}" aria-label="First page" style="width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:10px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;cursor:pointer;{{ edgeStart }}" style-hover="border-color:#f0a52a;color:#f5c266"><i class="ph ph-caret-double-left" style="font-size:14px"></i></button>
+<button onClick="{{ prevPage }}" aria-label="Previous page" style="width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:10px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;cursor:pointer;{{ edgeStart }}" style-hover="border-color:#f0a52a;color:#f5c266"><i class="ph ph-caret-left" style="font-size:14px"></i></button>
+<div style="flex:1;display:flex;gap:5px;justify-content:center">
+<sc-for list="{{ pageNums }}" as="p" hint-placeholder-count="5">
+<button onClick="{{ p.go }}" style="min-width:32px;height:34px;padding:0 6px;border-radius:10px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;{{ p.style }}" style-hover="border-color:#f0a52a;color:#f5c266">{{ p.label }}</button>
+</sc-for>
+</div>
+<button onClick="{{ nextPage }}" aria-label="Next page" style="width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:10px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;cursor:pointer;{{ edgeEnd }}" style-hover="border-color:#f0a52a;color:#f5c266"><i class="ph ph-caret-right" style="font-size:14px"></i></button>
+<button onClick="{{ lastPage }}" aria-label="Last page" style="width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:10px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;cursor:pointer;{{ edgeEnd }}" style-hover="border-color:#f0a52a;color:#f5c266"><i class="ph ph-caret-double-right" style="font-size:14px"></i></button>
+</div>
+<div style="font-size:10.5px;color:#7d8bad;margin-top:9px;text-align:center">6 channels per page</div>
+</div>
+</sc-if>
+<sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;padding:34px 16px;text-align:center">
+<i class="ph ph-television-simple" style="font-size:28px;color:#3d4d7d"></i>
+<div style="font-size:13.5px;font-weight:600;margin-top:10px">No channels in this category</div>
+<div style="font-size:11.5px;color:#8fa0c8;margin-top:3px">Try another category or search by name.</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isDial }}" hint-placeholder-val="{{ false }}">
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto;padding:26px 22px 24px;display:flex;flex-direction:column">
+<div style="text-align:center">
+<div style="width:84px;height:84px;margin:0 auto;border-radius:50%;background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1.5px #a8761f;display:grid;place-items:center"><i class="ph-fill ph-dots-nine" style="font-size:32px;color:#f0a52a"></i></div>
+<div style="font-size:20px;font-weight:600;margin-top:16px">Enter Channel Number</div>
+<div style="font-size:12.5px;color:#f0c88f;margin-top:4px">Access private and public channels by number</div>
+</div>
+<div style="margin-top:26px">
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a;margin-bottom:8px">Channel number</div>
+<div style="display:flex;align-items:center;gap:10px;padding:14px 14px;border-radius:13px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f">
+<i class="ph ph-hash" style="font-size:17px;color:#7d8bad"></i>
+<span style="flex:1;font-size:19px;font-weight:600;letter-spacing:.1em;color:{{ dialColor }}">{{ dialDisplay }}</span>
+<sc-if value="{{ hasDial }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ clearDial }}" aria-label="Clear" style="width:26px;height:26px;border:0;border-radius:8px;background:rgba(255,255,255,.05);color:#9aa6c4;cursor:pointer;font-size:12px" style-hover="color:#eef1f8">✕</button>
+</sc-if>
+</div>
+<sc-if value="{{ dialError }}" hint-placeholder-val="{{ false }}">
+<div style="margin-top:9px;display:flex;gap:7px;align-items:flex-start;padding:10px 11px;border-radius:11px;background:#17224a;box-shadow:inset 0 0 0 1px #a8761f;animation:fadeIn .16s ease">
+<i class="ph-fill ph-warning" style="font-size:14px;color:#f5c266;margin-top:1px"></i>
+<span style="font-size:11.5px;color:#f0c88f">{{ dialError }}</span>
+</div>
+</sc-if>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:18px">
+<sc-for list="{{ keys }}" as="k" hint-placeholder-count="12">
+<button onClick="{{ k.press }}" style="height:54px;border-radius:13px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#eef1f8;font-family:inherit;font-size:19px;font-weight:600;cursor:pointer;{{ k.style }}" style-hover="border-color:#f0a52a;background:rgba(240,165,42,.09)">{{ k.label }}</button>
+</sc-for>
+</div>
+<button onClick="{{ submitDial }}" style="margin-top:16px;width:100%;padding:14px;border:0;border-radius:13px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 8px 22px rgba(239,150,21,.2)" style-hover="filter:brightness(1.06)">Access Channel</button>
+<div style="margin-top:14px;font-size:11px;color:#8fa0c8;text-align:center">Recent · <button onClick="{{ recentDial }}" style="border:0;background:transparent;color:#f5c266;font-family:inherit;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:3px">#412 Naija Gold</button></div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isCreate }}" hint-placeholder-val="{{ false }}">
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px 26px;display:flex;flex-direction:column;gap:16px">
+<div>
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a;margin-bottom:8px">Channel banner</div>
+<button style="width:100%;height:132px;border-radius:14px;border:1px dashed #2f4483;background:#0e1a3d;color:#9aa6c4;font-family:inherit;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px" style-hover="border-color:#f0a52a;background:rgba(240,165,42,.05)">
+<span style="width:40px;height:40px;border-radius:11px;background:rgba(240,165,42,.16);display:grid;place-items:center"><i class="ph-fill ph-image" style="font-size:19px;color:#f5c266"></i></span>
+<span style="font-size:12.5px">Tap to upload banner image</span>
+<span style="font-size:10.5px;color:#7d8bad">1280 × 480 · JPG or PNG</span>
+</button>
+<div style="display:flex;justify-content:center;margin-top:-24px">
+<button style="width:72px;height:72px;border-radius:50%;border:1px solid #2f4483;background:#101d43;color:#f5c266;cursor:pointer;display:grid;place-items:center;box-shadow:0 8px 20px rgba(0,0,0,.4)" style-hover="border-color:#f0a52a">
+<i class="ph-fill ph-camera-plus" style="font-size:22px"></i>
+</button>
+</div>
+<div style="text-align:center;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#8fa0c8;margin-top:7px">Channel logo</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<div>
+<label style="display:block;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a;margin-bottom:7px">Channel name</label>
+<div style="display:flex;align-items:center;gap:10px;padding:12px 13px;border-radius:12px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f">
+<i class="ph ph-television-simple" style="font-size:16px;color:#7d8bad"></i>
+<input placeholder="Enter channel name" style="flex:1;min-width:0;border:0;background:transparent;color:#eef1f8;font-family:inherit;font-size:13.5px;outline:none">
+</div>
+</div>
+<div>
+<label style="display:block;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a;margin-bottom:7px">Description</label>
+<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 13px;border-radius:12px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f">
+<i class="ph ph-file-text" style="font-size:16px;color:#7d8bad;margin-top:2px"></i>
+<textarea placeholder="Describe your channel" style="flex:1;min-width:0;min-height:56px;border:0;background:transparent;color:#eef1f8;font-family:inherit;font-size:13.5px;outline:none;resize:none"></textarea>
+</div>
+</div>
+<div>
+<label style="display:block;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#f0a52a;margin-bottom:7px">Category</label>
+<button style="width:100%;display:flex;align-items:center;gap:10px;padding:12px 13px;border:0;border-radius:12px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #24345f;color:#f5c266;font-family:inherit;font-size:13.5px;cursor:pointer;text-align:left" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<i class="ph-fill ph-shapes" style="font-size:16px;color:#f5c266"></i>
+<span style="flex:1">Select a category</span>
+<i class="ph ph-caret-down" style="font-size:14px;color:#f5c266"></i>
+</button>
+</div>
+</div>
+
+<div style="border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#8fa0c8;margin-bottom:10px">Channel type</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+<sc-for list="{{ types }}" as="t" hint-placeholder-count="3">
+<button onClick="{{ t.pick }}" style="display:flex;flex-direction:column;align-items:center;gap:7px;padding:13px 6px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;cursor:pointer;{{ t.style }}" style-hover="border-color:#f0a52a">
+<i class="{{ t.icon }}" style="font-size:19px"></i>
+<span style="font-size:12px;font-weight:600">{{ t.label }}</span>
+</button>
+</sc-for>
+</div>
+<div style="font-size:11px;color:#8fa0c8;margin-top:10px">{{ typeHint }}</div>
+</div>
+
+<div style="border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:13px">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:11px">
+<span style="width:32px;height:32px;border-radius:10px;background:rgba(240,165,42,.14);display:grid;place-items:center"><i class="ph ph-link" style="font-size:16px;color:#f5c266"></i></span>
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#8fa0c8">Stream source</div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<sc-for list="{{ sources }}" as="s" hint-placeholder-count="4">
+<button onClick="{{ s.pick }}" style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;padding:9px 14px;border-radius:10px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#7d8bad;font-family:inherit;cursor:pointer;{{ s.style }}" style-hover="border-color:#f0a52a;color:#f5c266">
+<i class="{{ s.icon }}" style="font-size:14px"></i>{{ s.label }}
+</button>
+</sc-for>
+</div>
+<div style="font-size:11px;color:#8fa0c8;margin-top:10px">Optional at creation. You can configure the source later in Edit Channel or Creator Studio.</div>
+</div>
+
+<button onClick="{{ submitCreate }}" style="width:100%;padding:14px;border:0;border-radius:13px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 8px 22px rgba(239,150,21,.2)" style-hover="filter:brightness(1.06)">Create Channel</button>
+</div>
+</sc-if>
+
+<div style="flex:none;position:relative;display:flex;padding:8px 10px 20px;background:#0a1330;box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 2px;border:0;background:transparent;font-family:inherit;font-size:9.5px;font-weight:500;color:#7d8bad;cursor:pointer;{{ n.style }}">
+<i class="{{ n.icon }}" style="font-size:{{ n.size }}"></i>{{ n.label }}
+</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closeSearch }}" style="position:absolute;inset:0;background:rgba(4,8,20,.66);animation:fadeIn .16s ease"></div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:74%;border-radius:22px 22px 42px 42px;background:#0b1533;box-shadow:0 0 0 1px #2f4483,0 -20px 50px rgba(0,0,0,.55);padding:14px 16px 22px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column">
+<div style="width:38px;height:4px;border-radius:2px;background:#f0a52a;align-self:center;margin-bottom:14px"></div>
+<div style="display:flex;align-items:center;gap:10px;padding:12px 13px;border-radius:13px;background:#0e1a3d;box-shadow:inset 0 0 0 1px #a8761f">
+<i class="ph ph-magnifying-glass" style="font-size:17px;color:#f0a52a"></i>
+<input ref="{{ searchRef }}" value="{{ query }}" onChange="{{ onQuery }}" placeholder="Search channels..." style="flex:1;min-width:0;border:0;background:transparent;color:#eef1f8;font-family:inherit;font-size:14px;outline:none">
+<sc-if value="{{ hasQuery }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ clearQuery }}" aria-label="Clear" style="width:26px;height:26px;border:0;border-radius:8px;background:rgba(255,255,255,.05);color:#9aa6c4;cursor:pointer;font-size:12px" style-hover="color:#eef1f8">✕</button>
+</sc-if>
+</div>
+<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#8fa0c8;margin:16px 0 9px">{{ searchLabel }}</div>
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ searchResults }}" as="r" hint-placeholder-count="5">
+<button onClick="{{ r.open }}" style="display:flex;align-items:center;gap:11px;text-align:left;padding:11px 12px;border-radius:13px;border:0;background:#101d43;box-shadow:inset 0 0 0 1px #22325e;color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<span style="width:40px;height:40px;flex:none;border-radius:50%;background:{{ r.mark }};display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff">{{ r.initials }}</span>
+<span style="flex:1;min-width:0">
+<span style="display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+<span style="display:flex;align-items:center;gap:7px;font-size:10.5px;color:#8fa0c8;margin-top:2px">
+<span style="overflow:hidden;text-overflow:ellipsis;max-width:90px">By {{ r.owner }}</span>
+<span style="color:#f5c266;font-weight:500">{{ r.genre }}</span>
+<span style="display:inline-flex;align-items:center;gap:3px"><i class="ph-fill ph-users" style="font-size:11px"></i>{{ r.members }}</span>
+<span>#{{ r.number }}</span>
+</span>
+</span>
+<i class="ph ph-caret-right" style="font-size:15px;color:#f0a52a"></i>
+</button>
+</sc-for>
+<sc-if value="{{ searchEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="padding:30px 12px;text-align:center">
+<i class="ph ph-magnifying-glass" style="font-size:26px;color:#3d4d7d"></i>
+<div style="font-size:13px;font-weight:600;margin-top:9px">No channel matches “{{ query }}”</div>
+<div style="font-size:11.5px;color:#8fa0c8;margin-top:3px">Try a channel number instead.</div>
+<button onClick="{{ openDial }}" style="margin-top:12px;font-size:12.5px;font-weight:600;padding:9px 15px;border-radius:10px;border:1px solid #f0a52a;background:transparent;color:#f5c266;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.12)">Enter channel number</button>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:16px;right:16px;bottom:94px;padding:11px 13px;border-radius:12px;background:#16255c;box-shadow:0 0 0 1px #2f4483,0 12px 30px rgba(0,0,0,.5);font-size:12px;color:#dbe2f2;animation:fadeIn .16s ease;display:flex;align-items:center;gap:9px">
+<i class="ph-fill ph-info" style="font-size:15px;color:#f5c266"></i>{{ toast }}
+</div>
+</sc-if>
+</div>
+
+<div style="flex:none;width:280px;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f0a52a;margin-bottom:6px">AfroVision · channels</div>
+<h1 style="font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.16;margin:0 0 10px">Four screens,<br>one channels surface</h1>
+<p style="margin:0 0 18px;font-size:12.5px;color:#8fa0c8;text-wrap:pretty">List, tune-in by number, search and create — all reachable from the header, all on the Home and Media Center palette.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px">
+<sc-for list="{{ jump }}" as="j" hint-placeholder-count="4">
+<button onClick="{{ j.go }}" style="font-size:11px;padding:6px 11px;border-radius:8px;border:1px solid #1e2c55;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ j.style }}" style-hover="border-color:#f0a52a;color:#f5c266">{{ j.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="5">
+<div style="border-radius:8px;padding:11px 12px;box-shadow:0 0 0 1px #1e2c55">
+<div style="font-size:12px;font-weight:600;margin-bottom:3px">{{ n.title }}</div>
+<p style="margin:0;font-size:11.5px;color:#8fa0c8">{{ n.body }}</p>
+</div>
+</sc-for>
+</div>
+<div style="margin-top:16px;font-size:11px;color:#6d7ba1;text-wrap:pretty">Channel banners and logos are typographic placeholders — send the real artwork and I'll drop it in.</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:800,&quot;height&quot;:940}}">
+const CH = [
+  { name: 'GREAT! movies UK', owner: 'GREAT! movies UK', genre: 'Movie', members: 1, number: 65, type: 'PUBLIC',
+    wordmark: 'GREAT! movies', initials: 'GM', bg: 'linear-gradient(150deg,#8a2fbe,#3d1266)', mark: '#8a2fbe', cat: 'Movie', live: false },
+  { name: 'KTV Sport', owner: 'Richard Obroh', genre: 'Sports', members: 0, number: 40, type: 'PUBLIC',
+    wordmark: 'SPORT', initials: 'KS', bg: 'linear-gradient(150deg,#1f2733,#0c1017)', mark: '#c0271f', cat: 'Sports', live: true },
+  { name: 'KTV Sport Plus', owner: 'Richard Obroh', genre: 'Sports', members: 0, number: 41, type: 'PUBLIC',
+    wordmark: 'Cplus', initials: 'KP', bg: 'linear-gradient(150deg,#dfe3ec,#9aa2b6)', mark: '#c0271f', cat: 'Sports', live: false },
+  { name: 'ACC Digital Network', owner: 'ACC Digital Network', genre: 'Sports', members: 1, number: 32, type: 'PUBLIC',
+    wordmark: 'ACC NETWORK', initials: 'AC', bg: 'linear-gradient(150deg,#1b63c4,#071c40)', mark: '#0e4fa1', cat: 'Sports', live: false },
+  { name: 'FrightFlix', owner: 'FrightFlix', genre: 'Movie', members: 1, number: 62, type: 'PUBLIC',
+    wordmark: 'FRIGHTFLIX', initials: 'FF', bg: 'linear-gradient(150deg,#e4e7ee,#9096a6)', mark: '#8f1a14', cat: 'Movie', live: false },
+  { name: 'Ebony TV by Lionsgate', owner: 'Lionsgate', genre: 'Movie', members: 12, number: 18, type: 'PUBLIC',
+    wordmark: 'EBONY TV', initials: 'ET', bg: 'linear-gradient(150deg,#c0271f,#5e0f0c)', mark: '#1b1b1b', cat: 'Movie', live: true },
+  { name: 'Kiddies Corner', owner: 'AfroVision Kids', genre: 'Kids', members: 6, number: 22, type: 'PRIVATE',
+    wordmark: 'KIDDIES', initials: 'KC', bg: 'linear-gradient(150deg,#2f9e6b,#0f3a29)', mark: '#2f9e6b', cat: 'Kids', live: false },
+  { name: 'Lagos Laughs', owner: 'Bola A.', genre: 'Comedy', members: 3, number: 51, type: 'PUBLIC',
+    wordmark: 'LAGOS LAUGHS', initials: 'LL', bg: 'linear-gradient(150deg,#c9721f,#4a2708)', mark: '#c9721f', cat: 'Comedy', live: false },
+  { name: 'Real Naija', owner: 'RN Media', genre: 'Reality', members: 9, number: 77, type: 'PUBLIC',
+    wordmark: 'REAL NAIJA', initials: 'RN', bg: 'linear-gradient(150deg,#38507f,#111a30)', mark: '#38507f', cat: 'Reality', live: false },
+  { name: 'Wildlife Africa', owner: 'Savannah Docs', genre: 'Documentary', members: 21, number: 88, type: 'PUBLIC',
+    wordmark: 'WILDLIFE', initials: 'WA', bg: 'linear-gradient(150deg,#2f6b3a,#0d2415)', mark: '#2f6b3a', cat: 'Documentary', live: false },
+  { name: 'Afrobeat Live', owner: 'AB Sessions', genre: 'Music', members: 40, number: 90, type: 'PUBLIC',
+    wordmark: 'AFROBEAT', initials: 'AL', bg: 'linear-gradient(150deg,#a8306f,#37102a)', mark: '#a8306f', cat: 'Music', live: true },
+  { name: 'Naija Comedy Hub', owner: 'NCH', genre: 'Comedy', members: 15, number: 93, type: 'PUBLIC',
+    wordmark: 'COMEDY HUB', initials: 'NC', bg: 'linear-gradient(150deg,#c99a1f,#42300a)', mark: '#c99a1f', cat: 'Comedy', live: false },
+  { name: 'Cartoon Kingdom', owner: 'CK Studios', genre: 'Kids', members: 33, number: 96, type: 'PUBLIC',
+    wordmark: 'CARTOON', initials: 'CK', bg: 'linear-gradient(150deg,#1f7fb4,#0a2c42)', mark: '#1f7fb4', cat: 'Kids', live: false },
+  { name: 'Screen Classics', owner: 'SC Archive', genre: 'Movie', members: 7, number: 101, type: 'PUBLIC',
+    wordmark: 'CLASSICS', initials: 'SC', bg: 'linear-gradient(150deg,#5b5f74,#1c1f2b)', mark: '#5b5f74', cat: 'Movie', live: false },
+  { name: 'Naija Sports Extra', owner: 'NSX', genre: 'Sports', members: 18, number: 104, type: 'PUBLIC',
+    wordmark: 'SPORTS X', initials: 'NX', bg: 'linear-gradient(150deg,#16497a,#061a2f)', mark: '#16497a', cat: 'Sports', live: false },
+  { name: 'Reality Naija', owner: 'RN2', genre: 'Reality', members: 5, number: 108, type: 'PUBLIC',
+    wordmark: 'REALITY', initials: 'R2', bg: 'linear-gradient(150deg,#7a4a9c,#251432)', mark: '#7a4a9c', cat: 'Reality', live: false }
+];
+const DIAL_ONLY = [
+  { name: 'Naija Gold', number: 412, type: 'EXCLUSIVE' },
+  { name: 'Family Room', number: 220, type: 'PRIVATE' }
+];
+const PER_PAGE = 6;
+
+const CATS = ['All', 'Kids', 'Movie', 'Comedy', 'Reality', 'Documentary', 'Sports', 'Music'];
+const SORTS = [['Trending','trend'], ['Newest','new'], ['A–Z','az']];
+const TYPES = [
+  ['Public', 'ph-fill ph-globe-hemisphere-west', 'Anyone on AfroVision can find and watch this channel.'],
+  ['Private', 'ph-fill ph-lock', 'Hidden from browse — reachable only by channel number.'],
+  ['Exclusive', 'ph-fill ph-seal-check', 'Members only, with paid membership and KYC verification required.']
+];
+const SOURCES = [['Native','ph-fill ph-video-camera'], ['YouTube','ph-fill ph-youtube-logo'], ['HLS','ph ph-broadcast'], ['DASH','ph ph-spinner-gap']];
+
+const TYPE_STYLE = {
+  PUBLIC: ['rgba(47,158,107,.9)', '#eafff3', 'ph-fill ph-globe-hemisphere-west'],
+  PRIVATE: ['rgba(11,21,51,.9)', '#c3cde6', 'ph-fill ph-lock']
+};
+
+const NOTES = {
+  list: [['One card, one channel', 'Banner, type badge, live flag, logo, owner, genre, members and number — then Tune In and Visit Profile. No duplicated header per card.'],
+         ['Real pagination', 'Six channels a page with a first/prev/next/last paginator — the old dot row implied paging it never did.'],
+         ['Live banner is dismissible', 'Return to Live stays reachable while the list scrolls under a fixed header.'],
+         ['Exclusive channels never appear', 'Browse and search only ever list public and private channels — exclusive channels are reachable by number alone.'],
+         ['Tools live in the header', 'Search, channel-number dial and create are the three header actions, matching the app.']],
+  dial: [['Kept as a dedicated screen', 'Access Channel keeps its own screen so private and exclusive numbers stay a first-class path.'],
+         ['Real keypad', 'A tappable pad instead of relying on the OS keyboard; ✓ fills the last used number.'],
+         ['Errors answer inline', 'Unknown or gated numbers reply in place — no dead end, no modal.'],
+         ['Recent number', 'One recall chip for the last channel tuned.']],
+  create: [['Two screenshots, one flow', 'Banner, logo, name, description, category, type and stream source in a single scroll with one primary action at the end.'],
+           ['Type explains itself', 'Selecting Public, Private or Exclusive shows what that choice means before submitting.'],
+           ['Stream source optional', 'Kept as a card with the original guidance — configurable later in Creator Studio.'],
+           ['Logo overlaps the banner', 'The logo well sits on the banner edge, as it will render on the channel profile.']]
+};
+
+class Component extends DCLogic {
+  searchRef = React.createRef();
+  listRef = React.createRef();
+  state = { route: 'list', cat: 'All', sort: 'trend', live: true, search: false, query: '',
+            dial: '', dialError: '', type: 'Public', source: 'Native', toast: '', page: 1 };
+
+  set = (p) => this.setState(p);
+  say(msg) { this.setState({ toast: msg }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 1900); }
+  componentWillUnmount() { clearTimeout(this._t); }
+
+  list() {
+    const s = this.state;
+    let out = CH.filter(c => s.cat === 'All' || c.cat === s.cat);
+    if (s.sort === 'az') out = out.slice().sort((a, b) => a.name.localeCompare(b.name));
+    if (s.sort === 'new') out = out.slice().reverse();
+    return out;
+  }
+
+  goPage(p, max) {
+    const page = Math.max(1, Math.min(max, p));
+    this.setState({ page });
+    const el = this.listRef.current;
+    if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  card(c) {
+    const t = TYPE_STYLE[c.type] || TYPE_STYLE.PUBLIC;
+    return { ...c, typeBg: t[0], typeFg: t[1], typeIcon: t[2],
+      open: () => this.say('Opening ' + c.name + ' profile'),
+      tune: () => this.say('Tuning in to ' + c.name + ' · #' + c.number) };
+  }
+
+  row(c) {
+    return { ...c, open: () => { this.set({ search: false }); this.say('Opening ' + c.name); } };
+  }
+
+  renderVals() {
+    const s = this.state, list = this.list();
+    // the real app carries thousands of channels; the paginator is sized for that
+    const scale = s.cat === 'All' ? 412 : 1;
+    const total = list.length * scale;
+    const maxPage = Math.max(1, Math.ceil(total / PER_PAGE));
+    const page = Math.min(s.page, maxPage);
+    const start = (page - 1) * PER_PAGE;
+    const pageItems = list.slice(start % Math.max(1, list.length), (start % Math.max(1, list.length)) + PER_PAGE);
+    const pageNums = (() => {
+      if (maxPage <= 5) return Array.from({ length: maxPage }, (_, i) => i + 1);
+      if (page <= 3) return [1, 2, 3, 0, maxPage];
+      if (page >= maxPage - 2) return [1, 0, maxPage - 2, maxPage - 1, maxPage];
+      return [1, 0, page, 0, maxPage];
+    })();
+    const q = s.query.trim().toLowerCase();
+    const results = q ? CH.filter(c => (c.name + ' ' + c.owner + ' ' + c.genre + ' ' + c.number).toLowerCase().includes(q)) : CH.slice(0, 6);
+    const typeDef = TYPES.find(t => t[0] === s.type) || TYPES[0];
+    const titles = { list: ['Channels', total.toLocaleString() + ' channels on AfroVision'], dial: ['Access Channel', 'Tune in by number'], create: ['Create Channel', 'Set up your own channel'] };
+    const t = titles[s.route] || titles.list;
+
+    const go = (r) => () => this.set({ route: r, search: false, dialError: '' });
+
+    return {
+      screenTitle: t[0], screenSub: t[1],
+      showHeaderTools: s.route === 'list',
+      isList: s.route === 'list', isDial: s.route === 'dial', isCreate: s.route === 'create',
+      back: () => { if (s.route !== 'list') return this.set({ route: 'list' }); window.location.href = 'AfroVision Home.dc.html'; },
+      openSearch: () => { this.set({ search: true }); setTimeout(() => { const el = this.searchRef.current; if (el) el.focus(); }, 60); },
+      openDial: go('dial'), openCreate: go('create'),
+
+      showLive: s.live,
+      liveText: 'BET x Tyler Perry COMEDY is live now',
+      returnLive: () => this.say('Returning to live · BET x Tyler Perry COMEDY'),
+      hideLive: () => this.set({ live: false }),
+
+      categories: CATS.map(c => ({ label: c, pick: () => this.set({ cat: c, page: 1 }),
+        style: s.cat === c ? 'border-color:#f0a52a;background:rgba(240,165,42,.13);color:#f5c266' : '' })),
+      sorts: SORTS.map(x => ({ label: x[0], pick: () => this.set({ sort: x[1], page: 1 }),
+        style: s.sort === x[1] ? 'border-color:#f0a52a;color:#f5c266;background:rgba(240,165,42,.1)' : '' })),
+      resultCount: total.toLocaleString() + (s.cat === 'All' ? ' channels' : ' in ' + s.cat),
+      listRef: this.listRef,
+      channels: pageItems.map(c => this.card(c)),
+      noResults: list.length === 0,
+      showPager: list.length > 0,
+      pageRange: pageItems.length ? (start + 1) + '–' + (start + pageItems.length) + ' of ' + total.toLocaleString() : '',
+      pageLabel: 'Page ' + page + ' of ' + maxPage.toLocaleString(),
+      edgeStart: page === 1 ? 'opacity:.4;pointer-events:none' : '',
+      edgeEnd: page === maxPage ? 'opacity:.4;pointer-events:none' : '',
+      firstPage: () => this.goPage(1, maxPage),
+      prevPage: () => this.goPage(page - 1, maxPage),
+      nextPage: () => this.goPage(page + 1, maxPage),
+      lastPage: () => this.goPage(maxPage, maxPage),
+      pageNums: pageNums.map(p => ({ label: p === 0 ? '…' : String(p),
+        style: p === page ? 'border-color:#f0a52a;background:rgba(240,165,42,.14);color:#f5c266'
+          : (p === 0 ? 'border-color:transparent;cursor:default' : ''),
+        go: p === 0 ? (() => {}) : (() => this.goPage(p, maxPage)) })),
+
+      dialDisplay: s.dial || 'e.g. 839271',
+      dialColor: s.dial ? '#eef1f8' : '#5d6a92',
+      hasDial: !!s.dial,
+      dialError: s.dialError,
+      clearDial: () => this.set({ dial: '', dialError: '' }),
+      keys: ['1','2','3','4','5','6','7','8','9','⌫','0','✓'].map(k => ({ label: k,
+        style: k === '⌫' || k === '✓' ? 'font-size:15px;color:#f5c266' : '',
+        press: () => {
+          if (k === '⌫') return this.set({ dial: s.dial.slice(0, -1), dialError: '' });
+          if (k === '✓') return this.set({ dial: '412', dialError: '' });
+          this.set({ dial: (s.dial + k).slice(0, 6), dialError: '' });
+        } })),
+      submitDial: () => {
+        const hit = CH.concat(DIAL_ONLY).find(c => String(c.number) === s.dial);
+        if (!s.dial) return this.set({ dialError: 'Enter a channel number to continue.' });
+        if (!hit) return this.set({ dialError: 'No channel found on #' + s.dial + '. Check the number and try again.' });
+        if (hit.type === 'EXCLUSIVE') return this.set({ dialError: hit.name + ' is an Exclusive Channel with Private Membership — membership is verified before watch.' });
+        this.set({ dialError: '' });
+        this.say('Tuning in to ' + hit.name + ' · #' + hit.number);
+      },
+      recentDial: () => this.set({ dial: '412', dialError: '' }),
+
+      types: TYPES.map(x => ({ label: x[0], icon: x[1], pick: () => this.set({ type: x[0] }),
+        style: s.type === x[0] ? 'border-color:#f0a52a;background:rgba(240,165,42,.1);color:#f5c266' : '' })),
+      typeHint: typeDef[2],
+      sources: SOURCES.map(x => ({ label: x[0], icon: x[1], pick: () => this.set({ source: x[0] }),
+        style: s.source === x[0] ? 'border-color:#f0a52a;background:rgba(240,165,42,.1);color:#f5c266' : '' })),
+      submitCreate: () => this.say('Channel created as ' + s.type + ' · source ' + s.source),
+
+      searchOpen: s.search, closeSearch: () => this.set({ search: false }),
+      searchRef: this.searchRef, query: s.query, hasQuery: !!s.query,
+      onQuery: (e) => this.set({ query: e.target.value }),
+      clearQuery: () => this.set({ query: '' }),
+      searchLabel: q ? results.length + ' result' + (results.length === 1 ? '' : 's') : 'Suggested',
+      searchResults: results.map(c => this.row(c)),
+      searchEmpty: q && results.length === 0,
+
+      navItems: [
+        { label: 'Home', icon: 'ph ph-house', size: '19px', style: '',
+          go: () => { window.location.href = 'AfroVision Home.dc.html'; } },
+        { label: 'Channels', icon: 'ph-fill ph-television-simple', size: '19px', style: 'color:#f0a52a',
+          go: () => this.set({ route: 'list', search: false }) },
+        { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: '',
+          go: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; } },
+        { label: 'Waves', icon: 'ph ph-waves', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Waves.dc.html'; } },
+        { label: 'Profile', icon: 'ph ph-user-circle', size: '19px', style: '',
+          go: () => { window.location.href = 'AfroVision Account.dc.html'; } }
+      ],
+      toast: s.toast,
+
+      jump: [['Channel list','list'], ['Access Channel','dial'], ['Create Channel','create']]
+        .map(x => ({ label: x[0], go: go(x[1]), style: s.route === x[1] ? 'border-color:#f0a52a;color:#f5c266' : '' }))
+        .concat([{ label: 'Search sheet', style: s.search ? 'border-color:#f0a52a;color:#f5c266' : '',
+          go: () => this.set({ route: 'list', search: true }) }]),
+      notes: (NOTES[s.route] || NOTES.list).map(n => ({ title: n[0], body: n[1] }))
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -5,9 +5,20 @@ import '../storage/auth_storage.dart';
 import '../theme/app_colors.dart';
 
 class ProfileSetupGuard extends NavigatorObserver {
-  UserModel? _cachedUser;
-  DateTime? _lastCheck;
+  // Static so profile updates elsewhere in the app (ProfileService) can
+  // invalidate this cache without needing a reference to the observer
+  // instance registered on MaterialApp.
+  static UserModel? _cachedUser;
+  static DateTime? _lastCheck;
   static const _checkInterval = Duration(minutes: 5);
+
+  /// Invalidate the cached user so the next route check re-fetches fresh
+  /// profile-completeness state instead of bouncing the user back into
+  /// setup for up to 5 minutes after they just completed it.
+  static void clearCache() {
+    _cachedUser = null;
+    _lastCheck = null;
+  }
 
   Future<UserModel?> _getUser() async {
     // Return cached user if fresh

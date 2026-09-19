@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#080e21;color:#eef1f8;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#f0a52a}a:hover{color:#f7c66a}
+*{box-sizing:border-box}
+::-webkit-scrollbar{width:0;height:0}
+@keyframes sheetUp{from{transform:translateY(102%)}to{transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;gap:40px;padding:44px 48px 64px;align-items:flex-start">
+
+<div style="width:300px;flex:none;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f0a52a;margin-bottom:6px">AfroVision · prototype</div>
+<h1 style="font-size:26px;font-weight:500;letter-spacing:-.02em;line-height:1.14;margin:0 0 10px">Media Center<br>exclusive access</h1>
+<p style="margin:0 0 24px;font-size:13px;color:#8fa0c8;text-wrap:pretty">Flip the account state — every screen, chip, sheet and search result re-resolves from it.</p>
+
+<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:26px">
+<sc-for list="{{ stateOptions }}" as="opt" hint-placeholder-count="5">
+<button onClick="{{ opt.pick }}" style-hover="background:#101d43" style="text-align:left;display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:8px;border:1px solid #22325e;background:transparent;color:#eef1f8;font-family:inherit;cursor:pointer;{{ opt.style }}">
+<span style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500">{{ opt.label }}<span style="font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#8fa0c8">{{ opt.code }}</span></span>
+<span style="font-size:11.5px;color:#8fa0c8">{{ opt.note }}</span>
+</button>
+</sc-for>
+</div>
+
+<div style="border-radius:8px;padding:13px 14px;box-shadow:0 0 0 1px #22325e">
+<div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#8fa0c8;margin-bottom:7px">Resolved right now</div>
+<div style="font-size:13px;font-weight:500;margin-bottom:4px">{{ verdictTitle }}</div>
+<p style="margin:0;font-size:12px;color:#9aa6c4">{{ verdictBody }}</p>
+</div>
+
+<div style="margin-top:20px;display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ jumpLinks }}" as="j" hint-placeholder-count="4">
+<button onClick="{{ j.go }}" style="font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer" style-hover="border-color:#f0a52a;color:#f5c266">{{ j.label }}</button>
+</sc-for>
+</div>
+</div>
+
+<div style="flex:none;width:390px;height:844px;position:relative;border-radius:42px;background:#0b1533;box-shadow:0 0 0 1px #2a3a6b,0 30px 80px rgba(0,0,0,.6);overflow:hidden">
+
+<div style="position:absolute;inset:0;display:flex;flex-direction:column">
+
+<div style="flex:none;height:52px;padding:16px 24px 0;display:flex;align-items:flex-start;justify-content:space-between;font-size:12px;font-weight:500;color:#eef1f8">
+<span>9:41</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:16px;height:9px;border-radius:2px;box-shadow:inset 0 0 0 1px #8fa0c8;background:linear-gradient(to right,#eef1f8 62%,transparent 62%)"></span></span>
+</div>
+
+<div style="flex:1;min-height:0;overflow-y:auto;position:relative">
+
+<sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 20px 12px">
+<div>
+<div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#8fa0c8">AfroVision</div>
+<div style="font-size:21px;font-weight:500;letter-spacing:-.01em">Media Center</div>
+</div>
+<div style="display:flex;gap:8px">
+<button onClick="{{ goSearch }}" aria-label="Search" style="width:38px;height:38px;display:grid;place-items:center;border-radius:10px;border:1px solid #22325e;background:transparent;cursor:pointer" style-hover="background:#101d43">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#eef1f8" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5 21 21"></path></svg>
+</button>
+<button onClick="{{ goTuneIn }}" style="height:38px;padding:0 12px;border-radius:10px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer" style-hover="background:#101d43">Tune in</button>
+</div>
+</div>
+
+<sc-if value="{{ showWarnBanner }}" hint-placeholder-val="{{ false }}">
+<div style="margin:0 20px 14px;border-radius:10px;background:#17224a;box-shadow:0 0 0 1px #a8761f;padding:11px 12px;display:flex;gap:10px;align-items:flex-start">
+<span style="width:6px;height:6px;border-radius:50%;background:#f7c66a;flex:none;margin-top:6px"></span>
+<div style="flex:1">
+<div style="font-size:12.5px;font-weight:500;color:#fdf3e2">Your {{ channelName }} membership ends in {{ daysLeft }} days</div>
+<div style="font-size:11.5px;color:#f5c266;margin-top:2px">Renew before {{ expiryDate }} to keep watching exclusive movies, series and your library.</div>
+<button onClick="{{ openRenew }}" style="margin-top:8px;font-size:12px;font-weight:500;padding:6px 12px;border-radius:8px;border:1px solid #f0a52a;background:transparent;color:#f5c266;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.14)">Renew now</button>
+</div>
+<button onClick="{{ dismissBanner }}" aria-label="Dismiss" style="width:22px;height:22px;flex:none;display:grid;place-items:center;border:0;background:transparent;color:#c2a06a;cursor:pointer;font-size:14px">×</button>
+</div>
+</sc-if>
+
+<div style="display:flex;gap:7px;padding:0 20px 14px;overflow-x:auto">
+<sc-if value="{{ showChip }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ toggleExclusive }}" style="flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:7px 13px;border-radius:999px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ chipStyle }}">
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8l4 3 5-6 5 6 4-3-2 11H5L3 8z"></path></svg>Exclusive
+</button>
+</sc-if>
+<sc-for list="{{ staticChips }}" as="c" hint-placeholder-count="3">
+<span style="flex:none;font-size:12px;padding:7px 13px;border-radius:999px;border:1px solid #22325e;color:#8fa0c8">{{ c }}</span>
+</sc-for>
+</div>
+
+<div style="display:flex;gap:20px;padding:0 20px;margin-bottom:4px;box-shadow:inset 0 -1px 0 #22325e">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+<button onClick="{{ t.pick }}" style="padding:8px 0 11px;border:0;background:transparent;font-family:inherit;font-size:14px;font-weight:500;color:#8fa0c8;cursor:pointer;{{ t.style }}">{{ t.label }}</button>
+</sc-for>
+</div>
+
+<div style="padding:16px 20px 26px;display:flex;flex-direction:column;gap:24px">
+<sc-for list="{{ rows }}" as="row" hint-placeholder-count="2">
+<div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">
+<div style="display:flex;align-items:center;gap:8px">
+<div style="font-size:14.5px;font-weight:500">{{ row.label }}</div>
+<sc-if value="{{ row.badge }}" hint-placeholder-val="{{ false }}">
+<span style="font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;padding:3px 7px;border-radius:5px;background:#4a3a1a;color:#fdf3e2">Exclusive</span>
+</sc-if>
+</div>
+<div style="font-size:11px;color:#8fa0c8">{{ row.note }}</div>
+</div>
+
+<sc-if value="{{ row.isPoster }}" hint-placeholder-val="{{ true }}">
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px">
+<sc-for list="{{ row.items }}" as="it" hint-placeholder-count="6">
+<button onClick="{{ it.tap }}" style="position:relative;padding:0;border:0;background:transparent;cursor:pointer;text-align:left;font-family:inherit;display:block;{{ it.style }}">
+<div style="aspect-ratio:2/3;border-radius:8px;background:linear-gradient(158deg,#2a3a6b,#111c3f);box-shadow:inset 0 0 0 1px #2a3a6b;padding:9px;display:flex;flex-direction:column;justify-content:flex-end">
+<sc-if value="{{ it.excl }}" hint-placeholder-val="{{ false }}">
+<span style="position:absolute;top:8px;left:8px;font-size:8.5px;font-weight:600;letter-spacing:.06em;padding:3px 6px;border-radius:4px;background:rgba(66,58,106,.92);color:#f7dcae">{{ channelTag }}</span>
+</sc-if>
+<sc-if value="{{ it.locked }}" hint-placeholder-val="{{ false }}">
+<span style="position:absolute;top:8px;right:8px;width:20px;height:20px;display:grid;place-items:center;border-radius:5px;background:rgba(11,21,51,.85)">
+<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#f5c266" stroke-width="2.2"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+</span>
+</sc-if>
+<span style="font-size:11px;font-weight:500;line-height:1.25;color:#eef1f8">{{ it.title }}</span>
+<span style="font-size:9.5px;color:#8fa0c8;margin-top:2px">{{ it.meta }}</span>
+</div>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ row.isWide }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:9px">
+<sc-for list="{{ row.items }}" as="it" hint-placeholder-count="4">
+<button onClick="{{ it.tap }}" style="position:relative;padding:0;border:0;background:transparent;cursor:pointer;text-align:left;font-family:inherit;display:block;{{ it.style }}">
+<div style="aspect-ratio:16/10;border-radius:8px;background:linear-gradient(158deg,#2a3a6b,#111c3f);box-shadow:inset 0 0 0 1px #2a3a6b;padding:9px;display:flex;flex-direction:column;justify-content:flex-end">
+<sc-if value="{{ it.locked }}" hint-placeholder-val="{{ false }}">
+<span style="position:absolute;top:8px;right:8px;width:20px;height:20px;display:grid;place-items:center;border-radius:5px;background:rgba(11,21,51,.85)">
+<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#f5c266" stroke-width="2.2"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+</span>
+</sc-if>
+<span style="font-size:11.5px;font-weight:500;color:#eef1f8">{{ it.title }}</span>
+<span style="font-size:9.5px;color:#8fa0c8;margin-top:2px">{{ it.meta }}</span>
+</div>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ row.isRenew }}" hint-placeholder-val="{{ false }}">
+<div style="border-radius:12px;background:#17224a;box-shadow:0 0 0 1px #a8761f;padding:16px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:34px;height:34px;flex:none;border-radius:8px;background:#4a3a1a;display:grid;place-items:center;font-size:12px;font-weight:600;color:#f7dcae">{{ channelTag }}</span>
+<div>
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f7c66a">Premium · membership expired</div>
+<div style="font-size:15px;font-weight:500;color:#fdf3e2">{{ channelName }}</div>
+</div>
+</div>
+<p style="margin:0;font-size:12.5px;color:#f5c266">Your membership ended on {{ expiryDate }}. Renew to get back your exclusive movies, series and saved library on {{ channelName }}.</p>
+<div style="display:flex;gap:16px;padding:9px 0;box-shadow:inset 0 1px 0 rgba(245,194,102,.22),inset 0 -1px 0 rgba(245,194,102,.22)">
+<div><div style="font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:#c2a06a">Plan</div><div style="font-size:12.5px;color:#fdf3e2">{{ planName }}</div></div>
+<div><div style="font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:#c2a06a">Price</div><div style="font-size:12.5px;color:#fdf3e2">{{ planPrice }}</div></div>
+<div><div style="font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:#c2a06a">Expired</div><div style="font-size:12.5px;color:#fdf3e2">{{ expiryDate }}</div></div>
+</div>
+<div style="font-size:11.5px;color:#f0c88f">Blocked while expired: exclusive movies · series · saved library · channel {{ channelNumber }} watch</div>
+<button onClick="{{ openRenew }}" style="margin-top:2px;align-self:flex-start;font-size:13px;font-weight:500;padding:9px 16px;border-radius:8px;border:1px solid #f0a52a;background:transparent;color:#f5c266;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.16)">Renew membership</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ row.isInfo }}" hint-placeholder-val="{{ false }}">
+<div style="border-radius:12px;background:#0e1a3d;box-shadow:0 0 0 1px #4a3a1a;padding:16px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:34px;height:34px;flex:none;border-radius:8px;background:#17224a;display:grid;place-items:center">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f7c66a" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+</span>
+<div>
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">Premium · private membership</div>
+<div style="font-size:15px;font-weight:500">{{ channelName }}</div>
+</div>
+</div>
+<p style="margin:0;font-size:12.5px;color:#9aa6c4;text-wrap:pretty">{{ channelName }} is an Exclusive Channel with Private Membership. Only Exclusive Channel members can access Exclusive Channel contents.</p>
+<sc-if value="{{ requestSent }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:12px;color:#f5c266;padding:8px 10px;border-radius:8px;background:#101d43;box-shadow:0 0 0 1px #4a3a1a">Request sent — pending approval from {{ channelName }}.</div>
+</sc-if>
+<sc-if value="{{ requestPending }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+<button onClick="{{ openRequest }}" style="font-size:13px;font-weight:500;padding:9px 15px;border-radius:8px;border:1px solid #f0a52a;background:transparent;color:#f0a52a;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.14)">Request membership</button>
+<button onClick="{{ openAbout }}" style="font-size:13px;font-weight:500;padding:9px 15px;border-radius:8px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer" style-hover="background:#101d43">Learn more</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+<div>
+<div style="position:relative;height:230px;background:linear-gradient(168deg,#1c2c62,#0d1633);box-shadow:inset 0 -1px 0 #22325e;display:flex;flex-direction:column;justify-content:flex-end;padding:20px">
+<button onClick="{{ goHome }}" style="position:absolute;top:12px;left:16px;width:34px;height:34px;border-radius:9px;border:1px solid #2a3a6b;background:rgba(11,21,51,.8);color:#eef1f8;cursor:pointer;font-family:inherit" style-hover="background:#101d43">‹</button>
+<sc-if value="{{ detailExcl }}" hint-placeholder-val="{{ false }}">
+<span style="align-self:flex-start;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:4px 8px;border-radius:5px;background:#4a3a1a;color:#fdf3e2;margin-bottom:9px">Exclusive · {{ channelName }}</span>
+</sc-if>
+<div style="font-size:24px;font-weight:500;letter-spacing:-.01em">{{ detailTitle }}</div>
+<div style="font-size:12px;color:#8fa0c8;margin-top:3px">{{ detailMeta }}</div>
+</div>
+<div style="padding:18px 20px 28px;display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;gap:8px">
+<button onClick="{{ pressPlay }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:500;padding:11px 16px;border-radius:9px;border:1px solid #f0a52a;background:transparent;color:#f0a52a;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.14)">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"></path></svg>{{ playLabel }}
+</button>
+<button style="width:46px;border-radius:9px;border:1px solid #22325e;background:transparent;color:#9aa6c4;cursor:pointer;font-family:inherit;font-size:16px" style-hover="background:#101d43">+</button>
+</div>
+<p style="margin:0;font-size:13px;color:#9aa6c4;text-wrap:pretty">A Lagos-set drama following three siblings who inherit a failing record label and the catalogue that made it famous. Produced for {{ channelName }} members.</p>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#8fa0c8">Details</div>
+<div style="display:grid;grid-template-columns:96px 1fr;gap:7px 12px;font-size:12.5px">
+<span style="color:#8fa0c8">Channel</span><span>{{ channelName }} · {{ channelNumber }}</span>
+<span style="color:#8fa0c8">Access</span><span>{{ detailAccess }}</span>
+<span style="color:#8fa0c8">Audio</span><span>English, Yoruba</span>
+<span style="color:#8fa0c8">Rating</span><span>16+</span>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPlayer }}" hint-placeholder-val="{{ false }}">
+<div style="height:100%;background:#060b1c;display:flex;flex-direction:column;justify-content:space-between;padding:20px">
+<button onClick="{{ goHome }}" style="align-self:flex-start;width:34px;height:34px;border-radius:9px;border:1px solid #2a3a6b;background:transparent;color:#eef1f8;cursor:pointer;font-family:inherit">‹</button>
+<div style="text-align:center;color:#8fa0c8;font-size:12px">Playing · placeholder stream</div>
+<div>
+<div style="font-size:16px;font-weight:500">{{ detailTitle }}</div>
+<div style="font-size:11.5px;color:#8fa0c8;margin-bottom:12px">{{ channelName }} · exclusive</div>
+<div style="height:3px;border-radius:2px;background:#22325e"><div style="width:34%;height:100%;border-radius:2px;background:#f0a52a"></div></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSearch }}" hint-placeholder-val="{{ false }}">
+<div style="padding:6px 20px 26px">
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+<button onClick="{{ goHome }}" style="width:34px;height:34px;flex:none;border-radius:9px;border:1px solid #22325e;background:transparent;color:#eef1f8;cursor:pointer;font-family:inherit">‹</button>
+<div style="flex:1;display:flex;align-items:center;gap:8px;min-height:38px;padding:6px 11px;border-radius:9px;background:#101d43;box-shadow:0 0 0 1px #22325e">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8fa0c8" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5 21 21"></path></svg>
+<span style="font-size:13.5px">gold</span>
+</div>
+</div>
+<div style="font-size:11px;color:#8fa0c8;margin-bottom:12px">{{ searchCount }}</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ searchRows }}" as="r" hint-placeholder-count="4">
+<button onClick="{{ r.tap }}" style="display:flex;gap:11px;align-items:center;text-align:left;padding:0;border:0;background:transparent;cursor:pointer;font-family:inherit;{{ r.style }}">
+<span style="width:52px;height:74px;flex:none;border-radius:6px;background:linear-gradient(158deg,#2a3a6b,#111c3f);box-shadow:inset 0 0 0 1px #2a3a6b"></span>
+<span style="flex:1">
+<span style="display:block;font-size:13.5px;font-weight:500">{{ r.title }}</span>
+<span style="display:block;font-size:11.5px;color:#8fa0c8;margin-top:2px">{{ r.meta }}</span>
+</span>
+</button>
+</sc-for>
+<sc-if value="{{ searchGateRow }}" hint-placeholder-val="{{ false }}">
+<div style="border-radius:10px;padding:13px 14px;background:#0e1a3d;box-shadow:0 0 0 1px #4a3a1a">
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a;margin-bottom:4px">{{ searchGateKicker }}</div>
+<p style="margin:0;font-size:12.5px;color:#9aa6c4">{{ searchGateBody }}</p>
+<button onClick="{{ searchGateAction }}" style="margin-top:9px;font-size:12.5px;font-weight:500;padding:8px 14px;border-radius:8px;border:1px solid #f0a52a;background:transparent;color:#f0a52a;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.14)">{{ searchGateCta }}</button>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isTuneIn }}" hint-placeholder-val="{{ false }}">
+<div style="padding:6px 20px 26px;display:flex;flex-direction:column;height:100%">
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:20px">
+<button onClick="{{ goHome }}" style="width:34px;height:34px;flex:none;border-radius:9px;border:1px solid #22325e;background:transparent;color:#eef1f8;cursor:pointer;font-family:inherit">‹</button>
+<div style="font-size:16px;font-weight:500">Tune in</div>
+</div>
+<div style="text-align:center;margin-bottom:8px">
+<div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#8fa0c8;margin-bottom:6px">Channel</div>
+<div style="font-size:40px;font-weight:500;letter-spacing:.08em">{{ dialValue }}</div>
+</div>
+<div style="min-height:58px;margin-bottom:14px">
+<sc-if value="{{ dialMessage }}" hint-placeholder-val="{{ false }}">
+<div style="border-radius:10px;padding:11px 13px;background:#17224a;box-shadow:0 0 0 1px #a8761f;text-align:left;animation:fadeIn .18s ease">
+<div style="font-size:12.5px;font-weight:500;color:#fdf3e2">{{ dialMessage }}</div>
+<div style="font-size:11.5px;color:#f5c266;margin-top:3px">{{ dialSub }}</div>
+<sc-if value="{{ dialCta }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ dialAction }}" style="margin-top:9px;font-size:12px;font-weight:500;padding:7px 13px;border-radius:8px;border:1px solid #f0a52a;background:transparent;color:#f5c266;font-family:inherit;cursor:pointer" style-hover="background:rgba(240,165,42,.16)">{{ dialCta }}</button>
+</sc-if>
+</div>
+</sc-if>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+<sc-for list="{{ keys }}" as="k" hint-placeholder-count="12">
+<button onClick="{{ k.press }}" style="height:56px;border-radius:12px;border:1px solid #22325e;background:transparent;color:#eef1f8;font-family:inherit;font-size:19px;font-weight:500;cursor:pointer" style-hover="background:#101d43">{{ k.label }}</button>
+</sc-for>
+</div>
+<button onClick="{{ submitDial }}" style="margin-top:12px;width:100%;padding:12px;border-radius:10px;border:1px solid #f0a52a;background:transparent;color:#f0a52a;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:rgba(240,165,42,.14)">Go to channel</button>
+</div>
+</sc-if>
+
+</div>
+
+<div style="flex:none;display:flex;padding:8px 10px 20px;background:#0a1330;box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 2px;border:0;background:transparent;font-family:inherit;font-size:9.5px;font-weight:500;color:#7d8bad;cursor:pointer;{{ n.style }}">
+<i class="{{ n.icon }}" style="font-size:{{ n.size }}"></i>{{ n.label }}
+</button>
+</sc-for>
+</div>
+</div>
+
+<sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:rgba(4,8,20,.66);animation:fadeIn .16s ease" onClick="{{ closeSheet }}"></div>
+</sc-if>
+
+<sc-if value="{{ isRenewSheet }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:22px 22px 42px 42px;background:#0e1a3d;box-shadow:0 0 0 1px #4a3a1a,0 -20px 50px rgba(0,0,0,.55);padding:18px 20px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;gap:13px">
+<div style="width:38px;height:4px;border-radius:2px;background:#2a3a6b;align-self:center"></div>
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:38px;height:38px;flex:none;border-radius:9px;background:#4a3a1a;display:grid;place-items:center;font-size:13px;font-weight:600;color:#f7dcae">{{ channelTag }}</span>
+<div>
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">Renew membership</div>
+<div style="font-size:17px;font-weight:500">{{ channelName }}</div>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:1px;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px #22325e">
+<div style="display:flex;justify-content:space-between;padding:11px 13px;background:#101d43;font-size:12.5px"><span style="color:#8fa0c8">Plan</span><span>{{ planName }}</span></div>
+<div style="display:flex;justify-content:space-between;padding:11px 13px;background:#101d43;font-size:12.5px"><span style="color:#8fa0c8">Price</span><span>{{ planPrice }}</span></div>
+<div style="display:flex;justify-content:space-between;padding:11px 13px;background:#101d43;font-size:12.5px"><span style="color:#8fa0c8">{{ expiryLabel }}</span><span>{{ expiryDate }}</span></div>
+</div>
+<div style="font-size:11.5px;color:#8fa0c8">Renewing restores exclusive movies, series, your saved library and channel {{ channelNumber }} watch immediately.</div>
+<button onClick="{{ confirmRenew }}" style="width:100%;padding:12px;border-radius:10px;border:1px solid #f0a52a;background:rgba(240,165,42,.14);color:#f5c266;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:rgba(240,165,42,.24)">Renew for {{ planPrice }}</button>
+<button onClick="{{ closeSheet }}" style="width:100%;padding:10px;border-radius:10px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;font-size:13px;cursor:pointer" style-hover="background:#101d43">Not now</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isRequestSheet }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:22px 22px 42px 42px;background:#0e1a3d;box-shadow:0 0 0 1px #4a3a1a,0 -20px 50px rgba(0,0,0,.55);padding:18px 20px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;gap:13px">
+<div style="width:38px;height:4px;border-radius:2px;background:#2a3a6b;align-self:center"></div>
+<div>
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">Request membership</div>
+<div style="font-size:17px;font-weight:500">{{ channelName }}</div>
+<div style="font-size:12px;color:#8fa0c8;margin-top:3px">Private membership — the channel reviews every request.</div>
+</div>
+<div>
+<label style="display:block;font-size:12px;color:#9aa6c4;margin-bottom:5px">Why do you want to join?</label>
+<textarea placeholder="A short note to the channel owner" style="width:100%;min-height:78px;padding:9px 11px;font-family:inherit;font-size:13px;color:#eef1f8;background:#101d43;border:1px solid #22325e;border-radius:9px;resize:none" style-focus="border-color:#f0a52a;outline:none"></textarea>
+</div>
+<div>
+<label style="display:block;font-size:12px;color:#9aa6c4;margin-bottom:5px">Referral code <span style="color:#8fa0c8">(optional)</span></label>
+<input placeholder="e.g. NG-4821" style="width:100%;min-height:38px;padding:8px 11px;font-family:inherit;font-size:13px;color:#eef1f8;background:#101d43;border:1px solid #22325e;border-radius:9px" style-focus="border-color:#f0a52a;outline:none">
+</div>
+<button onClick="{{ submitRequest }}" style="width:100%;padding:12px;border-radius:10px;border:1px solid #f0a52a;background:rgba(240,165,42,.14);color:#f5c266;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:rgba(240,165,42,.24)">Send request</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isAboutSheet }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:22px 22px 42px 42px;background:#0e1a3d;box-shadow:0 0 0 1px #4a3a1a,0 -20px 50px rgba(0,0,0,.55);padding:18px 20px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;gap:12px">
+<div style="width:38px;height:4px;border-radius:2px;background:#2a3a6b;align-self:center"></div>
+<div style="font-size:17px;font-weight:500">About {{ channelName }}</div>
+<p style="margin:0;font-size:13px;color:#9aa6c4;text-wrap:pretty">An Exclusive Channel with Private Membership on AfroVision, carrying original films and series for its members. Membership is approved by the channel and includes the exclusive library and channel {{ channelNumber }} watch.</p>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<div style="border-radius:9px;padding:11px;background:#101d43"><div style="font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#8fa0c8">Access</div><div style="font-size:12.5px;margin-top:3px">Members only</div></div>
+<div style="border-radius:9px;padding:11px;background:#101d43"><div style="font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#8fa0c8">Requires</div><div style="font-size:12.5px;margin-top:3px">KYC verified</div></div>
+</div>
+<button onClick="{{ closeSheet }}" style="width:100%;padding:11px;border-radius:10px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;font-size:13px;cursor:pointer" style-hover="background:#101d43">Close</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isGateSheet }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:22px 22px 42px 42px;background:#0e1a3d;box-shadow:0 0 0 1px #a8761f,0 -20px 50px rgba(0,0,0,.55);padding:18px 20px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;gap:12px">
+<div style="width:38px;height:4px;border-radius:2px;background:#2a3a6b;align-self:center"></div>
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f7c66a">Access re-checked</div>
+<div style="font-size:17px;font-weight:500">Membership expired</div>
+<p style="margin:0;font-size:13px;color:#9aa6c4">This title belongs to {{ channelName }}, an Exclusive Channel. Your membership ended on {{ expiryDate }}, so playback is blocked until you renew.</p>
+<button onClick="{{ openRenew }}" style="width:100%;padding:12px;border-radius:10px;border:1px solid #f0a52a;background:rgba(240,165,42,.14);color:#f5c266;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:rgba(240,165,42,.24)">Renew membership</button>
+<button onClick="{{ closeSheet }}" style="width:100%;padding:10px;border-radius:10px;border:1px solid #22325e;background:transparent;color:#9aa6c4;font-family:inherit;font-size:13px;cursor:pointer" style-hover="background:#101d43">Back</button>
+</div>
+</sc-if>
+
+</div>
+
+<div style="flex:1;min-width:240px;max-width:340px;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#8fa0c8;margin-bottom:10px">What this state proves</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="4">
+<div style="border-radius:8px;padding:12px 13px;box-shadow:0 0 0 1px #22325e">
+<div style="font-size:12.5px;font-weight:500;margin-bottom:3px">{{ n.title }}</div>
+<p style="margin:0;font-size:12px;color:#9aa6c4">{{ n.body }}</p>
+</div>
+</sc-for>
+</div>
+<div style="margin-top:22px;font-size:11.5px;color:#8fa0c8;text-wrap:pretty">Resolution order is membership → subscription → KYC, so a lapsed member always sees Renew rather than the non-member card. Posters are placeholders pending real artwork.</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;channelName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Naija Gold&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;channelNumber&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;412&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;planName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Gold Monthly&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;planPrice&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;₦2,500 / month&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;expiryDate&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;12 Aug 2026&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;chipWhenGated&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;}}">
+const A = 'active', W = 'expiring', X = 'expired', K = 'kyc', N = 'nokyc';
+
+const M = (title, meta, excl) => ({ title, meta, excl: !!excl });
+const DATA = {
+  movies: {
+    excl: [M('Gold Dust', '2024 · 1h 52m', 1), M('The Lagos Tape', '2023 · 2h 04m', 1), M('Harmattan', '2024 · 1h 38m', 1),
+           M('Second Coming', '2022 · 1h 47m', 1), M('Owambe', '2025 · 1h 29m', 1), M('Ijebu Nights', '2023 · 2h 11m', 1)],
+    pub: [M('River Crossing', '2024 · 1h 41m'), M('Kano Blue', '2021 · 1h 55m'), M('Small Chops', '2025 · 1h 33m'),
+          M('The Ferryman', '2020 · 2h 02m'), M('Ada', '2023 · 1h 47m'), M('Sunday Best', '2024 · 1h 36m')]
+  },
+  series: {
+    excl: [M('House of Gold', 'S2 · 8 episodes', 1), M('Marabou', 'S1 · 6 episodes', 1),
+           M('The Label', 'S3 · 10 episodes', 1), M('Palm Wine Club', 'S1 · 6 episodes', 1)],
+    pub: [M('Third Mainland', 'S4 · 12 episodes'), M('Naija Kitchen', 'S2 · 20 episodes'),
+          M('Border Town', 'S1 · 8 episodes'), M('Aunty Room', 'S5 · 15 episodes')]
+  },
+  library: {
+    excl: [M('Gold Dust', 'Saved · exclusive', 1), M('House of Gold · S2 E4', '18m left', 1),
+           M('Harmattan', 'Saved · exclusive', 1), M('The Label · S3 E1', 'Downloaded', 1)],
+    pub: [M('River Crossing', 'Saved'), M('Third Mainland · S4 E2', '32m left'), M('Ada', 'Downloaded')]
+  }
+};
+
+const STATES = [
+  { id: A, code: 'A', label: 'Member · active', note: 'Exclusive content inline, playable' },
+  { id: W, code: 'A+', label: 'Member · expiring in 7 days', note: 'Full access + warning banner' },
+  { id: X, code: 'B', label: 'Member · expired', note: 'Renew card replaces the shelves' },
+  { id: K, code: 'C', label: 'Non-member · KYC verified', note: 'Private-membership info card' },
+  { id: N, code: 'D', label: 'Non-member · no KYC', note: 'Channel invisible entirely' }
+];
+
+const NOTES = {
+  [A]: [['Own section, above public', 'Exclusive movies and series sit in a channel-branded section marked with the channel tag — provenance, not a lock.'],
+        ['Exclusive chip filters', 'The chip narrows the tab down to exclusive titles only; public rails drop away.'],
+        ['Library is whole', 'Saved and downloaded exclusive items behave like any other saved item.'],
+        ['Tune-in still works', 'Channel 412 remains available; the Media Center is now the discovery path.']],
+  [W]: [['Warning while access holds', 'Dismissible banner at the top of the Media Center from 7 days out. Nothing else changes — everything still plays.'],
+        ['One place only', 'The banner does not repeat on title detail or in the player.'],
+        ['Renew is pre-emptive', 'Renewing here never interrupts playback; the sheet is the same one used after expiry.'],
+        ['Dismissal is per session', 'Dismissing hides it until the next launch, not permanently.']],
+  [X]: [['Replace, never mix', 'Movies and Series exclusive sections collapse into one Renew card. No locked grid of old titles.'],
+        ['Library dims instead', 'Saved exclusive items stay visible but greyed with a lock; tapping opens the renew sheet.'],
+        ['Second gate at play', 'Play re-checks entitlement, so an expiry mid-session lands on a renew sheet, not a failed stream.'],
+        ['Tune-in refuses inline', 'Channel 412 does not open — the dial answers with the block message and a renew action.']],
+  [K]: [['Info, not inventory', 'Text-only premium card: no titles, artwork, counts or progress leak from the channel.'],
+        ['Two ways forward', 'Request membership opens a short form; Learn more opens the channel about sheet.'],
+        ['Chip stays honest', 'Tapping the Exclusive chip surfaces the same info card rather than an empty result.'],
+        ['Search matches it', 'Exclusive titles return no rows — only the one info row.']],
+  [N]: [['The channel does not exist', 'No card, no rail, no chip, no search result, no dial destination.'],
+        ['No empty slots', 'The Media Center reflows so public content fills the space naturally.'],
+        ['No KYC nudge here', 'Verification is not advertised from the Media Center — it lives in account settings.'],
+        ['Public content untouched', 'Everything non-exclusive behaves exactly as it does today.']]
+};
+
+class Component extends DCLogic {
+  state = { user: A, tab: 'movies', exclusiveOnly: false, route: 'home', item: null,
+            sheet: null, banner: true, requestSent: false, dial: '41' };
+
+  set = (p) => this.setState(p);
+  ch() { return { name: this.props.channelName ?? 'Naija Gold', tag: 'NG', number: this.props.channelNumber ?? '412' }; }
+
+  entitled() { const u = this.state.user; return u === A || u === W; }
+
+  tap(it) {
+    if (it.locked) return this.set({ sheet: 'renew' });
+    this.set({ route: 'detail', item: it });
+  }
+
+  buildRows() {
+    const u = this.state.user, tab = this.state.tab, ch = this.ch();
+    const pack = DATA[tab], rows = [];
+    const mk = (it, locked) => ({ ...it, locked, style: locked ? 'opacity:.4' : '',
+      tap: () => this.tap({ ...it, locked }) });
+
+    if (u !== N) {
+      if (this.entitled()) {
+        rows.push({ key: 'x', label: ch.name, badge: true, note: pack.excl.length + ' titles',
+          isPoster: tab !== 'library', isWide: tab === 'library',
+          items: pack.excl.map(i => mk(i, false)) });
+      } else if (u === X) {
+        if (tab === 'library') {
+          rows.push({ key: 'x', label: ch.name, badge: true, note: 'membership expired',
+            isWide: true, items: pack.excl.map(i => mk(i, true)) });
+        } else {
+          rows.push({ key: 'x', label: ch.name, note: 'access blocked', isRenew: true, items: [] });
+        }
+      } else {
+        rows.push({ key: 'x', label: ch.name, note: 'private membership', isInfo: true, items: [] });
+      }
+    }
+    if (!this.state.exclusiveOnly) {
+      const label = tab === 'library' ? 'Your library' : (tab === 'series' ? 'Series for you' : 'Popular on AfroVision');
+      rows.push({ key: 'p', label, note: 'Public', isPoster: tab !== 'library', isWide: tab === 'library',
+        items: pack.pub.map(i => mk(i, false)) });
+    }
+    return rows;
+  }
+
+  searchData() {
+    const u = this.state.user, ch = this.ch();
+    const pub = [M('Gold Coast Diaries', 'Movie · 2022 · public'), M('Golden Hour', 'Series · S1 · public')];
+    const excl = [M('Gold Dust', 'Movie · 2024 · ' + ch.name, 1), M('House of Gold', 'Series · S2 · ' + ch.name, 1)];
+    const rows = [];
+    if (this.entitled()) excl.forEach(i => rows.push({ ...i, tap: () => this.tap(i), style: '' }));
+    pub.forEach(i => rows.push({ ...i, tap: () => this.tap(i), style: '' }));
+    let gate = null;
+    if (u === X) gate = { kicker: 'Premium · membership expired', body: '2 matches in ' + ch.name + ' are hidden while your membership is expired.', cta: 'Renew membership', action: () => this.set({ sheet: 'renew' }) };
+    if (u === K) gate = { kicker: 'Premium · private membership', body: ch.name + ' is an Exclusive Channel with Private Membership. Only Exclusive Channel members can access Exclusive Channel contents.', cta: 'Request membership', action: () => this.set({ sheet: 'request' }) };
+    return { rows, gate };
+  }
+
+  dialState() {
+    const u = this.state.user, ch = this.ch();
+    if (this.state.dial !== ch.number) return {};
+    if (this.entitled()) return { msg: 'Opening ' + ch.name, sub: 'Channel ' + ch.number + ' · exclusive · member access' };
+    if (u === X) return { msg: 'Channel ' + ch.number + ' is locked', sub: 'Your ' + ch.name + ' membership expired on ' + (this.props.expiryDate ?? '12 Aug 2026') + '. Renew to watch.', cta: 'Renew membership', action: () => this.set({ sheet: 'renew' }) };
+    if (u === K) return { msg: 'Channel ' + ch.number + ' is members only', sub: ch.name + ' is an Exclusive Channel with Private Membership.', cta: 'Request membership', action: () => this.set({ sheet: 'request' }) };
+    return { msg: 'No channel ' + this.state.dial, sub: 'Check the number and try again.' };
+  }
+
+  renderVals() {
+    const s = this.state, ch = this.ch(), u = s.user, ent = this.entitled();
+    const search = this.searchData(), dial = this.dialState();
+    const active = 'color:#eef1f8;box-shadow:inset 0 -2px 0 #f0a52a';
+    const chipOn = 'border-color:#f0a52a;color:#f5c266;background:rgba(240,165,42,.14)';
+    const item = s.item || {};
+    const expiry = this.props.expiryDate ?? '12 Aug 2026';
+
+    const chipTap = () => {
+      if (ent) return this.set({ exclusiveOnly: !s.exclusiveOnly });
+      this.set({ tab: s.tab, exclusiveOnly: true, sheet: null });
+    };
+
+    return {
+      channelName: ch.name, channelTag: ch.tag, channelNumber: ch.number,
+      planName: this.props.planName ?? 'Gold Monthly', planPrice: this.props.planPrice ?? '₦2,500 / month',
+      expiryDate: expiry, daysLeft: 7,
+      expiryLabel: u === X ? 'Expired' : 'Renews from',
+
+      stateOptions: STATES.map(o => ({ ...o,
+        style: o.id === u ? 'border-color:#f0a52a;background:rgba(240,165,42,.12)' : '',
+        pick: () => this.set({ user: o.id, route: 'home', tab: 'movies', exclusiveOnly: false, sheet: null, banner: true, requestSent: false, dial: '41' }) })),
+      verdictTitle: u === A ? 'Full exclusive access' : u === W ? 'Access holds · 7 days left'
+        : u === X ? 'Blocked · renewal required' : u === K ? 'Visible, not accessible' : 'Channel hidden',
+      verdictBody: u === A ? 'Movies, series and library from ' + ch.name + ' render inline and play.'
+        : u === W ? 'Everything still plays; a dismissible banner counts down to ' + expiry + '.'
+        : u === X ? 'Every exclusive surface resolves to the renew card, including tune-in and search.'
+        : u === K ? 'Only the private-membership card — no titles, artwork or counts.'
+        : 'No exclusive card, chip, result or dial destination exists in this session.',
+      jumpLinks: [
+        { label: 'Home', go: () => this.set({ route: 'home' }) },
+        { label: 'Search', go: () => this.set({ route: 'search' }) },
+        { label: 'Tune in', go: () => this.set({ route: 'tunein', dial: ch.number }) },
+        { label: 'Library tab', go: () => this.set({ route: 'home', tab: 'library' }) }
+      ],
+      notes: (NOTES[u] || []).map(n => ({ title: n[0], body: n[1] })),
+
+      isHome: s.route === 'home', isDetail: s.route === 'detail', isSearch: s.route === 'search',
+      isTuneIn: s.route === 'tunein', isPlayer: s.route === 'player',
+      goHome: () => this.set({ route: 'home' }), goSearch: () => this.set({ route: 'search' }),
+      goTuneIn: () => this.set({ route: 'tunein' }),
+
+      showWarnBanner: u === W && s.banner && s.route === 'home',
+      dismissBanner: () => this.set({ banner: false }),
+      showChip: u !== N && (this.props.chipWhenGated ?? true ? true : ent),
+      chipStyle: s.exclusiveOnly ? chipOn : '',
+      toggleExclusive: chipTap,
+      staticChips: ['New', 'Nollywood', 'Free'],
+      tabs: ['movies', 'series', 'library'].map(t => ({
+        label: t[0].toUpperCase() + t.slice(1),
+        style: s.tab === t ? active : '',
+        pick: () => this.set({ tab: t }) })),
+      rows: this.buildRows(),
+
+      detailTitle: item.title || 'Gold Dust', detailMeta: item.meta || '2024 · 1h 52m',
+      detailExcl: !!item.excl,
+      detailAccess: ent ? 'Included with your membership' : 'Exclusive · members only',
+      playLabel: u === X ? 'Play' : 'Play',
+      pressPlay: () => { if (item.excl && !ent) return this.set({ sheet: 'gate' }); this.set({ route: 'player' }); },
+
+      searchRows: search.rows, searchGateRow: !!search.gate,
+      searchGateKicker: search.gate ? search.gate.kicker : '', searchGateBody: search.gate ? search.gate.body : '',
+      searchGateCta: search.gate ? search.gate.cta : '', searchGateAction: search.gate ? search.gate.action : () => {},
+      searchCount: search.rows.length + ' result' + (search.rows.length === 1 ? '' : 's') + ' for “gold”',
+
+      dialValue: s.dial || '—',
+      dialMessage: dial.msg || '', dialSub: dial.sub || '', dialCta: dial.cta || '',
+      dialAction: dial.action || (() => {}),
+      keys: ['1','2','3','4','5','6','7','8','9','←','0','✓'].map(k => ({ label: k,
+        press: () => {
+          if (k === '←') return this.set({ dial: s.dial.slice(0, -1) });
+          if (k === '✓') return this.set({ dial: ch.number });
+          this.set({ dial: (s.dial + k).slice(0, 4) });
+        } })),
+      submitDial: () => this.set({ dial: ch.number }),
+
+      navItems: [
+        { label: 'Home', icon: 'ph ph-house', size: '19px', style: '',
+          go: () => { window.location.href = 'AfroVision Home.dc.html'; } },
+        { label: 'Channels', icon: 'ph ph-television-simple', size: '19px', style: '',
+          go: () => { window.location.href = 'AfroVision Channels.dc.html'; } },
+        { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: 'color:#f0a52a',
+          go: () => this.set({ route: 'home' }) },
+        { label: 'Waves', icon: 'ph ph-waves', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Waves.dc.html'; } },
+        { label: 'Profile', icon: 'ph ph-user-circle', size: '19px', style: '',
+          go: () => { window.location.href = 'AfroVision Account.dc.html'; } }
+      ],
+
+      sheetOpen: !!s.sheet, closeSheet: () => this.set({ sheet: null }),
+      isRenewSheet: s.sheet === 'renew', isRequestSheet: s.sheet === 'request',
+      isAboutSheet: s.sheet === 'about', isGateSheet: s.sheet === 'gate',
+      openRenew: () => this.set({ sheet: 'renew' }), openRequest: () => this.set({ sheet: 'request' }),
+      openAbout: () => this.set({ sheet: 'about' }),
+      confirmRenew: () => this.set({ user: A, sheet: null, route: 'home', banner: true }),
+      submitRequest: () => this.set({ sheet: null, requestSent: true, route: 'home' }),
+      requestSent: s.requestSent, requestPending: !s.requestSent
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -43,6 +43,19 @@ class MpvBufferConfig {
     final hlsBitrate = _resolveHlsBitrate(type, bitrateCap);
 
     try {
+      // Force hardware decode-with-copy instead of mpv's default direct-surface
+      // hwdec path. On several lower-end Android SoCs (confirmed here on an
+      // itel/Unisoc ums9230 device) the direct-surface path decodes audio fine
+      // but never actually attaches a frame to the native texture — the video
+      // stays black indefinitely (`VideoOutput.Resize` keeps reporting
+      // `{width:1,height:1,wid:0}`) while audio plays, and on native/live
+      // channels that failure eventually trips the first-frame timeout in
+      // AfrovisionVideoController.initialize(), tearing the player down and
+      // looking like a freeze/crash loop on every tune-in. `mediacodec-copy`
+      // still uses the hardware decoder but copies into a normal buffer,
+      // sidestepping the broken direct-surface attachment on these chipsets.
+      await _setProperty(native, 'hwdec', 'mediacodec-copy');
+
       // Core cache toggle.
       await _setProperty(native, 'cache', 'yes');
 
@@ -93,10 +106,12 @@ class MpvBufferConfig {
         await _setProperty(native, 'demuxer-readahead-secs', '120');
         await _setProperty(native, 'cache-secs', '120');
       } else {
-        // VOD / catch-up: 15s window keeps memory low and start-up fast.
-        await _setProperty(native, 'demuxer-max-bytes', '33554432'); // 32 MiB
-        await _setProperty(native, 'demuxer-readahead-secs', '15');
-        await _setProperty(native, 'cache-secs', '15');
+        // VOD / catch-up: on a progressive MP4 there's no variant-switching
+        // reason to stay shallow, so buffer much further ahead than live —
+        // a 15s window stalled on any network dip longer than 15s.
+        await _setProperty(native, 'demuxer-max-bytes', '100663296'); // 96 MiB
+        await _setProperty(native, 'demuxer-readahead-secs', '60');
+        await _setProperty(native, 'cache-secs', '60');
       }
     } catch (e, st) {
       // Non-fatal: defaults are still usable; media_kit may not expose the

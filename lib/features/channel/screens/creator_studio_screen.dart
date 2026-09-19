@@ -479,13 +479,13 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                               ? AppColors.orange
                               : channel.isPrivate
                               ? AppColors.errorRed
-                              : const Color(0xFF4CAF50),
+                              : const Color(0xFF5FD39A),
                         ),
                         const SizedBox(width: 6),
                         _buildMiniTag(
                           channel.isActive ? 'Active' : 'Disabled',
                           channel.isActive
-                              ? const Color(0xFF4CAF50)
+                              ? const Color(0xFF5FD39A)
                               : AppColors.hintText,
                         ),
                         const SizedBox(width: 8),
@@ -501,7 +501,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                                   style: TextStyle(color: AppColors.white),
                                 ),
                                 backgroundColor: const Color(
-                                  0xFF4CAF50,
+                                  0xFF5FD39A,
                                 ).withValues(alpha: 0.9),
                                 behavior: SnackBarBehavior.floating,
                                 duration: const Duration(seconds: 2),
@@ -569,7 +569,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                   label: channel.isActive ? 'Disable' : 'Enable',
                   color: channel.isActive
                       ? AppColors.hintText
-                      : const Color(0xFF4CAF50),
+                      : const Color(0xFF5FD39A),
                   onTap: () => _toggleStatus(channel),
                   isLoading: _togglingId == channel.id,
                 ),
@@ -655,7 +655,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                 child: _buildActionButton(
                   icon: Icons.bar_chart_rounded,
                   label: 'Analytics',
-                  color: const Color(0xFF4CAF50),
+                  color: const Color(0xFF5FD39A),
                   onTap: () {
                     Navigator.pushNamed(
                       context,

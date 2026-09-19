@@ -28,19 +28,17 @@ async function register(req, res, next) {
       return res.status(400).json({ error: 'Password must be at least 8 characters with uppercase, lowercase, and a digit' });
     }
 
-    // Mobile app (client === 'mobile') bypasses both Play Integrity and reCAPTCHA.
     // Mobile app sends integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
-    if (client !== 'mobile') {
-      if (integrityToken) {
-        const integrityResult = await verifyPlayIntegrity(integrityToken, email);
-        if (!integrityResult.success) {
-          return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });
-        }
-      } else {
-        const captchaResult = await verifyCaptcha(captchaToken, 'REGISTER');
-        if (!captchaResult.success) {
-          return res.status(400).json({ error: captchaResult.error || 'CAPTCHA verification failed' });
-        }
+    // Both paths are verified — neither client is trusted to self-report as bot-free.
+    if (client === 'mobile') {
+      const integrityResult = await verifyPlayIntegrity(integrityToken, email);
+      if (!integrityResult.success) {
+        return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });
+      }
+    } else {
+      const captchaResult = await verifyCaptcha(captchaToken, 'REGISTER');
+      if (!captchaResult.success) {
+        return res.status(400).json({ error: captchaResult.error || 'CAPTCHA verification failed' });
       }
     }
 
@@ -104,10 +102,10 @@ async function login(req, res, next) {
     const normalizedEmail = String(email).trim().toLowerCase();
     const user = await User.findByEmail(normalizedEmail);
 
-    // Admin logins and mobile app logins (client === 'mobile') bypass all verification.
-    // Mobile app sends integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
-    if ((!user || user.role !== 'admin') && client !== 'mobile') {
-      if (integrityToken) {
+    // Admin logins bypass bot verification. Everyone else is verified:
+    // mobile app sends integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
+    if (!user || user.role !== 'admin') {
+      if (client === 'mobile') {
         const integrityResult = await verifyPlayIntegrity(integrityToken, normalizedEmail);
         if (!integrityResult.success) {
           return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });

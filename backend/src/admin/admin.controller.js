@@ -3680,6 +3680,7 @@ async function adminChannelsLiveOverview(req, res) {
     const ChannelStats = require('../channels/channel_stats.model');
     const ChannelLive = require('../channels/channel_live.model');
     const ChannelSub = require('../subscriptions/channel_subscription.model');
+    const { emptyPlatformBreakdown } = require('../utils/platform');
 
     const channels = await Channel.getEvery();
     const channelIds = channels.map((c) => c.id);
@@ -3691,10 +3692,16 @@ async function adminChannelsLiveOverview(req, res) {
     ]);
 
     const rows = channels.map((channel, idx) => {
-      const live = liveMap.get(channel.id) || { current_viewers: 0, peak_viewers: 0 };
-      const stats = statsMap.get(channel.id) || { total_views: 0, total_watch_seconds: 0 };
+      const live = liveMap.get(channel.id) || { current_viewers: 0, peak_viewers: 0, current_viewers_by_platform: emptyPlatformBreakdown() };
+      const stats = statsMap.get(channel.id) || { total_views: 0, total_watch_seconds: 0, views_by_platform: emptyPlatformBreakdown(), watch_seconds_by_platform: emptyPlatformBreakdown() };
       const followersCount = followerCounts[idx] || 0;
       const owner = User.findCachedById(channel.owner_id);
+
+      const watchHoursByPlatform = {};
+      const secondsByPlatform = stats.watch_seconds_by_platform || emptyPlatformBreakdown();
+      for (const key of Object.keys(emptyPlatformBreakdown())) {
+        watchHoursByPlatform[key] = Math.round(((secondsByPlatform[key] || 0) / 3600) * 100) / 100;
+      }
 
       return {
         id: channel.id,
@@ -3706,9 +3713,12 @@ async function adminChannelsLiveOverview(req, res) {
         owner_display_name: owner?.name || owner?.email || channel.owner_id || 'Unknown owner',
         is_live: (live.current_viewers || 0) > 0 || channel.stream_status === 'live',
         current_viewers: live.current_viewers || 0,
+        current_viewers_by_platform: { ...emptyPlatformBreakdown(), ...(live.current_viewers_by_platform || {}) },
         peak_viewers: live.peak_viewers || 0,
         total_views: stats.total_views || 0,
+        views_by_platform: { ...emptyPlatformBreakdown(), ...(stats.views_by_platform || {}) },
         total_watch_hours: Math.round(((stats.total_watch_seconds || 0) / 3600) * 100) / 100,
+        watch_hours_by_platform: watchHoursByPlatform,
         followers_count: followersCount,
       };
     });
@@ -3721,6 +3731,11 @@ async function adminChannelsLiveOverview(req, res) {
       acc.total_all_time_views += row.total_views;
       acc.total_followers += row.followers_count;
       acc.total_watch_hours += row.total_watch_hours;
+      for (const key of Object.keys(emptyPlatformBreakdown())) {
+        acc.current_viewers_by_platform[key] += row.current_viewers_by_platform[key] || 0;
+        acc.total_views_by_platform[key] += row.views_by_platform[key] || 0;
+        acc.total_watch_hours_by_platform[key] += row.watch_hours_by_platform[key] || 0;
+      }
       return acc;
     }, {
       total_current_viewers: 0,
@@ -3729,8 +3744,14 @@ async function adminChannelsLiveOverview(req, res) {
       total_followers: 0,
       total_watch_hours: 0,
       total_channels: rows.length,
+      current_viewers_by_platform: emptyPlatformBreakdown(),
+      total_views_by_platform: emptyPlatformBreakdown(),
+      total_watch_hours_by_platform: emptyPlatformBreakdown(),
     });
     summary.total_watch_hours = Math.round(summary.total_watch_hours * 100) / 100;
+    for (const key of Object.keys(emptyPlatformBreakdown())) {
+      summary.total_watch_hours_by_platform[key] = Math.round(summary.total_watch_hours_by_platform[key] * 100) / 100;
+    }
 
     res.json({
       summary,

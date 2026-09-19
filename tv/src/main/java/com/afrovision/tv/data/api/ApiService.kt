@@ -7,9 +7,16 @@ import com.afrovision.tv.data.api.model.ChannelLibraryResponse
 import com.afrovision.tv.data.api.model.CatchUpDetailResponse
 import com.afrovision.tv.data.api.model.CatchUpHomeResponse
 import com.afrovision.tv.data.api.model.ChannelListResponse
+import com.afrovision.tv.data.api.model.ChannelViewRequest
+import com.afrovision.tv.data.api.model.WatchPingRequest
 import com.afrovision.tv.data.api.model.FeedResponse
 import com.afrovision.tv.data.api.model.HeartbeatRequest
 import com.afrovision.tv.data.api.model.HeartbeatResponse
+import com.afrovision.tv.data.api.model.LibraryFeedResponse
+import com.afrovision.tv.data.api.model.LibraryItemDetailResponse
+import com.afrovision.tv.data.api.model.LibraryProgress
+import com.afrovision.tv.data.api.model.LibraryProgressResponse
+import com.afrovision.tv.data.api.model.ReaderManifestResponse
 import com.afrovision.tv.data.api.model.MarkReadRequest
 import com.afrovision.tv.data.api.model.MarkReadResponse
 import com.afrovision.tv.data.api.model.MessagesResponse
@@ -27,6 +34,7 @@ import com.afrovision.tv.data.api.model.WaveListResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.QueryMap
@@ -45,13 +53,35 @@ interface ApiService {
     @GET("/wave")
     suspend fun getWaves(@QueryMap query: Map<String, String> = emptyMap()): WaveListResponse
 
-    @GET("/watch-progress/me")
+    @GET("/distribution/tv/watch-progress")
     suspend fun getWatchProgress(): WatchProgressResponse
 
-    @GET("/channel-library/mine")
-    suspend fun getChannelLibrary(): ChannelLibraryResponse
+    @GET("/distribution/tv/library/feed")
+    suspend fun getChannelLibrary(): LibraryFeedResponse
 
-    @GET("/feed")
+    // Device-token reader routes: these act as the paired account, because the
+    // TV authenticates as a device and the plain /channels/... library routes
+    // are user-auth only.
+    @GET("/distribution/tv/library/{channelId}/{itemId}")
+    suspend fun getLibraryItemDetail(
+        @Path("channelId") channelId: String,
+        @Path("itemId") itemId: String
+    ): LibraryItemDetailResponse
+
+    @GET("/distribution/tv/library/{channelId}/{itemId}/reader-manifest")
+    suspend fun getReaderManifestRef(
+        @Path("channelId") channelId: String,
+        @Path("itemId") itemId: String
+    ): ReaderManifestResponse
+
+    @PUT("/distribution/tv/library/{channelId}/{itemId}/progress")
+    suspend fun updateReaderProgress(
+        @Path("channelId") channelId: String,
+        @Path("itemId") itemId: String,
+        @Body progress: LibraryProgress
+    ): LibraryProgressResponse
+
+    @GET("/distribution/tv/wave-feed")
     suspend fun getFeed(): FeedResponse
 
     @GET("/catchup/home")
@@ -93,7 +123,7 @@ interface ApiService {
         @Body request: ReplyRequest
     ): ReplyResponse
 
-    @POST("/watch-progress/{mediaType}/{mediaId}")
+    @PUT("/distribution/tv/watch-progress/{mediaType}/{mediaId}")
     suspend fun updateWatchProgress(
         @Path("mediaType") mediaType: String,
         @Path("mediaId") mediaId: String,
@@ -102,6 +132,18 @@ interface ApiService {
 
     @POST("/wave/{id}/view")
     suspend fun trackWaveView(@Path("id") waveId: String)
+
+    @POST("/channels/{id}/view")
+    suspend fun recordChannelView(
+        @Path("id") channelId: String,
+        @Body request: ChannelViewRequest = ChannelViewRequest()
+    )
+
+    @POST("/channels/{id}/watch-ping")
+    suspend fun recordChannelWatchPing(
+        @Path("id") channelId: String,
+        @Body request: WatchPingRequest
+    )
 
     @POST("/subscriptions/channel/subscribe")
     suspend fun subscribeFree(@Body request: SubscribeRequest)

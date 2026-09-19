@@ -892,16 +892,16 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen>
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+        color: const Color(0xFF5FD39A).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+          color: const Color(0xFF5FD39A).withValues(alpha: 0.3),
         ),
       ),
       child: Text(
         msg,
         style: const TextStyle(
-          color: Color(0xFF4CAF50),
+          color: Color(0xFF5FD39A),
           fontSize: 13,
           fontWeight: FontWeight.w500,
         ),

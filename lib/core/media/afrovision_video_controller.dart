@@ -8,6 +8,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../config/app_config.dart';
 import '../services/network_profile_service.dart';
+import '../services/player_settings_service.dart';
 import '../storage/auth_storage.dart';
 import '../utils/mpv_buffer_config.dart';
 
@@ -163,6 +164,26 @@ class AfrovisionVideoController extends ChangeNotifier {
 
     // Make sure the network profile is warm before we decide bitrate / buffer.
     await NetworkProfileService.instance.initialize();
+
+    // Watch Settings' "Wi-Fi only streaming" — previously there was no such
+    // control at all, so this is a new gate rather than a fix to an existing
+    // one. Local files (`_url == null`) are exempt — already downloaded, no
+    // network use.
+    if (_url != null) {
+      await PlayerSettingsService.instance.initialize();
+      if (PlayerSettingsService.instance.current.wifiOnlyStreaming &&
+          NetworkProfileService.instance.currentType != NetworkType.wifi) {
+        _hasError = true;
+        _errorMessage =
+            'Wi-Fi-only streaming is enabled in Watch Settings. Connect to Wi-Fi, or turn this off, to continue.';
+        if (!_disposed) notifyListeners();
+        return;
+      }
+    }
+
+    // Disposed while the settings/network awaits above were in flight: don't
+    // create a native player nobody will ever dispose.
+    if (_disposed) return;
 
     _player = Player(
       configuration: PlayerConfiguration(

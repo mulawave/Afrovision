@@ -111,7 +111,7 @@ private fun FeedCard(post: FeedPost, viewModel: TvViewModel) {
             .focusRequester(focusRequester)
             .focusable(true)
             .onFocusChanged { focused = it.isFocused }
-            .clickable { post.mediaUrl?.let { viewModel.playVideoUrl(it) } }
+            .clickable { post.videoUrl?.let { viewModel.playVideoUrl(it) } }
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -124,21 +124,19 @@ private fun FeedCard(post: FeedPost, viewModel: TvViewModel) {
                     .border(1.dp, nocturne.accent700, RoundedCornerShape(50)),
                 contentAlignment = Alignment.Center
             ) {
-                if (!post.authorAvatar.isNullOrBlank()) {
-                    AsyncImage(model = post.authorAvatar, contentDescription = null, modifier = Modifier.fillMaxSize())
-                } else {
-                    Text(text = post.authorName.take(2).uppercase(), color = nocturne.accentLight, fontSize = 16.sp)
-                }
+                Text(text = post.title.take(2).uppercase(), color = nocturne.accentLight, fontSize = 16.sp)
             }
             Column {
-                Text(text = post.authorName, color = nocturne.text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-                Text(text = post.time, color = nocturne.textFaint, fontSize = 15.sp)
+                Text(text = post.title, color = nocturne.text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                Text(text = relativeTime(post.createdAt), color = nocturne.textFaint, fontSize = 15.sp)
             }
         }
-        Text(text = post.body, color = nocturne.text, fontSize = 18.sp, lineHeight = 26.sp)
-        if (!post.mediaUrl.isNullOrBlank()) {
+        if (!post.description.isNullOrBlank()) {
+            Text(text = post.description, color = nocturne.text, fontSize = 18.sp, lineHeight = 26.sp)
+        }
+        if (!post.thumbnailUrl.isNullOrBlank()) {
             AsyncImage(
-                model = post.mediaUrl,
+                model = post.thumbnailUrl,
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -147,5 +145,22 @@ private fun FeedCard(post: FeedPost, viewModel: TvViewModel) {
                     .background(nocturne.surfaceRaised)
             )
         }
+    }
+}
+
+/** Waves carry created_at as epoch millis; render it as a short relative age. */
+private fun relativeTime(epochMillis: Long): String {
+    if (epochMillis <= 0L) return ""
+    val diff = System.currentTimeMillis() - epochMillis
+    if (diff < 0) return "just now"
+    val minutes = diff / 60_000
+    val hours = minutes / 60
+    val days = hours / 24
+    return when {
+        minutes < 1 -> "just now"
+        minutes < 60 -> "${minutes}m ago"
+        hours < 24 -> "${hours}h ago"
+        days < 7 -> "${days}d ago"
+        else -> "${days / 7}w ago"
     }
 }

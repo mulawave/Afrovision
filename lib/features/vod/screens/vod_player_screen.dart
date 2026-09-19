@@ -149,6 +149,13 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
         startPositionSeconds: _resumePosition,
         userHlsBps: PlayerSettingsService.instance.current.quality.bps,
       );
+      // VodPlayerController swallows its own initialize() errors (logs and
+      // returns) rather than rethrowing, so this try/catch alone never sees
+      // a failed load — check the controller's own error state explicitly,
+      // otherwise a failed VOD load renders a dead player with no message.
+      if (_controller!.hasError) {
+        _error = 'Unable to start playback. ${_controller!.errorMessage ?? 'Please try again.'}';
+      }
     } catch (e) {
       _error = 'Unable to start playback. ${_sanitizeError(e)}';
     } finally {

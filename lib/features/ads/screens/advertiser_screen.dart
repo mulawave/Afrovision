@@ -367,7 +367,7 @@ class _AdvertiserScreenState extends State<AdvertiserScreen>
 
   Widget _statusBadge(String status) {
     final colors = {
-      'active': const Color(0xFF4CAF50),
+      'active': const Color(0xFF5FD39A),
       'pending': AppColors.orange,
       'approved': AppColors.lightOrange,
       'paused': AppColors.hintText,
@@ -846,7 +846,7 @@ class _SubmitAdFormState extends State<_SubmitAdForm> {
             'Ad submitted for review',
             style: TextStyle(color: AppColors.white),
           ),
-          backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.9),
+          backgroundColor: const Color(0xFF5FD39A).withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),

@@ -10,12 +10,17 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.afrovision.tv.TV_APP_TAG
+import com.afrovision.tv.data.api.ReaderManifestFetcher
 import com.afrovision.tv.data.api.RetrofitClient
 import com.afrovision.tv.data.api.TokenHolder
 import com.afrovision.tv.data.recommendation.RecommendationManager
 import com.afrovision.tv.data.api.model.CatchUpHome
 import com.afrovision.tv.data.api.model.CatchUpItem
 import com.afrovision.tv.data.api.model.Channel
+import com.afrovision.tv.data.api.model.LibraryItem
+import com.afrovision.tv.data.api.model.LibraryItemDetail
+import com.afrovision.tv.data.api.model.LibraryProgress
+import com.afrovision.tv.data.api.model.ReaderManifest
 import com.afrovision.tv.data.api.model.Message
 import com.afrovision.tv.data.api.model.FeedPost
 import com.afrovision.tv.data.api.model.Movie
@@ -52,7 +57,7 @@ data class HomeState(
     val newMovies: LoadState<List<Movie>> = LoadState.Loading,
     val newSeries: LoadState<List<Series>> = LoadState.Loading,
     val waves: LoadState<List<Wave>> = LoadState.Loading,
-    val library: LoadState<List<Channel>> = LoadState.Loading
+    val library: LoadState<List<LibraryItem>> = LoadState.Loading
 )
 
 
@@ -64,6 +69,7 @@ data class MoviesSeriesState(
 
 data class MediaCard(
     val id: String,
+    val channelId: String? = null,
     val title: String,
     val subtitle: String = "",
     val imageUrl: String? = null,
@@ -141,7 +147,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     var moviesSeries by mutableStateOf(MoviesSeriesState())
         private set
 
-    var library by mutableStateOf<LoadState<List<Channel>>>(LoadState.Loading)
+    var library by mutableStateOf<LoadState<List<LibraryItem>>>(LoadState.Loading)
         private set
 
     var exclusive by mutableStateOf<LoadState<List<MediaCard>>>(LoadState.Loading)
@@ -176,6 +182,22 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     var downloads by mutableStateOf<List<DownloadItem>>(emptyList())
         private set
+
+    var readerChannelId by mutableStateOf<String?>(null)
+        private set
+
+    var readerItemId by mutableStateOf<String?>(null)
+        private set
+
+    var readerDetail by mutableStateOf<LoadState<LibraryItemDetail>>(LoadState.Loading)
+        private set
+
+    var readerManifest by mutableStateOf<LoadState<ReaderManifest>>(LoadState.Loading)
+        private set
+
+    // Where the reader was opened from, so closing it returns there rather
+    // than dropping the viewer on Home.
+    private var readerReturnScreen = com.afrovision.tv.ui.navigation.Screen.Library
 
     val appVersion: String = DeviceIdProvider.getAppVersion(application)
     val versionCode: Long = DeviceIdProvider.getVersionCode(application)
@@ -216,6 +238,31 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         val fromTrailer = playerMedia?.mediaType == "trailer"
         currentScreen = if (fromTrailer) com.afrovision.tv.ui.navigation.Screen.CatchUp else com.afrovision.tv.ui.navigation.Screen.Home
         playerMedia = null
+    }
+
+    /** Fire-and-forget: records a channel view for the live-viewers dashboard. */
+    fun recordChannelView(channelId: String) {
+        viewModelScope.launch {
+            try {
+                api.recordChannelView(channelId)
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "recordChannelView failed", e)
+            }
+        }
+    }
+
+    /**
+     * Fire-and-forget: reports accumulated watch-time for a channel so the
+     * admin live-viewers dashboard can show real "hours watched" totals for TV.
+     */
+    fun recordChannelWatchPing(channelId: String, seconds: Int) {
+        viewModelScope.launch {
+            try {
+                api.recordChannelWatchPing(channelId, com.afrovision.tv.data.api.model.WatchPingRequest(seconds = seconds))
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "recordChannelWatchPing failed", e)
+            }
+        }
     }
 
     fun loadAll() {
@@ -296,14 +343,14 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 val waves = api.getWaves(mapOf("limit" to "12"))
                 val library = api.getChannelLibrary()
                 homeState.copy(
-                    continueWatching = LoadState.Success(progress.data),
+                    continueWatching = LoadState.Success(progress.data.items),
                     liveChannels = LoadState.Success(live.channels.filter { !it.isExclusive }),
                     newMovies = LoadState.Success(movies.data),
                     newSeries = LoadState.Success(series.data),
                     waves = LoadState.Success(waves.data),
-                    library = LoadState.Success(library.data)
+                    library = LoadState.Success(library.data.items)
                 ).also {
-                    RecommendationManager.sync(getApplication(), progress.data.map { it.toMediaCard() })
+                    RecommendationManager.sync(getApplication(), progress.data.items.map { it.toMediaCard() })
                 }
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "loadHome failed", e)
@@ -373,7 +420,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             library = LoadState.Loading
             library = try {
-                LoadState.Success(api.getChannelLibrary().data)
+                LoadState.Success(api.getChannelLibrary().data.items)
             } catch (e: Exception) {
                 LoadState.Error(e.message ?: "Unknown")
             }
@@ -384,8 +431,10 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             exclusive = LoadState.Loading
             exclusive = try {
-                val response = api.getChannels(mapOf("exclusive" to "true"))
-                val cards = response.data.map {
+                // Device-token endpoint: resolves the paired owner's active exclusive
+                // access. /channels authenticates users, not devices, so it cannot.
+                val response = api.getTvChannels()
+                val cards = response.channels.filter { it.isExclusive }.map {
                     MediaCard(
                         id = it.id,
                         title = it.name,
@@ -397,6 +446,62 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 LoadState.Success(cards)
             } catch (e: Exception) {
                 LoadState.Error(e.message ?: "Unknown")
+            }
+        }
+    }
+
+    fun openReaderItem(channelId: String, itemId: String) {
+        if (currentScreen != com.afrovision.tv.ui.navigation.Screen.LibraryReader) {
+            readerReturnScreen = currentScreen
+        }
+        readerChannelId = channelId
+        readerItemId = itemId
+        currentScreen = com.afrovision.tv.ui.navigation.Screen.LibraryReader
+
+        viewModelScope.launch {
+            readerDetail = LoadState.Loading
+            readerManifest = LoadState.Loading
+
+            readerDetail = try {
+                val detail = api.getLibraryItemDetail(channelId, itemId).data
+                if (detail != null) LoadState.Success(detail)
+                else LoadState.Error("Book details unavailable")
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "openReaderItem detail failed", e)
+                LoadState.Error(e.message ?: "Unknown")
+            }
+
+            readerManifest = try {
+                val url = api.getReaderManifestRef(channelId, itemId).data?.manifestUrl
+                if (url.isNullOrBlank()) {
+                    LoadState.Error("Reader assets not available for this item")
+                } else {
+                    val manifest = ReaderManifestFetcher.fetch(url)
+                    if (manifest != null) LoadState.Success(manifest)
+                    else LoadState.Error("Could not load the page list")
+                }
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "openReaderItem manifest failed", e)
+                LoadState.Error(e.message ?: "Unknown")
+            }
+        }
+    }
+
+    fun closeReader() {
+        readerChannelId = null
+        readerItemId = null
+        readerDetail = LoadState.Loading
+        readerManifest = LoadState.Loading
+        currentScreen = readerReturnScreen
+    }
+
+    fun saveReaderProgress(channelId: String, itemId: String, progress: LibraryProgress) {
+        viewModelScope.launch {
+            try {
+                api.updateReaderProgress(channelId, itemId, progress)
+            } catch (e: Exception) {
+                // Autosave is best-effort; a failed save must never interrupt reading.
+                Log.e(TV_APP_TAG, "saveReaderProgress failed", e)
             }
         }
     }
@@ -607,7 +712,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             feed = LoadState.Loading
             feed = try {
-                LoadState.Success(api.getFeed().data)
+                LoadState.Success(api.getFeed().waves)
             } catch (e: Exception) {
                 LoadState.Error(e.message ?: "Unknown")
             }
@@ -623,16 +728,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                     avatar = user.avatar,
                     tier = user.tier,
                     pairedDeviceCount = user.pairedDeviceCount,
-                    posts = user.posts.map { p ->
-                        FeedPost(
-                            id = p.id,
-                            authorName = p.authorName,
-                            authorAvatar = p.authorAvatar,
-                            time = p.time,
-                            body = p.body,
-                            mediaUrl = p.mediaUrl
-                        )
-                    }
+                    posts = user.posts
                 )
                 dataStore.setUserName(user.name)
                 dataStore.setUserAvatar(user.avatar)

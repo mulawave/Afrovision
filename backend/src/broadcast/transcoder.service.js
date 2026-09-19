@@ -150,10 +150,21 @@ async function refreshTranscode(video) {
   return { transcoding_status: 'processing', transcoding_checked_at: Date.now() };
 }
 
+/// Public capability summary — lets clients disable quality tiers the
+/// backend can't actually produce instead of offering a selector that does
+/// nothing on progressive-MP4 fallback sources.
+function getCapabilities() {
+  return {
+    transcoding_enabled: TRANSCODING_ENABLED,
+    available_renditions: TRANSCODING_ENABLED ? getEnabledRenditions().map((r) => r.height) : [],
+  };
+}
+
 module.exports = {
   buildJobConfig,
   getOutputPrefix,
   getMasterPlaylistUrl,
   startTranscode,
   refreshTranscode,
+  getCapabilities,
 };

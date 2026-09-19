@@ -65,7 +65,7 @@ class _MyPicsScreenState extends State<MyPicsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('PIC copied to clipboard'),
-        backgroundColor: Color(0xFF4CAF50),
+        backgroundColor: Color(0xFF5FD39A),
         behavior: SnackBarBehavior.floating,
       ),
     );

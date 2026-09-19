@@ -7,7 +7,14 @@ class Nocturne {
   const Nocturne._();
 
   // Ground + surface
-  static const Color bg = Color(0xFF080E21);
+  // Verified directly against the design source (`AfroVision *.dc.html`):
+  // every screen's actual app canvas ("width:390px;height:844px;...
+  // background:#0b1533") uses this value. `#080e21` only appears as the
+  // page backdrop *around* the phone mockup in the HTML — it is never the
+  // in-app background on any screen. Two earlier guesses (`#080E21`, then
+  // `#0D1B3F`) were both wrong for exactly this reason; this is the real,
+  // source-confirmed value, same as `Nocturne.surface`.
+  static const Color bg = Color(0xFF0B1533);
   static const Color bgHeader = Color(0xFF14224C);
   static const Color surface = Color(0xFF0B1533);
   static const Color surfaceRaised = Color(0xFF101D43);

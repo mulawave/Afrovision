@@ -226,7 +226,7 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
   void _showSnack(String msg, {required bool success}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg, style: const TextStyle(color: AppColors.white)),
-      backgroundColor: success ? const Color(0xFF4CAF50).withValues(alpha: 0.9)
+      backgroundColor: success ? const Color(0xFF5FD39A).withValues(alpha: 0.9)
           : AppColors.errorRed.withValues(alpha: 0.9),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -257,7 +257,7 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: _isPremium
-                            ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFB8860B)])
+                            ? const LinearGradient(colors: [Color(0xFFF5C266), Color(0xFFB8860B)])
                             : AppColors.buttonGradient,
                         ),
                         child: Center(child: Text(
@@ -272,14 +272,14 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
                           margin: const EdgeInsets.only(top: 8),
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFFD700).withAlpha(30),
+                            color: const Color(0xFFF5C266).withAlpha(30),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFFFD700).withAlpha(80)),
+                            border: Border.all(color: const Color(0xFFF5C266).withAlpha(80)),
                           ),
                           child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(Icons.workspace_premium, color: Color(0xFFFFD700), size: 14),
+                            Icon(Icons.workspace_premium, color: Color(0xFFF5C266), size: 14),
                             SizedBox(width: 4),
-                            Text('PREMIUM', style: TextStyle(color: Color(0xFFFFD700), fontSize: 11, fontWeight: FontWeight.w800)),
+                            Text('PREMIUM', style: TextStyle(color: Color(0xFFF5C266), fontSize: 11, fontWeight: FontWeight.w800)),
                           ]),
                         ),
                       const SizedBox(height: 32),
@@ -320,15 +320,15 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
       width: double.infinity, padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: AppColors.cardBg, borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF4CAF50).withAlpha(80), width: 1.5),
+        border: Border.all(color: const Color(0xFF5FD39A).withAlpha(80), width: 1.5),
       ),
       child: Column(children: [
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           Container(width: 10, height: 10,
-            decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF4CAF50))),
+            decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF5FD39A))),
           const SizedBox(width: 8),
           const Text('ACTIVE SUBSCRIPTION',
-            style: TextStyle(color: Color(0xFF4CAF50), fontSize: 12, fontWeight: FontWeight.w800)),
+            style: TextStyle(color: Color(0xFF5FD39A), fontSize: 12, fontWeight: FontWeight.w800)),
         ]),
         const SizedBox(height: 24),
         if (sub.isPremium) ...[
@@ -400,7 +400,7 @@ class _ChannelSubscriptionScreenState extends State<ChannelSubscriptionScreen>
           ],
           if (!_isPremium) ...[
             const Center(child: Text('Free',
-              style: TextStyle(color: Color(0xFF4CAF50), fontSize: 36, fontWeight: FontWeight.w900))),
+              style: TextStyle(color: Color(0xFF5FD39A), fontSize: 36, fontWeight: FontWeight.w900))),
             const SizedBox(height: 20),
           ],
           const _Benefit(icon: Icons.lock_open_rounded, text: 'Subscriber-only streams'),

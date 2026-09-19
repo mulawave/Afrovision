@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../services/announcement_service.dart';
@@ -172,8 +173,11 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                   child: ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.all(20),
-                    itemCount: _announcements.length + (_hasMore ? 1 : 0),
+                    itemCount: _announcements.length + (_hasMore ? 1 : 0) + 1,
                     itemBuilder: (context, index) {
+                      if (index == _announcements.length + (_hasMore ? 1 : 0)) {
+                        return const PangleBigBanner();
+                      }
                       if (index == _announcements.length) {
                         return _loadingMore
                             ? const Padding(

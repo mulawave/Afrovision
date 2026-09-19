@@ -20,6 +20,7 @@ import com.afrovision.tv.ui.screens.DisabledScreen
 import com.afrovision.tv.ui.screens.DownloadsScreen
 import com.afrovision.tv.ui.screens.ExclusiveScreen
 import com.afrovision.tv.ui.screens.FeedScreen
+import com.afrovision.tv.ui.screens.LibraryReaderScreen
 import com.afrovision.tv.ui.screens.HomeScreen
 import com.afrovision.tv.ui.screens.LibraryScreen
 import com.afrovision.tv.ui.screens.LiveTvScreen
@@ -59,6 +60,9 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
             )
         } else if (currentScreen == Screen.Player) {
             PlayerScreen(viewModel)
+        } else if (currentScreen == Screen.LibraryReader) {
+            // Full-screen: the reader owns the whole surface, no nav rail.
+            LibraryReaderScreen(viewModel)
         } else if (currentScreen == Screen.MovieDetail || currentScreen == Screen.SeriesDetail) {
             // Detail screens can be built into MoviesSeriesScreen via selection for now.
             MoviesSeriesScreen(viewModel)

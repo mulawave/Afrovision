@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/services/network_profile_service.dart';
 import '../../../core/services/player_settings_service.dart';
 import '../../../core/services/telemetry_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -23,7 +24,10 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
   void initState() {
     super.initState();
     TelemetryService.marker('watch_settings_opened');
-    _initFuture = PlayerSettingsService.instance.initialize();
+    _initFuture = Future.wait([
+      PlayerSettingsService.instance.initialize(),
+      NetworkProfileService.instance.initialize(),
+    ]).then((_) {});
   }
 
   @override
@@ -63,10 +67,16 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
                   _buildDelayOptions(settings),
                   const SizedBox(height: 24),
                   _buildSectionTitle('Quality / Data'),
-                  _buildQualityOptions(settings),
+                  ValueListenableBuilder<PlaybackCapabilities>(
+                    valueListenable: PlayerSettingsService.instance.capabilitiesNotifier,
+                    builder: (context, capabilities, _) => _buildQualityOptions(settings, capabilities),
+                  ),
                   const SizedBox(height: 24),
                   _buildSectionTitle('Player Engine'),
                   _buildEngineOptions(settings),
+                  const SizedBox(height: 24),
+                  _buildSectionTitle('Network'),
+                  _buildNetworkOptions(settings),
                   const SizedBox(height: 32),
                   _buildWarningCard(settings),
                 ],
@@ -108,6 +118,16 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
     _showWatchSettingSaved('Player engine set to ${value ? 'media_kit' : 'video_player'}');
   }
 
+  Future<void> _setWifiOnlyStreaming(bool value) async {
+    await PlayerSettingsService.instance.setWifiOnlyStreaming(value);
+    _showWatchSettingSaved(value ? 'Wi-Fi-only streaming enabled' : 'Wi-Fi-only streaming disabled');
+  }
+
+  Future<void> _setDataSaverOnCellular(bool value) async {
+    await PlayerSettingsService.instance.setDataSaverOnCellular(value);
+    _showWatchSettingSaved(value ? 'Data saver on cellular enabled' : 'Data saver on cellular disabled');
+  }
+
   void _showWatchSettingSaved(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -141,14 +161,18 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
     );
   }
 
-  Widget _buildQualityOptions(PlayerSettings settings) {
+  Widget _buildQualityOptions(PlayerSettings settings, PlaybackCapabilities capabilities) {
     return Column(
       children: QualityProfile.values.map((profile) {
+        final supported = capabilities.supports(profile);
         return _buildRadioTile<QualityProfile>(
           value: profile,
           groupValue: settings.quality,
           title: profile.label,
-          subtitle: profile.description,
+          subtitle: supported
+              ? profile.description
+              : 'Unavailable — this server isn\'t producing this quality yet',
+          enabled: supported,
           onChanged: (v) => _setQuality(v!),
         );
       }).toList(),
@@ -183,50 +207,133 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
     );
   }
 
+  Widget _buildNetworkOptions(PlayerSettings settings) {
+    final currentType = NetworkProfileService.instance.currentType;
+    final currentLabel = switch (currentType) {
+      NetworkType.wifi => 'Wi-Fi',
+      NetworkType.cellular => 'Cellular',
+      NetworkType.unknown => 'Unknown',
+    };
+    final currentCap = NetworkProfileService.instance.maxHlsBitrateBps;
+    final capLabel = currentCap == null
+        ? 'No cap'
+        : '${(currentCap / 1000000).toStringAsFixed(1)} Mbps cap';
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.wifi_tethering_rounded, color: AppColors.hintText, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Currently on $currentLabel · $capLabel',
+                  style: const TextStyle(color: AppColors.hintText, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _buildSwitchTile(
+          title: 'Wi-Fi-only streaming',
+          subtitle: 'Refuse to start playback unless connected to Wi-Fi',
+          value: settings.wifiOnlyStreaming,
+          onChanged: _setWifiOnlyStreaming,
+        ),
+        const SizedBox(height: 8),
+        _buildSwitchTile(
+          title: 'Data saver on cellular',
+          subtitle: 'Cap streams at the Data Saver bitrate whenever off Wi-Fi',
+          value: settings.dataSaverOnCellular,
+          onChanged: _setDataSaverOnCellular,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSwitchTile({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SwitchListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+        value: value,
+        onChanged: onChanged,
+        activeColor: AppColors.orange,
+        title: Text(
+          title,
+          style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: AppColors.hintText, fontSize: 12),
+        ),
+      ),
+    );
+  }
+
   Widget _buildRadioTile<T>({
     required T value,
     required T groupValue,
     required String title,
     String? subtitle,
     required ValueChanged<T?> onChanged,
+    bool enabled = true,
   }) {
     final selected = value == groupValue;
     return GestureDetector(
-      onTap: () => onChanged(value),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(
-          color: AppColors.cardBg,
-          borderRadius: BorderRadius.circular(12),
-          border: selected
-              ? Border.all(color: AppColors.orange.withValues(alpha: 0.5))
-              : null,
-        ),
-        child: ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          leading: Icon(
-            selected
-                ? Icons.radio_button_checked_rounded
-                : Icons.radio_button_unchecked_rounded,
-            color: selected ? AppColors.orange : AppColors.inputBorder,
+      onTap: enabled ? () => onChanged(value) : null,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.45,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: selected
+                ? Border.all(color: AppColors.orange.withValues(alpha: 0.5))
+                : null,
           ),
-          title: Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.white,
-              fontWeight: FontWeight.w600,
+          child: ListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            leading: Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              color: selected ? AppColors.orange : AppColors.inputBorder,
             ),
+            title: Text(
+              title,
+              style: const TextStyle(
+                color: AppColors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: subtitle != null
+                ? Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: AppColors.hintText,
+                      fontSize: 12,
+                    ),
+                  )
+                : null,
           ),
-          subtitle: subtitle != null
-              ? Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: AppColors.hintText,
-                    fontSize: 12,
-                  ),
-                )
-              : null,
         ),
       ),
     );
@@ -275,20 +382,24 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
     );
   }
 
+  // The live player always buffers up to 120s ahead of playback position
+  // regardless of this setting — live delay only controls how far behind
+  // the live edge you start, giving the buffer a head start before you
+  // catch up to it. It does not itself make the buffer larger or smaller.
   String _delayWarning(int seconds) {
     return switch (seconds) {
       0 =>
-        'No live delay — closest to live, but the player has almost no buffer. Expect frequent rebuffering on cellular.',
+        'No live delay — closest to live. The buffer has no head start, so a network dip is more likely to cause visible rebuffering.',
       5 =>
-        '5 seconds — near-live playback. Works best on strong Wi-Fi; may rebuffer on cellular.',
+        '5 seconds behind live — a small head start for the buffer. Works best on strong Wi-Fi.',
       10 =>
-        '10 seconds — small buffer. Better on Wi-Fi; occasional rebuffering on cellular.',
+        '10 seconds behind live — a bit more headroom before you catch up to the buffer.',
       15 =>
-        '15 seconds — moderate buffer. Good balance on fast cellular.',
+        '15 seconds behind live — a moderate head start. Good balance on fast cellular.',
       30 =>
-        '30 seconds — safest default. The player can build a large buffer ahead, reducing rebuffering at the cost of living a few seconds behind.',
+        '30 seconds behind live — the safest default. Gives the buffer the most head start, reducing the chance of catching up to it during a network dip.',
       _ =>
-        '$seconds seconds — adjust based on your network stability.',
+        '$seconds seconds behind live — adjust based on your network stability.',
     };
   }
 

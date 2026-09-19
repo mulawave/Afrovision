@@ -60,14 +60,14 @@ class RoleBadge extends StatelessWidget {
     if (role == 'creator' && subscriptionPlan == 'pro') {
       return _BadgeConfig(
         label: 'PRO CREATOR',
-        color: const Color(0xFF4CAF50),
+        color: const Color(0xFF5FD39A),
         icon: Icons.star_rounded,
       );
     }
     if (role == 'creator') {
       return _BadgeConfig(
         label: 'CREATOR',
-        color: const Color(0xFF4CAF50),
+        color: const Color(0xFF5FD39A),
         icon: Icons.videocam_rounded,
       );
     }

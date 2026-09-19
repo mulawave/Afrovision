@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
@@ -248,6 +249,7 @@ class _ReferralScreenState extends State<ReferralScreen>
                 _buildTabContent(d),
                 const SizedBox(height: 16),
                 _buildHowItWorks(),
+                const PangleBigBanner(margin: EdgeInsets.only(top: 16)),
                 const SizedBox(height: 32),
               ],
             ),

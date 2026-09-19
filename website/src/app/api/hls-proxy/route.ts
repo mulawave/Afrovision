@@ -1,6 +1,65 @@
 import { NextRequest, NextResponse } from "next/server";
+import dns from "node:dns/promises";
+import net from "node:net";
 
 const PROXY_BASE = "/api/hls-proxy";
+
+// SSRF guard: this proxy has to reach arbitrary externally-hosted stream
+// origins (channels are imported from many different CDNs), so we can't use
+// a hostname allowlist. Instead we block requests that resolve to internal /
+// link-local / loopback addresses — including the cloud metadata service —
+// both by literal IP in the URL and by DNS resolution (to stop rebinding).
+function isDisallowedIp(ip: string): boolean {
+  if (net.isIP(ip) === 4) {
+    const parts = ip.split(".").map(Number);
+    const [a, b] = parts;
+    if (a === 127) return true; // loopback
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 (incl. metadata)
+    if (a === 0) return true; // 0.0.0.0/8
+    return false;
+  }
+  if (net.isIP(ip) === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1") return true; // loopback
+    if (lower.startsWith("fe80:") || lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true; // link-local
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // unique local
+    return false;
+  }
+  return false;
+}
+
+async function assertUrlIsSafeToFetch(targetUrl: string): Promise<void> {
+  const parsed = new URL(targetUrl);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Only http/https URLs are allowed");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("URLs with embedded credentials are not allowed");
+  }
+  const hostname = parsed.hostname;
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "metadata.google.internal") {
+    throw new Error("Target host is not allowed");
+  }
+  if (net.isIP(hostname)) {
+    if (isDisallowedIp(hostname)) {
+      throw new Error("Target host is not allowed");
+    }
+    return;
+  }
+  let addresses: string[];
+  try {
+    const results = await dns.lookup(hostname, { all: true });
+    addresses = results.map((r) => r.address);
+  } catch {
+    throw new Error("Could not resolve target host");
+  }
+  if (addresses.length === 0 || addresses.some(isDisallowedIp)) {
+    throw new Error("Target host is not allowed");
+  }
+}
 
 function resolveUrl(uri: string, originalUrl: string, baseUrl: string): string | null {
   if (uri.startsWith("http://") || uri.startsWith("https://")) {
@@ -71,6 +130,12 @@ export async function GET(request: NextRequest) {
     targetOrigin = new URL(targetUrl).origin;
   } catch {
     return NextResponse.json({ error: "Invalid url parameter" }, { status: 400 });
+  }
+
+  try {
+    await assertUrlIsSafeToFetch(targetUrl);
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
   try {

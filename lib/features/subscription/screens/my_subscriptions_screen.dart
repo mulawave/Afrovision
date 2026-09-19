@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import '../../../core/ads/pangle_widgets.dart';
 import '../../../core/theme/app_colors.dart';
 import '../models/channel_subscription_model.dart';
 import '../services/channel_subscription_service.dart';
@@ -138,7 +139,7 @@ class _MySubscriptionsScreenState extends State<MySubscriptionsScreen>
       SnackBar(
         content: Text(msg, style: const TextStyle(color: AppColors.white)),
         backgroundColor: success
-            ? const Color(0xFF4CAF50).withValues(alpha: 0.9)
+            ? const Color(0xFF5FD39A).withValues(alpha: 0.9)
             : AppColors.errorRed.withValues(alpha: 0.9),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -214,12 +215,12 @@ class _MySubscriptionsScreenState extends State<MySubscriptionsScreen>
                         ),
                         decoration: BoxDecoration(
                           color: const Color(
-                            0xFF4CAF50,
+                            0xFF5FD39A,
                           ).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: const Color(
-                              0xFF4CAF50,
+                              0xFF5FD39A,
                             ).withValues(alpha: 0.3),
                           ),
                         ),
@@ -230,7 +231,7 @@ class _MySubscriptionsScreenState extends State<MySubscriptionsScreen>
                               width: 7,
                               height: 7,
                               decoration: const BoxDecoration(
-                                color: Color(0xFF4CAF50),
+                                color: Color(0xFF5FD39A),
                                 shape: BoxShape.circle,
                               ),
                             ),
@@ -238,7 +239,7 @@ class _MySubscriptionsScreenState extends State<MySubscriptionsScreen>
                             Text(
                               '${_subscriptions.length} active subscription${_subscriptions.length == 1 ? '' : 's'}',
                               style: const TextStyle(
-                                color: Color(0xFF4CAF50),
+                                color: Color(0xFF5FD39A),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -278,8 +279,11 @@ class _MySubscriptionsScreenState extends State<MySubscriptionsScreen>
                                     16,
                                     16,
                                   ),
-                                  itemCount: _pageItems.length,
+                                  itemCount: _pageItems.length + 1,
                                   itemBuilder: (_, index) {
+                                    if (index == _pageItems.length) {
+                                      return const PangleBigBanner();
+                                    }
                                     final sub = _pageItems[index];
                                     return _SubscriptionCard(
                                       subscription: sub,
@@ -514,7 +518,7 @@ class _MySubscriptionsScreenState extends State<MySubscriptionsScreen>
 
 // â”€â”€ Premium palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const Color _kGold = Color(0xFFFFD700);
+const Color _kGold = Color(0xFFF5C266);
 const Color _kGoldLight = Color(0xFFFFE98A);
 const Color _kGoldDeep = Color(0xFFB8860B);
 
@@ -708,16 +712,16 @@ class _SubscriptionCard extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF4CAF50).withValues(alpha: 0.12),
+                      color: const Color(0xFF5FD39A).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                        color: const Color(0xFF5FD39A).withValues(alpha: 0.3),
                       ),
                     ),
                     child: const Text(
                       'FREE',
                       style: TextStyle(
-                        color: Color(0xFF4CAF50),
+                        color: Color(0xFF5FD39A),
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.8,

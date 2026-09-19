@@ -43,6 +43,7 @@ router.get('/:id', optionalAuth, ctrl.getChannelById);
 router.get('/:id/access', authenticateToken, premiumCtrl.checkAccess);
 router.post('/:id/pay', authenticateToken, premiumCtrl.payForAccess);
 router.post('/:id/request-premium', authenticateToken, premiumCtrl.requestPremiumElevation);
+router.get('/:id/live-stats', optionalAuth, ctrl.getLiveStats);
 router.post('/:id/view', authenticateToken, ctrl.recordView);
 router.post('/:id/watch-ping', authenticateToken, ctrl.recordWatchPing);
 router.post('/:id/recheck-source', authenticateToken, ctrl.recheckStreamHealth);

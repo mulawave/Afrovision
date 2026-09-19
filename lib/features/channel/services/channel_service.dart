@@ -249,6 +249,21 @@ class ChannelService {
     return channel;
   }
 
+  /// Real live-viewer count for the Watch Screen's LIVE badge — `null`
+  /// on any failure so callers can hide the count rather than show a
+  /// fabricated number.
+  static Future<int?> getLiveViewerCount(String channelId) async {
+    try {
+      final data = await ApiService.get(
+        '/channels/$channelId/live-stats',
+        noCache: true,
+      );
+      return (data['current_viewers'] as num?)?.toInt();
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<ChannelModel> getChannelByNumber(String number) async {
     final data = await ApiService.get('/channels/number/$number');
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);
@@ -360,7 +375,7 @@ class ChannelService {
   }
 
   static Future<void> recordView(String channelId) async {
-    await ApiService.post('/channels/$channelId/view', {});
+    await ApiService.post('/channels/$channelId/view', {'platform': 'android'});
   }
 
   /// Reports accumulated watch-time for a channel. Called periodically by
@@ -369,6 +384,7 @@ class ChannelService {
   static Future<void> recordWatchPing(String channelId, int seconds) async {
     await ApiService.post('/channels/$channelId/watch-ping', {
       'seconds': seconds,
+      'platform': 'android',
     });
   }
 

@@ -222,7 +222,7 @@ class _PlansScreenState extends State<PlansScreen>
             'Subscribed to ${plan.name.toUpperCase()} plan!',
             style: const TextStyle(color: AppColors.white),
           ),
-          backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.9),
+          backgroundColor: const Color(0xFF5FD39A).withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
@@ -401,10 +401,10 @@ class _PlansScreenState extends State<PlansScreen>
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                        color: const Color(0xFF5FD39A).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                          color: const Color(0xFF5FD39A).withValues(alpha: 0.3),
                         ),
                       ),
                       child: Column(
@@ -413,7 +413,7 @@ class _PlansScreenState extends State<PlansScreen>
                           const Text(
                             'Payment Breakdown',
                             style: TextStyle(
-                              color: Color(0xFF4CAF50),
+                              color: Color(0xFF5FD39A),
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
@@ -423,7 +423,7 @@ class _PlansScreenState extends State<PlansScreen>
                             _buildWalletBalanceRow(
                               'Cash Deducted',
                               '\u20a6${_formatPrice(_walletPreview!.cashToDeduct)}',
-                              textColor: const Color(0xFF4CAF50),
+                              textColor: const Color(0xFF5FD39A),
                             ),
                           if (_walletPreview!.cashToDeduct > 0)
                             const SizedBox(height: 6),
@@ -431,7 +431,7 @@ class _PlansScreenState extends State<PlansScreen>
                             _buildWalletBalanceRow(
                               'vPT Deducted',
                               '${_walletPreview!.vptToDeduct.toStringAsFixed(2)} vPT',
-                              textColor: const Color(0xFF4CAF50),
+                              textColor: const Color(0xFF5FD39A),
                             ),
                         ],
                       ),
@@ -519,7 +519,7 @@ class _PlansScreenState extends State<PlansScreen>
                                           style: const TextStyle(color: AppColors.white),
                                         ),
                                         backgroundColor:
-                                            const Color(0xFF4CAF50).withValues(alpha: 0.9),
+                                            const Color(0xFF5FD39A).withValues(alpha: 0.9),
                                         behavior: SnackBarBehavior.floating,
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(10),
@@ -552,7 +552,7 @@ class _PlansScreenState extends State<PlansScreen>
                             decoration: BoxDecoration(
                               gradient: (_walletPreview!.sufficient && !_walletPaying)
                                   ? const LinearGradient(
-                                      colors: [Color(0xFF4CAF50), Color(0xFF45A049)],
+                                      colors: [Color(0xFF5FD39A), Color(0xFF45A049)],
                                     )
                                   : null,
                               color: (_walletPreview!.sufficient && !_walletPaying)
@@ -923,13 +923,13 @@ class _PlansScreenState extends State<PlansScreen>
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4CAF50).withValues(alpha: 0.2),
+                          color: const Color(0xFF5FD39A).withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: const Text(
                           'SAVE',
                           style: TextStyle(
-                            color: Color(0xFF4CAF50),
+                            color: Color(0xFF5FD39A),
                             fontSize: 9,
                             fontWeight: FontWeight.w800,
                           ),
@@ -1072,7 +1072,7 @@ class _PlansScreenState extends State<PlansScreen>
           color: isPremium
               ? AppColors.orange.withValues(alpha: 0.6)
               : isPro
-              ? const Color(0xFF4CAF50).withValues(alpha: 0.5)
+              ? const Color(0xFF5FD39A).withValues(alpha: 0.5)
               : AppColors.inputBorder,
           width: isHighlighted ? 1.5 : 1,
         ),
@@ -1154,7 +1154,7 @@ class _PlansScreenState extends State<PlansScreen>
                     Icons.check_circle_rounded,
                     color: isPremium
                         ? AppColors.orange
-                        : const Color(0xFF4CAF50),
+                        : const Color(0xFF5FD39A),
                     size: 16,
                   ),
                   const SizedBox(width: 8),
@@ -1227,10 +1227,10 @@ class _PlansScreenState extends State<PlansScreen>
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                color: const Color(0xFF5FD39A).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                  color: const Color(0xFF5FD39A).withValues(alpha: 0.3),
                 ),
               ),
               child: const Center(
@@ -1239,14 +1239,14 @@ class _PlansScreenState extends State<PlansScreen>
                   children: [
                     Icon(
                       Icons.account_balance_wallet_rounded,
-                      color: Color(0xFF4CAF50),
+                      color: Color(0xFF5FD39A),
                       size: 16,
                     ),
                     SizedBox(width: 8),
                     Text(
                       'Pay with Wallet',
                       style: TextStyle(
-                        color: Color(0xFF4CAF50),
+                        color: Color(0xFF5FD39A),
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1397,13 +1397,13 @@ class _PlansScreenState extends State<PlansScreen>
                     vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                    color: const Color(0xFF5FD39A).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     savingsText,
                     style: const TextStyle(
-                      color: Color(0xFF4CAF50),
+                      color: Color(0xFF5FD39A),
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -1607,10 +1607,10 @@ class _PlansScreenState extends State<PlansScreen>
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                  color: const Color(0xFF5FD39A).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                    color: const Color(0xFF5FD39A).withValues(alpha: 0.3),
                   ),
                 ),
                 child: const Center(
@@ -1619,14 +1619,14 @@ class _PlansScreenState extends State<PlansScreen>
                     children: [
                       Icon(
                         Icons.account_balance_wallet_rounded,
-                        color: Color(0xFF4CAF50),
+                        color: Color(0xFF5FD39A),
                         size: 16,
                       ),
                       SizedBox(width: 8),
                       Text(
                         'Pay with Wallet',
                         style: TextStyle(
-                          color: Color(0xFF4CAF50),
+                          color: Color(0xFF5FD39A),
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),

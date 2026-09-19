@@ -17,5 +17,6 @@ enum class Screen {
     Player,
     MovieDetail,
     SeriesDetail,
-    CatchUp
+    CatchUp,
+    LibraryReader
 }

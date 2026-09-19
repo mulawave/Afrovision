@@ -15,6 +15,10 @@ router.get('/flash-audio', ctrl.getFlashAudio);
 // Upcoming shows across all channels (public)
 router.get('/upcoming', ctrl.getUpcomingAll);
 
+// Transcoding capability (public) — lets clients disable quality tiers the
+// backend can't actually produce instead of offering a decorative selector.
+router.get('/playback-capabilities', ctrl.getPlaybackCapabilities);
+
 // Video management (creator)
 router.post('/videos/upload-url', authenticateToken, ctrl.getVideoUploadUrl);
 router.post('/videos/resumable-session', authenticateToken, ctrl.createVideoResumableSession);

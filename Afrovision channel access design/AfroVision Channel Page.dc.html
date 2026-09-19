@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#080e21;color:#eef1f8;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#f0a52a}a:hover{color:#f7c66a}
+.av-scroll::-webkit-scrollbar{width:0;height:0}
+.av-scroll{scrollbar-width:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulseGlow{0%,100%{box-shadow:0 0 34px 6px rgba(240,165,42,.34)}50%{box-shadow:0 0 54px 14px rgba(240,165,42,.5)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetUp{from{transform:translateY(103%)}to{transform:translateY(0)}}
+@keyframes barSlide{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;gap:44px;padding:44px 48px 64px;align-items:flex-start;justify-content:center">
+
+<div style="flex:none;width:390px;height:844px;position:relative;border-radius:42px;background:#0b1533;box-shadow:0 0 0 1px #22325e,0 30px 80px rgba(0,0,0,.65);overflow:hidden;display:flex;flex-direction:column">
+
+<div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:14px 18px 8px;font-size:11.5px;font-weight:500;color:#c3cde6;background:linear-gradient(180deg,#17295e,transparent)">
+<span>5:14</span>
+<span style="display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;background:#04070f;color:#eef1f8;font-size:11px"><i class="ph-fill ph-broadcast" style="font-size:13px;color:#5b9dff"></i>2</span>
+<span style="display:flex;align-items:center;gap:6px"><i class="ph ph-moon" style="font-size:12px"></i><i class="ph ph-cell-signal-full" style="font-size:12px"></i><span style="width:16px;height:9px;border-radius:2px;box-shadow:inset 0 0 0 1px #7d8bad;background:linear-gradient(to right,#eef1f8 92%,transparent 92%)"></span></span>
+</div>
+
+<sc-if value="{{ isBoot }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:linear-gradient(180deg,#14275c,#0a1330 62%,#080e21)">
+<div style="width:52px;height:52px;border-radius:50%;border:4px solid rgba(240,165,42,.22);border-top-color:#f0a52a;animation:spin .85s linear infinite"></div>
+<div style="font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#8fa0c8">Loading AfroVision</div>
+<button onClick="{{ goChannel }}" style="position:absolute;bottom:38px;font-size:11.5px;padding:9px 16px;border-radius:999px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#8fa0c8;font-family:inherit;cursor:pointer" style-hover="border-color:#f0a52a;color:#f5c266">Skip splash</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isTuning }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-height:0;position:relative;display:flex;flex-direction:column;background:linear-gradient(180deg,#14275c,#0a1330 60%,#080e21)">
+<div style="flex:none;display:flex;align-items:flex-start;gap:10px;padding:6px 16px 0">
+<button onClick="{{ leavePlayer }}" aria-label="Back" style="width:38px;height:38px;flex:none;border-radius:12px;border:1px solid #22325e;background:rgba(9,16,38,.9);color:#eef1f8;cursor:pointer;display:grid;place-items:center" style-hover="border-color:#f0a52a"><i class="ph ph-caret-left" style="font-size:17px"></i></button>
+<div style="flex:1;min-width:0;padding-top:6px">
+<div style="font-size:15px;font-weight:600;letter-spacing:.14em;white-space:nowrap">NOW PLAYING</div>
+<div style="font-size:11px;color:#8fa0c8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Channel 2 · X-Lounge Extreme</div>
+</div>
+<div style="flex:none;display:flex;align-items:center;gap:6px">
+<sc-for list="{{ playerTools }}" as="t" hint-placeholder-count="5">
+<button onClick="{{ t.tap }}" aria-label="{{ t.label }}" style="width:32px;height:32px;border-radius:10px;border:1px solid #22325e;background:rgba(9,16,38,.9);color:{{ t.tint }};cursor:pointer;display:grid;place-items:center" style-hover="border-color:#f0a52a"><i class="{{ t.icon }}" style="font-size:14px"></i></button>
+</sc-for>
+</div>
+</div>
+<div style="flex:none;display:flex;justify-content:flex-end;padding:8px 16px 0">
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:6px 11px;border-radius:999px;background:rgba(9,16,38,.9);box-shadow:inset 0 0 0 1px #22325e;color:#c3cde6"><i class="ph-fill ph-users" style="font-size:12px;color:#f5c266"></i>1,204 following</span>
+</div>
+
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 34px">
+<div style="width:118px;height:118px;border-radius:50%;background:linear-gradient(150deg,#f0a52a,#f8c96f);display:grid;place-items:center;animation:pulseGlow 1.9s ease-in-out infinite"><i class="ph-fill ph-television-simple" style="font-size:52px;color:#fff"></i></div>
+<div style="font-size:15px;font-weight:600;letter-spacing:.2em;margin-top:6px">TUNING IN</div>
+<div style="font-size:12.5px;color:#8fa0c8">{{ tuneStep }}</div>
+<div style="width:100%;max-width:220px;height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:6px"><div style="width:32%;height:100%;border-radius:2px;background:linear-gradient(90deg,#ef9615,#f8c96f);animation:barSlide 1.35s ease-in-out infinite"></div></div>
+<div style="display:flex;gap:7px;margin-top:2px">
+<sc-for list="{{ tuneDots }}" as="d" hint-placeholder-count="3">
+<span style="width:6px;height:6px;border-radius:50%;background:{{ d.bg }}"></span>
+</sc-for>
+</div>
+</div>
+
+<div style="flex:none;padding:0 16px 20px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;gap:9px;align-items:flex-start;padding:11px 12px;border-radius:13px;background:rgba(9,16,38,.86);box-shadow:inset 0 0 0 1px #22325e">
+<i class="ph-fill ph-seal-check" style="font-size:15px;color:#5fd39a;margin-top:1px"></i>
+<span style="font-size:11.5px;color:#c3cde6">Membership verified — active until Oct 4, 2026. Stream authorised for this device.</span>
+</div>
+<button onClick="{{ goLive }}" style="width:100%;padding:13px;border:0;border-radius:13px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.06)">Skip to stream</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isLive }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-height:0;position:relative;display:flex;flex-direction:column;background:#04070f">
+<div style="flex:none;position:relative;aspect-ratio:16/9;background:linear-gradient(150deg,#22345f,#0d162f);display:grid;place-items:center">
+<i class="ph-fill ph-film-slate" style="font-size:44px;color:rgba(255,255,255,.14)"></i>
+<div style="position:absolute;top:10px;left:12px;display:flex;align-items:center;gap:7px">
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:.08em;padding:4px 9px;border-radius:999px;background:#d43c3c;color:#fff"><span style="width:5px;height:5px;border-radius:50%;background:#fff"></span>LIVE</span>
+<span style="font-size:10.5px;color:#dbe2f2">CH 2 · 1,204 watching</span>
+</div>
+<button onClick="{{ leavePlayer }}" aria-label="Back" style="position:absolute;top:8px;right:12px;width:30px;height:30px;border-radius:9px;border:0;background:rgba(4,7,15,.7);color:#eef1f8;cursor:pointer"><i class="ph ph-x" style="font-size:14px"></i></button>
+<div style="position:absolute;left:12px;right:12px;bottom:10px;display:flex;align-items:center;gap:10px">
+<button onClick="{{ togglePlay }}" aria-label="Play or pause" style="width:34px;height:34px;flex:none;border-radius:50%;border:0;background:#f0a52a;color:#26170a;cursor:pointer;display:grid;place-items:center"><i class="{{ playIcon }}" style="font-size:16px"></i></button>
+<div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.18);overflow:hidden"><div style="width:100%;height:100%;background:#f0a52a"></div></div>
+<span style="flex:none;font-size:10px;color:#dbe2f2">LIVE</span>
+<button onClick="{{ openQuality }}" aria-label="Quality" style="width:30px;height:30px;flex:none;border-radius:9px;border:0;background:rgba(4,7,15,.7);color:#dbe2f2;cursor:pointer"><i class="ph ph-gear-six" style="font-size:14px"></i></button>
+<button onClick="{{ fullscreen }}" aria-label="Fullscreen" style="width:30px;height:30px;flex:none;border-radius:9px;border:0;background:rgba(4,7,15,.7);color:#dbe2f2;cursor:pointer"><i class="ph ph-corners-out" style="font-size:14px"></i></button>
+</div>
+</div>
+
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto;background:#0b1533;padding:13px 16px 22px;display:flex;flex-direction:column;gap:12px">
+<div>
+<div style="font-size:16px;font-weight:600;letter-spacing:-.01em">Midnight Lounge Session</div>
+<div style="font-size:11.5px;color:#8fa0c8;margin-top:2px">X-Lounge Extreme · Live now · Entertainment · 18+</div>
+</div>
+<div style="display:flex;gap:7px">
+<sc-for list="{{ liveActions }}" as="a" hint-placeholder-count="4">
+<button onClick="{{ a.tap }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 4px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#c3cde6;font-family:inherit;font-size:10px;font-weight:500;cursor:pointer" style-hover="border-color:#f0a52a;color:#f5c266"><i class="{{ a.icon }}" style="font-size:17px"></i>{{ a.label }}</button>
+</sc-for>
+</div>
+<div style="border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;padding:12px">
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a;margin-bottom:9px">Up next on this channel</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ upNext }}" as="u" hint-placeholder-count="3">
+<button onClick="{{ u.tap }}" style="display:flex;align-items:center;gap:10px;text-align:left;padding:0;border:0;background:transparent;color:#eef1f8;font-family:inherit;cursor:pointer">
+<span style="width:64px;height:38px;flex:none;border-radius:8px;background:{{ u.bg }};display:grid;place-items:center"><i class="ph-fill ph-play" style="font-size:13px;color:rgba(255,255,255,.7)"></i></span>
+<span style="flex:1;min-width:0"><span style="display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ u.title }}</span><span style="display:block;font-size:10.5px;color:#8fa0c8">{{ u.time }}</span></span>
+<i class="ph ph-bell" style="font-size:15px;color:#7d8bad"></i>
+</button>
+</sc-for>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isChannel }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:2px 16px 10px">
+<button onClick="{{ back }}" aria-label="Back" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#c3cde6;cursor:pointer;display:grid;place-items:center" style-hover="color:#eef1f8;background:rgba(255,255,255,.07)"><i class="ph ph-caret-left" style="font-size:16px"></i></button>
+<div style="flex:1;min-width:0">
+<div style="font-size:17px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">X-Lounge Extreme</div>
+<div style="font-size:10.5px;color:#8fa0c8">Channel 2 · Entertainment</div>
+</div>
+<button onClick="{{ openSettings }}" aria-label="Channel settings" style="width:36px;height:36px;flex:none;border-radius:11px;border:1px solid #2a3a6b;background:rgba(255,255,255,.03);color:#f0a52a;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.14)"><i class="ph ph-dots-three-outline" style="font-size:16px"></i></button>
+</div>
+
+<div class="av-scroll" ref="{{ scrollRef }}" style="flex:1;min-height:0;overflow-y:auto;padding:0 0 22px">
+<div style="position:relative;margin:0 16px;border-radius:16px;overflow:hidden;box-shadow:inset 0 0 0 1px #24345f">
+<div style="aspect-ratio:16/7;background:linear-gradient(140deg,#3b2a63,#1b2a5c 55%,#122040);display:grid;place-items:center"><i class="ph-fill ph-image" style="font-size:30px;color:rgba(255,255,255,.16)"></i></div>
+<div style="position:absolute;inset:auto 0 0 0;height:58%;background:linear-gradient(180deg,transparent,rgba(11,21,51,.92))"></div>
+</div>
+<div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;margin-top:-34px;padding:0 16px">
+<div style="width:70px;height:70px;border-radius:50%;background:linear-gradient(150deg,#f0a52a,#8b5cf6);box-shadow:0 0 0 3px #0b1533;display:grid;place-items:center"><i class="ph-fill ph-user" style="font-size:30px;color:rgba(255,255,255,.85)"></i></div>
+<div style="font-size:19px;font-weight:600;letter-spacing:-.01em;margin-top:9px">X-Lounge Extreme</div>
+<div style="display:flex;gap:7px;margin-top:7px;flex-wrap:wrap;justify-content:center">
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:.07em;padding:5px 11px;border-radius:999px;background:rgba(240,165,42,.12);color:#f5c266;box-shadow:inset 0 0 0 1px #4a3a1a"><i class="ph-fill ph-seal-check" style="font-size:11px"></i>EXCLUSIVE</span>
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:.07em;padding:5px 11px;border-radius:999px;background:rgba(47,158,107,.16);color:#5fd39a;box-shadow:inset 0 0 0 1px rgba(95,211,154,.3)"><i class="ph-fill ph-check-circle" style="font-size:11px"></i>MEMBER · ACTIVE</span>
+<span style="font-size:9.5px;font-weight:700;letter-spacing:.07em;padding:5px 11px;border-radius:999px;color:#c3cde6;box-shadow:inset 0 0 0 1px #22325e">18+</span>
+</div>
+<div style="display:flex;justify-content:center;gap:0;width:100%;margin-top:12px;border-radius:13px;box-shadow:inset 0 0 0 1px #22325e;overflow:hidden">
+<sc-for list="{{ channelStats }}" as="st" hint-placeholder-count="3">
+<div style="flex:1;text-align:center;padding:10px 4px;box-shadow:inset 1px 0 0 #22325e">
+<div style="font-size:14.5px;font-weight:600">{{ st.value }}</div>
+<div style="font-size:9.5px;color:#8fa0c8;margin-top:1px">{{ st.label }}</div>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;gap:8px;width:100%;margin-top:11px">
+<button onClick="{{ goTune }}" style="flex:1.5;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px;border:0;border-radius:13px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 8px 22px rgba(239,150,21,.2)" style-hover="filter:brightness(1.06)"><i class="ph-fill ph-play-circle" style="font-size:17px"></i>Watch Live</button>
+<button onClick="{{ toggleFollow }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:13px;border-radius:13px;border:1px solid #2a3a6b;background:rgba(255,255,255,.02);color:#dbe2f2;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;{{ followStyle }}" style-hover="border-color:#f0a52a"><i class="{{ followIcon }}" style="font-size:15px"></i>{{ followLabel }}</button>
+</div>
+</div>
+
+<div style="display:flex;gap:7px;overflow-x:auto;padding:14px 16px 12px" class="av-scroll">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="6">
+<button onClick="{{ t.pick }}" style="flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:8px 14px;border-radius:999px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;cursor:pointer;{{ t.style }}" style-hover="border-color:#f0a52a;color:#f5c266"><i class="{{ t.icon }}" style="font-size:13px"></i>{{ t.label }}</button>
+</sc-for>
+</div>
+
+<div style="padding:0 16px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:11px;align-items:flex-start;padding:12px;border-radius:14px;background:#101d43;box-shadow:inset 0 0 0 1px #24345f">
+<span style="width:34px;height:34px;flex:none;border-radius:10px;background:rgba(240,165,42,.13);display:grid;place-items:center"><i class="{{ tabIcon }}" style="font-size:16px;color:#f5c266"></i></span>
+<div style="flex:1;min-width:0">
+<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">{{ tabLabel }}</div>
+<div style="font-size:12.5px;color:#dbe2f2;margin-top:2px">{{ tabBlurb }}</div>
+</div>
+</div>
+
+<sc-if value="{{ isSchedule }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ schedule }}" as="p" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:11px;padding:12px;border-radius:13px;background:#101d43;box-shadow:inset 0 0 0 1px {{ p.border }}">
+<div style="flex:none;text-align:center;width:52px">
+<div style="font-size:13px;font-weight:600;color:{{ p.timeTint }}">{{ p.time }}</div>
+<div style="font-size:9px;color:#7d8bad;letter-spacing:.06em">{{ p.day }}</div>
+</div>
+<div style="flex:1;min-width:0">
+<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.title }}</div>
+<div style="font-size:10.5px;color:#8fa0c8;margin-top:1px">{{ p.meta }}</div>
+</div>
+<button onClick="{{ p.remind }}" aria-label="Set reminder" style="flex:none;width:32px;height:32px;border-radius:10px;border:1px solid #22325e;background:transparent;color:{{ p.bellTint }};cursor:pointer" style-hover="border-color:#f0a52a"><i class="{{ p.bell }}" style="font-size:15px"></i></button>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ isGrid }}" hint-placeholder-val="{{ true }}">
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+<sc-for list="{{ items }}" as="it" hint-placeholder-count="6">
+<button onClick="{{ it.tap }}" style="text-align:left;padding:0;border:0;border-radius:13px;overflow:hidden;background:#101d43;box-shadow:inset 0 0 0 1px #24345f;color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="box-shadow:inset 0 0 0 1px #f0a52a">
+<span style="display:block;position:relative;aspect-ratio:{{ it.ratio }};background:{{ it.bg }}">
+<span style="position:absolute;inset:0;display:grid;place-items:center"><i class="{{ it.icon }}" style="font-size:22px;color:rgba(255,255,255,.5)"></i></span>
+<span style="position:absolute;top:7px;left:7px;font-size:8.5px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:999px;background:rgba(4,7,15,.72);color:#f5c266">{{ it.badge }}</span>
+<span style="position:absolute;bottom:7px;right:7px;font-size:9px;padding:3px 7px;border-radius:6px;background:rgba(4,7,15,.72);color:#dbe2f2">{{ it.dur }}</span>
+</span>
+<span style="display:block;padding:9px 10px 11px">
+<span style="display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ it.title }}</span>
+<span style="display:block;font-size:10px;color:#8fa0c8;margin-top:2px">{{ it.meta }}</span>
+</span>
+</button>
+</sc-for>
+</div>
+<button onClick="{{ loadMore }}" style="width:100%;padding:12px;border-radius:12px;border:1px solid #22325e;background:rgba(255,255,255,.02);color:#9aa6c4;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="border-color:#f0a52a;color:#f5c266">{{ loadMoreLabel }}</button>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ showNav }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;display:flex;padding:8px 10px 20px;background:#0a1330;box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 2px;border:0;background:transparent;font-family:inherit;font-size:9.5px;font-weight:500;color:#7d8bad;cursor:pointer;{{ n.style }}"><i class="{{ n.icon }}" style="font-size:{{ n.size }}"></i>{{ n.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ sheet }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closeSheet }}" style="position:absolute;inset:0;background:rgba(4,8,20,.66);animation:fadeIn .16s ease"></div>
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:22px 22px 42px 42px;background:#0b1533;box-shadow:0 0 0 1px #2f4483,0 -20px 50px rgba(0,0,0,.55);padding:15px 18px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;gap:11px">
+<div style="width:38px;height:4px;border-radius:2px;background:#f0a52a;align-self:center"></div>
+<div style="font-size:16px;font-weight:600">{{ sheet.title }}</div>
+<div style="font-size:11.5px;color:#8fa0c8;margin-top:-6px">{{ sheet.sub }}</div>
+<div style="display:flex;flex-direction:column;gap:1px;border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 1px #22325e">
+<sc-for list="{{ sheet.rows }}" as="r" hint-placeholder-count="4">
+<button onClick="{{ r.tap }}" style="display:flex;align-items:center;gap:11px;padding:12px 13px;border:0;background:rgba(255,255,255,.02);color:{{ r.fg }};font-family:inherit;font-size:13px;text-align:left;cursor:pointer" style-hover="background:rgba(255,255,255,.06)">
+<i class="{{ r.icon }}" style="font-size:16px;color:{{ r.tint }}"></i>
+<span style="flex:1">{{ r.label }}</span>
+<span style="font-size:11.5px;color:#8fa0c8">{{ r.value }}</span>
+</button>
+</sc-for>
+</div>
+<button onClick="{{ closeSheet }}" style="width:100%;padding:12px;border:1px solid #22325e;border-radius:12px;background:transparent;color:#c3cde6;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" style-hover="background:rgba(255,255,255,.05)">Close</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:16px;right:16px;bottom:94px;padding:11px 13px;border-radius:12px;background:#16255c;box-shadow:0 0 0 1px #2f4483,0 12px 30px rgba(0,0,0,.5);font-size:12px;color:#dbe2f2;animation:fadeIn .16s ease;display:flex;align-items:center;gap:9px"><i class="ph-fill ph-info" style="font-size:15px;color:#f5c266"></i>{{ toast }}</div>
+</sc-if>
+</div>
+
+<div style="flex:none;width:280px;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f0a52a;margin-bottom:6px">AfroVision · channel & player</div>
+<h1 style="font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.16;margin:0 0 10px">Channel page,<br>tune-in, player</h1>
+<p style="margin:0 0 16px;font-size:12.5px;color:#8fa0c8;text-wrap:pretty">Splash, channel profile with all six tabs, the tune-in hand-off and the live player — on the Home / Channels / Assets palette.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px">
+<sc-for list="{{ jump }}" as="j" hint-placeholder-count="4">
+<button onClick="{{ j.go }}" style="font-size:11px;padding:6px 11px;border-radius:8px;border:1px solid #1e2c55;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ j.style }}" style-hover="border-color:#f0a52a;color:#f5c266">{{ j.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="4">
+<div style="border-radius:8px;padding:11px 12px;box-shadow:0 0 0 1px #1e2c55">
+<div style="font-size:12px;font-weight:600;margin-bottom:3px">{{ n.title }}</div>
+<p style="margin:0;font-size:11.5px;color:#8fa0c8">{{ n.body }}</p>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:800,&quot;height&quot;:940}}">
+const GOLD = '#f5c266';
+const BGS = ['linear-gradient(145deg,#3b2a63,#1a2450)', 'linear-gradient(145deg,#1f3a63,#13203f)', 'linear-gradient(145deg,#5b2f45,#231a3d)',
+             'linear-gradient(145deg,#204a45,#12233a)', 'linear-gradient(145deg,#4a3a1a,#1d2440)', 'linear-gradient(145deg,#2c2f6b,#141a34)'];
+
+const TABS = [
+  { key: 'about', label: 'About', icon: 'ph-fill ph-info' },
+  { key: 'library', label: 'Library', icon: 'ph-fill ph-books' },
+  { key: 'movies', label: 'Movies', icon: 'ph-fill ph-film-slate' },
+  { key: 'series', label: 'Series', icon: 'ph-fill ph-monitor-play' },
+  { key: 'waves', label: 'Waves', icon: 'ph ph-waves' },
+  { key: 'schedule', label: 'Schedule', icon: 'ph-fill ph-calendar-dots' }
+];
+
+const BLURB = {
+  about: 'Late-night entertainment for verified members only. Exclusive channel with private membership.',
+  library: 'Everything this channel has published — replays, clips and archive items.',
+  movies: 'Movies published by this channel. Exclusive to active members.',
+  series: 'Series and multi-episode shows published by this channel.',
+  waves: 'Short vertical drops from this channel. Swipeable in the Waves tab.',
+  schedule: 'Programme guide for the next 24 hours. Set a reminder on anything upcoming.'
+};
+
+const CONTENT = {
+  library: [['Lounge Replay · Night 12', 'Replay · 2h 04m', 'REPLAY'], ['Behind The Booth', 'Clip · 8m', 'CLIP'], ['Archive: Season Opener', 'Archive · 1h 12m', 'ARCHIVE'],
+            ['After Hours Cut', 'Replay · 55m', 'REPLAY'], ['Guest Set — Ada K.', 'Clip · 14m', 'CLIP'], ['Studio Tour', 'Clip · 6m', 'CLIP']],
+  movies: [['Who Ya Gonna Call', '2024 · 1h 48m', '18+'], ['Bait & Switch', '2023 · 2h 06m', '18+'], ['Velvet Rooms', '2025 · 1h 32m', '18+'],
+           ['Lagos After Dark', '2024 · 1h 57m', '18+'], ['The Long Weekend', '2022 · 1h 44m', '18+'], ['Neon Confession', '2025 · 2h 11m', '18+']],
+  series: [['X-Lounge: Season 3', '8 episodes', 'S3'], ['Private Rooms', '6 episodes', 'S1'], ['The Lounge Files', '12 episodes', 'S2'],
+           ['Backstage', '10 episodes', 'S1'], ['Night Shift', '9 episodes', 'S4'], ['Members Only', '5 episodes', 'S1']],
+  waves: [['Booth cam drop', '0:42', 'WAVE'], ['Sound check', '0:28', 'WAVE'], ['Guest arrival', '0:51', 'WAVE'],
+          ['Crowd shot', '0:19', 'WAVE'], ['Closing set', '1:04', 'WAVE'], ['Backstage laugh', '0:33', 'WAVE']],
+  about: [['Channel Rules', 'Members only', 'INFO'], ['Membership Terms', '₦2,500 / month', 'INFO'], ['Meet The Host', 'Profile', 'INFO'], ['Contact Channel', 'Support', 'INFO']]
+};
+
+const SCHED = [
+  ['5:30', 'PM', 'Midnight Lounge Session', 'Live now · Entertainment', true],
+  ['7:00', 'PM', 'Guest Set — Ada K.', 'Music · 90 min', false],
+  ['9:00', 'PM', 'The Lounge Files E07', 'Series · 45 min', false],
+  ['10:00', 'PM', 'After Hours Cut', 'Replay · 55 min', false],
+  ['12:00', 'AM', 'Neon Confession', 'Movie · 2h 11m', false]
+];
+
+const NOTES = {
+  boot: [['Splash is the only full-bleed screen', 'One gold spinner on the Home gradient — no logo lockup invented, and a skip control for review.']],
+  channel: [['One profile block, not three', 'Banner, avatar, name, badges and the stat strip read as a single unit before the tabs.'],
+            ['Tabs never clip', 'The six tabs scroll in a padded row so no pill is half cut at either edge.'],
+            ['Membership state is stated on the page', 'EXCLUSIVE + MEMBER · ACTIVE sit together, so access is legible before Watch Live.'],
+            ['Every tab shares one shell', 'A context strip then either a poster grid or the schedule list — nothing re-laid out per tab.']],
+  tuning: [['Tune-in keeps the player chrome', 'Back, tools and the following pill stay put, so the transition into the stream does not jump.'],
+           ['Progress reads as progress', 'A real animated bar plus step text replaces the static dots.'],
+           ['Access is confirmed here', 'The membership note answers "will this play?" before the stream resolves.']],
+  live: [['Player first', 'A 16:9 stage with LIVE badge, scrubber and quality controls; metadata and actions below.'],
+         ['Actions sit under the video', 'Gift, chat, share and PiP as one four-up row.'],
+         ['Up next belongs to the player', 'Guide entries with bell affordances, so reminders are set without leaving the stream.']]
+};
+
+class Component extends DCLogic {
+  scrollRef = React.createRef();
+  state = { route: 'channel', tab: 'movies', follow: false, playing: true, sheet: null, toast: '', step: 0, more: 0 };
+
+  componentDidMount() { this._i = setInterval(() => this.setState(s => ({ step: (s.step + 1) % 3 })), 1100); }
+  componentWillUnmount() { clearInterval(this._i); clearTimeout(this._t); }
+  set = (p) => this.setState(p);
+  say(msg) { this.setState({ toast: msg }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 1900); }
+
+  renderVals() {
+    const s = this.state;
+    const go = (r) => () => { this.set({ route: r, sheet: null }); const el = this.scrollRef.current; if (el) el.scrollTop = 0; };
+    const rows = (CONTENT[s.tab] || CONTENT.movies);
+    const ratio = s.tab === 'waves' ? '9/13' : (s.tab === 'movies' || s.tab === 'series' ? '2/3' : '16/10');
+    const icon = { movies: 'ph-fill ph-film-slate', series: 'ph-fill ph-monitor-play', waves: 'ph ph-waves', library: 'ph-fill ph-books', about: 'ph-fill ph-info' }[s.tab] || 'ph-fill ph-play';
+
+    return {
+      isBoot: s.route === 'boot', isTuning: s.route === 'tuning', isLive: s.route === 'live', isChannel: s.route === 'channel',
+      showNav: s.route === 'channel',
+      scrollRef: this.scrollRef,
+      back: () => { window.location.href = 'AfroVision Channels.dc.html'; },
+      goChannel: go('channel'), goTune: go('tuning'), goLive: go('live'),
+      leavePlayer: go('channel'),
+
+      tuneStep: ['Please wait a moment…', 'Authorising your membership…', 'Locking on to channel 2…'][s.step],
+      tuneDots: [0, 1, 2].map(i => ({ bg: i === s.step ? '#f0a52a' : 'rgba(240,165,42,.28)' })),
+      playerTools: [
+        { label: 'Picture in picture', icon: 'ph ph-picture-in-picture', tint: '#c3cde6', tap: () => this.say('Picture-in-picture on') },
+        { label: 'Share', icon: 'ph ph-share-network', tint: '#c3cde6', tap: () => this.say('Share link copied') },
+        { label: 'Home', icon: 'ph-fill ph-house', tint: GOLD, tap: () => { window.location.href = 'AfroVision Home.dc.html'; } },
+        { label: 'Settings', icon: 'ph ph-gear-six', tint: '#c3cde6', tap: () => this.set({ sheet: this.qualitySheet() }) }
+      ],
+
+      playIcon: s.playing ? 'ph-fill ph-pause' : 'ph-fill ph-play',
+      togglePlay: () => this.set({ playing: !s.playing }),
+      openQuality: () => this.set({ sheet: this.qualitySheet() }),
+      fullscreen: () => this.say('Fullscreen'),
+      liveActions: [
+        { label: 'Gift', icon: 'ph-fill ph-gift', tap: () => this.say('Send vPT gift to this channel') },
+        { label: 'Chat', icon: 'ph-fill ph-chat-circle-dots', tap: () => this.say('Live chat opened') },
+        { label: 'Share', icon: 'ph ph-share-network', tap: () => this.say('Share link copied') },
+        { label: 'PiP', icon: 'ph ph-picture-in-picture', tap: () => this.say('Picture-in-picture on') }
+      ],
+      upNext: SCHED.slice(1, 4).map((p, i) => ({ title: p[2], time: p[0] + ' ' + p[1] + ' · ' + p[3], bg: BGS[i % BGS.length], tap: () => this.say('Reminder set for ' + p[2]) })),
+
+      channelStats: [{ value: '1.2K', label: 'Members' }, { value: '312', label: 'Titles' }, { value: '₦2,500', label: 'Per month' }],
+      followLabel: s.follow ? 'Following' : 'Follow',
+      followIcon: s.follow ? 'ph-fill ph-check-circle' : 'ph ph-plus-circle',
+      followStyle: s.follow ? 'border-color:#5fd39a;color:#5fd39a' : '',
+      toggleFollow: () => { this.set({ follow: !s.follow }); this.say(s.follow ? 'Unfollowed X-Lounge Extreme' : 'Following X-Lounge Extreme'); },
+
+      tabs: TABS.map(t => ({ ...t, style: s.tab === t.key ? 'border-color:#f0a52a;background:rgba(240,165,42,.13);color:#f5c266' : '', pick: () => this.set({ tab: t.key, more: 0 }) })),
+      tabLabel: (TABS.find(t => t.key === s.tab) || TABS[2]).label,
+      tabIcon: icon,
+      tabBlurb: BLURB[s.tab],
+      isSchedule: s.tab === 'schedule',
+      isGrid: s.tab !== 'schedule',
+      items: rows.concat(s.more ? rows.slice(0, 4) : []).map((r, i) => ({
+        title: r[0], meta: r[1], badge: r[2], dur: r[1].split('·').pop().trim(), ratio, icon,
+        bg: BGS[i % BGS.length], tap: () => this.say(r[0] + ' — opening') })),
+      loadMoreLabel: s.more ? 'All ' + (rows.length + 4) + ' items shown' : 'Load more from this channel',
+      loadMore: () => s.more ? this.say('End of this channel’s ' + s.tab) : this.set({ more: 1 }),
+
+      schedule: SCHED.map(p => ({ time: p[0], day: p[1], title: p[2], meta: p[3],
+        border: p[4] ? '#4a3a1a' : '#24345f', timeTint: p[4] ? GOLD : '#dbe2f2',
+        bell: p[4] ? 'ph-fill ph-broadcast' : 'ph ph-bell',
+        bellTint: p[4] ? '#5fd39a' : '#7d8bad',
+        remind: () => p[4] ? this.set({ route: 'tuning' }) : this.say('Reminder set for ' + p[2]) })),
+
+      openSettings: () => this.set({ sheet: {
+        title: 'Channel options', sub: 'X-Lounge Extreme · Channel 2',
+        rows: [
+          { label: 'Membership', value: 'Active · Oct 4', icon: 'ph-fill ph-seal-check', tint: '#5fd39a', fg: '#eef1f8', tap: () => { window.location.href = 'AfroVision Account.dc.html'; } },
+          { label: 'Notifications', value: 'On', icon: 'ph ph-bell', tint: GOLD, fg: '#eef1f8', tap: () => this.say('Channel notifications on') },
+          { label: 'Share channel', value: 'CH 2', icon: 'ph ph-share-network', tint: '#c3cde6', fg: '#eef1f8', tap: () => this.say('Share link copied') },
+          { label: 'Report channel', value: '', icon: 'ph ph-flag', tint: '#f1789a', fg: '#f1789a', tap: () => this.say('Report submitted for review') }
+        ] } }),
+      sheet: s.sheet, closeSheet: () => this.set({ sheet: null }),
+      toast: s.toast,
+
+      navItems: [
+        { label: 'Home', icon: 'ph ph-house', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Home.dc.html'; } },
+        { label: 'Channels', icon: 'ph-fill ph-television-simple', size: '19px', style: 'color:#f0a52a', go: () => { window.location.href = 'AfroVision Channels.dc.html'; } },
+        { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: '', go: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; } },
+        { label: 'Waves', icon: 'ph ph-waves', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Waves.dc.html'; } },
+        { label: 'Profile', icon: 'ph ph-user-circle', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Account.dc.html'; } }
+      ],
+
+      jump: [['Splash', 'boot'], ['Channel page', 'channel'], ['Tuning in', 'tuning'], ['Live player', 'live']]
+        .map(x => ({ label: x[0], go: go(x[1]), style: s.route === x[1] ? 'border-color:#f0a52a;color:#f5c266' : '' })),
+      notes: (NOTES[s.route] || NOTES.channel).map(n => ({ title: n[0], body: n[1] }))
+    };
+  }
+
+  qualitySheet() {
+    return { title: 'Playback', sub: 'Applies to this stream only',
+      rows: [
+        { label: 'Quality', value: 'Auto · 720p', icon: 'ph ph-gauge', tint: '#f5c266', fg: '#eef1f8', tap: () => this.say('Quality set to Auto') },
+        { label: 'Audio', value: 'Stereo', icon: 'ph ph-speaker-high', tint: '#f5c266', fg: '#eef1f8', tap: () => this.say('Audio: stereo') },
+        { label: 'Data saver', value: 'Off', icon: 'ph ph-cell-signal-medium', tint: '#f5c266', fg: '#eef1f8', tap: () => this.say('Data saver off') },
+        { label: 'Report a problem', value: '', icon: 'ph ph-warning-circle', tint: '#f1789a', fg: '#f1789a', tap: () => this.say('Playback issue reported') }
+      ] };
+  }
+}
+</script>
+</body>
+</html>

@@ -843,7 +843,11 @@ export async function payForAccessApi(channelId: string) {
 }
 
 export async function recordChannelViewApi(channelId: string) {
-  return api(`/channels/${channelId}/view`, { method: "POST", requireAuth: true });
+  return api(`/channels/${channelId}/view`, {
+    method: "POST",
+    requireAuth: true,
+    body: { platform: "web" },
+  });
 }
 
 export interface FollowStatus {

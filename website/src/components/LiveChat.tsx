@@ -97,7 +97,7 @@ export function LiveChat({ channelId }: LiveChatProps) {
         setIsConnected(true);
         setError(null);
 
-        socket.emit("channel:join", { channelId }, (response: { ok?: boolean; error?: string; viewer_count?: number }) => {
+        socket.emit("channel:join", { channelId, platform: "web" }, (response: { ok?: boolean; error?: string; viewer_count?: number }) => {
           if (!active) return;
           if (!response?.ok) {
             setError(response?.error || "Unable to join this chat.");

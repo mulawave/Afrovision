@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -319,9 +320,16 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
         }
       }
 
-      final nonMember = channels
-          .where((c) => c.isExclusive && !coveredIds.contains(c.id))
-          .toList();
+      // State D (design): a KYC-unverified non-member must see no trace of
+      // the exclusive channel at all — not even the About/Request card.
+      // Previously this filter only checked isExclusive/membership, so an
+      // unverified user's state D silently collapsed into state C (the
+      // discovery card), leaking the channel's existence pre-KYC.
+      final nonMember = (user != null && user.kycVerified)
+          ? channels
+              .where((c) => c.isExclusive && !coveredIds.contains(c.id))
+              .toList()
+          : const <ChannelModel>[];
 
       if (!mounted) return;
       setState(() {
@@ -522,9 +530,15 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       child: SingleChildScrollView(
         key: key,
         physics: const AlwaysScrollableScrollPhysics(),
-        child: tab == _MediaTab.catchUp
-            ? CatchUpTab(key: _catchUpKey)
-            : _buildTabContent(tab),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            tab == _MediaTab.catchUp
+                ? CatchUpTab(key: _catchUpKey)
+                : _buildTabContent(tab),
+            const PangleBigBanner(),
+          ],
+        ),
       ),
     );
   }

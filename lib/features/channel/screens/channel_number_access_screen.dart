@@ -37,12 +37,24 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
   String? _recentNumber;
   String? _recentName;
 
+  // Real, native text input for the channel number. The on-screen keypad
+  // below is a convenience — it just writes into this same controller — but
+  // the field itself is what guarantees entry actually works: it goes
+  // through Android's normal IME/text-input path, which is unaffected by
+  // the gesture-arena/touch-dispatch issue that made the on-screen keypad
+  // alone unreliable on at least one real device (confirmed: neither
+  // InkWell.onTap nor a raw Listener.onPointerDown on the keypad buttons
+  // registered taps there, while ordinary widgets elsewhere on screen did).
+  late final TextEditingController _dialController;
+  final FocusNode _dialFocusNode = FocusNode();
+
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
 
   @override
   void initState() {
     super.initState();
+    _dialController = TextEditingController();
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -54,8 +66,26 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
 
   @override
   void dispose() {
+    _dialController.dispose();
+    _dialFocusNode.dispose();
     _animController.dispose();
     super.dispose();
+  }
+
+  void _setDial(String value) {
+    final allDigits = value.replaceAll(RegExp(r'[^0-9]'), '');
+    final digitsOnly =
+        allDigits.length > 6 ? allDigits.substring(0, 6) : allDigits;
+    setState(() {
+      _dialError = null;
+      _dial = digitsOnly;
+    });
+    if (_dialController.text != digitsOnly) {
+      _dialController.value = TextEditingValue(
+        text: digitsOnly,
+        selection: TextSelection.collapsed(offset: digitsOnly.length),
+      );
+    }
   }
 
   Future<void> _loadRecent() async {
@@ -79,18 +109,14 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
 
   void _pressKey(String key) {
     if (key == '⌫') {
-      setState(() {
-        _dialError = null;
-        if (_dial.isNotEmpty) _dial = _dial.substring(0, _dial.length - 1);
-      });
+      if (_dial.isNotEmpty) {
+        _setDial(_dial.substring(0, _dial.length - 1));
+      }
     } else if (key == '✓') {
       // The check/submit key actually tunes in to the currently entered number.
       _access();
     } else {
-      setState(() {
-        _dialError = null;
-        _dial = (_dial + key).substring(0, 6);
-      });
+      _setDial(_dial + key);
     }
   }
 
@@ -146,29 +172,34 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
     }
   }
 
-  /// Wraps [child] in a tap target that wins the gesture arena over the
-  /// ancestor [SingleChildScrollView] and works reliably on Android when
+  /// Wraps [child] in a tap target that works reliably on Android when
   /// nested inside a scrollable + GridView.
   ///
-  /// Uses Material + InkWell because plain GestureDetector inside nested
-  /// scrollables loses the tap arena race to the outer scroll view on some
-  /// budget Android devices — even with `HitTestBehavior.opaque` — since
-  /// the drag recognizer wins ties. `InkWell` uses a `TapGestureRecognizer`
-  /// that yields correctly to overlapping scroll drags but still fires on
-  /// true taps.
+  /// A prior version relied on `InkWell`'s `onTap` (a `TapGestureRecognizer`)
+  /// to win the gesture arena against the ancestor `SingleChildScrollView`.
+  /// On at least one confirmed budget Android device that recognizer loses
+  /// the arena even for a stationary tap — the scroll view's drag recognizer
+  /// wins the tie — so `onTap` silently never fires for any button on this
+  /// screen, including the keypad and "Access Channel". `Listener.onPointerDown`
+  /// bypasses gesture-arena negotiation entirely by firing on the raw pointer
+  /// event, so it can't lose that race. `InkWell` is kept only for the visual
+  /// ripple; its own `onTap` is a no-op so the action isn't invoked twice.
   Widget _tappable({
     required Widget child,
     required VoidCallback? onTap,
     BorderRadius? borderRadius,
   }) {
     if (onTap == null) return child;
-    return Material(
-      type: MaterialType.transparency,
-      borderRadius: borderRadius,
-      child: InkWell(
-        onTap: onTap,
+    return Listener(
+      onPointerDown: (_) => onTap(),
+      child: Material(
+        type: MaterialType.transparency,
         borderRadius: borderRadius,
-        child: child,
+        child: InkWell(
+          onTap: () {},
+          borderRadius: borderRadius,
+          child: child,
+        ),
       ),
     );
   }
@@ -271,33 +302,46 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
                                   size: 17,
                                 ),
                                 const SizedBox(width: 10),
-                                // Pure display of the current dial — the keypad
-                                // is the sole input. Rendered as Text (not a
-                                // disabled TextField) so it CANNOT hold focus,
-                                // receive tap-to-place-cursor events, or steal
-                                // pointer events from nearby widgets.
+                                // Real text input — the on-screen keypad below
+                                // also writes into this same controller, but
+                                // this field is what makes typing actually
+                                // work: it uses Android's normal IME/keyboard
+                                // path, not a synthetic tap target.
                                 Expanded(
-                                  child: Text(
-                                    _dial.isEmpty ? 'e.g. 839271' : _dial,
+                                  child: TextField(
+                                    controller: _dialController,
+                                    focusNode: _dialFocusNode,
+                                    onChanged: _setDial,
+                                    onSubmitted: (_) => _access(),
+                                    keyboardType: TextInputType.number,
+                                    textInputAction: TextInputAction.done,
+                                    maxLength: 6,
                                     maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: _dial.isEmpty
-                                          ? const Color(0xFF5D6A92)
-                                          : Nocturne.text,
+                                    style: const TextStyle(
+                                      color: Nocturne.text,
                                       fontSize: 19,
                                       fontWeight: FontWeight.w600,
                                       letterSpacing: 0.1,
+                                    ),
+                                    cursorColor: Nocturne.gold,
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      isCollapsed: true,
+                                      border: InputBorder.none,
+                                      counterText: '',
+                                      hintText: 'e.g. 839271',
+                                      hintStyle: TextStyle(
+                                        color: Color(0xFF5D6A92),
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
                                 ),
                                 if (hasDial)
                                   _tappable(
                                     borderRadius: BorderRadius.circular(8),
-                                    onTap: () => setState(() {
-                                      _dial = '';
-                                      _dialError = null;
-                                    }),
+                                    onTap: () => _setDial(''),
                                     child: Container(
                                       width: 26,
                                       height: 26,
@@ -474,12 +518,7 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
                       // Recent recall
                       if (hasRecent)
                         _tappable(
-                          onTap: () {
-                            setState(() {
-                              _dial = _recentNumber!;
-                              _dialError = null;
-                            });
-                          },
+                          onTap: () => _setDial(_recentNumber!),
                           child: RichText(
                             text: TextSpan(
                               style: const TextStyle(

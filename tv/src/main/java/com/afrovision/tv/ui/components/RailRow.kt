@@ -76,7 +76,15 @@ fun RailRow(
                     FocusCard(
                         item = item,
                         aspect = aspect,
-                        onClick = { viewModel.play(item.toPlayerMedia()) },
+                        onClick = {
+                            // Books open the reader; everything else plays.
+                            val channelId = item.channelId
+                            if (item.mediaType == "library" && !channelId.isNullOrBlank()) {
+                                viewModel.openReaderItem(channelId, item.id)
+                            } else {
+                                viewModel.play(item.toPlayerMedia())
+                            }
+                        },
                         modifier = Modifier.width(cardWidth.dp)
                     )
                 }

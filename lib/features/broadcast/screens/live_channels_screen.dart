@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/config/app_config.dart';
@@ -60,9 +61,7 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
       );
       if (!mounted) return;
 
-      final all = channels
-          .where((channel) => channel.isActive)
-          .toList()
+      final all = channels.where((channel) => channel.isActive).toList()
         ..sort((a, b) => b.subscriberCount.compareTo(a.subscriberCount));
 
       setState(() {
@@ -243,23 +242,30 @@ class _LiveChannelsScreenState extends State<LiveChannelsScreen>
               ),
             ),
             Expanded(
-              child: GridView.builder(
+              child: CustomScrollView(
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 0.82,
-                ),
-                itemCount: _visibleChannels.length,
-                itemBuilder: (context, index) {
-                  final channel = _visibleChannels[index];
-                  return _LiveChannelCard(
-                    channel: channel,
-                    onTap: () => _openChannelPlayer(channel.id),
-                  );
-                },
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 12,
+                            crossAxisSpacing: 12,
+                            childAspectRatio: 0.82,
+                          ),
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final channel = _visibleChannels[index];
+                        return _LiveChannelCard(
+                          channel: channel,
+                          onTap: () => _openChannelPlayer(channel.id),
+                        );
+                      }, childCount: _visibleChannels.length),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: PangleBigBanner()),
+                ],
               ),
             ),
             _buildPaginationControls(),

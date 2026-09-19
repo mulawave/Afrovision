@@ -252,20 +252,31 @@ class _KycScreenState extends State<KycScreen>
             'KYC submitted successfully!',
             style: TextStyle(color: AppColors.white),
           ),
-          backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.9),
+          backgroundColor: const Color(0xFF5FD39A).withValues(alpha: 0.9),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
         ),
       );
-      Navigator.pop(context);
+      _safePop();
     } catch (e) {
       if (mounted) {
         setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  // /kyc is reached via pushReplacementNamed / pushNamedAndRemoveUntil, so
+  // it's often the only route on the stack — a bare Navigator.pop() then
+  // empties the navigator and leaves a black screen.
+  void _safePop() {
+    if (Navigator.of(context).canPop()) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacementNamed(context, '/home');
     }
   }
 
@@ -310,7 +321,7 @@ class _KycScreenState extends State<KycScreen>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => Navigator.pop(context),
+            onTap: _safePop,
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -367,7 +378,7 @@ class _KycScreenState extends State<KycScreen>
     final colors = {
       'pending': AppColors.lightOrange,
       'under_review': Colors.blue[400]!,
-      'verified': const Color(0xFF4CAF50),
+      'verified': const Color(0xFF5FD39A),
     };
     final labels = {
       'pending': 'Pending Review',
@@ -753,13 +764,13 @@ class _KycScreenState extends State<KycScreen>
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isUploaded
-                  ? const Color(0xFF4CAF50).withValues(alpha: 0.3)
+                  ? const Color(0xFF5FD39A).withValues(alpha: 0.3)
                   : AppColors.inputBorder,
               style: BorderStyle.solid,
               width: isUploaded ? 1 : 1,
             ),
             color: isUploaded
-                ? const Color(0xFF4CAF50).withValues(alpha: 0.05)
+                ? const Color(0xFF5FD39A).withValues(alpha: 0.05)
                 : AppColors.inputFill.withValues(alpha: 0.2),
           ),
           child: isUploading
@@ -789,14 +800,14 @@ class _KycScreenState extends State<KycScreen>
                   children: [
                     const Icon(
                       Icons.check_circle,
-                      color: Color(0xFF4CAF50),
+                      color: Color(0xFF5FD39A),
                       size: 16,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       '$label — Uploaded',
                       style: const TextStyle(
-                        color: Color(0xFF4CAF50),
+                        color: Color(0xFF5FD39A),
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),

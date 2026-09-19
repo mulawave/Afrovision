@@ -50,8 +50,11 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion  // firebase_messaging requires minSdk 23
         targetSdk = flutter.targetSdkVersion
-        versionCode = 5
-        versionName = "2.1"
+        // Read from pubspec.yaml (via flutter.versionCode/versionName) instead of
+        // hardcoding — the store is already ahead of what was hardcoded here,
+        // which would make every future upload rejected outright.
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     buildTypes {
@@ -79,4 +82,6 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx")
     // Play Integrity API — used instead of reCAPTCHA for the Android app
     implementation("com.google.android.play:integrity:1.4.0")
+    // Pangle Global ads (direct SDK — no AdMob mediation)
+    implementation("com.pangle.global:ads-sdk:6.5.1.2")
 }

@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:flutter/material.dart';
 import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -531,7 +532,10 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 28,
                               ),
-                              children: _buildEpgSections(),
+                              children: [
+                                ..._buildEpgSections(),
+                                const PangleBigBanner(),
+                              ],
                             ),
                           ),
                   ),

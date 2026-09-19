@@ -300,7 +300,7 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
       SnackBar(
         content: Text(msg, style: const TextStyle(color: AppColors.white)),
         backgroundColor: success
-            ? const Color(0xFF4CAF50).withValues(alpha: 0.9)
+            ? const Color(0xFF5FD39A).withValues(alpha: 0.9)
             : AppColors.errorRed.withValues(alpha: 0.9),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -443,10 +443,10 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF4CAF50).withAlpha(30),
+                      color: const Color(0xFF5FD39A).withAlpha(30),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: const Color(0xFF4CAF50).withAlpha(80),
+                        color: const Color(0xFF5FD39A).withAlpha(80),
                       ),
                     ),
                     child: const Row(
@@ -454,14 +454,14 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
                       children: [
                         Icon(
                           Icons.verified_rounded,
-                          color: Color(0xFF4CAF50),
+                          color: Color(0xFF5FD39A),
                           size: 14,
                         ),
                         SizedBox(width: 4),
                         Text(
                           'CREATOR',
                           style: TextStyle(
-                            color: Color(0xFF4CAF50),
+                            color: Color(0xFF5FD39A),
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 1.2,
@@ -527,12 +527,12 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFF4CAF50).withAlpha(80),
+          color: const Color(0xFF5FD39A).withAlpha(80),
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF4CAF50).withAlpha(20),
+            color: const Color(0xFF5FD39A).withAlpha(20),
             blurRadius: 20,
           ),
         ],
@@ -548,14 +548,14 @@ class _CreatorSubscriptionScreenState extends State<CreatorSubscriptionScreen>
                 height: 10,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Color(0xFF4CAF50),
+                  color: Color(0xFF5FD39A),
                 ),
               ),
               const SizedBox(width: 8),
               const Text(
                 'ACTIVE SUBSCRIPTION',
                 style: TextStyle(
-                  color: Color(0xFF4CAF50),
+                  color: Color(0xFF5FD39A),
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 1.2,

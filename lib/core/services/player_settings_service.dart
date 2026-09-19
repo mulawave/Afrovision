@@ -40,21 +40,34 @@ class PlayerSettings {
   final QualityProfile quality;
   final bool useMediaKit;
 
+  /// Refuse to start playback unless connected to Wi-Fi.
+  final bool wifiOnlyStreaming;
+
+  /// Cap streams to the Data Saver bitrate whenever off Wi-Fi, regardless
+  /// of the selected [quality] tier.
+  final bool dataSaverOnCellular;
+
   const PlayerSettings({
     this.liveDelaySeconds = 30,
     this.quality = QualityProfile.balanced,
     this.useMediaKit = true,
+    this.wifiOnlyStreaming = false,
+    this.dataSaverOnCellular = false,
   });
 
   PlayerSettings copyWith({
     int? liveDelaySeconds,
     QualityProfile? quality,
     bool? useMediaKit,
+    bool? wifiOnlyStreaming,
+    bool? dataSaverOnCellular,
   }) {
     return PlayerSettings(
       liveDelaySeconds: liveDelaySeconds ?? this.liveDelaySeconds,
       quality: quality ?? this.quality,
       useMediaKit: useMediaKit ?? this.useMediaKit,
+      wifiOnlyStreaming: wifiOnlyStreaming ?? this.wifiOnlyStreaming,
+      dataSaverOnCellular: dataSaverOnCellular ?? this.dataSaverOnCellular,
     );
   }
 
@@ -62,6 +75,8 @@ class PlayerSettings {
         'liveDelaySeconds': liveDelaySeconds,
         'quality': quality.name,
         'useMediaKit': useMediaKit,
+        'wifiOnlyStreaming': wifiOnlyStreaming,
+        'dataSaverOnCellular': dataSaverOnCellular,
       };
 
   factory PlayerSettings.fromMap(Map<String, dynamic> map) {
@@ -69,6 +84,8 @@ class PlayerSettings {
       liveDelaySeconds: map['liveDelaySeconds'] as int? ?? 30,
       quality: QualityProfile.fromName(map['quality'] as String?),
       useMediaKit: map['useMediaKit'] as bool? ?? true,
+      wifiOnlyStreaming: map['wifiOnlyStreaming'] as bool? ?? false,
+      dataSaverOnCellular: map['dataSaverOnCellular'] as bool? ?? false,
     );
   }
 
@@ -78,11 +95,60 @@ class PlayerSettings {
       other is PlayerSettings &&
           other.liveDelaySeconds == liveDelaySeconds &&
           other.quality == quality &&
-          other.useMediaKit == useMediaKit;
+          other.useMediaKit == useMediaKit &&
+          other.wifiOnlyStreaming == wifiOnlyStreaming &&
+          other.dataSaverOnCellular == dataSaverOnCellular;
 
   @override
   int get hashCode =>
-      liveDelaySeconds.hashCode ^ quality.hashCode ^ useMediaKit.hashCode;
+      liveDelaySeconds.hashCode ^
+      quality.hashCode ^
+      useMediaKit.hashCode ^
+      wifiOnlyStreaming.hashCode ^
+      dataSaverOnCellular.hashCode;
+}
+
+/// What quality tiers the backend can actually produce right now. Fetched
+/// once from `GET /broadcast/playback-capabilities` — without this, Watch
+/// Settings offered Quality (720p) and Best (1080p) unconditionally even
+/// though the backend's default rendition ladder only ever produces
+/// 240p/480p, so picking them did nothing.
+class PlaybackCapabilities {
+  final bool transcodingEnabled;
+  final List<int> availableRenditions;
+
+  const PlaybackCapabilities({
+    this.transcodingEnabled = false,
+    this.availableRenditions = const [],
+  });
+
+  /// Whether [profile] maps to a rendition height the backend can produce.
+  /// `auto` and `dataSaver` (240p) are always considered reachable — the
+  /// former degrades gracefully and 240p is the one rendition guaranteed by
+  /// the backend's own fallback default.
+  bool supports(QualityProfile profile) {
+    if (profile == QualityProfile.auto || profile == QualityProfile.dataSaver) {
+      return true;
+    }
+    if (!transcodingEnabled) return false;
+    final requiredHeight = switch (profile) {
+      QualityProfile.balanced => 480,
+      QualityProfile.quality => 720,
+      QualityProfile.best => 1080,
+      _ => 0,
+    };
+    return availableRenditions.contains(requiredHeight);
+  }
+
+  factory PlaybackCapabilities.fromJson(Map<String, dynamic> json) {
+    return PlaybackCapabilities(
+      transcodingEnabled: json['transcoding_enabled'] as bool? ?? false,
+      availableRenditions: (json['available_renditions'] as List?)
+              ?.map((v) => (v as num).toInt())
+              .toList() ??
+          const [],
+    );
+  }
 }
 
 /// Loads, persists, and broadcasts changes to [PlayerSettings].
@@ -105,12 +171,23 @@ class PlayerSettingsService {
   bool _initialized = false;
   Timer? _backendSyncTimer;
 
+  PlaybackCapabilities _capabilities = const PlaybackCapabilities();
+  final _capabilitiesNotifier =
+      ValueNotifier<PlaybackCapabilities>(const PlaybackCapabilities());
+
   ValueNotifier<PlayerSettings> get notifier => _notifier;
   PlayerSettings get current => _settings;
+
+  ValueNotifier<PlaybackCapabilities> get capabilitiesNotifier => _capabilitiesNotifier;
+  PlaybackCapabilities get capabilities => _capabilities;
 
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
+    // Non-blocking — the settings screen renders with a conservative
+    // (everything disabled except Data Saver/Auto) default until this
+    // resolves, rather than delaying the whole screen on it.
+    _loadCapabilities();
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -131,6 +208,18 @@ class PlayerSettingsService {
     // across devices. If the network is unavailable or the user is not logged
     // in, the local copy is kept.
     await _loadFromBackend();
+  }
+
+  Future<void> _loadCapabilities() async {
+    try {
+      final response = await ApiService.getPublic('/broadcast/playback-capabilities');
+      if (response is Map<String, dynamic>) {
+        _capabilities = PlaybackCapabilities.fromJson(response);
+        _capabilitiesNotifier.value = _capabilities;
+      }
+    } catch (e) {
+      debugPrint('[PlayerSettingsService] Capabilities load failed: $e');
+    }
   }
 
   Future<void> _loadFromBackend() async {
@@ -215,6 +304,8 @@ class PlayerSettingsService {
   Future<void> setLiveDelay(int seconds) => save(_settings.copyWith(liveDelaySeconds: seconds));
   Future<void> setQuality(QualityProfile quality) => save(_settings.copyWith(quality: quality));
   Future<void> setUseMediaKit(bool value) => save(_settings.copyWith(useMediaKit: value));
+  Future<void> setWifiOnlyStreaming(bool value) => save(_settings.copyWith(wifiOnlyStreaming: value));
+  Future<void> setDataSaverOnCellular(bool value) => save(_settings.copyWith(dataSaverOnCellular: value));
 
   /// A tiny key:value serializer suitable for a map with only a few entries.
   String _encodeSimpleMap(Map<String, dynamic> map) {
@@ -230,7 +321,7 @@ class PlayerSettingsService {
       final value = part.substring(eq + 1);
       if (key == 'liveDelaySeconds') {
         result[key] = int.tryParse(value) ?? 30;
-      } else if (key == 'useMediaKit') {
+      } else if (key == 'useMediaKit' || key == 'wifiOnlyStreaming' || key == 'dataSaverOnCellular') {
         result[key] = value == 'true';
       } else {
         result[key] = value;

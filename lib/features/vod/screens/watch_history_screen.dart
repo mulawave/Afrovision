@@ -1,3 +1,4 @@
+import '../../../core/ads/pangle_widgets.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -176,9 +177,11 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
 
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-      itemCount: _items.length,
+      itemCount: _items.length + 1,
       separatorBuilder: (_, __) => const SizedBox(height: 14),
-      itemBuilder: (context, i) => _buildItem(_items[i]),
+      itemBuilder: (context, i) => i == _items.length
+          ? const PangleBigBanner()
+          : _buildItem(_items[i]),
     );
   }
 

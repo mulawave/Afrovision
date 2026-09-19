@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#080e21;color:#eef1f8;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#f0a52a}a:hover{color:#f7c66a}
+.av-scroll::-webkit-scrollbar{width:0;height:0}
+.av-scroll{scrollbar-width:none}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetUp{from{transform:translateY(103%)}to{transform:translateY(0)}}
+@keyframes boltUp{0%{transform:translateY(0) scale(.6);opacity:0}12%{transform:translateY(-14px) scale(1.25);opacity:1}100%{transform:translateY(-330px) scale(.85);opacity:0}}
+@keyframes ripple{0%{transform:scale(.3);opacity:.85}100%{transform:scale(2.6);opacity:0}}
+@keyframes peakGlow{0%,100%{opacity:.55}50%{opacity:1}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;gap:44px;padding:44px 48px 64px;align-items:flex-start;justify-content:center">
+
+<div style="flex:none;width:390px;height:844px;position:relative;border-radius:42px;background:#04070f;box-shadow:0 0 0 1px #22325e,0 30px 80px rgba(0,0,0,.65);overflow:hidden;display:flex;flex-direction:column">
+
+<div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:13px 16px 7px;font-size:11.5px;font-weight:500;color:#c3cde6;background:#0a1330">
+<span style="display:flex;align-items:center;gap:5px">12:32<i class="ph-fill ph-whatsapp-logo" style="font-size:12px;color:#25d366"></i><i class="ph-fill ph-snapchat-logo" style="font-size:12px;color:#f7e06a"></i></span>
+<span style="display:inline-flex;align-items:center;gap:8px;padding:4px 13px;border-radius:999px;background:#04070f;color:#eef1f8;font-size:12px;font-weight:600"><i class="ph-fill ph-broadcast" style="font-size:14px;color:#5b9dff"></i>2</span>
+<span style="display:flex;align-items:center;gap:5px"><i class="ph ph-moon" style="font-size:12px"></i><span style="font-size:8px">4.5G</span><i class="ph-fill ph-cell-signal-full" style="font-size:11px"></i><span style="font-size:9px;padding:1px 4px;border-radius:3px;box-shadow:inset 0 0 0 1px #7d8bad">100</span></span>
+</div>
+
+<div style="flex:1;min-height:0;position:relative;background:{{ wave.bg }};overflow:hidden">
+
+<div style="position:absolute;inset:0;display:grid;place-items:center"><i class="ph-fill ph-video-camera" style="font-size:44px;color:rgba(255,255,255,.13)"></i></div>
+<div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,7,15,.55),transparent 22%,transparent 62%,rgba(4,7,15,.72))"></div>
+
+<sc-if value="{{ showBigPlay }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ togglePlay }}" aria-label="Play" style="position:absolute;left:50%;top:50%;width:74px;height:74px;margin:-37px 0 0 -37px;border:0;border-radius:50%;background:transparent;color:rgba(255,255,255,.92);cursor:pointer;display:grid;place-items:center"><i class="ph-fill ph-play" style="font-size:56px;filter:drop-shadow(0 2px 10px rgba(0,0,0,.6))"></i></button>
+</sc-if>
+
+<sc-for list="{{ bolts }}" as="b" hint-placeholder-count="0">
+<span style="position:absolute;left:{{ b.left }};bottom:76px;pointer-events:none;animation:boltUp 1.5s cubic-bezier(.3,.7,.4,1) forwards"><i class="ph-fill ph-lightning" style="font-size:{{ b.size }};color:#f7e06a;filter:drop-shadow(0 0 8px rgba(247,224,106,.8))"></i></span>
+</sc-for>
+
+<sc-if value="{{ uiHidden }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ toggleUi }}" aria-label="Show controls" style="position:absolute;top:14px;right:14px;width:44px;height:44px;border:0;border-radius:50%;background:rgba(28,34,48,.82);color:#eef1f8;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.32)"><i class="ph-fill ph-eye" style="font-size:20px"></i></button>
+</sc-if>
+
+<sc-if value="{{ uiShown }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;top:10px;left:0;right:0;display:flex;align-items:flex-start;justify-content:center;gap:8px;padding:0 12px">
+<div style="flex:none;position:relative;display:flex;padding:5px;border-radius:999px;background:rgba(46,52,66,.88);box-shadow:0 2px 12px rgba(0,0,0,.4)">
+<button onClick="{{ openRating }}" style="position:absolute;right:-14px;top:-9px;padding:5px 11px;border-radius:8px;border:1.5px solid {{ wave.ratingBorder }};background:{{ wave.ratingBg }};color:{{ wave.ratingFg }};font-family:inherit;font-size:11.5px;font-weight:700;letter-spacing:.02em;cursor:pointer;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.45);z-index:2" style-hover="filter:brightness(1.12)">{{ wave.rating }}</button>
+<sc-for list="{{ feeds }}" as="f" hint-placeholder-count="2">
+<button onClick="{{ f.pick }}" style="min-width:82px;padding:9px 18px;border:0;border-radius:999px;background:{{ f.bg }};color:{{ f.fg }};font-family:inherit;font-size:14px;font-weight:700;cursor:pointer" style-hover="filter:brightness(1.08)">{{ f.label }}</button>
+</sc-for>
+</div>
+<button onClick="{{ openMenu }}" aria-label="More" style="flex:none;position:relative;z-index:3;margin-left:6px;width:44px;height:44px;border:0;border-radius:50%;background:rgba(46,52,66,.88);color:#eef1f8;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.3)"><i class="ph-fill ph-dots-three-vertical" style="font-size:19px"></i></button>
+</div>
+
+<sc-if value="{{ speedOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:66px;left:12px;right:68px;display:flex;gap:4px;padding:6px;border-radius:999px;background:rgba(46,52,66,.92);box-shadow:0 4px 16px rgba(0,0,0,.5);animation:fadeIn .14s ease">
+<sc-for list="{{ speeds }}" as="sp" hint-placeholder-count="5">
+<button onClick="{{ sp.pick }}" style="flex:1;padding:9px 0;border:0;border-radius:999px;background:{{ sp.bg }};color:{{ sp.fg }};font-family:inherit;font-size:13px;font-weight:700;cursor:pointer" style-hover="filter:brightness(1.12)">{{ sp.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+
+<div style="position:absolute;top:62px;bottom:14px;right:12px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:14px">
+<div style="flex:none;display:flex;flex-direction:column;align-items:center;gap:9px">
+<button onClick="{{ toggleAutoplay }}" aria-label="Autoplay" style="flex:none;width:42px;height:42px;border-radius:50%;border:2px solid {{ autoRing }};background:rgba(28,34,48,.86);color:{{ autoFg }};cursor:pointer;display:grid;place-items:center;box-shadow:{{ autoGlow }}" style-hover="filter:brightness(1.15)"><i class="ph ph-repeat" style="font-size:18px"></i></button>
+<button onClick="{{ toggleSpeedRow }}" aria-label="Playback speed" style="flex:none;width:42px;height:42px;border-radius:50%;border:0;background:{{ speedBg }};color:{{ speedFg }};cursor:pointer;display:grid;place-items:center" style-hover="filter:brightness(1.15)"><i class="ph ph-speedometer" style="font-size:18px"></i></button>
+<button onClick="{{ toggleMute }}" aria-label="Mute" style="flex:none;width:42px;height:42px;border-radius:50%;border:0;background:{{ muteBg }};color:{{ muteFg }};cursor:pointer;display:grid;place-items:center" style-hover="filter:brightness(1.15)"><i class="{{ muteIcon }}" style="font-size:18px"></i></button>
+<button onClick="{{ toggleUi }}" aria-label="Hide controls" style="flex:none;width:42px;height:42px;border-radius:50%;border:0;background:rgba(28,34,48,.86);color:#dbe2f2;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.3)"><i class="ph ph-eye" style="font-size:18px"></i></button>
+</div>
+
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding-top:10px">
+<div style="flex:none;display:flex;flex-direction:column;align-items:center;gap:1px">
+<i class="ph-fill ph-eye" style="font-size:23px;color:#fff;filter:drop-shadow(0 1px 4px rgba(0,0,0,.6))"></i>
+<span style="font-size:12px;font-weight:600;color:#fff">{{ wave.views }}</span>
+</div>
+<button onClick="{{ pulse }}" aria-label="Pulse" style="flex:none;position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;border:0;background:transparent;font-family:inherit;cursor:pointer;{{ pulseStyle }}">
+<sc-if value="{{ rippling }}" hint-placeholder-val="{{ false }}">
+<span style="position:absolute;top:2px;width:30px;height:30px;border-radius:50%;background:rgba(247,224,106,.45);animation:ripple .6s ease-out forwards;pointer-events:none"></span>
+</sc-if>
+<i class="ph-fill ph-lightning" style="font-size:23px;color:{{ pulseTint }};filter:drop-shadow(0 1px 4px rgba(0,0,0,.6))"></i>
+<span style="font-size:12px;font-weight:600;color:{{ pulseTint }}">{{ pulseCount }}</span>
+</button>
+<div style="flex:none;display:flex;flex-direction:column;align-items:center;gap:1px">
+<i class="ph ph-repeat" style="font-size:23px;color:#fff;filter:drop-shadow(0 1px 4px rgba(0,0,0,.6))"></i>
+<span style="font-size:12px;font-weight:600;color:#fff">{{ wave.replays }}</span>
+</div>
+<button onClick="{{ openComments }}" aria-label="Comments" style="flex:none;display:flex;flex-direction:column;align-items:center;gap:1px;border:0;background:transparent;font-family:inherit;cursor:pointer" style-hover="filter:brightness(1.2)">
+<i class="ph-fill ph-chat-centered" style="font-size:23px;color:#fff;filter:drop-shadow(0 1px 4px rgba(0,0,0,.6))"></i>
+<span style="font-size:12px;font-weight:600;color:#fff">{{ commentCount }}</span>
+</button>
+<button onClick="{{ openShare }}" aria-label="Share" style="flex:none;display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:transparent;font-family:inherit;cursor:pointer" style-hover="filter:brightness(1.2)">
+<i class="ph-fill ph-share-network" style="font-size:22px;color:#fff;filter:drop-shadow(0 1px 4px rgba(0,0,0,.6))"></i>
+<span style="font-size:11px;font-weight:600;color:#fff">Share</span>
+</button>
+<button onClick="{{ toggleSave }}" aria-label="Save" style="flex:none;display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:transparent;font-family:inherit;cursor:pointer" style-hover="filter:brightness(1.2)">
+<i class="{{ saveIcon }}" style="font-size:22px;color:{{ saveTint }};filter:drop-shadow(0 1px 4px rgba(0,0,0,.6))"></i>
+<span style="font-size:11px;font-weight:600;color:{{ saveTint }}">Save</span>
+</button>
+<button onClick="{{ toggleSub }}" aria-label="{{ subLabel }}" style="flex:none;width:42px;height:42px;border-radius:50%;border:2px solid {{ subRing }};background:{{ subBg }};color:{{ subFg }};cursor:pointer;display:grid;place-items:center" style-hover="filter:brightness(1.15)"><i class="{{ subIcon }}" style="font-size:20px"></i></button>
+<button onClick="{{ openChannel }}" aria-label="Open channel" style="flex:none;width:46px;height:46px;border-radius:50%;border:2px solid #f0a52a;background:{{ wave.avatarBg }};cursor:pointer;display:grid;place-items:center;overflow:hidden;padding:0" style-hover="filter:brightness(1.15)"><span style="font-size:13px;font-weight:700;color:#fff">{{ wave.initials }}</span></button>
+</div>
+</div>
+
+<div style="position:absolute;left:14px;right:80px;bottom:14px">
+<sc-if value="{{ wave.untitled }}" hint-placeholder-val="{{ false }}">
+<div style="display:inline-block;max-width:100%;padding:12px 15px;border-radius:12px;background:rgba(28,34,48,.72);font-size:14px;font-weight:600;color:#eef1f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ wave.id }}</div>
+</sc-if>
+<sc-if value="{{ wave.titled }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ openCaption }}" style="display:block;width:100%;text-align:left;padding:11px 14px;border:0;border-radius:12px;background:rgba(28,34,48,.72);color:#eef1f8;font-family:inherit;cursor:pointer" style-hover="background:rgba(28,34,48,.9)">
+<span style="display:block;font-size:14px;font-weight:700">{{ wave.title }}</span>
+<span style="display:flex;align-items:baseline;gap:7px;margin-top:2px">
+<span style="flex:1;min-width:0;font-size:12.5px;color:#c3cde6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ wave.desc }}</span>
+<span style="flex:none;font-size:12px;font-weight:600;color:#f0a52a">See more</span>
+</span>
+</button>
+</sc-if>
+</div>
+</sc-if>
+</div>
+
+<sc-if value="{{ uiShown }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;position:relative;padding:6px 14px 8px;background:#0a1330">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:600;color:#dbe2f2">
+<span>{{ nowLabel }}</span>
+<span style="font-size:9.5px;letter-spacing:.18em;color:#6d7ba1">ECG PULSE</span>
+<span>{{ durLabel }}</span>
+</div>
+<div ref="{{ barRef }}" onClick="{{ scrub }}" style="position:relative;height:42px;margin-top:2px;cursor:pointer">
+<svg viewBox="0 0 480 42" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
+<path d="{{ ecgFill }}" fill="rgba(240,165,42,.16)"></path>
+<path d="{{ ecgPath }}" fill="none" stroke="#f0a52a" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></path>
+</svg>
+<sc-for list="{{ peaks }}" as="p" hint-placeholder-count="0">
+<button onClick="{{ p.jump }}" aria-label="Jump to peak" style="position:absolute;left:{{ p.left }};top:{{ p.top }};width:22px;height:22px;margin-left:-11px;border:0;border-radius:50%;background:transparent;cursor:pointer;display:grid;place-items:center" style-hover="background:rgba(240,165,42,.2)">
+<span style="width:6px;height:6px;border-radius:50%;background:#f7e06a;box-shadow:0 0 8px rgba(247,224,106,.9);animation:peakGlow 1.8s ease-in-out infinite"></span>
+</button>
+</sc-for>
+<div style="position:absolute;left:{{ playheadLeft }};top:0;bottom:0;width:2px;margin-left:-1px;background:#fff;box-shadow:0 0 6px rgba(255,255,255,.7);pointer-events:none"></div>
+</div>
+</div>
+</sc-if>
+
+<div style="flex:none;display:flex;padding:8px 10px 20px;background:#0a1330;box-shadow:inset 0 1px 0 #22325e">
+<sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 2px;border:0;background:transparent;font-family:inherit;font-size:9.5px;font-weight:500;color:#7d8bad;cursor:pointer;{{ n.style }}"><i class="{{ n.icon }}" style="font-size:{{ n.size }}"></i>{{ n.label }}</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ favEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;top:44px;bottom:0;background:#04070f;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:40px 34px;text-align:center">
+<i class="ph ph-waves" style="font-size:46px;color:#3d4d7d"></i>
+<div style="font-size:17px;font-weight:600">No waves from your channels</div>
+<div style="font-size:12.5px;color:#8fa0c8;text-wrap:pretty">Fav shows waves from channels you follow or subscribe to. Follow a channel and its waves land here.</div>
+<button onClick="{{ backToPublic }}" style="margin-top:6px;padding:12px 22px;border:0;border-radius:12px;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer" style-hover="filter:brightness(1.06)">Browse Public waves</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closeSheet }}" style="position:absolute;inset:0;background:rgba(4,8,20,.5);animation:fadeIn .14s ease"></div>
+</sc-if>
+
+<sc-if value="{{ isComments }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;top:28%;border-radius:20px 20px 42px 42px;background:linear-gradient(180deg,#101b3a,#0a1330);box-shadow:0 -2px 0 #f0a52a,0 -20px 50px rgba(0,0,0,.6);display:flex;flex-direction:column;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1)">
+<div style="flex:none;width:52px;height:4px;border-radius:2px;background:#f0a52a;align-self:center;margin:9px 0 4px"></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:8px 18px 12px">
+<i class="ph-fill ph-chat-centered" style="font-size:20px;color:#f0a52a"></i>
+<span style="font-size:18px;font-weight:700;color:#f0a52a">Comments</span>
+<span style="min-width:28px;text-align:center;font-size:12.5px;font-weight:600;padding:3px 9px;border-radius:999px;color:#f5c266;box-shadow:inset 0 0 0 1.5px #6b5520">{{ commentCount }}</span>
+<span style="flex:1"></span>
+<button onClick="{{ closeSheet }}" aria-label="Close" style="width:32px;height:32px;border:0;border-radius:9px;background:transparent;color:#f0a52a;cursor:pointer" style-hover="background:rgba(240,165,42,.16)"><i class="ph ph-x" style="font-size:20px"></i></button>
+</div>
+<div style="flex:none;height:1px;margin:0 18px;background:rgba(240,165,42,.35)"></div>
+<div class="av-scroll" style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px">
+<sc-if value="{{ noComments }}" hint-placeholder-val="{{ false }}">
+<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:30px 20px;text-align:center">
+<i class="ph ph-chat-centered-dots" style="font-size:38px;color:#3d4d7d"></i>
+<div style="font-size:14px;font-weight:600">No comments yet</div>
+<div style="font-size:12px;color:#8fa0c8">Be the first to say something about this wave.</div>
+</div>
+</sc-if>
+<div style="display:flex;flex-direction:column;gap:15px">
+<sc-for list="{{ comments }}" as="c" hint-placeholder-count="1">
+<div style="display:flex;gap:11px;align-items:flex-start">
+<span style="width:44px;height:44px;flex:none;border-radius:50%;background:{{ c.avatarBg }};display:grid;place-items:center;font-size:13px;font-weight:700;color:#fff">{{ c.initials }}</span>
+<div style="flex:1;min-width:0">
+<div style="padding:10px 13px;border-radius:12px;background:rgba(240,165,42,.07);box-shadow:inset 0 0 0 1.5px rgba(240,165,42,.55)">
+<div style="font-size:13.5px;font-weight:700;color:#f5c266">{{ c.name }}</div>
+<div style="font-size:14px;color:#eef1f8;margin-top:2px;text-wrap:pretty">{{ c.body }}</div>
+</div>
+<div style="display:flex;align-items:center;gap:13px;margin-top:6px">
+<span style="font-size:11.5px;color:#7d8bad">{{ c.when }}</span>
+<button onClick="{{ c.reply }}" style="border:0;background:transparent;color:#f5c266;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:0" style-hover="color:#f7c66a">Reply</button>
+<button onClick="{{ c.pulse }}" aria-label="Pulse comment" style="border:0;background:transparent;color:{{ c.pulseTint }};font-family:inherit;cursor:pointer;padding:0;display:inline-flex;align-items:center;gap:4px" style-hover="color:#f7e06a"><i class="{{ c.pulseIcon }}" style="font-size:15px"></i><span style="font-size:11.5px">{{ c.pulses }}</span></button>
+<span style="flex:1"></span>
+<sc-if value="{{ c.mine }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ c.edit }}" aria-label="Edit" style="border:0;background:transparent;color:#8fa0c8;cursor:pointer;padding:0" style-hover="color:#eef1f8"><i class="ph ph-pencil-simple" style="font-size:16px"></i></button>
+<button onClick="{{ c.remove }}" aria-label="Delete" style="border:0;background:transparent;color:#f1445c;cursor:pointer;padding:0" style-hover="color:#ff6b7f"><i class="ph-fill ph-trash" style="font-size:16px"></i></button>
+</sc-if>
+</div>
+<button onClick="{{ c.reply }}" style="border:0;background:transparent;color:#f5c266;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:4px 0 0" style-hover="color:#f7c66a">Reply</button>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="flex:none;display:flex;align-items:center;gap:11px;padding:12px 16px 26px">
+<input value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ onDraftKey }}" placeholder="Add a comment..." style="flex:1;min-width:0;padding:15px 18px;border:0;border-radius:999px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px #2a3a6b;color:#eef1f8;font-family:inherit;font-size:14.5px;outline:none">
+<button onClick="{{ send }}" aria-label="Send" style="width:56px;height:56px;flex:none;border:0;border-radius:50%;background:linear-gradient(96deg,#ef9615,#f8c96f);color:#26170a;cursor:pointer;display:grid;place-items:center" style-hover="filter:brightness(1.08)"><i class="ph-fill ph-paper-plane-right" style="font-size:24px"></i></button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isChannelCard }}" hint-placeholder-val="{{ false }}">
+<div class="av-scroll" style="position:absolute;left:8px;right:8px;top:14%;bottom:80px;overflow-y:auto;border-radius:20px;background:linear-gradient(180deg,#101b3a,#0a1330);box-shadow:0 0 0 1.5px #6b5520,0 20px 50px rgba(0,0,0,.6);padding:16px;animation:fadeIn .18s ease">
+<div style="display:flex;align-items:flex-start;gap:13px">
+<span style="position:relative;width:62px;height:62px;flex:none;border-radius:50%;background:{{ wave.avatarBg }};box-shadow:0 0 0 2px #f0a52a;display:grid;place-items:center;font-size:17px;font-weight:700;color:#fff">{{ wave.initials }}
+<span style="position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:#f0a52a;display:grid;place-items:center"><i class="ph-fill ph-seal-check" style="font-size:12px;color:#26170a"></i></span>
+</span>
+<div style="flex:1;min-width:0;padding-top:2px">
+<div style="font-size:19px;font-weight:700;color:#f5c266;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ wave.channel }}</div>
+<div style="font-size:13px;color:#8fa0c8;margin-top:1px">Channel {{ wave.ch }}</div>
+</div>
+<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+<button onClick="{{ closeSheet }}" aria-label="Close" style="width:32px;height:32px;border:0;border-radius:50%;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px #6b5520;color:#f5c266;cursor:pointer" style-hover="background:rgba(240,165,42,.2)"><i class="ph ph-x" style="font-size:16px"></i></button>
+<sc-if value="{{ wave.exclusive }}" hint-placeholder-val="{{ true }}">
+<span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;letter-spacing:.03em;padding:5px 10px;border-radius:999px;background:#f0a52a;color:#26170a"><i class="ph-fill ph-seal-check" style="font-size:12px"></i>EXCLUSIVE</span>
+</sc-if>
+</div>
+</div>
+<div style="display:flex;margin-top:14px">
+<sc-for list="{{ channelStats }}" as="st" hint-placeholder-count="3">
+<div style="flex:1;text-align:center;padding:2px 4px;box-shadow:{{ st.divider }}">
+<i class="{{ st.icon }}" style="font-size:17px;color:#f0a52a"></i>
+<div style="font-size:19px;font-weight:700;color:#f5c266;margin-top:3px">{{ st.value }}</div>
+<div style="font-size:11px;color:#8fa0c8">{{ st.label }}</div>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;gap:9px;margin-top:15px">
+<button onClick="{{ visitChannel }}" style="flex:1.15;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px 8px;border-radius:999px;border:1.5px solid #f0a52a;background:rgba(240,165,42,.09);color:#f5c266;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap" style-hover="background:rgba(240,165,42,.22)"><i class="ph ph-television-simple" style="font-size:16px"></i>Visit Channel</button>
+<button onClick="{{ tuneIn }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px 8px;border-radius:999px;border:1.5px solid #2f4483;background:#14275c;color:#dbe2f2;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap" style-hover="filter:brightness(1.15)"><i class="ph-fill ph-play-circle" style="font-size:16px"></i>Tune In</button>
+<button onClick="{{ openLibrary }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px 8px;border-radius:999px;border:1.5px solid #2f4483;background:#14275c;color:#dbe2f2;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap" style-hover="filter:brightness(1.15)"><i class="ph-fill ph-books" style="font-size:16px"></i>Library</button>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:17px">
+<i class="ph-fill ph-play-circle" style="font-size:15px;color:#f0a52a"></i>
+<span style="font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">Waves from this channel</span>
+</div>
+<div class="av-scroll" style="display:flex;gap:7px;overflow-x:auto;margin-top:9px;padding-bottom:3px">
+<sc-for list="{{ channelWaves }}" as="w" hint-placeholder-count="6">
+<button onClick="{{ w.tap }}" style="flex:none;width:68px;padding:0;border:0;border-radius:8px;overflow:hidden;background:{{ w.bg }};cursor:pointer;position:relative;height:100px" style-hover="filter:brightness(1.2)">
+<span style="position:absolute;inset:0;display:grid;place-items:center"><i class="ph-fill ph-play" style="font-size:15px;color:rgba(255,255,255,.45)"></i></span>
+<span style="position:absolute;left:0;right:0;bottom:0;padding:4px 5px;background:linear-gradient(180deg,transparent,rgba(4,7,15,.9));font-size:8.5px;font-weight:600;color:#eef1f8;text-align:left;line-height:1.25;display:block;max-height:26px;overflow:hidden">{{ w.title }}</span>
+</button>
+</sc-for>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:16px">
+<i class="ph-fill ph-books" style="font-size:15px;color:#f0a52a"></i>
+<span style="flex:1;font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#f0a52a">Library</span>
+<button onClick="{{ openLibrary }}" style="border:0;background:transparent;color:#f5c266;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:0" style-hover="color:#f7c66a">See all</button>
+</div>
+<div class="av-scroll" style="display:flex;gap:9px;overflow-x:auto;margin-top:9px;padding-bottom:4px">
+<sc-for list="{{ libraryItems }}" as="l" hint-placeholder-count="4">
+<button onClick="{{ l.tap }}" style="flex:none;width:100px;padding:0;border:0;background:transparent;color:#eef1f8;font-family:inherit;cursor:pointer;text-align:left" style-hover="filter:brightness(1.2)">
+<span style="display:block;height:132px;border-radius:8px;background:{{ l.bg }};box-shadow:inset 0 0 0 1px #24345f;display:grid;place-items:center"><i class="{{ l.icon }}" style="font-size:22px;color:rgba(255,255,255,.4)"></i></span>
+<span style="display:block;font-size:11px;font-weight:600;margin-top:6px;line-height:1.3;max-height:29px;overflow:hidden">{{ l.title }}</span>
+<span style="display:block;font-size:9.5px;font-weight:700;letter-spacing:.08em;color:#f0a52a;margin-top:3px">{{ l.kind }}</span>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isShare }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:20px 20px 42px 42px;background:linear-gradient(180deg,#101b3a,#0a1330);box-shadow:0 -2px 0 #6b5520,0 -20px 50px rgba(0,0,0,.6);padding:12px 18px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1)">
+<div style="width:52px;height:4px;border-radius:2px;background:#f0a52a;margin:0 auto 12px"></div>
+<div style="display:flex;align-items:center;gap:10px">
+<i class="ph-fill ph-share-network" style="font-size:20px;color:#f0a52a"></i>
+<span style="flex:1;font-size:19px;font-weight:700;color:#f5c266">Share Wave</span>
+<span style="font-size:12px;font-weight:600;color:#f5c266">{{ wave.channel }}</span>
+</div>
+<div style="text-align:center;font-size:13px;color:#c3cde6;margin-top:8px">{{ shareTitle }}</div>
+<div style="height:1px;margin:12px 0 14px;background:rgba(240,165,42,.3)"></div>
+<div style="display:flex;flex-direction:column;gap:11px">
+<sc-for list="{{ shareTargets }}" as="t" hint-placeholder-count="3">
+<button onClick="{{ t.tap }}" style="width:100%;display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:16px;border-radius:12px;border:1.5px solid {{ t.border }};background:{{ t.bg }};color:{{ t.fg }};font-family:inherit;font-size:15px;font-weight:700;cursor:pointer" style-hover="filter:brightness(1.15)"><i class="{{ t.icon }}" style="font-size:18px"></i>{{ t.label }}</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isMenu }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:20px 20px 42px 42px;background:linear-gradient(180deg,#101b3a,#0a1330);box-shadow:0 -2px 0 #6b5520,0 -20px 50px rgba(0,0,0,.6);padding:12px 18px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1)">
+<div style="width:52px;height:4px;border-radius:2px;background:#f0a52a;margin:0 auto 14px"></div>
+<div style="display:flex;flex-direction:column;gap:1px;border-radius:13px;overflow:hidden;box-shadow:inset 0 0 0 1px #2a3a6b">
+<sc-for list="{{ menuItems }}" as="m" hint-placeholder-count="3">
+<button onClick="{{ m.tap }}" style="display:flex;align-items:center;gap:13px;padding:16px 15px;border:0;background:rgba(255,255,255,.02);color:{{ m.fg }};font-family:inherit;font-size:14.5px;font-weight:600;text-align:left;cursor:pointer" style-hover="background:rgba(255,255,255,.07)">
+<i class="{{ m.icon }}" style="font-size:19px;color:{{ m.tint }}"></i>
+<span style="flex:1">{{ m.label }}</span>
+<span style="font-size:11.5px;color:#7d8bad">{{ m.note }}</span>
+</button>
+</sc-for>
+</div>
+<button onClick="{{ closeSheet }}" style="width:100%;margin-top:12px;padding:14px;border:1px solid #2a3a6b;border-radius:13px;background:transparent;color:#c3cde6;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" style-hover="background:rgba(255,255,255,.05)">Cancel</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isRating }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;border-radius:20px 20px 42px 42px;background:linear-gradient(180deg,#101b3a,#0a1330);box-shadow:0 -2px 0 #6b5520,0 -20px 50px rgba(0,0,0,.6);padding:12px 18px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1)">
+<div style="width:52px;height:4px;border-radius:2px;background:#f0a52a;margin:0 auto 13px"></div>
+<div style="display:flex;align-items:center;gap:11px">
+<span style="flex:none;padding:6px 12px;border-radius:8px;border:1.5px solid {{ wave.ratingBorder }};background:{{ wave.ratingBg }};color:{{ wave.ratingFg }};font-size:13px;font-weight:700">{{ wave.rating }}</span>
+<span style="flex:1;font-size:13px;color:#c3cde6">Set by the uploader. AfroVision uses it to decide what this viewer may see.</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:1px;margin-top:13px;border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 1px #2a3a6b">
+<sc-for list="{{ ratingLegend }}" as="r" hint-placeholder-count="4">
+<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,.02)">
+<span style="flex:none;width:42px;font-family:ui-monospace,monospace;font-size:13px;font-weight:700;color:#f5c266">{{ r.code }}</span>
+<span style="flex:1;font-size:13px;color:#dbe2f2">{{ r.meaning }}</span>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;gap:9px;align-items:flex-start;margin-top:12px;padding:11px 12px;border-radius:12px;background:rgba(240,165,42,.07);box-shadow:inset 0 0 0 1px #4a3a1a">
+<i class="ph-fill ph-shield-check" style="font-size:15px;color:#f5c266;margin-top:1px"></i>
+<span style="font-size:12px;color:#f0c88f">Waves rated above what your profile allows never enter your feed.</span>
+</div>
+<button onClick="{{ closeSheet }}" style="width:100%;margin-top:12px;padding:14px;border:1px solid #2a3a6b;border-radius:13px;background:transparent;color:#c3cde6;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" style-hover="background:rgba(255,255,255,.05)">Close</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isCaption }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;top:46%;border-radius:20px 20px 42px 42px;background:linear-gradient(180deg,#101b3a,#0a1330);box-shadow:0 -2px 0 #f0a52a,0 -20px 50px rgba(0,0,0,.6);padding:12px 20px 30px;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1)">
+<div style="width:52px;height:4px;border-radius:2px;background:#f0a52a;margin:0 auto 14px"></div>
+<div style="display:flex;align-items:center;gap:9px">
+<i class="ph ph-television-simple" style="font-size:18px;color:#f0a52a"></i>
+<span style="font-size:16px;font-weight:700;color:#f5c266">{{ wave.channel }}</span>
+</div>
+<div style="font-size:20px;font-weight:700;margin-top:12px;text-wrap:pretty">{{ wave.title }}</div>
+<div style="height:1px;margin:14px 0;background:rgba(240,165,42,.3)"></div>
+<div style="font-size:15px;color:#dbe2f2;text-wrap:pretty">{{ wave.desc }}</div>
+<button onClick="{{ closeSheet }}" style="position:absolute;left:20px;right:20px;bottom:30px;padding:14px;border:1px solid #2a3a6b;border-radius:13px;background:transparent;color:#c3cde6;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" style-hover="background:rgba(255,255,255,.05)">Close</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:16px;right:16px;bottom:96px;padding:12px 14px;border-radius:12px;background:#16255c;box-shadow:0 0 0 1px #2f4483,0 12px 30px rgba(0,0,0,.5);font-size:12.5px;color:#dbe2f2;animation:fadeIn .16s ease;display:flex;align-items:center;gap:9px"><i class="ph-fill ph-lightning" style="font-size:15px;color:#f7e06a"></i>{{ toast }}</div>
+</sc-if>
+</div>
+
+<div style="flex:none;width:288px;position:sticky;top:44px">
+<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f0a52a;margin-bottom:6px">AfroVision · waves</div>
+<h1 style="font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.16;margin:0 0 10px">Pulses, not likes</h1>
+<p style="margin:0 0 14px;font-size:12.5px;color:#8fa0c8;text-wrap:pretty">Rebuilt to your screens. The ECG is the signature: every pulse tap lands at the current timestamp and raises the trace there, so the tallest point is where most viewers found the wave best.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+<sc-for list="{{ jump }}" as="j" hint-placeholder-count="9">
+<button onClick="{{ j.go }}" style="font-size:11px;padding:6px 11px;border-radius:8px;border:1px solid #1e2c55;background:transparent;color:#9aa6c4;font-family:inherit;cursor:pointer;{{ j.style }}" style-hover="border-color:#f0a52a;color:#f5c266">{{ j.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="5">
+<div style="border-radius:8px;padding:11px 12px;box-shadow:0 0 0 1px #1e2c55">
+<div style="font-size:12px;font-weight:600;margin-bottom:3px">{{ n.title }}</div>
+<p style="margin:0;font-size:11.5px;color:#8fa0c8">{{ n.body }}</p>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:760,&quot;height&quot;:940}}">
+const GOLD = '#f5c266';
+const MAX_PULSE = 10;
+
+const WAVES = [
+  { id: '1774637403400', channel: 'Obroh Chronicles', ch: '31', initials: 'OC', title: '', desc: '',
+    rating: 'TEEN', ratingFg: GOLD, ratingBg: 'rgba(60,40,10,.9)', ratingBorder: '#f0a52a',
+    views: 1, replays: 1, dur: 105, exclusive: false,
+    bg: 'linear-gradient(160deg,#4a3b2a,#241c14 70%,#12100c)', avatarBg: 'linear-gradient(150deg,#8b5cf6,#f0a52a)',
+    seeds: [[.18, .45], [.42, .9], [.44, .7], [.61, .35], [.78, .55]] },
+  { id: '1774512514158', channel: 'Aunty Shakira', ch: '18', initials: 'AS',
+    title: 'If I decide to reap where I no sow', desc: 'nothing go happen 😏 — full set on the channel tonight',
+    rating: 'TEEN', ratingFg: GOLD, ratingBg: 'rgba(60,40,10,.9)', ratingBorder: '#f0a52a',
+    views: 3, replays: 15, dur: 12, exclusive: false,
+    bg: 'linear-gradient(160deg,#3a2a22,#1d1712 68%,#0f0d0b)', avatarBg: 'linear-gradient(150deg,#f0a52a,#c2410c)',
+    seeds: [[.12, .6], [.3, .95], [.33, .8], [.55, .4], [.72, .7], [.9, .3]] },
+  { id: '1774680012994', channel: 'Obroh Chronicles', ch: '31', initials: 'OC',
+    title: 'No coffee for me, thanks', desc: 'whatever you do, never let this guy buy you coffee',
+    rating: 'TEEN', ratingFg: GOLD, ratingBg: 'rgba(60,40,10,.9)', ratingBorder: '#f0a52a',
+    views: 5, replays: 23, dur: 150, exclusive: false,
+    bg: 'linear-gradient(160deg,#3f2e1e,#241a12 66%,#100c09)', avatarBg: 'linear-gradient(150deg,#7c2d12,#f0a52a)',
+    seeds: [[.2, .5], [.38, .75], [.52, 1], [.54, .85], [.7, .45], [.85, .6]] },
+  { id: '1774390228741', channel: 'X-Lounge Extreme', ch: '31', initials: 'XL',
+    title: 'Rigid3D (@Rigid3d)', desc: 'X 5 — members-only drop, full reel in the channel library',
+    rating: '18+ S.SN.N.XC', ratingFg: '#fff', ratingBg: '#c62828', ratingBorder: '#ff5252',
+    views: 4, replays: 24, dur: 207, exclusive: true,
+    bg: 'linear-gradient(160deg,#101828,#080d18 70%,#04070f)', avatarBg: 'linear-gradient(150deg,#5b2f45,#f0a52a)',
+    seeds: [[.25, .4], [.48, .65], [.66, .95], [.68, .8], [.88, .5]] }
+];
+
+const CH_WAVES = [
+  ['Dagfs - All clean and n…', 'linear-gradient(150deg,#3a3a3a,#1a1a1a)'],
+  ['Guess the movie', 'linear-gradient(150deg,#1f3a63,#101c30)'],
+  ['Caught Cheating W…', 'linear-gradient(150deg,#5b2f45,#231a3d)'],
+  ['Breeding bench', 'linear-gradient(150deg,#2a2a4a,#14142a)'],
+  ['Amateur Interracial', 'linear-gradient(150deg,#0a0a0a,#000)'],
+  ['Alise Willis Sexy Scene…', 'linear-gradient(150deg,#204a45,#12233a)']
+];
+
+const LIB = [
+  ['Kinfolk Chapter 2 : Where day and nigh…', 'COMIC', 'ph-fill ph-book-open', 'linear-gradient(150deg,#16233f,#0e1830)'],
+  ['Satisfying Needs - Chapter 2', 'COMIC', 'ph-fill ph-book-open', 'linear-gradient(150deg,#16233f,#0e1830)'],
+  ['Spotlight - Maiden Edition', 'MAGAZINE', 'ph-fill ph-newspaper', 'linear-gradient(150deg,#16233f,#0e1830)'],
+  ['1 . Immoral Desires - Chapter 1', 'COMIC', 'ph-fill ph-book-open', 'linear-gradient(150deg,#5b2f45,#231a3d)']
+];
+
+const LEGEND = [
+  { code: 'S', meaning: 'Sexual themes' },
+  { code: 'SN', meaning: 'Sexual nudity' },
+  { code: 'N', meaning: 'Nudity' },
+  { code: 'XC', meaning: 'Explicit content' },
+  { code: 'TEEN', meaning: 'Suitable for 13+ viewers' },
+  { code: '18+', meaning: 'Adults only — requires verified age' }
+];
+
+const NOTES = {
+  feed: [['The trace is the crowd', 'Pulses land at the playhead, so the tallest point is the moment most viewers rated best — not a popularity score for the whole wave.'],
+         ['Ten per wave, then dim', 'The bolt greys out at 10 and taps stop counting. No remaining-counter clutter.'],
+         ['Every tap is felt', 'A bolt floats up the frame, a ripple fires at the icon, and the trace visibly rises under the playhead.'],
+         ['Peaks are navigation', 'Glowing peak dots jump playback to that moment; dragging the bar scrubs normally.'],
+         ['No likes anywhere', 'Views, Pulses, Replays and Comments are the only counters — a heart never appears.']],
+  hidden: [['Eye clears everything', 'Only the eye itself remains, per your spec — the whole overlay including the ECG goes.']],
+  fav: [['Fav is your channels', 'Empty state says so plainly and routes back to Public rather than dead-ending.']],
+  comments: [['Pulses, not hearts, on comments too', 'The comment affordance stays consistent with the wave metric.'],
+             ['Your own comments get edit and delete', 'Others get Reply only.']],
+  channel: [['Opens from the avatar', 'Tapping the bottom-right channel thumbnail, exactly as in your build.'],
+            ['Three metrics, three routes', 'Followers / Pulses / Replays above Visit Channel, Tune In and Library.'],
+            ['Both strips included', 'Waves from this channel, then the Library with COMIC and MAGAZINE labels.']],
+  share: [['Your three targets', 'WhatsApp Contact, WhatsApp Status / More, Share to Myngul — nothing generic added.']],
+  menu: [['Three actions only', 'Report wave, Not interested, Mute this channel.']],
+  rating: [['Codes explained in place', 'Tapping the chip shows what S / SN / N / XC mean and states the gating rule.']],
+  speed: [['Five speeds', '2.0x through 0.15x, opened from the gauge, matching your row.']]
+};
+
+class Component extends DCLogic {
+  barRef = React.createRef();
+  state = { i: 0, feed: 'Public', time: 6, playing: true, muted: true, autoplay: true, uiHidden: false,
+            speed: '1x', speedOpen: false, sheet: null, saved: false, subbed: false,
+            myPulses: {}, extra: {}, bolts: [], rippling: false, draft: '',
+            comments: [{ id: 1, name: 'Richard Obroh', initials: 'RO', body: 'let him cook 🤣🤣🤣', when: 'Just now', mine: true, pulses: 0, pulsed: false, avatarBg: 'linear-gradient(150deg,#f0a52a,#8b5cf6)' }],
+            toast: '' };
+
+  componentDidMount() { this._t = setInterval(() => {
+    if (!this.state.playing || this.state.sheet) return;
+    const d = WAVES[this.state.i].dur;
+    this.setState(s => ({ time: s.time + 0.25 * (parseFloat(s.speed) || 1) > d ? 0 : s.time + 0.25 * (parseFloat(s.speed) || 1) }));
+  }, 250); }
+  componentWillUnmount() { clearInterval(this._t); clearTimeout(this._to); clearTimeout(this._ri); }
+
+  set = (p) => this.setState(p);
+  say(msg) { this.setState({ toast: msg }); clearTimeout(this._to); this._to = setTimeout(() => this.setState({ toast: '' }), 1800); }
+  clock(sec) { const m = Math.floor(sec / 60), s = Math.floor(sec % 60); return m + ':' + (s < 10 ? '0' + s : s); }
+
+  curve(w, extra) {
+    const seeds = w.seeds.concat(extra || []);
+    const N = 160, pts = [];
+    for (let k = 0; k < N; k++) {
+      const x = k / (N - 1);
+      let v = 0;
+      seeds.forEach(sd => { const d = (x - sd[0]) / 0.022; v += sd[1] * Math.exp(-d * d); });
+      v += 0.035 * Math.sin(x * 54) + 0.02 * Math.sin(x * 23);
+      pts.push([x * 480, 34 - Math.min(1, Math.max(0, v)) * 29]);
+    }
+    return pts;
+  }
+
+  addPulse() {
+    const w = WAVES[this.state.i];
+    const used = this.state.myPulses[w.id] || 0;
+    if (used >= MAX_PULSE) return this.say('All ' + MAX_PULSE + ' pulses used on this wave');
+    const at = Math.min(0.99, this.state.time / w.dur);
+    const id = Date.now() + Math.random();
+    this.setState(s => ({
+      myPulses: { ...s.myPulses, [w.id]: used + 1 },
+      extra: { ...s.extra, [w.id]: (s.extra[w.id] || []).concat([[at, 0.42]]) },
+      bolts: s.bolts.concat([{ id, left: (58 + Math.random() * 18) + '%', size: (20 + Math.random() * 10) + 'px' }]),
+      rippling: true
+    }));
+    clearTimeout(this._ri);
+    this._ri = setTimeout(() => this.setState({ rippling: false }), 620);
+    setTimeout(() => this.setState(s => ({ bolts: s.bolts.filter(b => b.id !== id) })), 1600);
+  }
+
+  renderVals() {
+    const s = this.state, w = WAVES[s.i];
+    const extra = s.extra[w.id] || [];
+    const used = s.myPulses[w.id] || 0;
+    const spent = used >= MAX_PULSE;
+    const pts = this.curve(w, extra);
+    const path = pts.map((p, k) => (k ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const peaks = [];
+    for (let k = 4; k < pts.length - 4; k++) {
+      if (pts[k][1] < pts[k - 4][1] && pts[k][1] < pts[k + 4][1] && pts[k][1] < 22) {
+        if (!peaks.length || pts[k][0] - peaks[peaks.length - 1].x > 40) peaks.push({ x: pts[k][0], y: pts[k][1] });
+      }
+    }
+    const sheet = s.sheet;
+    const jump = (r) => () => {
+      if (r === 'hidden') return this.set({ uiHidden: true, sheet: null, feed: 'Public' });
+      if (r === 'fav') return this.set({ feed: 'Fav', sheet: null, uiHidden: false });
+      if (r === 'paused') return this.set({ playing: false, sheet: null, uiHidden: false, feed: 'Public' });
+      if (r === 'speed') return this.set({ speedOpen: true, sheet: null, uiHidden: false, feed: 'Public' });
+      if (r === 'feed') return this.set({ sheet: null, uiHidden: false, feed: 'Public', speedOpen: false, playing: true });
+      this.set({ sheet: r, uiHidden: false, feed: 'Public' });
+    };
+    const route = s.uiHidden ? 'hidden' : (s.feed === 'Fav' ? 'fav' : (sheet || (s.speedOpen ? 'speed' : (!s.playing ? 'paused' : 'feed'))));
+
+    return {
+      wave: { ...w, titled: !!w.title, untitled: !w.title },
+      showBigPlay: !s.playing && !s.uiHidden,
+      uiHidden: s.uiHidden, uiShown: !s.uiHidden,
+      toggleUi: () => this.set({ uiHidden: !s.uiHidden, speedOpen: false }),
+      togglePlay: () => this.set({ playing: !s.playing }),
+
+      feeds: ['Public', 'Fav'].map(f => ({ label: f,
+        bg: s.feed === f ? 'linear-gradient(96deg,#ef9615,#f8c96f)' : 'transparent',
+        fg: s.feed === f ? '#26170a' : '#9aa6c4',
+        pick: () => this.set({ feed: f }) })),
+      openRating: () => this.set({ sheet: 'rating' }),
+      openMenu: () => this.set({ sheet: 'menu' }),
+
+      autoRing: s.autoplay ? '#22c55e' : '#4a5578',
+      autoFg: s.autoplay ? '#5fe39a' : '#8fa0c8',
+      autoGlow: s.autoplay ? '0 0 14px rgba(34,197,94,.5)' : 'none',
+      toggleAutoplay: () => { this.set({ autoplay: !s.autoplay }); this.say(s.autoplay ? 'Autoplay off' : 'Autoplay on — advances to the next wave'); },
+      speedBg: s.speedOpen || s.speed !== '1x' ? '#f0a52a' : 'rgba(28,34,48,.86)',
+      speedFg: s.speedOpen || s.speed !== '1x' ? '#26170a' : '#dbe2f2',
+      toggleSpeedRow: () => this.set({ speedOpen: !s.speedOpen }),
+      speedOpen: s.speedOpen,
+      speeds: ['2.0x', '1.5x', '1x', '0.5x', '0.15x'].map(x => ({ label: x,
+        bg: s.speed === x ? '#f7e06a' : 'transparent', fg: s.speed === x ? '#26170a' : '#c3cde6',
+        pick: () => { this.set({ speed: x, speedOpen: false }); this.say('Speed ' + x); } })),
+      muteBg: s.muted ? '#f0a52a' : 'rgba(28,34,48,.86)',
+      muteFg: s.muted ? '#26170a' : '#dbe2f2',
+      muteIcon: s.muted ? 'ph-fill ph-speaker-simple-slash' : 'ph-fill ph-speaker-simple-high',
+      toggleMute: () => this.set({ muted: !s.muted }),
+
+      pulseCount: w.views * 3 + 12 + used + extra.length * 0,
+      pulseTint: spent ? '#6d7ba1' : '#fff',
+      pulseStyle: spent ? 'opacity:.55' : '',
+      pulse: () => this.addPulse(),
+      rippling: s.rippling,
+      bolts: s.bolts,
+
+      commentCount: s.comments.length,
+      noComments: s.comments.length === 0,
+      openComments: () => this.set({ sheet: 'comments' }),
+      comments: s.comments.map(c => ({ ...c,
+        pulseIcon: c.pulsed ? 'ph-fill ph-lightning' : 'ph ph-lightning',
+        pulseTint: c.pulsed ? '#f7e06a' : '#8fa0c8',
+        reply: () => this.set({ draft: '@' + c.name.split(' ')[0] + ' ' }),
+        pulse: () => this.setState(st => ({ comments: st.comments.map(x => x.id === c.id ? { ...x, pulsed: !x.pulsed, pulses: x.pulses + (x.pulsed ? -1 : 1) } : x) })),
+        edit: () => this.set({ draft: c.body }),
+        remove: () => { this.setState(st => ({ comments: st.comments.filter(x => x.id !== c.id) })); this.say('Comment deleted'); } })),
+      draft: s.draft,
+      onDraft: (e) => this.set({ draft: e.target.value }),
+      onDraftKey: (e) => { if (e.key === 'Enter') this.sendComment(); },
+      send: () => this.sendComment(),
+
+      openShare: () => this.set({ sheet: 'share' }),
+      shareTitle: w.title ? w.title : w.id,
+      shareTargets: [
+        { label: 'WhatsApp Contact', icon: 'ph-fill ph-chat-circle', border: '#f0a52a', bg: 'rgba(240,165,42,.12)', fg: GOLD, tap: () => this.say('Shared to WhatsApp contact') },
+        { label: 'WhatsApp Status / More', icon: 'ph-fill ph-dots-three', border: '#2f4483', bg: 'rgba(20,39,92,.6)', fg: '#dbe2f2', tap: () => this.say('WhatsApp Status / More') },
+        { label: 'Share to Myngul', icon: 'ph ph-link-simple', border: '#2f4483', bg: 'rgba(20,39,92,.6)', fg: '#dbe2f2', tap: () => this.say('Shared to Myngul') }
+      ],
+
+      saveIcon: s.saved ? 'ph-fill ph-bookmark-simple' : 'ph ph-bookmark-simple',
+      saveTint: s.saved ? '#f0a52a' : '#fff',
+      toggleSave: () => { this.set({ saved: !s.saved }); this.say(s.saved ? 'Removed from your waves' : 'Saved to your waves'); },
+      subIcon: s.subbed ? 'ph-fill ph-bell' : 'ph ph-plus',
+      subRing: s.subbed ? '#f0a52a' : '#6b7392',
+      subBg: s.subbed ? '#c98a1e' : 'rgba(28,34,48,.86)',
+      subFg: s.subbed ? '#fff' : '#eef1f8',
+      subLabel: s.subbed ? 'Subscribed' : 'Subscribe',
+      toggleSub: () => { this.set({ subbed: !s.subbed }); this.say(s.subbed ? 'Unsubscribed from ' + w.channel : 'Subscribed to ' + w.channel); },
+
+      openChannel: () => this.set({ sheet: 'channel' }),
+      channelStats: [
+        { icon: 'ph-fill ph-users', value: '4', label: 'Followers', divider: 'none' },
+        { icon: 'ph-fill ph-lightning', value: '182', label: 'Pulses', divider: 'inset 1px 0 0 rgba(240,165,42,.28), inset -1px 0 0 rgba(240,165,42,.28)' },
+        { icon: 'ph ph-arrow-counter-clockwise', value: '1.2K', label: 'Replays', divider: 'none' }
+      ],
+      visitChannel: () => { window.location.href = 'AfroVision Channel Page.dc.html'; },
+      tuneIn: () => { window.location.href = 'AfroVision Channel Page.dc.html'; },
+      openLibrary: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; },
+      channelWaves: CH_WAVES.map(c => ({ title: c[0], bg: c[1], tap: () => this.say(c[0]) })),
+      libraryItems: LIB.map(l => ({ title: l[0], kind: l[1], icon: l[2], bg: l[3], tap: () => this.say(l[0]) })),
+
+      menuItems: [
+        { label: 'Report wave', note: '', icon: 'ph-fill ph-flag', tint: '#f1445c', fg: '#f1789a', tap: () => { this.set({ sheet: null }); this.say('Wave reported for review'); } },
+        { label: 'Not interested', note: 'Show less like this', icon: 'ph ph-thumbs-down', tint: GOLD, fg: '#eef1f8', tap: () => { this.set({ sheet: null }); this.say('We’ll show you fewer waves like this'); } },
+        { label: 'Mute this channel', note: w.channel, icon: 'ph-fill ph-speaker-simple-x', tint: '#8fa0c8', fg: '#eef1f8', tap: () => { this.set({ sheet: null }); this.say(w.channel + ' muted'); } }
+      ],
+      ratingLegend: LEGEND,
+
+      openCaption: () => this.set({ sheet: 'caption' }),
+      sheetOpen: !!sheet,
+      isComments: sheet === 'comments', isChannelCard: sheet === 'channel', isShare: sheet === 'share',
+      isMenu: sheet === 'menu', isRating: sheet === 'rating', isCaption: sheet === 'caption',
+      closeSheet: () => this.set({ sheet: null }),
+
+      favEmpty: s.feed === 'Fav' && !s.uiHidden,
+      backToPublic: () => this.set({ feed: 'Public' }),
+
+      barRef: this.barRef,
+      ecgPath: path,
+      ecgFill: path + ' L480 42 L0 42 Z',
+      peaks: peaks.map(p => ({ left: (p.x / 480 * 100) + '%', top: Math.max(0, p.y - 11) + 'px',
+        jump: () => { this.set({ time: p.x / 480 * w.dur, playing: true }); this.say('Jumped to peak · ' + this.clock(p.x / 480 * w.dur)); } })),
+      playheadLeft: (Math.min(1, s.time / w.dur) * 100) + '%',
+      scrub: (e) => { const el = this.barRef.current; if (!el) return;
+        const r = el.getBoundingClientRect(); const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+        this.set({ time: f * w.dur }); },
+      nowLabel: this.clock(s.time), durLabel: this.clock(w.dur),
+
+      navItems: [
+        { label: 'Home', icon: 'ph-fill ph-house', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Home.dc.html'; } },
+        { label: 'Channels', icon: 'ph-fill ph-television-simple', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Channels.dc.html'; } },
+        { label: 'Media', icon: 'ph-fill ph-play-circle', size: '25px', style: '', go: () => { window.location.href = 'Media Center Exclusive Access.dc.html'; } },
+        { label: 'Waves', icon: 'ph-fill ph-waves', size: '19px', style: 'color:#f0a52a', go: () => this.set({ i: (s.i + 1) % WAVES.length, time: 0, sheet: null, speedOpen: false }) },
+        { label: 'Assets', icon: 'ph-fill ph-wallet', size: '19px', style: '', go: () => { window.location.href = 'AfroVision Assets.dc.html'; } }
+      ],
+      toast: s.toast,
+
+      jump: [['Feed', 'feed'], ['Comments', 'comments'], ['Channel card', 'channel'], ['Share', 'share'], ['Speed row', 'speed'],
+             ['UI hidden', 'hidden'], ['⋮ menu', 'menu'], ['Rating', 'rating'], ['Fav empty', 'fav'], ['Paused', 'paused']]
+        .map(x => ({ label: x[0], go: jump(x[1]), style: route === x[1] ? 'border-color:#f0a52a;color:#f5c266' : '' })),
+      notes: (NOTES[route] || NOTES.feed).map(n => ({ title: n[0], body: n[1] }))
+    };
+  }
+
+  sendComment() {
+    const t = (this.state.draft || '').trim();
+    if (!t) return;
+    this.setState(s => ({ draft: '', comments: s.comments.concat([{ id: Date.now(), name: 'Richard Obroh', initials: 'RO', body: t, when: 'Just now', mine: true, pulses: 0, pulsed: false, avatarBg: 'linear-gradient(150deg,#f0a52a,#8b5cf6)' }]) }));
+  }
+}
+</script>
+</body>
+</html>

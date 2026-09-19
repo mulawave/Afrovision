@@ -82,7 +82,14 @@ if (!process.env.ALLOWED_ORIGINS) {
   if (allowedOrigins.length === 0) allowedOrigins = '*';
   console.log('[Config] ALLOWED_ORIGINS:', allowedOrigins);
 }
-app.use(cors({ origin: allowedOrigins, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], credentials: true }));
+// credentials:true is invalid (and dangerous) paired with a wildcard origin —
+// browsers ignore the combination, but some clients don't, so never send it
+// alongside '*'. Only allow credentialed requests once real origins are configured.
+app.use(cors({
+  origin: allowedOrigins,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  credentials: allowedOrigins !== '*',
+}));
 app.use(express.json({ limit: '1mb' }));
 
 // Legacy /uploads route — redirects to GCS for migrated files, serves local as fallback

@@ -12,6 +12,12 @@ const usersByEmail = new Map();
 const userLoadsById = new Map();
 const userLoadsByEmail = new Map();
 
+function generateWalletReference() {
+  // Same style as referral codes: short, unique, safe to display/share.
+  // Prefixed so it's unambiguous in support tickets / logs.
+  return `AV-W-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
 let resetTokens = new Map();
 let initialized = false;
 let allUsersLoaded = false;
@@ -326,7 +332,20 @@ function findByEmail(email) {
 
 function findById(id) {
   const cached = findCachedById(id);
-  return cached || loadUserById(id);
+  return cached ? _ensureWalletReference(cached) : loadUserById(id).then(_ensureWalletReference);
+}
+
+// Accounts created before wallet_reference existed don't have one yet.
+// Backfill lazily on first read after this change ships, instead of a
+// one-off migration script, so every existing user gets a real, persisted
+// reference the first time their profile is loaded.
+function _ensureWalletReference(user) {
+  if (!user || user.wallet_reference) return user;
+  user.wallet_reference = generateWalletReference();
+  persistUser(user).catch((err) => {
+    console.error('[User] Failed to backfill wallet_reference:', err.message);
+  });
+  return user;
 }
 
 async function create({ email, passwordHash }) {
@@ -360,6 +379,7 @@ async function create({ email, passwordHash }) {
     cash: 0,
     coins: 0,
     bank_details: null,
+    wallet_reference: generateWalletReference(),
     first_subscription_at: null,
     following_creator_ids: [],
     following_channel_ids: [],
@@ -867,6 +887,7 @@ function toSafeUser(user) {
     coins: Number(user.coins) || 0,
     bank_details: user.bank_details || null,
     player_settings: user.player_settings || null,
+    wallet_reference: user.wallet_reference || null,
     bsc_address: bscAddress,
     first_subscription_at: user.first_subscription_at,
     following_creator_ids: Array.isArray(user.following_creator_ids) ? user.following_creator_ids : [],

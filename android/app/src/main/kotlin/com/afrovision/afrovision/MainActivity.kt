@@ -13,6 +13,10 @@ import android.graphics.Color
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.util.Rational
+import com.afrovision.afrovision.ads.PangleAdsManager
+import com.afrovision.afrovision.ads.PangleBannerFactory
+import com.afrovision.afrovision.ads.PangleFullscreen
+import com.afrovision.afrovision.ads.PangleNativeFactory
 import com.google.android.play.core.integrity.IntegrityManagerFactory
 import com.google.android.play.core.integrity.IntegrityTokenRequest
 import io.flutter.embedding.android.FlutterActivity
@@ -24,6 +28,7 @@ class MainActivity : FlutterActivity() {
     private val INTEGRITY_CHANNEL = "com.afrovision.afrovision/integrity"
     private val PIP_CHANNEL       = "com.afrovision.afrovision/pip"
     private val WIDGET_CHANNEL    = "com.afrovision.afrovision/widget"
+    private val PANGLE_CHANNEL    = "com.afrovision.afrovision/pangle"
 
     private var pipMethodChannel: MethodChannel? = null
     private var _autoPipEnabled = false
@@ -96,18 +101,29 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    private fun enterPiP(aspectWidth: Int, aspectHeight: Int) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    // Returns true only if the OS actually entered PiP. Deliberately does
+    // NOT pre-gate on `isPiPSupported()` (the AppOps special-access flag) —
+    // on several OEM Android skins that flag defaults to revoked even though
+    // the device and app both fully support PiP, which made the manual PiP
+    // button always report "not supported" without ever really trying. An
+    // explicit user tap should just attempt the real OS call and only fail
+    // if that call itself throws.
+    private fun enterPiP(aspectWidth: Int, aspectHeight: Int): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
 
-        val builder = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(aspectWidth, aspectHeight))
+        return try {
+            val builder = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(aspectWidth, aspectHeight))
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(true)
-            builder.setSeamlessResizeEnabled(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setAutoEnterEnabled(true)
+                builder.setSeamlessResizeEnabled(true)
+            }
+
+            enterPictureInPictureMode(builder.build())
+        } catch (_: Exception) {
+            false
         }
-
-        enterPictureInPictureMode(builder.build())
     }
 
     private fun isPiPSupported(): Boolean {
@@ -225,8 +241,7 @@ class MainActivity : FlutterActivity() {
                 "enterPiP" -> {
                     val w = call.argument<Int>("aspectWidth")  ?: 16
                     val h = call.argument<Int>("aspectHeight") ?: 9
-                    enterPiP(w, h)
-                    result.success(null)
+                    result.success(enterPiP(w, h))
                 }
                 "setPipAutoEnter" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: false
@@ -245,6 +260,27 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // ── Pangle ads ──
+        PangleAdsManager.init(this)
+        val registry = flutterEngine.platformViewsController.registry
+        registry.registerViewFactory(
+            PangleBannerFactory.VIEW_TYPE,
+            PangleBannerFactory(flutterEngine.dartExecutor.binaryMessenger),
+        )
+        registry.registerViewFactory(
+            PangleNativeFactory.VIEW_TYPE,
+            PangleNativeFactory(flutterEngine.dartExecutor.binaryMessenger),
+        )
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PANGLE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isReady" -> result.success(PangleAdsManager.ready)
+                    "showInterstitial" -> result.success(PangleFullscreen.showInterstitial(this))
+                    "showAppOpen" -> result.success(PangleFullscreen.showAppOpen(this))
+                    else -> result.notImplemented()
+                }
+            }
 
         // ── Home-screen widget channel ──
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIDGET_CHANNEL)

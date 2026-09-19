@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+import 'player_settings_service.dart';
+
 /// Describes the effective network the device is currently using.
 enum NetworkType {
   /// Unmetered high-bandwidth connection (Wi-Fi, Ethernet).
@@ -32,6 +34,7 @@ class NetworkProfileService {
   final _controller = StreamController<NetworkType>.broadcast();
 
   bool _initialized = false;
+  Future<void>? _initFuture;
 
   /// Current network classification.
   NetworkType get currentType => _currentType;
@@ -44,7 +47,16 @@ class NetworkProfileService {
 
   /// Maximum HLS bitrate in bits-per-second that should be requested for the
   /// current network. Returns `null` when no cap is wanted (unmetered Wi-Fi).
+  ///
+  /// When Watch Settings' "Data saver on cellular" is enabled, cellular and
+  /// unknown connections are capped at the Data Saver tier's bitrate instead
+  /// of the looser defaults below — this was previously applied invisibly
+  /// with no user control at all.
   int? get maxHlsBitrateBps {
+    if (_currentType != NetworkType.wifi &&
+        PlayerSettingsService.instance.current.dataSaverOnCellular) {
+      return QualityProfile.dataSaver.bps;
+    }
     return switch (_currentType) {
       NetworkType.cellular => 1500000, // 1.5 Mbps
       NetworkType.unknown => 2500000, // conservative 2.5 Mbps
@@ -56,11 +68,16 @@ class NetworkProfileService {
   /// Used as a hint for downstream bitrate / resolution selection.
   int? get maxAdaptiveBitrateBps => maxHlsBitrateBps;
 
-  /// Start monitoring connectivity. Safe to call multiple times.
-  Future<void> initialize() async {
-    if (_initialized) return;
-    _initialized = true;
+  /// Start monitoring connectivity. Safe to call multiple times — concurrent
+  /// callers await the same in-flight initialization instead of one
+  /// returning immediately with `_currentType` still `unknown` (which
+  /// applies the conservative 2.5 Mbps cap even on Wi-Fi).
+  Future<void> initialize() {
+    if (_initialized) return Future.value();
+    return _initFuture ??= _doInitialize();
+  }
 
+  Future<void> _doInitialize() async {
     try {
       final result = await _connectivity.checkConnectivity();
       _updateList(result);
@@ -79,6 +96,8 @@ class NetworkProfileService {
     } catch (e) {
       debugPrint('[NetworkProfile] Connectivity listener failed: $e');
     }
+
+    _initialized = true;
   }
 
   void _updateList(List<ConnectivityResult> results) {
@@ -115,6 +134,15 @@ class NetworkProfileService {
     }
     if (results.contains(ConnectivityResult.wifi) ||
         results.contains(ConnectivityResult.ethernet)) {
+      return NetworkType.wifi;
+    }
+    // A VPN alone (no wifi/mobile/ethernet alongside it) doesn't tell us the
+    // underlying bearer. Some platforms report `[vpn]` in isolation even on
+    // an unmetered Wi-Fi connection — treating that as `unknown` silently
+    // caps an unmetered user at 2.5 Mbps. Assume the common case (VPN over
+    // Wi-Fi) rather than penalizing it; a VPN over cellular still gets
+    // capped because `mobile` is reported alongside `vpn` on those platforms.
+    if (results.contains(ConnectivityResult.vpn)) {
       return NetworkType.wifi;
     }
     return NetworkType.unknown;
