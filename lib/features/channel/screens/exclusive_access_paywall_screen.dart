@@ -234,21 +234,36 @@ class _ExclusiveAccessPaywallScreenState
   /// Re-checks exclusive access status after a purchase error.
   /// Returns true if access was actually granted despite the error,
   /// in which case the UI is updated to show the success state.
+  ///
+  /// A client-side timeout doesn't mean the server request stopped - the
+  /// purchase can still be mid-flight and land moments later (this is
+  /// exactly what happened to a user: the app showed "Payment failed" then
+  /// an "Exclusive Access Activated" notification arrived seconds after).
+  /// A single immediate check can race that in-flight request and see
+  /// "not yet granted" even though it's about to succeed, so retry a few
+  /// times with a short delay before accepting the failure as final.
   Future<bool> _recheckAccessAfterError() async {
-    try {
-      final status = await ChannelService.getExclusiveAccessStatus(_channelId!);
-      if (!mounted) return false;
-      if (status.hasActiveEntitlement) {
-        setState(() {
-          _status = status;
-          _state = _ExclusiveState.purchaseSuccess;
-          _error = null;
-          _info = 'Your access is active. Payment was processed successfully.';
-        });
-        return true;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await Future.delayed(const Duration(seconds: 2));
+        if (!mounted) return false;
       }
-    } catch (_) {
-      // If re-check also fails, fall through to show original error
+      try {
+        final status = await ChannelService.getExclusiveAccessStatus(_channelId!);
+        if (!mounted) return false;
+        if (status.hasActiveEntitlement) {
+          setState(() {
+            _status = status;
+            _state = _ExclusiveState.purchaseSuccess;
+            _error = null;
+            _info = 'Your access is active. Payment was processed successfully.';
+          });
+          return true;
+        }
+      } catch (_) {
+        // Keep retrying - if every attempt fails, fall through to the
+        // original error.
+      }
     }
     return false;
   }

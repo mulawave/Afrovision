@@ -420,6 +420,13 @@ exports.updateSettings = async (req, res) => {
       return res.status(400).json({ error: 'No valid settings fields provided' });
     }
 
+    if (patch.tv_app) {
+      const code = Number(patch.tv_app.latest_version_code);
+      if (!Number.isInteger(code) || code < 1) {
+        return res.status(400).json({ error: 'tv_app.latest_version_code must be a positive integer matching the APK\'s build.gradle versionCode' });
+      }
+    }
+
     const updated = await model.updateSettings(patch);
     await AuditService.logAction(caller.id, 'dist_update_settings', 'distribution', { fields: Object.keys(patch) });
     return res.status(200).json({ success: true, settings: updated });

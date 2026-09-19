@@ -68,6 +68,7 @@ import 'features/static_pages/screens/static_pages_catalog_screen.dart';
 import 'features/static_pages/screens/external_static_handoff_screen.dart';
 import 'features/wave/screens/wave_screen.dart';
 import 'features/wave/screens/saved_waves_screen.dart';
+import 'features/tv_pairing/screens/tv_pairing_screen.dart';
 import 'features/wave/screens/wave_edit_screen.dart';
 import 'features/wave/screens/wave_upload_screen.dart';
 import 'features/broadcast/screens/channel_library_screen.dart';
@@ -78,9 +79,10 @@ import 'features/broadcast/screens/readable_upload_screen.dart';
 import 'features/announcements/screens/announcements_screen.dart';
 import 'features/updates/screens/updates_screen.dart';
 import 'features/channel/screens/my_pics_screen.dart';
+import 'features/settings/screens/account_settings_screen.dart';
+import 'features/settings/screens/identifier_codes_screen.dart';
 import 'features/profile/screens/profile_setup_screen.dart';
 import 'features/guardian/screens/guardian_form_screen.dart';
-import 'features/settings/screens/identifier_codes_screen.dart';
 import 'core/widgets/profile_setup_guard.dart';
 import 'core/ads/pangle_ads.dart';
 
@@ -166,6 +168,7 @@ class AfroVisionApp extends StatelessWidget {
         '/channel-grid': (_) => const ChannelGridScreen(),
         '/wave': (_) => const WaveScreen(),
         '/saved-waves': (_) => const SavedWavesScreen(),
+        '/tv-pairing': (_) => const TvPairingScreen(),
         '/wave-edit': (_) => const WaveEditScreen(),
         '/channel-library': (_) => const ChannelLibraryScreen(),
         '/channel-library/item': (_) => const ChannelLibraryItemScreen(),
@@ -231,6 +234,19 @@ class AfroVisionApp extends StatelessWidget {
             const StaticPageViewerScreen(routeName: '/report-copyright'),
         '/updates': (_) => const StaticPageViewerScreen(routeName: '/updates'),
         '/aml': (_) => const StaticPageViewerScreen(routeName: '/aml'),
+        '/community-rules': (_) =>
+            const StaticPageViewerScreen(routeName: '/community-rules'),
+        '/exclusive-channel-policy': (_) => const StaticPageViewerScreen(
+          routeName: '/exclusive-channel-policy',
+        ),
+        '/creator-agreement': (_) =>
+            const StaticPageViewerScreen(routeName: '/creator-agreement'),
+        '/advertising-guidelines': (_) => const StaticPageViewerScreen(
+          routeName: '/advertising-guidelines',
+        ),
+        '/licenses-attributions': (_) => const StaticPageViewerScreen(
+          routeName: '/licenses-attributions',
+        ),
         '/careers': (_) =>
             const ExternalStaticHandoffScreen(routeName: '/careers'),
         '/press': (_) => const ExternalStaticHandoffScreen(routeName: '/press'),
@@ -240,6 +256,7 @@ class AfroVisionApp extends StatelessWidget {
         '/announcements': (_) => const AnnouncementsScreen(),
         '/updates-list': (_) => const UpdatesScreen(),
         '/my-pics': (_) => const MyPicsScreen(),
+        '/account-settings': (_) => const AccountSettingsScreen(),
         '/identifier-codes': (_) => const IdentifierCodesScreen(),
       },
     );

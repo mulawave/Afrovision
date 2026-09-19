@@ -63,7 +63,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   static const String _resultPending = 'pending';
   static const String _resultUnknown = 'unknown';
 
-  static const _quickAmounts = [2000, 5000, 10000, 20000];
+  static const _quickAmounts = [1000, 2000, 5000, 10000];
 
   @override
   void initState() {

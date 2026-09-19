@@ -102,6 +102,18 @@ class _WalletCard extends StatelessWidget {
         color: item.bg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: item.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
+            color: item.tint.withValues(alpha: 0.12),
+            blurRadius: 22,
+            spreadRadius: -10,
+          ),
+        ],
       ),
       padding: const EdgeInsets.all(13),
       child: Column(

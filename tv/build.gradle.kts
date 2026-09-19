@@ -16,8 +16,8 @@ android {
         applicationId = "com.afrovision.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 37
-        versionName = "4.6"
+        versionCode = 36
+        versionName = "4.5"
     }
 
     signingConfigs {
@@ -77,9 +77,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
 
-    implementation("androidx.tv:tv-foundation:1.0.0-alpha10")
-    implementation("androidx.tv:tv-material:1.0.0-alpha10")
-
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
@@ -111,10 +108,6 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
-    // Socket.IO client — used for TV-to-TV chat delivery (chat/ChatSocket.kt)
-    // and channel live-viewer presence (player/ChannelViewerSocket.kt), both
-    // talking to the same backend/src/realtime/socket.service.js server the
-    // Flutter app and website connect to.
     implementation("io.socket:socket.io-client:2.1.1") {
         exclude(group = "org.json", module = "json")
     }

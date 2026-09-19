@@ -27,8 +27,8 @@ const DEFAULT_SETTINGS = {
   license_duration_days: 365,
   qr_whitelist_user_ids: [],
   tv_app: {
-    latest_version_code: 22,
-    latest_version_name: '3.7',
+    latest_version_code: 2,
+    latest_version_name: '1.1',
     apk_url: 'https://storage.googleapis.com/afrovision-media/tv-updates/afrovision-tv-latest.apk',
   },
   config_version: 1,

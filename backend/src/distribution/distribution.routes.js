@@ -21,14 +21,21 @@ const waveCtrl = require('../wave/wave.controller');
 const marketerCtrl = require('./marketer.controller');
 const distributorCtrl = require('./distributor.controller');
 const adminCtrl = require('./admin.controller');
+const chatCtrl = require('../chat/chat.controller');
 
 const router = Router();
 
 // ── TV Device (public activation, device-token for the rest) ─────
 
 router.post('/tv/activate', tvCtrl.activate);
+// Public and deliberately unauthenticated: a crash can happen before the
+// device has any valid token, or with a corrupted one - this must never be
+// gated behind auth or it defeats the entire point (there is no other way
+// to see what happened on a real TV, since it can't be debugged directly).
+router.post('/tv/crash-report', tvCtrl.reportCrash);
 router.post('/tv/heartbeat', auth.authenticateTvDevice, tvCtrl.heartbeat);
 router.get('/tv/channels', auth.authenticateTvDevice, tvCtrl.getChannels);
+router.get('/tv/exclusive/access', auth.authenticateTvDevice, tvCtrl.getExclusiveAccessSummary);
 router.get('/tv/channel/:channelNumber', auth.authenticateTvDevice, tvCtrl.getChannelByNumber);
 // Library reader, acting as the paired account. Same controllers as the
 // user-auth routes in library.routes.js, so entitlement checks are identical.
@@ -81,6 +88,94 @@ router.get('/tv/messages', auth.authenticateTvDevice, tvCtrl.listMessages);
 router.post('/tv/messages/mark-read', auth.authenticateTvDevice, tvCtrl.markMessagesRead);
 router.post('/tv/messages/:id/reply', auth.authenticateTvDevice, tvCtrl.replyToMessage);
 
+// ── TV-to-TV Chat (device-token; acts as the device's owner user) ──
+
+function attachDeviceChatUser(req, res, next) {
+  req.chatUserId = req.device?.owner_user_id || null;
+  next();
+}
+
+router.get('/tv/chat/pin', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.getMyPin);
+router.post('/tv/chat/pin/regenerate', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.regeneratePin);
+router.post('/tv/chat/connections', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.requestConnection);
+router.get('/tv/chat/connections', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.listConnections);
+router.post('/tv/chat/connections/:id/respond', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.respondToConnection);
+router.get('/tv/chat/connections/:connectionId/messages', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.listMessages);
+router.post('/tv/chat/connections/:connectionId/messages', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.sendMessage);
+router.post('/tv/chat/connections/:connectionId/read', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.markConnectionRead);
+router.get('/tv/chat/unread-summary', auth.authenticateTvDevice, attachDeviceChatUser, chatCtrl.getUnreadSummary);
+
+// ── Library reader (device-token; acts as the device's owner user) ──
+// Reuses the same viewer controller the website reader calls
+// (channels/:channelId/library/*), just behind device auth instead of a
+// user JWT, so the TV reader is byte-for-byte the same flow/data.
+
+const libraryViewerCtrl = require('../library/library-viewer.controller');
+
+function attachDeviceLibraryUser(req, res, next) {
+  req.userId = req.device?.owner_user_id || null;
+  next();
+}
+
+router.get(
+  '/tv/library/continue-reading',
+  auth.authenticateTvDevice,
+  attachDeviceLibraryUser,
+  libraryViewerCtrl.getContinueReading
+);
+router.get(
+  '/tv/library/:channelId/:itemId',
+  auth.authenticateTvDevice,
+  attachDeviceLibraryUser,
+  libraryViewerCtrl.getItemDetail
+);
+router.get(
+  '/tv/library/:channelId/:itemId/reader-manifest',
+  auth.authenticateTvDevice,
+  attachDeviceLibraryUser,
+  libraryViewerCtrl.getReaderManifest
+);
+router.get(
+  '/tv/library/:channelId/:itemId/progress',
+  auth.authenticateTvDevice,
+  attachDeviceLibraryUser,
+  libraryViewerCtrl.getProgress
+);
+router.put(
+  '/tv/library/:channelId/:itemId/progress',
+  auth.authenticateTvDevice,
+  attachDeviceLibraryUser,
+  libraryViewerCtrl.updateProgress
+);
+
+// ── Exclusive content (device-token; acts as the device's owner user) ──
+// Same channel-scoped viewer controllers the website uses for movies,
+// series, and library items - just reused behind device auth so a TV can
+// browse a single exclusive channel's catalog across all three content
+// types without a user JWT.
+
+const movieViewerCtrl = require('../movies/movie-viewer.controller');
+const seriesViewerCtrl = require('../series/series-viewer.controller');
+
+router.get(
+  '/tv/exclusive/:channelId/movies',
+  auth.authenticateTvDevice,
+  attachDeviceLibraryUser,
+  movieViewerCtrl.listChannelMovies
+);
+router.get(
+  '/tv/exclusive/:channelId/series',
+  auth.authenticateTvDevice,
+  attachDeviceLibraryUser,
+  seriesViewerCtrl.listChannelSeries
+);
+router.get(
+  '/tv/exclusive/:channelId/library',
+  auth.authenticateTvDevice,
+  attachDeviceLibraryUser,
+  libraryViewerCtrl.listItems
+);
+
 // ── Marketer (public login, marketer-token for the rest) ─────────
 
 router.post('/marketer/login', marketerCtrl.login);
@@ -118,5 +213,11 @@ router.get('/admin/ledger', authenticateToken, adminCtrl.getLedger);
 router.post('/admin/messages', authenticateToken, adminCtrl.createMessage);
 router.get('/admin/messages', authenticateToken, adminCtrl.listMessages);
 router.get('/admin/messages/:id/replies', authenticateToken, adminCtrl.listMessageReplies);
+
+// ── Admin: TV-to-TV chat moderation ─────────────────────────────
+
+router.get('/admin/chat/connections', authenticateToken, chatCtrl.adminListConnections);
+router.get('/admin/chat/connections/:connectionId/messages', authenticateToken, chatCtrl.adminListMessages);
+router.patch('/admin/chat/connections/:connectionId', authenticateToken, chatCtrl.adminSetConnectionStatus);
 
 module.exports = router;

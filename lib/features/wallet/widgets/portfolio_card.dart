@@ -38,9 +38,17 @@ class PortfolioCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Nocturne.surfaceRaised,
+        gradient: Nocturne.walletGradient,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Nocturne.borderCard),
+        border: Border.all(color: Nocturne.gold.withValues(alpha: 0.2)),
+        boxShadow: [
+          ...Nocturne.cardShadow,
+          BoxShadow(
+            color: Nocturne.gold.withValues(alpha: 0.1),
+            blurRadius: 26,
+            spreadRadius: -8,
+          ),
+        ],
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -230,9 +238,16 @@ class _BalanceTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         decoration: BoxDecoration(
-          color: const Color(0x06FFFFFF),
+          gradient: LinearGradient(
+            colors: [
+              tint.withValues(alpha: 0.14),
+              tint.withValues(alpha: 0.03),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Nocturne.border),
+          border: Border.all(color: tint.withValues(alpha: 0.22)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

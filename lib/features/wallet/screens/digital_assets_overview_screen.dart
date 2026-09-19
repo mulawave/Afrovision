@@ -32,7 +32,9 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
   late Animation<double> _fadeIn;
   late Animation<Offset> _slideUp;
 
-  static const bool _stakePositionEnabled = false;
+  // Owner instruction: the on-chain Stake card must always be shown. Never set
+  // this to false or gate it behind another flag.
+  static const bool _stakePositionEnabled = true;
   static const int _totalMintedVpt = 400000000;
 
   final GlobalKey _portfolioKey = GlobalKey();

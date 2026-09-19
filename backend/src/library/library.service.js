@@ -361,6 +361,44 @@ class LibraryService {
   }
 
   /**
+   * Get this user's in-progress (not completed, at least one page read)
+   * reading items, most recently updated first - for a "Continue reading"
+   * rail. Entitlement is not re-checked here (a progress record only exists
+   * for content the user genuinely opened at some point); callers that
+   * display this should still be prepared for an item having since become
+   * inaccessible (e.g. channel access revoked) and skip it.
+   * @param {string} userId
+   * @param {number} limit
+   * @returns {Promise<object[]>} progress records, each with its item merged in as `item`
+   */
+  async getContinueReadingForUser(userId, limit = 12) {
+    const snap = await db
+      .collection(COLLECTION_PATHS.READER_PROGRESS)
+      .where('userId', '==', userId)
+      .where('isCompleted', '==', false)
+      .get();
+
+    const records = snap.docs
+      .map((doc) => doc.data())
+      .filter((p) => (p.currentSpreadIndex || 0) > 0)
+      .sort((a, b) => {
+        const aMs = a?.updatedAt?.toMillis?.() ?? 0;
+        const bMs = b?.updatedAt?.toMillis?.() ?? 0;
+        return bMs - aMs;
+      })
+      .slice(0, limit);
+
+    const items = await Promise.all(
+      records.map(async (p) => {
+        const itemDoc = await db.collection(COLLECTION_PATHS.LIBRARY_ITEMS).doc(p.itemId).get();
+        return { ...p, item: itemDoc.exists ? { ...itemDoc.data(), id: itemDoc.id } : null };
+      })
+    );
+
+    return items.filter((r) => r.item != null);
+  }
+
+  /**
    * Create bookmark
    * @param {string} userId
    * @param {string} channelId

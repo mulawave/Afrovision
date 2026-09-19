@@ -36,6 +36,12 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
   bool _loading = false;
   String? _recentNumber;
   String? _recentName;
+  // The paywall needs the channel's real Firestore doc ID, not the number
+  // the user typed - the backend's exclusive-access routes look up by ID
+  // only, so passing the raw dial string 404s with "Channel not found".
+  // Stashed here from the same getChannelByNumber() lookup _access() already
+  // does, so _openPaywall() can hand over the resolved channel instead.
+  ChannelModel? _lockedExclusiveChannel;
 
   // Real, native text input for the channel number. The on-screen keypad
   // below is a convenience — it just writes into this same controller — but
@@ -142,6 +148,7 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
         if (!canWatch) {
           setState(() {
             _loading = false;
+            _lockedExclusiveChannel = channel;
             _dialError =
                 '${channel.name} is an Exclusive Channel with Private Membership — membership is verified before watch.';
           });
@@ -205,11 +212,13 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
   }
 
   void _openPaywall() {
-    // Requires a loaded exclusive channel. If the user has typed an
-    // exclusive number but has no access, the paywall is the next step.
-    // The number itself is enough to identify the channel; the paywall
-    // will resolve the channel and its access status again.
-    Navigator.pushNamed(context, '/exclusive-access', arguments: _dial);
+    // Pass the resolved ChannelModel (real doc ID), not the raw typed
+    // number - the paywall's access-status/purchase calls hit
+    // /channels/:id/exclusive/..., which is a Firestore-doc-ID lookup, and
+    // 404s as "Channel not found" on a channel_number string like "31".
+    final channel = _lockedExclusiveChannel;
+    if (channel == null) return;
+    Navigator.pushNamed(context, '/exclusive-access', arguments: channel);
   }
 
   @override
@@ -515,7 +524,9 @@ class _ChannelNumberAccessScreenState extends State<ChannelNumberAccessScreen>
 
                       const SizedBox(height: 14),
 
-                      // Recent recall
+                      // Recent recall — quick-jump straight back into the
+                      // last-tuned channel instead of just prefilling the
+                      // dial (the user still has to press Access Channel).
                       if (hasRecent)
                         _tappable(
                           onTap: () => _setDial(_recentNumber!),

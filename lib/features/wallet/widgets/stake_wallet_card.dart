@@ -20,16 +20,28 @@ class StakeWalletCard extends StatelessWidget {
     final share = totalMinted > 0 ? (stakedVpt / totalMinted) * 100 : 0.0;
 
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
           colors: [Color(0xFF2A1F52), Color(0xFF1A1436)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.all(Radius.circular(16)),
-        border: Border.fromBorderSide(
+        borderRadius: const BorderRadius.all(Radius.circular(16)),
+        border: const Border.fromBorderSide(
           BorderSide(color: Color(0xFF4B3A86)),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+          BoxShadow(
+            color: const Color(0xFF8B5CF6).withValues(alpha: 0.18),
+            blurRadius: 28,
+            spreadRadius: -8,
+          ),
+        ],
       ),
       padding: const EdgeInsets.all(14),
       child: Column(

@@ -16,6 +16,7 @@ function normalizeAccountNumber(value) {
 async function getProfile(req, res) {
   const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!user.wallet_reference) await User.ensureWalletReference(user);
   res.json({ user: User.toSafeUser(user) });
 }
 

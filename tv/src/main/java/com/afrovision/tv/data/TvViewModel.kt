@@ -10,24 +10,22 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.afrovision.tv.TV_APP_TAG
-import com.afrovision.tv.data.api.ReaderManifestFetcher
 import com.afrovision.tv.data.api.RetrofitClient
 import com.afrovision.tv.data.api.TokenHolder
 import com.afrovision.tv.data.recommendation.RecommendationManager
 import com.afrovision.tv.data.api.model.CatchUpHome
 import com.afrovision.tv.data.api.model.CatchUpItem
 import com.afrovision.tv.data.api.model.Channel
-import com.afrovision.tv.data.api.model.LibraryItem
-import com.afrovision.tv.data.api.model.LibraryItemDetail
-import com.afrovision.tv.data.api.model.LibraryProgress
-import com.afrovision.tv.data.api.model.ReaderManifest
+import com.afrovision.tv.data.api.model.HomepageFeaturedItem
 import com.afrovision.tv.data.api.model.Message
 import com.afrovision.tv.data.api.model.FeedPost
 import com.afrovision.tv.data.api.model.Movie
 import com.afrovision.tv.data.api.model.Series
 import com.afrovision.tv.data.api.model.Wave
 import com.afrovision.tv.data.api.model.WatchProgress
+import com.afrovision.tv.ui.components.HeroSlide
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,13 +49,54 @@ sealed class LoadState<out T> {
     data class Error(val message: String) : LoadState<Nothing>()
 }
 
+/**
+ * A raw network exception's message (UnknownHostException, ConnectException,
+ * SocketTimeoutException, SSLException...) routinely contains the backend's
+ * hostname or IP - OkHttp puts it right in the message text, e.g.
+ * "Unable to resolve host \"afrovision-backend-xxxx.run.app\": No address
+ * associated with hostname". Passing that straight into LoadState.Error used
+ * to be exactly how a bare backend URL ended up on-screen during a network
+ * drop. Every catch block should route through this instead of reading a
+ * caught exception's message directly, so the backend's address is never
+ * something the TV shows.
+ */
+// Reads the `kind` claim out of a JWT's payload segment without verifying
+// its signature - fine here since this only decides which locally-stored
+// token slot to backfill, never used to authenticate anything itself (the
+// backend independently verifies every token on every request regardless).
+private fun jwtKind(token: String): String? {
+    return try {
+        val parts = token.split(".")
+        if (parts.size != 3) return null
+        val payload = android.util.Base64.decode(parts[1], android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+        val json = org.json.JSONObject(String(payload, Charsets.UTF_8))
+        if (json.has("kind")) json.getString("kind") else null
+    } catch (_: Exception) {
+        null
+    }
+}
+
+fun Throwable.toUserFacingMessage(): String = when (this) {
+    is java.net.UnknownHostException,
+    is java.net.ConnectException,
+    is java.net.SocketTimeoutException,
+    is javax.net.ssl.SSLException,
+    is java.io.IOException -> "Connection dropped. Check your network and try again."
+    is retrofit2.HttpException -> "Server error (${code()}). Please try again."
+    else -> "Something went wrong. Please try again."
+}
+
 data class HomeState(
-    val continueWatching: LoadState<List<WatchProgress>> = LoadState.Loading,
+    val continueWatching: LoadState<List<MediaCard>> = LoadState.Loading,
+    val recentChannels: LoadState<List<MediaCard>> = LoadState.Loading,
+    val featuredChannels: LoadState<List<com.afrovision.tv.data.api.model.HomepageFeaturedItem>> = LoadState.Loading,
     val liveChannels: LoadState<List<Channel>> = LoadState.Loading,
     val newMovies: LoadState<List<Movie>> = LoadState.Loading,
     val newSeries: LoadState<List<Series>> = LoadState.Loading,
     val waves: LoadState<List<Wave>> = LoadState.Loading,
-    val library: LoadState<List<LibraryItem>> = LoadState.Loading
+    val library: LoadState<List<com.afrovision.tv.data.api.model.LibraryItem>> = LoadState.Loading,
+    val heroSlides: List<com.afrovision.tv.ui.components.HeroSlide> = com.afrovision.tv.ui.components.defaultHeroSlides(),
+    val heroAutoRotateMs: Long = 8000L
 )
 
 
@@ -69,7 +108,6 @@ data class MoviesSeriesState(
 
 data class MediaCard(
     val id: String,
-    val channelId: String? = null,
     val title: String,
     val subtitle: String = "",
     val imageUrl: String? = null,
@@ -78,7 +116,8 @@ data class MediaCard(
     val mediaType: String = "",
     val streamUrl: String? = null,
     val externalUrl: String? = null,
-    val duration: Long = 0L
+    val duration: Long = 0L,
+    val channelNumber: Int? = null
 )
 
 data class PlayerMedia(
@@ -144,10 +183,15 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     var waves by mutableStateOf<LoadState<List<Wave>>>(LoadState.Loading)
         private set
 
+    // "Fav" tab (mobile's _WaveFeedMode.fav) - bookmarked waves, kept
+    // separate from the "Public" feed rather than filtering client-side.
+    var favWaves by mutableStateOf<LoadState<List<Wave>>>(LoadState.Loading)
+        private set
+
     var moviesSeries by mutableStateOf(MoviesSeriesState())
         private set
 
-    var library by mutableStateOf<LoadState<List<LibraryItem>>>(LoadState.Loading)
+    var library by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.LibraryItem>>>(LoadState.Loading)
         private set
 
     var exclusive by mutableStateOf<LoadState<List<MediaCard>>>(LoadState.Loading)
@@ -183,22 +227,6 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     var downloads by mutableStateOf<List<DownloadItem>>(emptyList())
         private set
 
-    var readerChannelId by mutableStateOf<String?>(null)
-        private set
-
-    var readerItemId by mutableStateOf<String?>(null)
-        private set
-
-    var readerDetail by mutableStateOf<LoadState<LibraryItemDetail>>(LoadState.Loading)
-        private set
-
-    var readerManifest by mutableStateOf<LoadState<ReaderManifest>>(LoadState.Loading)
-        private set
-
-    // Where the reader was opened from, so closing it returns there rather
-    // than dropping the viewer on Home.
-    private var readerReturnScreen = com.afrovision.tv.ui.navigation.Screen.Library
-
     val appVersion: String = DeviceIdProvider.getAppVersion(application)
     val versionCode: Long = DeviceIdProvider.getVersionCode(application)
     val deviceName: String = DeviceIdProvider.getDeviceName()
@@ -208,18 +236,41 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            ensureDeviceId()
-            _token.value = dataStore.token.first()
-            TokenHolder.token = _token.value
-            _isPaired.value = dataStore.isPaired.first() && _token.value.isNotBlank()
-            _userName.value = dataStore.userName.first()
-            if (_isPaired.value) {
-                currentScreen = com.afrovision.tv.ui.navigation.Screen.Home
-                loadAll()
-                startHeartbeat()
-            } else {
-                currentScreen = com.afrovision.tv.ui.navigation.Screen.Pairing
+            val initWork = async {
+                ensureDeviceId()
+                _token.value = dataStore.token.first()
+                TokenHolder.token = _token.value
+                var loadedDeviceToken = dataStore.deviceToken.first()
+                // Self-healing for any TV that was activated before the
+                // deviceToken/token split existed (see NetworkReconnector-
+                // adjacent token fix): back then `token` doubled as the
+                // device token. If deviceToken was never persisted but the
+                // still-stored `token` is itself a "tv_device"-kind JWT
+                // (never QR-paired, so never upgraded to a user token),
+                // it's safe to treat it as the device token retroactively -
+                // no re-activation needed. If `token` turns out to be a user
+                // token instead (already QR-paired under the old broken
+                // code), there's nothing to recover from client-side; that
+                // TV genuinely needs to go through activation again.
+                if (loadedDeviceToken.isBlank() && _token.value.isNotBlank() && jwtKind(_token.value) == "tv_device") {
+                    loadedDeviceToken = _token.value
+                    dataStore.setDeviceToken(loadedDeviceToken)
+                }
+                TokenHolder.deviceToken = loadedDeviceToken
+                _isPaired.value = dataStore.isPaired.first() && _token.value.isNotBlank()
+                _userName.value = dataStore.userName.first()
+                if (_isPaired.value) {
+                    currentScreen = com.afrovision.tv.ui.navigation.Screen.Home
+                    loadAll()
+                    startHeartbeat()
+                    startChatSocket()
+                } else {
+                    currentScreen = com.afrovision.tv.ui.navigation.Screen.Pairing
+                }
             }
+            val minSplash = async { delay(2500) }
+            initWork.await()
+            minSplash.await()
             _isReady.value = true
         }
     }
@@ -227,42 +278,64 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun navigateTo(screen: com.afrovision.tv.ui.navigation.Screen) {
         if (screen == com.afrovision.tv.ui.navigation.Screen.Player) return
         currentScreen = screen
+        if (screen == com.afrovision.tv.ui.navigation.Screen.Home) {
+            loadHome()
+        }
     }
 
+    fun playHero(slide: com.afrovision.tv.ui.components.HeroSlide) {
+        val href = slide.href ?: return
+        val isLive = slide.badges.any { it.isLive }
+        val isStream = href.endsWith(".m3u8", ignoreCase = true) ||
+            href.endsWith(".mp4", ignoreCase = true) ||
+            href.endsWith(".mpd", ignoreCase = true)
+        val playerMedia = PlayerMedia(
+            id = slide.title,
+            title = slide.title,
+            streamUrl = if (isStream || isLive) href else null,
+            externalUrl = if (!isStream && !isLive) href else null,
+            isLive = isLive,
+            progress = 0,
+            duration = 0,
+            mediaType = if (isLive) "channel" else "hero"
+        )
+        play(playerMedia)
+    }
+
+    // Where Player was opened from, so closePlayer() can return there instead
+    // of a hardcoded screen. Only captured on the *first* play() of a
+    // session (currentScreen != Player yet) - a second play() call while
+    // already in the player (e.g. selecting a channel-surfer/up-next item)
+    // must not overwrite it with Player itself.
+    private var screenBeforePlayer: com.afrovision.tv.ui.navigation.Screen? = null
+
     fun play(media: PlayerMedia) {
+        if (currentScreen != com.afrovision.tv.ui.navigation.Screen.Player) {
+            screenBeforePlayer = currentScreen
+        }
         playerMedia = media
         currentScreen = com.afrovision.tv.ui.navigation.Screen.Player
     }
 
+    fun playChannel(card: MediaCard) {
+        viewModelScope.launch {
+            dataStore.recordRecentChannel(
+                RecentChannel(
+                    id = card.id,
+                    name = card.title,
+                    logoUrl = card.imageUrl,
+                    viewedAt = System.currentTimeMillis()
+                )
+            )
+        }
+        play(card.toPlayerMedia())
+    }
+
     fun closePlayer() {
-        val fromTrailer = playerMedia?.mediaType == "trailer"
-        currentScreen = if (fromTrailer) com.afrovision.tv.ui.navigation.Screen.CatchUp else com.afrovision.tv.ui.navigation.Screen.Home
+        val target = screenBeforePlayer ?: com.afrovision.tv.ui.navigation.Screen.Home
+        screenBeforePlayer = null
         playerMedia = null
-    }
-
-    /** Fire-and-forget: records a channel view for the live-viewers dashboard. */
-    fun recordChannelView(channelId: String) {
-        viewModelScope.launch {
-            try {
-                api.recordChannelView(channelId)
-            } catch (e: Exception) {
-                Log.e(TV_APP_TAG, "recordChannelView failed", e)
-            }
-        }
-    }
-
-    /**
-     * Fire-and-forget: reports accumulated watch-time for a channel so the
-     * admin live-viewers dashboard can show real "hours watched" totals for TV.
-     */
-    fun recordChannelWatchPing(channelId: String, seconds: Int) {
-        viewModelScope.launch {
-            try {
-                api.recordChannelWatchPing(channelId, com.afrovision.tv.data.api.model.WatchPingRequest(seconds = seconds))
-            } catch (e: Exception) {
-                Log.e(TV_APP_TAG, "recordChannelWatchPing failed", e)
-            }
-        }
+        navigateTo(target)
     }
 
     fun loadAll() {
@@ -287,7 +360,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 LoadState.Success(api.getCatchUpHome().data)
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "loadCatchUp failed", e)
-                LoadState.Error(e.message ?: "Unknown")
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -299,7 +372,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 LoadState.Success(api.getCatchUpDetail(type, id).data)
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "loadCatchUpDetail failed", e)
-                LoadState.Error(e.message ?: "Unknown")
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -335,33 +408,133 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun loadHome() {
         viewModelScope.launch {
             homeState = homeState.copy(continueWatching = LoadState.Loading)
-            homeState = try {
-                val progress = api.getWatchProgress()
-                val live = api.getChannels(mapOf("live" to "true"))
-                val movies = api.getMovies(mapOf("sort" to "new"))
-                val series = api.getSeries(mapOf("sort" to "new"))
-                val waves = api.getWaves(mapOf("limit" to "12"))
-                val library = api.getChannelLibrary()
-                homeState.copy(
-                    continueWatching = LoadState.Success(progress.data.items),
-                    liveChannels = LoadState.Success(live.channels.filter { !it.isExclusive }),
-                    newMovies = LoadState.Success(movies.data),
-                    newSeries = LoadState.Success(series.data),
-                    waves = LoadState.Success(waves.data),
-                    library = LoadState.Success(library.data.items)
-                ).also {
-                    RecommendationManager.sync(getApplication(), progress.data.items.map { it.toMediaCard() })
+
+            // Hero slides + featured channels — from /home/content
+            val homepageResult = try {
+                val response = api.getHomepageContent()
+                val content = response.homepage ?: response.data
+                val heroSection = content?.sections?.find { it.key == "hero" && it.enabled }
+                val heroSlides = heroSection?.toHeroSlides()
+                val autoRotate = heroSection?.autoRotateMs ?: 8000L
+                val featuredSection = content?.sections?.find { it.key == "featured_channels" && it.enabled }
+                val featuredItems = featuredSection?.items ?: emptyList()
+                Log.d(TV_APP_TAG, "Homepage loaded: ${heroSlides?.size ?: 0} hero slides, ${featuredItems.size} featured channels")
+                Triple(heroSlides ?: com.afrovision.tv.ui.components.defaultHeroSlides(), autoRotate, featuredItems)
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "getHomepageContent failed", e)
+                Triple(com.afrovision.tv.ui.components.defaultHeroSlides(), 8000L, emptyList<HomepageFeaturedItem>())
+            }
+
+            // Recently viewed channels — from local DataStore
+            val recentChannelList = try {
+                val recent = dataStore.recentChannels.first()
+                Log.d(TV_APP_TAG, "Home recent channels from DataStore: ${recent.size} items")
+                recent.map { rc ->
+                    MediaCard(
+                        id = rc.id,
+                        title = rc.name,
+                        imageUrl = rc.logoUrl,
+                        mediaType = "channel",
+                        badge = "LIVE"
+                    )
                 }
             } catch (e: Exception) {
-                Log.e(TV_APP_TAG, "loadHome failed", e)
-                homeState.copy(
-                    continueWatching = LoadState.Error(e.message ?: "Unknown"),
-                    liveChannels = LoadState.Error(e.message ?: "Unknown"),
-                    newMovies = LoadState.Error(e.message ?: "Unknown"),
-                    newSeries = LoadState.Error(e.message ?: "Unknown"),
-                    waves = LoadState.Error(e.message ?: "Unknown"),
-                    library = LoadState.Error(e.message ?: "Unknown")
-                )
+                Log.e(TV_APP_TAG, "Home recent channels load FAILED", e)
+                emptyList()
+            }
+
+            // Each endpoint loads independently — one failure does NOT kill all rails
+            val progressResult = try {
+                val r = api.getWatchProgress()
+                Log.d(TV_APP_TAG, "Home /watch-progress/me: ${r.data.size} items")
+                r
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "Home /watch-progress/me FAILED", e)
+                null
+            }
+
+            val liveResult = try {
+                val r = api.getChannels(mapOf("live" to "true"))
+                Log.d(TV_APP_TAG, "Home /channels?live=true: ${r.channels.size} items")
+                r
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "Home /channels?live=true FAILED", e)
+                null
+            }
+
+            val moviesResult = try {
+                val r = api.getMovies(mapOf("sort" to "new"))
+                Log.d(TV_APP_TAG, "Home /movies?sort=new: ${r.movies.size} items")
+                r
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "Home /movies?sort=new FAILED", e)
+                null
+            }
+
+            val seriesResult = try {
+                val r = api.getSeries(mapOf("sort" to "new"))
+                Log.d(TV_APP_TAG, "Home /series?sort=new: ${r.series.size} items")
+                r
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "Home /series?sort=new FAILED", e)
+                null
+            }
+
+            val wavesResult = try {
+                val r = api.getWaves(mapOf("limit" to "12"))
+                Log.d(TV_APP_TAG, "Home /wave?limit=12: ${r.data.size} items")
+                r
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "Home /wave?limit=12 FAILED", e)
+                null
+            }
+
+            val libraryResult = try {
+                val r = api.getLibraryFeed(mapOf("limit" to "20"))
+                Log.d(TV_APP_TAG, "Home /library/feed: ${r.data.items.size} items")
+                r
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "Home /library/feed FAILED", e)
+                null
+            }
+
+            // Build continue-watching cards from whatever loaded successfully.
+            // Library items are reading content, not video - they have no
+            // watch progress and don't belong in this map.
+            val mediaById = buildMap<String, Any> {
+                liveResult?.channels?.forEach { put(it.id, it) }
+                moviesResult?.movies?.forEach { put(it.id, it) }
+                seriesResult?.series?.forEach { put(it.id, it) }
+                wavesResult?.data?.forEach { put(it.id, it) }
+            }
+            val continueCards = progressResult?.data?.mapNotNull { wp ->
+                when (val media = mediaById[wp.mediaId]) {
+                    is Channel -> wp.toMediaCard(media)
+                    is Movie -> wp.toMediaCard(media)
+                    is Series -> wp.toMediaCard(media)
+                    is Wave -> wp.toMediaCard(media)
+                    else -> wp.toMediaCard()
+                }
+            } ?: emptyList()
+            Log.d(TV_APP_TAG, "Home continue-watching enriched: ${continueCards.size} cards")
+
+            val newState = homeState.copy(
+                continueWatching = if (progressResult != null) LoadState.Success(continueCards) else LoadState.Error("Failed"),
+                recentChannels = LoadState.Success(recentChannelList),
+                featuredChannels = LoadState.Success(homepageResult.third),
+                liveChannels = if (liveResult != null) LoadState.Success(liveResult.channels.filter { !it.isExclusive }) else LoadState.Error("Failed"),
+                newMovies = if (moviesResult != null) LoadState.Success(moviesResult.movies) else LoadState.Error("Failed"),
+                newSeries = if (seriesResult != null) LoadState.Success(seriesResult.series) else LoadState.Error("Failed"),
+                waves = if (wavesResult != null) LoadState.Success(wavesResult.data) else LoadState.Error("Failed"),
+                library = if (libraryResult != null) LoadState.Success(libraryResult.data.items) else LoadState.Error("Failed"),
+                heroSlides = homepageResult.first,
+                heroAutoRotateMs = homepageResult.second
+            )
+            homeState = newState
+            Log.d(TV_APP_TAG, "Home state assembled: recent=${recentChannelList.size} featured=${homepageResult.third.size} continue=${continueCards.size} live=${liveResult?.channels?.size ?: 0} movies=${moviesResult?.movies?.size ?: 0} series=${seriesResult?.series?.size ?: 0} waves=${wavesResult?.data?.size ?: 0} library=${libraryResult?.data?.items?.size ?: 0}")
+
+            if (progressResult != null) {
+                RecommendationManager.sync(getApplication(), continueCards)
             }
         }
     }
@@ -373,7 +546,32 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.getChannels(mapOf("live" to "true"))
                 LoadState.Success(response.channels)
             } catch (e: Exception) {
-                LoadState.Error(e.message ?: "Unknown")
+                LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
+
+    // Paged like mobile's own feed: a full library can be 60+ waves, so
+    // fetching a flat 24 and looping just that batch forever made it look
+    // like there were only ever a handful of waves. wavesNextCursor tracks
+    // whether more exist; the Waves screen calls loadMoreWaves() as the
+    // user approaches the end of what's currently loaded, appending rather
+    // than replacing, and only wraps back to the start once this is null.
+    var wavesNextCursor by mutableStateOf<String?>(null)
+        private set
+    var wavesLoadingMore by mutableStateOf(false)
+        private set
+
+    var marqueeTopics by mutableStateOf<LoadState<List<String>>>(LoadState.Loading)
+        private set
+
+    /** Same public ticker feed the mobile app and website use, filtered client-side to `active` topics - mirrors HomeService.getMarqueeTopics. */
+    fun loadMarqueeTopics() {
+        viewModelScope.launch {
+            marqueeTopics = try {
+                LoadState.Success(api.getMarqueeTopics().filter { it.active }.map { it.text })
+            } catch (e: Exception) {
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -383,12 +581,150 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             waves = LoadState.Loading
             waves = try {
                 val response = api.getWaves(mapOf("limit" to "24"))
-                LoadState.Success(response.data)
+                wavesNextCursor = response.nextCursor
+                LoadState.Success(response.waves.ifEmpty { response.data })
             } catch (e: Exception) {
-                LoadState.Error(e.message ?: "Unknown")
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
+
+    fun loadMoreWaves() {
+        val cursor = wavesNextCursor ?: return
+        if (wavesLoadingMore) return
+        val current = (waves as? LoadState.Success)?.data ?: return
+        wavesLoadingMore = true
+        viewModelScope.launch {
+            try {
+                // /wave/feed is a "novel" discovery feed, not a strict
+                // chronological list - its diversity/novelty ranking can
+                // legitimately resurface the same waves on a later page if
+                // it doesn't know what's already been shown. exclude_ids is
+                // the mechanism the backend actually exposes for this
+                // (parseExcludeIdsFromQuery, capped at 160): without it,
+                // "page 2" kept coming back full of waves already in
+                // `current`, which the client-side dedupe below then
+                // silently dropped - net near-zero new waves added, so
+                // pagination looked broken even though the calls succeeded.
+                val existingIds = current.map { it.id }
+                val query = mutableMapOf("limit" to "24", "cursor" to cursor)
+                if (existingIds.isNotEmpty()) {
+                    query["exclude_ids"] = existingIds.takeLast(160).joinToString(",")
+                }
+                val response = api.getWaves(query)
+                val more = response.waves.ifEmpty { response.data }
+                val existingIdSet = existingIds.toHashSet()
+                waves = LoadState.Success(current + more.filterNot { it.id in existingIdSet })
+                wavesNextCursor = response.nextCursor
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "loadMoreWaves failed", e)
+            } finally {
+                wavesLoadingMore = false
+            }
+        }
+    }
+
+    fun loadFavWaves() {
+        viewModelScope.launch {
+            favWaves = LoadState.Loading
+            favWaves = try {
+                LoadState.Success(api.getWaveBookmarks())
+            } catch (e: Exception) {
+                LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
+
+    // Single tap = intensity 1, matching mobile's baseline tap (mobile also
+    // supports press-and-hold up to intensity 3, not replicated here - a
+    // remote's single Enter press is the TV-appropriate equivalent).
+    // Pulse is not a one-time "like" - mobile lets a viewer tap it repeatedly
+    // to mark favorite moments along the wave's own timeline (that's what
+    // the ECG/pulse-moments graph visualizes), capped server-side at a daily
+    // limit per wave (Wave.addPulse returns null / this call gets HTTP 429
+    // once hit). momentSecondsProvider is called at request time (not
+    // capture time) so the moment recorded is wherever playback actually is
+    // when the call goes out, not when the button was first pressed.
+    fun addWavePulse(waveId: String, momentSeconds: Long, onResult: (limitReached: Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                api.addWavePulse(waveId, mapOf("intensity" to 1, "moment_seconds" to momentSeconds.toInt()))
+                onResult(false)
+                loadPulseMomentsForce(waveId)
+            } catch (e: HttpException) {
+                if (e.code() == 429) onResult(true) else onResult(false)
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "addWavePulse failed for $waveId", e)
+                onResult(false)
+            }
+        }
+    }
+
+    private fun loadPulseMomentsForce(waveId: String) {
+        viewModelScope.launch {
+            try {
+                val response = api.getWavePulseMoments(waveId)
+                pulseMomentsByWaveId = pulseMomentsByWaveId + (waveId to response.moments)
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "loadPulseMomentsForce failed for $waveId", e)
+            }
+        }
+    }
+
+    fun toggleWaveBookmark(waveId: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val status = api.toggleWaveBookmark(waveId)
+                onResult(status.bookmarked)
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "toggleWaveBookmark failed for $waveId", e)
+            }
+        }
+    }
+
+    // Mirrors mobile's WaveService.trackView calls exactly: once when a wave
+    // becomes the one on screen, and again every time it loops back to the
+    // start - the backend (Wave.trackView) already dedupes views_count to
+    // once per user/device on its own, while repeat_play_count always
+    // increments, so there's no need to debounce anything client-side.
+    // Cached for the life of the ViewModel - once a wave's pulse moments are
+    // fetched they never change meaningfully within a session, so revisiting
+    // a wave (or landing back on it after browsing others) must not re-pull
+    // this from the server.
+    var pulseMomentsByWaveId by mutableStateOf<Map<String, List<com.afrovision.tv.data.api.model.WavePulseMoment>>>(emptyMap())
+        private set
+
+    fun loadPulseMoments(waveId: String) {
+        if (pulseMomentsByWaveId.containsKey(waveId)) return
+        viewModelScope.launch {
+            try {
+                val response = api.getWavePulseMoments(waveId)
+                pulseMomentsByWaveId = pulseMomentsByWaveId + (waveId to response.moments)
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "loadPulseMoments failed for $waveId", e)
+            }
+        }
+    }
+
+    fun trackWaveView(waveId: String) {
+        viewModelScope.launch {
+            try {
+                api.trackWaveView(waveId)
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "trackWaveView failed for $waveId", e)
+            }
+        }
+    }
+
+    // A poster tap should open a details screen (poster, synopsis, Play
+    // button) - the same as mobile - not start playback immediately.
+    // selectedMovie/selectedSeries themselves already existed (unused,
+    // alongside the equally-unused Screen.MovieDetail/SeriesDetail enum
+    // entries) - this is what they were for.
+    fun selectMovie(movie: Movie) { selectedMovie = movie }
+    fun clearSelectedMovie() { selectedMovie = null }
+    fun selectSeries(series: Series) { selectedSeries = series }
+    fun clearSelectedSeries() { selectedSeries = null }
 
     fun loadMoviesSeries() {
         viewModelScope.launch {
@@ -400,13 +736,13 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 val movies = api.getMovies(mapOf("sort" to "new"))
                 val series = api.getSeries(mapOf("sort" to "new"))
                 moviesSeries = moviesSeries.copy(
-                    movies = LoadState.Success(movies.data),
-                    series = LoadState.Success(series.data)
+                    movies = LoadState.Success(movies.movies),
+                    series = LoadState.Success(series.series)
                 )
             } catch (e: Exception) {
                 moviesSeries = moviesSeries.copy(
-                    movies = LoadState.Error(e.message ?: "Unknown"),
-                    series = LoadState.Error(e.message ?: "Unknown")
+                    movies = LoadState.Error(e.toUserFacingMessage()),
+                    series = LoadState.Error(e.toUserFacingMessage())
                 )
             }
         }
@@ -420,9 +756,9 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             library = LoadState.Loading
             library = try {
-                LoadState.Success(api.getChannelLibrary().data.items)
+                LoadState.Success(api.getLibraryFeed(mapOf("limit" to "40")).data.items)
             } catch (e: Exception) {
-                LoadState.Error(e.message ?: "Unknown")
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -431,10 +767,8 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             exclusive = LoadState.Loading
             exclusive = try {
-                // Device-token endpoint: resolves the paired owner's active exclusive
-                // access. /channels authenticates users, not devices, so it cannot.
-                val response = api.getTvChannels()
-                val cards = response.channels.filter { it.isExclusive }.map {
+                val response = api.getChannels(mapOf("exclusive" to "true"))
+                val cards = response.data.map {
                     MediaCard(
                         id = it.id,
                         title = it.name,
@@ -445,63 +779,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 LoadState.Success(cards)
             } catch (e: Exception) {
-                LoadState.Error(e.message ?: "Unknown")
-            }
-        }
-    }
-
-    fun openReaderItem(channelId: String, itemId: String) {
-        if (currentScreen != com.afrovision.tv.ui.navigation.Screen.LibraryReader) {
-            readerReturnScreen = currentScreen
-        }
-        readerChannelId = channelId
-        readerItemId = itemId
-        currentScreen = com.afrovision.tv.ui.navigation.Screen.LibraryReader
-
-        viewModelScope.launch {
-            readerDetail = LoadState.Loading
-            readerManifest = LoadState.Loading
-
-            readerDetail = try {
-                val detail = api.getLibraryItemDetail(channelId, itemId).data
-                if (detail != null) LoadState.Success(detail)
-                else LoadState.Error("Book details unavailable")
-            } catch (e: Exception) {
-                Log.e(TV_APP_TAG, "openReaderItem detail failed", e)
-                LoadState.Error(e.message ?: "Unknown")
-            }
-
-            readerManifest = try {
-                val url = api.getReaderManifestRef(channelId, itemId).data?.manifestUrl
-                if (url.isNullOrBlank()) {
-                    LoadState.Error("Reader assets not available for this item")
-                } else {
-                    val manifest = ReaderManifestFetcher.fetch(url)
-                    if (manifest != null) LoadState.Success(manifest)
-                    else LoadState.Error("Could not load the page list")
-                }
-            } catch (e: Exception) {
-                Log.e(TV_APP_TAG, "openReaderItem manifest failed", e)
-                LoadState.Error(e.message ?: "Unknown")
-            }
-        }
-    }
-
-    fun closeReader() {
-        readerChannelId = null
-        readerItemId = null
-        readerDetail = LoadState.Loading
-        readerManifest = LoadState.Loading
-        currentScreen = readerReturnScreen
-    }
-
-    fun saveReaderProgress(channelId: String, itemId: String, progress: LibraryProgress) {
-        viewModelScope.launch {
-            try {
-                api.updateReaderProgress(channelId, itemId, progress)
-            } catch (e: Exception) {
-                // Autosave is best-effort; a failed save must never interrupt reading.
-                Log.e(TV_APP_TAG, "saveReaderProgress failed", e)
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -516,8 +794,8 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             }
             try {
                 val channels = api.getChannels(mapOf("q" to query)).data
-                val movies = api.getMovies(mapOf("q" to query)).data
-                val series = api.getSeries(mapOf("q" to query)).data
+                val movies = api.getMovies(mapOf("q" to query)).movies
+                val series = api.getSeries(mapOf("q" to query)).series
                 val waves = api.getWaves(mapOf("q" to query)).data
                 val result = mutableListOf<MediaCard>()
                 result += channels.map {
@@ -534,7 +812,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 search = LoadState.Success(result)
             } catch (e: Exception) {
-                search = LoadState.Error(e.message ?: "Unknown")
+                search = LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -543,11 +821,15 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             messages = LoadState.Loading
             messages = try {
+                // Nav badge intentionally not touched here - it's chat +
+                // admin combined and heartbeat is its one authoritative
+                // source (see sendHeartbeat). Setting it from admin-only
+                // unread count on every Inbox open would clobber that
+                // combined total back down to just the admin portion.
                 val response = api.getMessages()
-                _unreadMessages.intValue = response.data.count { !it.read }
                 LoadState.Success(response.data)
             } catch (e: Exception) {
-                LoadState.Error(e.message ?: "Unknown")
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -557,6 +839,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 api.markMessagesRead(com.afrovision.tv.data.api.model.MarkReadRequest(ids))
                 loadMessages()
+                retryHeartbeat()
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "mark read failed", e)
             }
@@ -570,6 +853,303 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 loadMessages()
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "reply failed", e)
+            }
+        }
+    }
+
+    // ── Library reader (mirrors the website's channel-scoped reader) ──
+
+    var continueReading by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.ContinueReadingRecord>>>(LoadState.Loading)
+    var readerDetail by mutableStateOf<LoadState<com.afrovision.tv.data.api.model.LibraryItemDetail>>(LoadState.Loading)
+    var readerManifest by mutableStateOf<LoadState<com.afrovision.tv.data.api.model.ReaderManifest>>(LoadState.Loading)
+    var readerChannelId by mutableStateOf<String?>(null)
+    var readerItemId by mutableStateOf<String?>(null)
+    private var progressSaveJob: Job? = null
+
+    fun openReaderScreen(channelId: String, itemId: String) {
+        readerChannelId = channelId
+        readerItemId = itemId
+        currentScreen = com.afrovision.tv.ui.navigation.Screen.Reader
+        openReader(channelId, itemId)
+    }
+
+    fun closeReader() {
+        currentScreen = com.afrovision.tv.ui.navigation.Screen.Library
+        readerChannelId = null
+        readerItemId = null
+    }
+
+    fun loadContinueReading() {
+        viewModelScope.launch {
+            continueReading = try {
+                LoadState.Success(api.getContinueReading(12).data)
+            } catch (e: Exception) {
+                LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
+
+    fun openReaderItem(channelId: String, itemId: String) {
+        readerItemId = itemId
+        openReader(channelId, itemId)
+    }
+
+    fun openReader(channelId: String, itemId: String) {
+        readerDetail = LoadState.Loading
+        readerManifest = LoadState.Loading
+        viewModelScope.launch {
+            readerDetail = try {
+                LoadState.Success(api.getLibraryItemDetail(channelId, itemId).data)
+            } catch (e: Exception) {
+                LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+        viewModelScope.launch {
+            readerManifest = try {
+                val info = api.getLibraryReaderManifestInfo(channelId, itemId).data
+                val manifest = com.afrovision.tv.data.api.ReaderManifestFetcher.fetch(info.manifestUrl)
+                if (manifest != null) LoadState.Success(manifest) else LoadState.Error("Could not load book pages")
+            } catch (e: Exception) {
+                LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
+
+    /** Debounced autosave, matching the website reader's 450ms debounce. */
+    fun saveReaderProgress(channelId: String, itemId: String, progress: com.afrovision.tv.data.api.model.LibraryProgress) {
+        progressSaveJob?.cancel()
+        progressSaveJob = viewModelScope.launch {
+            delay(450)
+            try {
+                api.putLibraryProgress(channelId, itemId, progress)
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "saveReaderProgress failed", e)
+            }
+        }
+    }
+
+    // ── Exclusive (movies/series/library, per accessible exclusive channel) ──
+
+    var exclusiveMovies by mutableStateOf<LoadState<List<Movie>>>(LoadState.Loading)
+    var exclusiveSeries by mutableStateOf<LoadState<List<Series>>>(LoadState.Loading)
+    var exclusiveLibrary by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.LibraryItem>>>(LoadState.Loading)
+    var exclusiveAccess by mutableStateOf<LoadState<com.afrovision.tv.data.api.model.ExclusiveAccessSummary>>(LoadState.Loading)
+    // Every exclusive channel the device can see, regardless of membership -
+    // needed (alongside exclusiveAccess/channelSubscriptions) to work out
+    // which exclusive channels the user is NOT a member of yet, for the
+    // "Request/Purchase membership" info card mobile shows per channel.
+    var exclusiveChannels by mutableStateOf<LoadState<List<Channel>>>(LoadState.Loading)
+    // Full membership history (active + expired), from the real user-JWT
+    // endpoint - the device-token exclusiveAccess summary above only ever
+    // returns active memberships, so it can't tell "never subscribed" apart
+    // from "subscribed, now expired," which is what the Renew card needs.
+    var channelSubscriptions by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.ChannelSubscription>>>(LoadState.Loading)
+
+    fun loadExclusiveAccess() {
+        viewModelScope.launch {
+            exclusiveAccess = LoadState.Loading
+            try {
+                exclusiveAccess = LoadState.Success(api.getExclusiveAccessSummary())
+            } catch (e: Exception) {
+                exclusiveAccess = LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
+
+    fun loadChannelSubscriptions() {
+        viewModelScope.launch {
+            channelSubscriptions = try {
+                LoadState.Success(api.getChannelSubscriptions().subscriptions)
+            } catch (e: Exception) {
+                // Expected/benign for a device that only ever activated and
+                // never signed in to a real account - this endpoint needs a
+                // real user JWT, which such a device doesn't have.
+                LoadState.Success(emptyList())
+            }
+        }
+    }
+
+    fun loadExclusiveContent() {
+        viewModelScope.launch {
+            exclusiveMovies = LoadState.Loading
+            exclusiveSeries = LoadState.Loading
+            exclusiveLibrary = LoadState.Loading
+            exclusiveChannels = LoadState.Loading
+            try {
+                val channels = api.getTvChannels().let { it.channels.ifEmpty { it.data } }
+                val exclusiveChannelIds = channels.filter { it.isExclusive }.map { it.id }
+                exclusiveChannels = LoadState.Success(channels.filter { it.isExclusive })
+
+                if (exclusiveChannelIds.isEmpty()) {
+                    exclusiveMovies = LoadState.Success(emptyList())
+                    exclusiveSeries = LoadState.Success(emptyList())
+                    exclusiveLibrary = LoadState.Success(emptyList())
+                    return@launch
+                }
+
+                val movies = exclusiveChannelIds.flatMap { channelId ->
+                    try {
+                        api.getExclusiveChannelMovies(channelId).data.movies
+                    } catch (e: Exception) {
+                        Log.e(TV_APP_TAG, "exclusive movies failed for $channelId", e)
+                        emptyList()
+                    }
+                }
+                val series = exclusiveChannelIds.flatMap { channelId ->
+                    try {
+                        api.getExclusiveChannelSeries(channelId).data.series
+                    } catch (e: Exception) {
+                        Log.e(TV_APP_TAG, "exclusive series failed for $channelId", e)
+                        emptyList()
+                    }
+                }
+                val library = exclusiveChannelIds.flatMap { channelId ->
+                    try {
+                        api.getExclusiveChannelLibrary(channelId).data.items
+                    } catch (e: Exception) {
+                        Log.e(TV_APP_TAG, "exclusive library failed for $channelId", e)
+                        emptyList()
+                    }
+                }
+
+                exclusiveMovies = LoadState.Success(movies)
+                exclusiveSeries = LoadState.Success(series)
+                exclusiveLibrary = LoadState.Success(library)
+            } catch (e: Exception) {
+                exclusiveMovies = LoadState.Error(e.toUserFacingMessage())
+                exclusiveSeries = LoadState.Error(e.toUserFacingMessage())
+                exclusiveLibrary = LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
+
+    // ── TV-to-TV chat ────────────────────────────────────────────
+
+    var chatPin by mutableStateOf<String?>(null)
+    var chatConnections by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.ChatConnection>>>(LoadState.Loading)
+    var chatConnectError by mutableStateOf<String?>(null)
+    var chatMessages by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.ChatMessage>>>(LoadState.Loading)
+    private var openChatConnectionId: String? = null
+
+    /**
+     * Live delivery for chat (see chat/ChatSocket.kt): a badge nudge just
+     * re-runs the heartbeat, which is where the authoritative combined
+     * unread count (admin messages + chat) already gets computed server
+     * side - no separate counting logic to keep in sync here. A message
+     * nudge only refetches if that conversation is the one currently open.
+     */
+    private fun startChatSocket() {
+        val token = TokenHolder.deviceToken
+        if (token.isBlank()) return
+        com.afrovision.tv.chat.ChatSocket.connect(
+            deviceToken = token,
+            onBadgeChanged = { retryHeartbeat() },
+            onMessageForConnection = { connectionId ->
+                if (connectionId == openChatConnectionId) loadChatMessages(connectionId)
+            }
+        )
+    }
+
+    fun openChatConnection(connectionId: String) {
+        val previous = openChatConnectionId
+        if (previous != null && previous != connectionId) {
+            com.afrovision.tv.chat.ChatSocket.leaveConnection(previous)
+        }
+        openChatConnectionId = connectionId
+        com.afrovision.tv.chat.ChatSocket.joinConnection(connectionId)
+        loadChatMessages(connectionId)
+        markChatConnectionRead(connectionId)
+    }
+
+    fun closeChatConnection() {
+        openChatConnectionId?.let { com.afrovision.tv.chat.ChatSocket.leaveConnection(it) }
+        openChatConnectionId = null
+    }
+
+    private fun markChatConnectionRead(connectionId: String) {
+        viewModelScope.launch {
+            try {
+                api.markChatConnectionRead(connectionId)
+                retryHeartbeat()
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "markChatConnectionRead failed", e)
+            }
+        }
+    }
+
+    fun loadChatPin() {
+        viewModelScope.launch {
+            try {
+                chatPin = api.getChatPin().pin
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "loadChatPin failed", e)
+            }
+        }
+    }
+
+    fun regenerateChatPin() {
+        viewModelScope.launch {
+            try {
+                chatPin = api.regenerateChatPin().pin
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "regenerateChatPin failed", e)
+            }
+        }
+    }
+
+    fun loadChatConnections() {
+        viewModelScope.launch {
+            chatConnections = LoadState.Loading
+            chatConnections = try {
+                LoadState.Success(api.listChatConnections().connections)
+            } catch (e: Exception) {
+                LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
+
+    fun connectByChatPin(pin: String) {
+        viewModelScope.launch {
+            chatConnectError = null
+            try {
+                api.requestChatConnection(com.afrovision.tv.data.api.model.ChatConnectRequest(pin))
+                loadChatConnections()
+            } catch (e: HttpException) {
+                chatConnectError = parseApiError(e).message ?: "Could not connect with that PIN."
+            } catch (e: Exception) {
+                chatConnectError = e.toUserFacingMessage()
+            }
+        }
+    }
+
+    fun respondToChatConnection(connectionId: String, accept: Boolean) {
+        viewModelScope.launch {
+            try {
+                api.respondToChatConnection(connectionId, com.afrovision.tv.data.api.model.ChatRespondRequest(accept))
+                loadChatConnections()
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "respondToChatConnection failed", e)
+            }
+        }
+    }
+
+    fun loadChatMessages(connectionId: String) {
+        viewModelScope.launch {
+            chatMessages = try {
+                LoadState.Success(api.listChatMessages(connectionId).messages)
+            } catch (e: Exception) {
+                LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
+
+    fun sendChatMessage(connectionId: String, body: String) {
+        viewModelScope.launch {
+            try {
+                api.sendChatMessage(connectionId, com.afrovision.tv.data.api.model.ChatSendRequest(body))
+                loadChatMessages(connectionId)
+            } catch (e: Exception) {
+                Log.e(TV_APP_TAG, "sendChatMessage failed", e)
             }
         }
     }
@@ -647,7 +1227,14 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         activationState = ActivationState.Idle
     }
 
-    fun activate(code: String, ownerName: String, ownerEmail: String, ownerPhone: String) {
+    fun activate(
+        code: String,
+        ownerName: String,
+        ownerEmail: String,
+        ownerPhone: String,
+        mode: String = "register",
+        ownerPassword: String? = null
+    ) {
         if (activationState is ActivationState.Activating) return
         activationState = ActivationState.Activating
         viewModelScope.launch {
@@ -658,20 +1245,31 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                         code = code.trim().uppercase(),
                         deviceId = deviceId,
                         deviceName = deviceName,
+                        mode = mode,
                         ownerName = ownerName.trim(),
                         ownerEmail = ownerEmail.trim().lowercase(),
                         ownerPhone = ownerPhone.trim(),
+                        ownerPassword = ownerPassword,
                         appVersion = appVersion
                     )
                 )
                 if (response.success && response.deviceToken.isNotBlank()) {
                     val name = response.owner?.name?.takeIf { it.isNotBlank() } ?: ownerName.trim()
                     activationState = ActivationState.Activated(response.reactivated, name)
-                    dataStore.setToken(response.deviceToken)
+                    dataStore.setDeviceToken(response.deviceToken)
+                    TokenHolder.deviceToken = response.deviceToken
+                    // Backend now issues a real user-kind JWT for the linked
+                    // account alongside the device token (both sign-in and
+                    // register - a freshly registered account is a real
+                    // account too), so activation alone gets personalized
+                    // content working immediately, same as QR pairing's
+                    // finishPairing used to be the only way to achieve.
+                    val generalToken = response.userToken?.takeIf { it.isNotBlank() } ?: response.deviceToken
+                    dataStore.setToken(generalToken)
                     dataStore.setPaired(true)
                     dataStore.setUserName(name)
-                    _token.value = response.deviceToken
-                    TokenHolder.token = response.deviceToken
+                    _token.value = generalToken
+                    TokenHolder.token = generalToken
                     _userName.value = name
                 } else {
                     activationState = ActivationState.Error("Activation failed. Please try again.")
@@ -696,6 +1294,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         currentScreen = com.afrovision.tv.ui.navigation.Screen.Home
         loadAll()
         startHeartbeat()
+        startChatSocket()
         activationState = ActivationState.Idle
     }
 
@@ -712,9 +1311,9 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             feed = LoadState.Loading
             feed = try {
-                LoadState.Success(api.getFeed().waves)
+                LoadState.Success(api.getFeed().data)
             } catch (e: Exception) {
-                LoadState.Error(e.message ?: "Unknown")
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -722,13 +1321,23 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun loadProfile() {
         viewModelScope.launch {
             try {
-                val user = api.getProfile()
+                val user = api.getProfile().user
                 profile = ProfileState(
                     name = user.name,
                     avatar = user.avatar,
                     tier = user.tier,
+                    isPremiumCreator = user.isPremiumCreator,
                     pairedDeviceCount = user.pairedDeviceCount,
-                    posts = user.posts
+                    posts = user.posts.map { p ->
+                        FeedPost(
+                            id = p.id,
+                            authorName = p.authorName,
+                            authorAvatar = p.authorAvatar,
+                            time = p.time,
+                            body = p.body,
+                            mediaUrl = p.mediaUrl
+                        )
+                    }
                 )
                 dataStore.setUserName(user.name)
                 dataStore.setUserAvatar(user.avatar)
@@ -744,6 +1353,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 defaultQuality = dataStore.defaultQuality.first(),
                 subtitlesOn = dataStore.subtitlesEnabled.first(),
                 soundEffects = dataStore.soundEffects.first(),
+                soundVolume = dataStore.soundVolume.first(),
                 hdrPassthrough = dataStore.hdrPassthrough.first(),
                 safeArea = dataStore.safeAreaEnabled.first(),
                 networkProfile = dataStore.networkProfile.first(),
@@ -758,6 +1368,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             dataStore.setDefaultQuality(settings.defaultQuality)
             dataStore.setSubtitlesEnabled(settings.subtitlesOn)
             dataStore.setSoundEffects(settings.soundEffects)
+            dataStore.setSoundVolume(settings.soundVolume)
             dataStore.setHdrPassthrough(settings.hdrPassthrough)
             dataStore.setSafeAreaEnabled(settings.safeArea)
             dataStore.setNetworkProfile(settings.networkProfile)
@@ -777,6 +1388,14 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         updateSettings(settings.copy(autoplay = enabled))
     }
 
+    fun setSoundEffects(enabled: Boolean) {
+        updateSettings(settings.copy(soundEffects = enabled))
+    }
+
+    fun setSoundVolume(volume: Float) {
+        updateSettings(settings.copy(soundVolume = volume))
+    }
+
     fun loadDownloads() {
         // Populated by the download tracker; placeholder for now.
         downloads = emptyList()
@@ -794,6 +1413,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             heartbeatJob?.cancel()
             stopSessionPolling()
+            com.afrovision.tv.chat.ChatSocket.disconnect()
             dataStore.setToken("")
             dataStore.setPaired(false)
             _token.value = ""
@@ -921,6 +1541,7 @@ data class ProfileState(
     val name: String = "",
     val avatar: String = "",
     val tier: String = "",
+    val isPremiumCreator: Boolean = false,
     val pairedDeviceCount: Int = 0,
     val posts: List<FeedPost> = emptyList()
 )
@@ -929,6 +1550,7 @@ data class SettingsState(
     val defaultQuality: String = "auto",
     val subtitlesOn: Boolean = true,
     val soundEffects: Boolean = true,
+    val soundVolume: Float = 0.5f,
     val hdrPassthrough: Boolean = false,
     val safeArea: Boolean = true,
     val networkProfile: String = "auto",

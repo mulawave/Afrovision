@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Full-screen intent for urgent notifications that bypass DND -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!-- Camera for scanning the TV's pairing QR code -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
     <application
         android:label="AfroVision"
         android:name="${applicationName}"

@@ -9,12 +9,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
-import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
 
 /**
  * Buffering / bitrate configuration for the TV video player, mirroring the
@@ -38,43 +33,16 @@ object PlayerFactory {
     // HttpURLConnection stack - fewer TCP/TLS handshakes when a channel/VOD
     // session issues many segment requests, directly serving the "instant
     // response" goal.
-    private val httpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
+    private val httpClient by lazy { OkHttpClient.Builder().build() }
 
     // Matches mobile's validated baseline: fast-starting min buffer, deep max
     // buffer for anti-rebuffer headroom (well above ExoPlayer's 50s/50s
     // stock default), small pre-roll before first playback, slightly larger
     // pre-roll after a rebuffer so playback doesn't immediately stall again.
-    // Slow-network profile: keep refilling until 40s is buffered (not the
-    // 15s that let short dips drain it), start quickly, but after a stall wait
-    // for a real cushion so playback doesn't stutter straight back into
-    // another rebuffer.
-    private const val MIN_BUFFER_MS = 40_000
+    private const val MIN_BUFFER_MS = 15_000
     private const val MAX_BUFFER_MS = 120_000
     private const val BUFFER_FOR_PLAYBACK_MS = 2_500
-    private const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 8_000
-
-    // Start at a modest bitrate so the first frame arrives fast on a weak
-    // link; the ABR logic below only steps quality up once throughput has
-    // held for a while, and uses just 60% of measured bandwidth so short
-    // dips don't empty the buffer.
-    private const val INITIAL_BITRATE_ESTIMATE = 800_000L
-    private const val MIN_DURATION_FOR_QUALITY_INCREASE_MS = 15_000
-    private const val MAX_DURATION_FOR_QUALITY_DECREASE_MS = 25_000
-    private const val MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS = 25_000
-    private const val BANDWIDTH_FRACTION = 0.6f
-
-    // Segment/playlist fetches are retried this many times before the load
-    // surfaces as an error (default is 3).
-    private const val LOAD_RETRY_COUNT = 8
-
-    /** How far behind the live edge live channels play, in ms. */
-    const val LIVE_TARGET_OFFSET_MS = 25_000L
+    private const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5_000
 
     fun create(context: Context): ExoPlayer {
         val loadControl = DefaultLoadControl.Builder()
@@ -84,7 +52,6 @@ object PlayerFactory {
                 BUFFER_FOR_PLAYBACK_MS,
                 BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
             )
-            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         val dataSourceFactory = DefaultDataSource.Factory(
@@ -92,28 +59,9 @@ object PlayerFactory {
             OkHttpDataSource.Factory(httpClient)
         )
 
-        val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
-            .setInitialBitrateEstimate(INITIAL_BITRATE_ESTIMATE)
-            .build()
-
-        val trackSelector = DefaultTrackSelector(
-            context,
-            AdaptiveTrackSelection.Factory(
-                MIN_DURATION_FOR_QUALITY_INCREASE_MS,
-                MAX_DURATION_FOR_QUALITY_DECREASE_MS,
-                MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS,
-                BANDWIDTH_FRACTION
-            )
-        )
-
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(LOAD_RETRY_COUNT))
-
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
-            .setBandwidthMeter(bandwidthMeter)
-            .setTrackSelector(trackSelector)
-            .setMediaSourceFactory(mediaSourceFactory)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build()
     }
 

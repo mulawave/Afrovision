@@ -3,18 +3,31 @@ package com.afrovision.tv.data.api.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// There is no `is_exclusive` field anywhere on the backend - it never
+// existed under that name. The real signal is two-part, matching
+// tv.controller.js's own getChannels visibility filter and
+// movie.service.js's isPublicNonExclusiveChannel exactly: a channel needs
+// exclusive_channel_access if EITHER its `type` is literally "exclusive"
+// (regardless of fee - a free/comped exclusive channel is still exclusive),
+// OR it's a public/private channel that also carries a paid exclusive tier
+// (exclusive_monthly_fee_ngn > 0). Checking only the fee misses the first
+// case entirely.
 @Serializable
 data class Channel(
     val id: String = "",
     val name: String = "",
     val description: String? = null,
+    val category: String? = null,
+    val type: String = "public",
     @SerialName("logo_url") val posterUrl: String? = null,
     @SerialName("channel_number") val channelNumber: Int? = null,
     @SerialName("is_live") val isLive: Boolean = false,
-    @SerialName("is_exclusive") val isExclusive: Boolean = false,
+    @SerialName("exclusive_monthly_fee_ngn") val exclusiveMonthlyFeeNgn: Double = 0.0,
     @SerialName("external_url") val externalUrl: String? = null,
     @SerialName("stream_url") val streamUrl: String? = null
-)
+) {
+    val isExclusive: Boolean get() = type == "exclusive" || exclusiveMonthlyFeeNgn > 0
+}
 
 @Serializable
 data class ChannelListResponse(
@@ -28,21 +41,54 @@ data class ChannelDetailResponse(
     val data: Channel? = null
 )
 
+// There is no `stream_url` field on a movie at all - the backend stores
+// `video_source_mode` (hosted|external_url|embed|hls) plus one URL field
+// per mode (movie.model.js). The old `stream_url` mapping bound to nothing
+// and was always null, which is why a movie could sit "tuning in" forever:
+// the player had no URL to ever actually load. `streamUrl` here mirrors
+// mobile's MovieModel.playbackUrl getter exactly - same mode-to-field
+// switch, so both apps pick the same URL for the same movie.
 @Serializable
 data class Movie(
     val id: String = "",
     val title: String = "",
     val description: String? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
-    @SerialName("stream_url") val streamUrl: String? = null,
+    @SerialName("video_source_mode") val videoSourceMode: String = "hosted",
+    @SerialName("hosted_url") val hostedUrl: String? = null,
+    @SerialName("hls_url") val hlsUrl: String? = null,
+    @SerialName("embed_url") val embedUrl: String? = null,
     @SerialName("external_url") val externalUrl: String? = null,
-    val duration: Int? = null
-)
+    val duration: Int? = null,
+    @SerialName("total_views") val totalViews: Long = 0,
+    @SerialName("published_at") val publishedAt: Long? = null,
+    @SerialName("created_at") val createdAt: Long? = null
+) {
+    val streamUrl: String? get() = when (videoSourceMode) {
+        "hls" -> hlsUrl
+        "external_url" -> externalUrl
+        "embed" -> embedUrl
+        else -> hostedUrl
+    }
+}
 
+// The real GET /movies response is { success, data: { movies: [...], pagination } }
+// (movie-viewer.controller.js: listPublicMovies) - `data` is a nested
+// object, not a flat array. The old shape here (`data: List<Movie>`) could
+// never actually deserialize; every call silently threw and was caught,
+// which is why Home's movie rail, the Movies & Series screen, and search
+// all quietly failed - Movies & Series just happened to show it as a
+// permanent "Loading…" since it had no error-vs-loading distinction.
 @Serializable
 data class MovieListResponse(
-    val movies: List<Movie> = emptyList(),
-    val data: List<Movie> = emptyList()
+    val data: MovieListData = MovieListData()
+) {
+    val movies: List<Movie> get() = data.movies
+}
+
+@Serializable
+data class MovieListData(
+    val movies: List<Movie> = emptyList()
 )
 
 @Serializable
@@ -50,8 +96,14 @@ data class Series(
     val id: String = "",
     val title: String = "",
     val description: String? = null,
-    @SerialName("poster_url") val posterUrl: String? = null,
-    val seasons: List<Season> = emptyList()
+    // The backend stores a series' cover under `cover_url`, not
+    // `poster_url` (series.model.js) - `poster_url` is a different field
+    // used elsewhere (e.g. seasons/episodes). This was silently mapping to
+    // nothing for every series on every screen that renders one.
+    @SerialName("cover_url") val posterUrl: String? = null,
+    val seasons: List<Season> = emptyList(),
+    @SerialName("published_at") val publishedAt: Long? = null,
+    @SerialName("created_at") val createdAt: Long? = null
 )
 
 @Serializable
@@ -61,21 +113,41 @@ data class Season(
     val episodes: List<Episode> = emptyList()
 )
 
+// Same real shape as Movie - no `stream_url` field, same
+// video_source_mode + per-mode URL fields (series.model.js episode shape).
 @Serializable
 data class Episode(
     val id: String = "",
     val title: String = "",
     val description: String? = null,
     val number: Int = 0,
-    @SerialName("stream_url") val streamUrl: String? = null,
+    @SerialName("video_source_mode") val videoSourceMode: String = "hosted",
+    @SerialName("hosted_url") val hostedUrl: String? = null,
+    @SerialName("hls_url") val hlsUrl: String? = null,
+    @SerialName("embed_url") val embedUrl: String? = null,
     @SerialName("external_url") val externalUrl: String? = null,
     val duration: Int? = null
-)
+) {
+    val streamUrl: String? get() = when (videoSourceMode) {
+        "hls" -> hlsUrl
+        "external_url" -> externalUrl
+        "embed" -> embedUrl
+        else -> hostedUrl
+    }
+}
 
+// Same real shape as MovieListResponse - GET /series returns
+// { success, data: { series: [...], pagination } } (series-viewer.controller.js).
 @Serializable
 data class SeriesListResponse(
-    val series: List<Series> = emptyList(),
-    val data: List<Series> = emptyList()
+    val data: SeriesListData = SeriesListData()
+) {
+    val series: List<Series> get() = data.series
+}
+
+@Serializable
+data class SeriesListData(
+    val series: List<Series> = emptyList()
 )
 
 @Serializable
@@ -84,16 +156,40 @@ data class Wave(
     val title: String = "",
     val description: String? = null,
     @SerialName("thumbnail_url") val thumbnailUrl: String? = null,
-    @SerialName("stream_url") val streamUrl: String? = null,
+    @SerialName("video_url") val streamUrl: String? = null,
     @SerialName("external_url") val externalUrl: String? = null,
-    @SerialName("creator_id") val creatorId: String? = null,
-    @SerialName("creator_name") val creatorName: String? = null
+    @SerialName("creator_uid") val creatorId: String? = null,
+    @SerialName("channel_name") val creatorName: String? = null,
+    @SerialName("views_count") val viewsCount: Long = 0,
+    @SerialName("pulse_count") val pulseCount: Long = 0,
+    @SerialName("repeat_play_count") val repeatPlayCount: Long = 0,
+    @SerialName("comment_count") val commentCount: Long = 0,
+    @SerialName("is_bookmarked") val isBookmarked: Boolean = false,
+    val duration: Long = 0
+)
+
+@Serializable
+data class WavePulseMoment(
+    val second: Int = 0,
+    @SerialName("intensity_sum") val intensitySum: Int = 0
+)
+
+@Serializable
+data class WavePulseMomentsResponse(
+    val moments: List<WavePulseMoment> = emptyList(),
+    val duration: Long = 0
+)
+
+@Serializable
+data class WaveBookmarkStatus(
+    val bookmarked: Boolean = false
 )
 
 @Serializable
 data class WaveListResponse(
     val waves: List<Wave> = emptyList(),
-    val data: List<Wave> = emptyList()
+    val data: List<Wave> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null
 )
 
 @Serializable
@@ -156,9 +252,14 @@ data class ActivationRequest(
     val code: String,
     @SerialName("device_id") val deviceId: String,
     @SerialName("device_name") val deviceName: String,
-    @SerialName("owner_name") val ownerName: String,
+    // "signin" (existing account, verified by password) or "register" (new
+    // account) - see backend tv.controller.js resolveOwnerForSignIn /
+    // resolveOwnerForRegister. Omitted/anything else defaults to register.
+    val mode: String = "register",
+    @SerialName("owner_name") val ownerName: String = "",
     @SerialName("owner_email") val ownerEmail: String,
-    @SerialName("owner_phone") val ownerPhone: String,
+    @SerialName("owner_phone") val ownerPhone: String = "",
+    @SerialName("owner_password") val ownerPassword: String? = null,
     @SerialName("app_version") val appVersion: String? = null
 )
 
@@ -173,6 +274,10 @@ data class ActivationResponse(
     val success: Boolean = false,
     val reactivated: Boolean = false,
     @SerialName("device_token") val deviceToken: String = "",
+    // Real user-kind JWT for the linked account (sign-in or a freshly
+    // registered account) - lets activation alone yield personalized
+    // content immediately, same as QR pairing does.
+    @SerialName("user_token") val userToken: String? = null,
     @SerialName("device_id") val deviceId: String = "",
     val owner: ActivationOwner? = null,
     @SerialName("config_version") val configVersion: Int? = null
@@ -212,9 +317,12 @@ data class Message(
     val type: String = "",
     val title: String = "",
     val body: String = "",
-    val read: Boolean = false,
+    val unread: Boolean = false,
+    @SerialName("allow_reply") val allowReply: Boolean = true,
     @SerialName("created_at") val createdAt: String? = null
-)
+) {
+    val read: Boolean get() = !unread
+}
 
 @Serializable
 data class MessagesResponse(
@@ -242,9 +350,109 @@ data class ReplyResponse(
     val success: Boolean = false
 )
 
+// ── TV-to-TV chat ────────────────────────────────────────────────
+
+@Serializable
+data class ChatPinResponse(
+    val pin: String = ""
+)
+
+@Serializable
+data class ChatConnectRequest(
+    val pin: String
+)
+
+@Serializable
+data class ChatRespondRequest(
+    val accept: Boolean
+)
+
+@Serializable
+data class ChatSendRequest(
+    val body: String
+)
+
+@Serializable
+data class ChatUserInfo(
+    val id: String = "",
+    val name: String = "",
+    val avatar: String? = null
+)
+
+@Serializable
+data class ChatConnection(
+    val id: String = "",
+    val status: String = "pending",
+    @SerialName("requested_by_me") val requestedByMe: Boolean = false,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("accepted_at") val acceptedAt: String? = null,
+    @SerialName("other_user") val otherUser: ChatUserInfo? = null,
+    @SerialName("unread_count") val unreadCount: Int = 0
+)
+
+@Serializable
+data class ChatConnectionsResponse(
+    val connections: List<ChatConnection> = emptyList()
+)
+
+@Serializable
+data class ChatConnectionEnvelope(
+    val connection: ChatConnection? = null
+)
+
+@Serializable
+data class ChatMessage(
+    val id: String = "",
+    @SerialName("connection_id") val connectionId: String = "",
+    @SerialName("sender_id") val senderId: String = "",
+    val body: String = "",
+    @SerialName("created_at") val createdAt: String? = null
+)
+
+@Serializable
+data class ChatMessagesResponse(
+    val messages: List<ChatMessage> = emptyList()
+)
+
+@Serializable
+data class ChatMessageEnvelope(
+    val message: ChatMessage? = null
+)
+
+@Serializable
+data class SuccessResponse(
+    val success: Boolean = false
+)
+
 @Serializable
 data class SubscribeRequest(
     @SerialName("channel_id") val channelId: String
+)
+
+// Same real endpoint (GET /subscriptions/channel/mine, user-JWT auth) the
+// mobile app's ChannelSubscriptionService.getMine() calls - returns every
+// membership record regardless of status, unlike the TV-device-token
+// /distribution/tv/exclusive/access route which only ever returns active
+// ones. Needed to tell "never had access" apart from "had it, now expired"
+// for the Renew card.
+@Serializable
+data class ChannelSubscription(
+    val id: String = "",
+    @SerialName("channel_id") val channelId: String = "",
+    @SerialName("channel_name") val channelName: String = "Unknown channel",
+    val status: String = "",
+    @SerialName("is_premium") val isPremium: Boolean = false,
+    val amount: Double = 0.0,
+    val currency: String? = null,
+    @SerialName("interval_unit") val intervalUnit: String = "month",
+    @SerialName("next_billing") val nextBilling: Long? = null
+) {
+    val isActive: Boolean get() = status == "active"
+}
+
+@Serializable
+data class ChannelSubscriptionsResponse(
+    val subscriptions: List<ChannelSubscription> = emptyList()
 )
 
 @Serializable
@@ -273,13 +481,41 @@ data class FeedPost(
 )
 
 @Serializable
+data class MarqueeTopic(
+    val id: String = "",
+    val text: String = "",
+    val priority: Int = 1,
+    val active: Boolean = true
+)
+
+@Serializable
 data class UserProfile(
     val id: String = "",
     val name: String = "",
-    val avatar: String = "",
-    val tier: String = "",
+    @SerialName("avatar_url") val avatar: String = "",
+    @SerialName("subscription_plan") val tier: String = "",
+    @SerialName("is_premium_creator") val isPremiumCreator: Boolean = false,
     @SerialName("paired_device_count") val pairedDeviceCount: Int = 0,
     val posts: List<FeedPost> = emptyList()
+)
+
+@Serializable
+data class UserProfileResponse(
+    val user: UserProfile = UserProfile()
+)
+
+@Serializable
+data class ExclusiveAccess(
+    @SerialName("channel_id") val channelId: String = "",
+    @SerialName("channel_name") val channelName: String = "",
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("monthly_fee_ngn") val monthlyFeeNgn: Double? = null
+)
+
+@Serializable
+data class ExclusiveAccessSummary(
+    val accesses: List<ExclusiveAccess> = emptyList(),
+    val total: Int = 0
 )
 
 @Serializable
@@ -287,6 +523,140 @@ data class ChannelLibraryResponse(
     val channels: List<Channel> = emptyList(),
     val data: List<Channel> = emptyList()
 )
+
+// ── Reading library (books/comics/magazines) - GET /library/feed ───
+// Not to be confused with ChannelLibraryResponse above, which is a
+// different, unrelated feature (a user's saved/followed TV channels).
+
+@Serializable
+data class LibraryItem(
+    val id: String = "",
+    @SerialName("channelId") val channelId: String = "",
+    val title: String = "",
+    val subtitle: String? = null,
+    val author: String? = null,
+    @SerialName("contentType") val contentType: String = "",
+    @SerialName("coverAssetUrl") val coverAssetUrl: String? = null,
+    @SerialName("totalPages") val totalPages: Int? = null
+)
+
+@Serializable
+data class LibraryFeedPage(
+    val items: List<LibraryItem> = emptyList()
+)
+
+@Serializable
+data class LibraryFeedResponse(
+    val success: Boolean = false,
+    val data: LibraryFeedPage = LibraryFeedPage()
+)
+
+// ── Reader flow: GET/PUT /distribution/tv/library/{channelId}/{itemId}* ──
+// Mirrors the website's channel-scoped reader exactly (see
+// website/src/app/channel/[id]/library/[itemId]/page.tsx and
+// backend/src/library/library-viewer.controller.js).
+
+@Serializable
+data class LibraryProgress(
+    @SerialName("currentSpreadIndex") val currentSpreadIndex: Int = 0,
+    @SerialName("currentPageLeft") val currentPageLeft: Int? = null,
+    @SerialName("currentPageRight") val currentPageRight: Int? = null,
+    @SerialName("isCompleted") val isCompleted: Boolean = false
+)
+
+@Serializable
+data class LibraryNavigation(
+    @SerialName("previousItemId") val previousItemId: String? = null,
+    @SerialName("nextItemId") val nextItemId: String? = null
+)
+
+@Serializable
+data class LibraryItemDetail(
+    val item: LibraryItem = LibraryItem(),
+    val progress: LibraryProgress? = null,
+    val navigation: LibraryNavigation = LibraryNavigation()
+)
+
+@Serializable
+data class LibraryItemDetailResponse(
+    val success: Boolean = false,
+    val data: LibraryItemDetail = LibraryItemDetail()
+)
+
+@Serializable
+data class LibraryReaderManifestInfo(
+    @SerialName("manifestUrl") val manifestUrl: String = "",
+    @SerialName("itemId") val itemId: String = "",
+    @SerialName("totalPages") val totalPages: Int? = null
+)
+
+@Serializable
+data class LibraryReaderManifestInfoResponse(
+    val success: Boolean = false,
+    val data: LibraryReaderManifestInfo = LibraryReaderManifestInfo()
+)
+
+/** The actual page manifest, fetched directly from `manifestUrl` (a public GCS JSON file, not our API). */
+@Serializable
+data class ReaderPage(
+    @SerialName("pageNumber") val pageNumber: Int = 0,
+    @SerialName("imageUrl") val imageUrl: String = ""
+)
+
+@Serializable
+data class ReaderSpread(
+    @SerialName("spreadIndex") val spreadIndex: Int = 0,
+    @SerialName("leftPageNumber") val leftPageNumber: Int? = null,
+    @SerialName("rightPageNumber") val rightPageNumber: Int? = null
+)
+
+@Serializable
+data class ReaderManifest(
+    @SerialName("sourceType") val sourceType: String? = null,
+    @SerialName("pdfUrl") val pdfUrl: String? = null,
+    @SerialName("pageImageUrls") val pageImageUrls: List<String>? = null,
+    @SerialName("totalPages") val totalPages: Int? = null,
+    val pages: List<ReaderPage>? = null,
+    val spreads: List<ReaderSpread>? = null
+)
+
+@Serializable
+data class LibraryProgressResponse(
+    val success: Boolean = false,
+    val data: LibraryProgress = LibraryProgress()
+)
+
+@Serializable
+data class ContinueReadingRecord(
+    @SerialName("currentSpreadIndex") val currentSpreadIndex: Int = 0,
+    @SerialName("isCompleted") val isCompleted: Boolean = false,
+    @SerialName("channelId") val channelId: String = "",
+    @SerialName("itemId") val itemId: String = "",
+    val item: LibraryItem? = null
+)
+
+@Serializable
+data class ContinueReadingResponse(
+    val success: Boolean = false,
+    val data: List<ContinueReadingRecord> = emptyList()
+)
+
+// ── Exclusive content, per channel - GET /distribution/tv/exclusive/* ──
+
+@Serializable
+data class ChannelMoviesPage(val movies: List<Movie> = emptyList())
+
+@Serializable
+data class ChannelMoviesResponse(val success: Boolean = false, val data: ChannelMoviesPage = ChannelMoviesPage())
+
+@Serializable
+data class ChannelSeriesPage(val series: List<Series> = emptyList())
+
+@Serializable
+data class ChannelSeriesResponse(val success: Boolean = false, val data: ChannelSeriesPage = ChannelSeriesPage())
+
+// ChannelLibraryItemsResponse: reuses LibraryFeedResponse/LibraryFeedPage
+// above - listItems and listPublicLibrary share the same {data:{items:[...]}} shape.
 
 @Serializable
 data class FeedResponse(

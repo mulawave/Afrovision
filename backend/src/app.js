@@ -6,6 +6,7 @@ const path = require('path');
 const { getFirestore } = require('./utils/firestore');
 const authRoutes = require('./auth/auth.routes');
 const userRoutes = require('./users/user.routes');
+const chatRoutes = require('./chat/chat.routes');
 const UserModel = require('./users/user.model');
 const adminRoutes = require('./admin/admin.routes');
 const SettingsService = require('./admin/settings.service');
@@ -137,6 +138,7 @@ app.use('/', seriesRoutes);
 app.use('/wave', waveRoutes);
 app.use('/ai-video', aiVideoRoutes);
 app.use('/distribution', distributionRoutes);
+app.use('/chat', chatRoutes);
 app.use('/announcements', announcementRoutes);
 app.use('/progress', progressRoutes);
 

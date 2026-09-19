@@ -301,9 +301,11 @@ class ApiService {
   }
 
   /// Public GET — no auth header, returns dynamic (can be List or Map)
-  static Future<dynamic> getPublic(String path) async {
-    final cached = _readCache(path);
-    if (cached != null) return cached;
+  static Future<dynamic> getPublic(String path, {bool noCache = false}) async {
+    if (!noCache) {
+      final cached = _readCache(path);
+      if (cached != null) return cached;
+    }
     final result = await _safeRequest(() => _withRetry(() async {
       final response = await http
           .get(
@@ -330,7 +332,9 @@ class ApiService {
       }
       return data;
     }));
-    _writeCache(path, result);
+    if (!noCache) {
+      _writeCache(path, result);
+    }
     return result;
   }
 
