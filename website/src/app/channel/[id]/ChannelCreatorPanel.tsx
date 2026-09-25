@@ -239,7 +239,7 @@ export function ChannelCreatorPanel({ channelId, channel, onChannelUpdated }: Ch
   const [savingChannelEdit, setSavingChannelEdit] = useState(false);
 
   /* ── exclusive fee state ─────────────────────────────── */
-  const isExclusiveChannel = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+  const isExclusiveChannel = channel.type === "exclusive";
   const [exclusiveFeeDraft, setExclusiveFeeDraft] = useState(String(channel.exclusive_monthly_fee_ngn || 0));
   const [savingExclusiveFee, setSavingExclusiveFee] = useState(false);
   const [exclusiveFeeMessage, setExclusiveFeeMessage] = useState<string | null>(null);

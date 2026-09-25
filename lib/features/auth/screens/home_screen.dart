@@ -34,7 +34,6 @@ import '../../../core/widgets/grace_period_banner.dart';
 import '../../vod/screens/media_center_screen.dart';
 import '../../channel/screens/channel_list_screen.dart';
 import '../../wave/screens/wave_screen.dart';
-import '../../wallet/screens/digital_assets_overview_screen.dart';
 import '../../../core/widgets/shimmer_box.dart';
 
 class HomeScreen extends StatefulWidget {

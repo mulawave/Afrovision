@@ -1102,7 +1102,7 @@ function ChannelCardOverlay({
   onViewChannel: () => void;
 }) {
   const kGold = "#FFD700";
-  const isExclusive = channel ? (channel.exclusive_monthly_fee_ngn ?? 0) > 0 : false;
+  const isExclusive = channel?.type === "exclusive";
 
   return (
     <div

@@ -1,4 +1,5 @@
 const Channel = require('./channel.model');
+const { isExclusiveChannel } = require('../utils/exclusive-access-helper');
 const User = require('../users/user.model');
 const CreatorSub = require('../subscriptions/creator_subscription.model');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
@@ -106,7 +107,7 @@ async function getPublicChannels(req, res) {
     if (channel.is_banned) return false;
     if (channel.type !== 'public') return false;
     // Include exclusive channels only if the user has active access
-    if (Number(channel.exclusive_monthly_fee_ngn || 0) > 0) {
+    if (isExclusiveChannel(channel)) {
       return exclusiveChannelIds.has(channel.id);
     }
     return true;
@@ -197,8 +198,7 @@ async function updateChannel(req, res) {
   }
 
   // vPT edit gating: configurable via admin settings; never applies to exclusive channel owners
-  const isExclusiveChannel = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
-  if (!isExclusiveChannel) {
+  if (!isExclusiveChannel(channel)) {
     const [feeEnabledRaw, feeAmountRaw] = await Promise.all([
       SettingsService.get('CHANNEL_EDIT_VPT_FEE_ENABLED'),
       SettingsService.getNumber('CHANNEL_EDIT_VPT_FEE'),

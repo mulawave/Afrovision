@@ -2,9 +2,15 @@ const ExclusiveAccess = require('../channels/exclusive_access.model');
 const User = require('../users/user.model');
 const { isAdultKycVerified } = require('../channels/exclusive_policy.service');
 
+/**
+ * The one definition of an exclusive channel: its type. Every exclusive
+ * check on the platform goes through here. The monthly fee is a property
+ * of an exclusive channel, not what makes it one (only exclusive channels
+ * may carry a fee - see channel.model.js updateExclusiveSettings).
+ */
 function isExclusiveChannel(channel) {
   if (!channel) return false;
-  return Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+  return channel.type === 'exclusive';
 }
 
 /**

@@ -160,7 +160,7 @@ export function ChannelProfile({ id }: { id: string }) {
   const [assetsLoaded, setAssetsLoaded] = useState(false);
   const [reminderProgramIds, setReminderProgramIds] = useState<Set<string>>(new Set());
   const [reminderToggling, setReminderToggling] = useState<string | null>(null);
-  const isExclusive = Number(channel?.exclusive_monthly_fee_ngn || 0) > 0;
+  const isExclusive = channel?.type === "exclusive";
   const channelId = channel?.id;
   const canManageChannel = !!user && (user.role === "admin" || user.id === channel?.owner_id);
 

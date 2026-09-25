@@ -5,6 +5,7 @@ const WavePulse = require('./wave.pulse.model');
 const WaveComment = require('./wave.comment.model');
 const WaveBookmark = require('./wave.bookmark.model');
 const Channel = require('../channels/channel.model');
+const { isExclusiveChannel } = require('../utils/exclusive-access-helper');
 const User = require('../users/user.model');
 const ExclusiveAccess = require('../channels/exclusive_access.model');
 const ExclusivePicUnlock = require('../channels/exclusive_pic_unlock.model');
@@ -339,20 +340,12 @@ function toExclusiveAccessPayload(decision) {
   return payload;
 }
 
-/// Helper: Check if a channel is exclusive based on membership fee (not type)
-function isExclusiveChannel(channel) {
-  if (!channel) return false;
-  // Exclusive channels are identified by having a membership fee > 0
-  // Type field is only 'public' or 'private', exclusive channels can be either
-  const fee = Number(channel.exclusive_monthly_fee_ngn || 0);
-  return fee > 0;
-}
 
 async function evaluateExclusiveChannelAccess({ channel, userId, user }) {
   console.log('[ExclusiveAccess] Evaluating access for channel:', channel.id, 'user:', userId);
   
   if (!isExclusiveChannel(channel)) {
-    console.log('[ExclusiveAccess] Not an exclusive channel (fee <= 0), allowing access');
+    console.log('[ExclusiveAccess] Not an exclusive channel, allowing access');
     return {
       allowed: true,
       requires_consent: false,

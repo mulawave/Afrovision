@@ -273,7 +273,7 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
         value: value,
         onChanged: onChanged,
-        activeColor: AppColors.orange,
+        activeThumbColor: AppColors.orange,
         title: Text(
           title,
           style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600),

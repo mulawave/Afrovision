@@ -293,7 +293,13 @@ async function updateExclusiveSettings(id, fields) {
 
   const updates = {};
   if (fields.exclusive_monthly_fee_ngn !== undefined) {
-    channel.exclusive_monthly_fee_ngn = Math.max(0, Number(fields.exclusive_monthly_fee_ngn) || 0);
+    const fee = Math.max(0, Number(fields.exclusive_monthly_fee_ngn) || 0);
+    // Type is what makes a channel exclusive; a fee on any other type
+    // would bring back the ambiguity of "public but paid".
+    if (fee > 0 && channel.type !== 'exclusive') {
+      throw new Error('Only exclusive channels can have an exclusive membership fee');
+    }
+    channel.exclusive_monthly_fee_ngn = fee;
     updates.exclusive_monthly_fee_ngn = channel.exclusive_monthly_fee_ngn;
   }
   if (fields.exclusive_fee_currency !== undefined) {

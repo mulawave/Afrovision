@@ -3,15 +3,9 @@ package com.afrovision.tv.data.api.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-// There is no `is_exclusive` field anywhere on the backend - it never
-// existed under that name. The real signal is two-part, matching
-// tv.controller.js's own getChannels visibility filter and
-// movie.service.js's isPublicNonExclusiveChannel exactly: a channel needs
-// exclusive_channel_access if EITHER its `type` is literally "exclusive"
-// (regardless of fee - a free/comped exclusive channel is still exclusive),
-// OR it's a public/private channel that also carries a paid exclusive tier
-// (exclusive_monthly_fee_ngn > 0). Checking only the fee misses the first
-// case entirely.
+// A channel is exclusive when its type is "exclusive" - the same single
+// rule the backend uses (utils/exclusive-access-helper.js isExclusiveChannel).
+// The monthly fee is a property of an exclusive channel, not what makes it one.
 @Serializable
 data class Channel(
     val id: String = "",
@@ -36,7 +30,7 @@ data class Channel(
     // valid | offline | invalid | access_denied | unknown.
     @SerialName("stream_status") val streamStatus: String = "unknown"
 ) {
-    val isExclusive: Boolean get() = type == "exclusive" || exclusiveMonthlyFeeNgn > 0
+    val isExclusive: Boolean get() = type == "exclusive"
     // External streams the health check has already found broken. Listing
     // them just sent viewers into a tune that could never succeed.
     val isKnownBroken: Boolean get() =

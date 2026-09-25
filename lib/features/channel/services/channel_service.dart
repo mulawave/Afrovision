@@ -470,7 +470,7 @@ class ChannelService {
   ///
   /// Backend rules (see Phase 3): one pending request per (user, channel),
   /// requester must be KYC-verified, and the target channel must have an
-  /// `exclusive_monthly_fee_ngn > 0`.
+  /// type of `exclusive`.
   static Future<Map<String, dynamic>> submitExclusiveRequest(
     String channelId, {
     required String note,

@@ -5,6 +5,7 @@
  */
 
 const bcrypt = require('bcrypt');
+const { isExclusiveChannel } = require('../utils/exclusive-access-helper');
 const crypto = require('crypto');
 const model = require('./distribution.model');
 const auth = require('./distribution.auth');
@@ -69,8 +70,7 @@ async function safeEnrichChannel(channel, owner) {
     external_url: channel.external_url || null,
     resolved_playback_url: channel.resolved_playback_url || null,
     stream_status: channel.stream_status || 'unknown',
-    is_exclusive: channel.type === 'exclusive'
-      || Number(channel.exclusive_monthly_fee_ngn || 0) > 0,
+    is_exclusive: isExclusiveChannel(channel),
     exclusive_monthly_fee_ngn: Number(channel.exclusive_monthly_fee_ngn || 0),
     exclusive_fee_currency: channel.exclusive_fee_currency || 'NGN',
   };
@@ -470,23 +470,15 @@ exports.getChannels = async (req, res) => {
       // this their exclusive channel and its movies/series/library vanished
       // from their TV.
       if (ownerUid && channel.owner_id === ownerUid) return true;
-      // Public channels: always visible (exclusive-fee public channels need active access)
-      if (channel.type === 'public') {
-        if (Number(channel.exclusive_monthly_fee_ngn || 0) > 0) {
-          return exclusiveChannelIds.has(channel.id);
-        }
-        return true;
-      }
-      // Private channels: visible if owner has an active subscription
-      if (channel.type === 'private') {
-        if (Number(channel.exclusive_monthly_fee_ngn || 0) > 0) {
-          return exclusiveChannelIds.has(channel.id);
-        }
-        return subscribedChannelIds.has(channel.id);
-      }
-      // Exclusive type channels: visible if owner has active exclusive access
-      if (channel.type === 'exclusive') {
+      // Exclusive channels: visible if the owner has active exclusive access
+      if (isExclusiveChannel(channel)) {
         return exclusiveChannelIds.has(channel.id);
+      }
+      // Public channels: always visible
+      if (channel.type === 'public') return true;
+      // Private channels: visible if the owner has an active subscription
+      if (channel.type === 'private') {
+        return subscribedChannelIds.has(channel.id);
       }
       return false;
     });

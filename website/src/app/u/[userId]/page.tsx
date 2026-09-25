@@ -120,7 +120,7 @@ export default function PublicProfilePage() {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {channels.map((ch) => {
-                  const isExclusive = Number(ch.exclusive_monthly_fee_ngn || 0) > 0;
+                  const isExclusive = ch.type === "exclusive";
                   return (
                     <Link
                       key={ch.id}

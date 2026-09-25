@@ -1,4 +1,5 @@
 const Channel = require('./channel.model');
+const { isExclusiveChannel } = require('../utils/exclusive-access-helper');
 const User = require('../users/user.model');
 const Request = require('./exclusive_channel_request.model');
 const NotificationService = require('../notifications/notification.service');
@@ -70,7 +71,7 @@ async function submitRequest(req, res) {
 
     const channel = await Channel.findById(channelId);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    if (!(Number(channel.exclusive_monthly_fee_ngn) > 0)) {
+    if (!isExclusiveChannel(channel)) {
       return res.status(400).json({ error: 'Channel is not exclusive.' });
     }
 

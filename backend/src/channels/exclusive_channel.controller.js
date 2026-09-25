@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const Channel = require('./channel.model');
+const { isExclusiveChannel } = require('../utils/exclusive-access-helper');
 const User = require('../users/user.model');
 const GiftWallet = require('../interactions/gift-wallet.model');
 const Ledger = require('../vpt/ledger.model');
@@ -242,7 +243,7 @@ async function checkExclusiveAccessStatus(req, res) {
   try {
     const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    const isExclusive = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+    const isExclusive = isExclusiveChannel(channel);
     if (!isExclusive) {
       return res.status(400).json({ error: 'Channel does not have exclusive membership enabled' });
     }
@@ -289,7 +290,7 @@ async function purchaseExclusiveAccess(req, res) {
   try {
     channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    const isExclusive = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+    const isExclusive = isExclusiveChannel(channel);
     if (!isExclusive) {
       return res.status(400).json({ error: 'Channel does not have exclusive membership enabled' });
     }
@@ -620,7 +621,7 @@ async function verifyExclusivePic(req, res) {
   try {
     const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    const isExclusive = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+    const isExclusive = isExclusiveChannel(channel);
     if (!isExclusive) {
       return res.status(400).json({ error: 'Channel does not have exclusive membership enabled' });
     }
@@ -711,7 +712,7 @@ async function updateExclusiveSettings(req, res) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
-    const isExclusive = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+    const isExclusive = isExclusiveChannel(channel);
     if (!isExclusive) {
       return res.status(400).json({ error: 'Channel does not have exclusive membership enabled' });
     }
@@ -752,7 +753,7 @@ async function listSubscribers(req, res) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
-    const isExclusive = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+    const isExclusive = isExclusiveChannel(channel);
     if (!isExclusive) {
       return res.status(400).json({ error: 'Channel does not have exclusive membership enabled' });
     }
@@ -825,7 +826,7 @@ async function banSubscriber(req, res) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
-    const isExclusive = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+    const isExclusive = isExclusiveChannel(channel);
     if (!isExclusive) {
       return res.status(400).json({ error: 'Channel does not have exclusive membership enabled' });
     }
@@ -871,7 +872,7 @@ async function cancelSubscription(req, res) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
-    const isExclusive = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+    const isExclusive = isExclusiveChannel(channel);
     if (!isExclusive) {
       return res.status(400).json({ error: 'Channel does not have exclusive membership enabled' });
     }
@@ -916,7 +917,7 @@ async function giftSubscription(req, res) {
       return res.status(403).json({ error: 'Not channel owner' });
     }
 
-    const isExclusive = Number(channel.exclusive_monthly_fee_ngn || 0) > 0;
+    const isExclusive = isExclusiveChannel(channel);
     if (!isExclusive) {
       return res.status(400).json({ error: 'Channel does not have exclusive membership enabled' });
     }

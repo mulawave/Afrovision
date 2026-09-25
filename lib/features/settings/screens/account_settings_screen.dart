@@ -404,7 +404,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       trailing: Switch(
         value: value,
         onChanged: onChanged,
-        activeColor: AppColors.orange,
+        activeThumbColor: AppColors.orange,
       ),
     );
   }

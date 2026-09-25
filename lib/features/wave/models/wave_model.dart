@@ -27,7 +27,7 @@ class WaveModel {
   final bool hasEroticDancing;
   final bool hasSexualNature;
   final bool hasSex;
-  final String channelType; // 'public' or 'private' only - exclusive channels are identified by fee
+  final String channelType; // 'public', 'private' or 'exclusive'
   final double exclusiveMonthlyFeeNgn; // > 0 indicates exclusive channel
   final String? channelLogoUrl; // Channel logo for brand/channel card
 
@@ -67,9 +67,9 @@ class WaveModel {
 
   bool get isAgeRestricted => ageClassification == 'adult';
   bool get isUnavailable => status == 'hidden' || status == 'deleted';
-  /// Exclusive channels are identified by having a membership fee > 0
-  /// Type field is only 'public' or 'private', exclusive channels can be either
-  bool get belongsToExclusiveChannel => exclusiveMonthlyFeeNgn > 0;
+  /// Exclusive is a channel type ('exclusive'), sent with every wave as
+  /// `channel_type`.
+  bool get belongsToExclusiveChannel => channelType == 'exclusive';
   
   bool get isAdultContent => ageClassification == 'adult';
 

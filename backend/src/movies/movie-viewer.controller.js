@@ -12,7 +12,7 @@ const { checkChannelAccess } = require('../utils/exclusive-access-helper');
 /**
  * GET /channels/:channelId/movies
  * Published movies for a single channel. Enforces exclusive channel access
- * for channels with exclusive_monthly_fee_ngn > 0.
+ * for channels whose type is 'exclusive'.
  */
 exports.listChannelMovies = async (req, res) => {
   try {

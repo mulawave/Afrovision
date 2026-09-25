@@ -11,6 +11,7 @@ const LibraryPolicyService = require('./library-policy.service');
 const { isLibraryRolloutEnabledForUser } = require('./library-rollout.service');
 const { extractGCSPath, getPublicUrl, getGCSObjectMetadata } = require('../utils/gcs');
 const Channel = require('../channels/channel.model');
+const { isExclusiveChannel } = require('../utils/exclusive-access-helper');
 
 const db = {
   collection: (...args) => admin.firestore().collection(...args),
@@ -795,7 +796,18 @@ exports.getContinueReading = async (req, res) => {
   try {
     const userId = req.userId;
     const limit = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 12));
-    const records = await libraryService.getContinueReadingForUser(userId, limit);
+    const allRecords = await libraryService.getContinueReadingForUser(userId, limit);
+
+    // Exclusive content never appears in the general library, including
+    // this row - it belongs behind the channel's own membership gate. A
+    // record whose channel can't be found is left out too.
+    const channelIds = [...new Set(allRecords.map((r) => r.item?.channelId || r.channelId).filter(Boolean))];
+    const channels = await Promise.all(channelIds.map((id) => Channel.findById(id)));
+    const exclusiveIds = new Set(
+      channelIds.filter((id, index) => !channels[index] || isExclusiveChannel(channels[index]))
+    );
+    const records = allRecords.filter((r) => !exclusiveIds.has(r.item?.channelId || r.channelId));
+
     return res.status(200).json({ success: true, data: records });
   } catch (error) {
     console.error('Error getting continue-reading list:', error);
@@ -815,7 +827,7 @@ exports.listPublicLibrary = async (req, res) => {
     // 1. Get all public non-exclusive channels
     const publicChannels = await Channel.getPublicChannels();
     const publicNonExclusiveIds = publicChannels
-      .filter((ch) => ch.type === 'public' && Number(ch.exclusive_monthly_fee_ngn || 0) === 0)
+      .filter((ch) => ch.type === 'public')
       .map((ch) => ch.id);
 
     const mapDoc = (doc) => ({ ...doc.data(), id: doc.id });
@@ -874,11 +886,12 @@ exports.listPublicLibrary = async (req, res) => {
       optInItems.map((item) => item.channelId).filter((id) => id && !publicNonExclusiveSet.has(id))
     )];
     const otherChannels = await Promise.all(otherChannelIds.map((id) => Channel.findById(id)));
-    // A channel that can't be found is treated as exclusive (fail closed).
+    // "Exclusive" is whatever the access gate says it is. A channel that
+    // can't be found is also left out, so an orphaned item never appears.
     const exclusiveChannelIds = new Set(
       otherChannelIds.filter((id, index) => {
         const ch = otherChannels[index];
-        return !ch || ch.type === 'exclusive' || Number(ch.exclusive_monthly_fee_ngn || 0) > 0;
+        return !ch || isExclusiveChannel(ch);
       })
     );
     for (const item of optInItems) {

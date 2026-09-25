@@ -25,8 +25,9 @@ const ALLOWED_VIDEO_TYPES = {
 const AGE_CLASSIFICATION_VALUES = new Set(['minor_safe', 'teen', 'adult']);
 const MOVIE_UPLOAD_SESSIONS_COLLECTION = 'movie_upload_sessions';
 
+// Exclusive is a channel type of its own, so "public" already excludes it.
 function isPublicNonExclusiveChannel(channel) {
-  return channel.type === 'public' && Number(channel.exclusive_monthly_fee_ngn || 0) === 0;
+  return channel.type === 'public';
 }
 
 function extractContentRating(body) {
