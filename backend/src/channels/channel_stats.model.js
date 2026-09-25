@@ -14,6 +14,7 @@ function defaultStats(channelId) {
     total_gifts_received_ngn: 0,
     top_gifter_uid: null,
     total_views: 0,
+    synthetic_followers: 0,
     total_watch_seconds: 0,
     views_by_platform: emptyPlatformBreakdown(),
     watch_seconds_by_platform: emptyPlatformBreakdown(),
@@ -185,8 +186,39 @@ async function getStatsForChannels(channelIds) {
   return results;
 }
 
+/**
+ * Admin-injected ("synthetic") follower count. Stored as one number on the
+ * channel stats doc and added to the real follower count for display, so
+ * injecting or removing followers costs one write instead of one Firestore
+ * document per fake follower. Floors at 0.
+ * Returns { synthetic_followers, applied } where applied is the actual delta.
+ */
+async function adjustSyntheticFollowers(channelId, delta) {
+  const stats = await ensureStats(channelId);
+  const current = stats.synthetic_followers || 0;
+  const next = Math.max(0, current + delta);
+  stats.synthetic_followers = next;
+  stats.updated_at = Date.now();
+  cache.set(channelId, stats);
+  await _persist(channelId, { synthetic_followers: next, updated_at: stats.updated_at });
+  return { synthetic_followers: next, applied: next - current };
+}
+
+async function getSyntheticFollowers(channelId) {
+  const stats = await ensureStats(channelId);
+  return stats.synthetic_followers || 0;
+}
+
+/** Drop cached stats so the next read comes from Firestore (after a server-side increment). */
+function invalidate(channelId) {
+  cache.delete(channelId);
+}
+
 module.exports = {
   ensureStats,
+  adjustSyntheticFollowers,
+  getSyntheticFollowers,
+  invalidate,
   incrementSubscribers,
   decrementSubscribers,
   getStats,

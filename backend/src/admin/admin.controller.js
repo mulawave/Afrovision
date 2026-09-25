@@ -3770,6 +3770,7 @@ module.exports.adminChannelsLiveOverview = adminChannelsLiveOverview;
 // Per-request ceiling for counter adjustments (views/replays). Guards against
 // typos such as an extra zero; keep in sync with the admin data-injection page.
 const MAX_COUNTER_ADJUSTMENT = 1000000;
+const MAX_FOLLOWER_ADJUSTMENT = 10000;
 
 function parsePositiveAmount(raw) {
   const amount = Math.floor(Number(raw));
@@ -3825,8 +3826,8 @@ module.exports.adminRemoveChannelViews = adminRemoveChannelViews;
 
 /**
  * POST /admin/channels/:id/followers/inject  body: { amount }
- * Creates real (synthetic-flagged) channel_subscriptions rows so the
- * injected count shows up everywhere followers are read from.
+ * Adds to the channel's synthetic follower counter (one write, no per-follower
+ * documents). The counter is included everywhere follower counts are read.
  */
 async function adminInjectChannelFollowers(req, res) {
   const caller = requireAdmin(req, res);
@@ -3834,12 +3835,12 @@ async function adminInjectChannelFollowers(req, res) {
   const ChannelSub = require('../subscriptions/channel_subscription.model');
   const amount = parsePositiveAmount(req.body?.amount);
   if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
-  if (amount > 100000) return res.status(400).json({ error: 'amount too large (max 100,000 per request)' });
+  if (amount > MAX_FOLLOWER_ADJUSTMENT) return res.status(400).json({ error: 'amount too large (max 10,000 per request)' });
 
   try {
     const channel = await Channel.findById(req.params.id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    await ChannelSub.injectSyntheticFollowers(channel.id, channel.name, channel.owner_id, amount);
+    await ChannelSub.injectSyntheticFollowers(channel.id, amount);
     const followersCount = await ChannelSub.countActiveByChannel(channel.id);
     await AuditService.logAction(caller.id, 'inject_channel_followers', channel.id, { amount });
     res.json({ message: 'Followers injected', followers_count: followersCount });
@@ -3851,8 +3852,8 @@ module.exports.adminInjectChannelFollowers = adminInjectChannelFollowers;
 
 /**
  * POST /admin/channels/:id/followers/remove  body: { amount }
- * Only removes admin-injected (synthetic) follower rows — never touches
- * genuine subscriber accounts.
+ * Only removes admin-injected (synthetic) followers — the counter first, then
+ * any legacy synthetic docs. Never touches genuine subscriber accounts.
  */
 async function adminRemoveChannelFollowers(req, res) {
   const caller = requireAdmin(req, res);
@@ -3860,6 +3861,7 @@ async function adminRemoveChannelFollowers(req, res) {
   const ChannelSub = require('../subscriptions/channel_subscription.model');
   const amount = parsePositiveAmount(req.body?.amount);
   if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+  if (amount > MAX_FOLLOWER_ADJUSTMENT) return res.status(400).json({ error: 'amount too large (max 10,000 per request)' });
 
   try {
     const channel = await Channel.findById(req.params.id);
@@ -3879,6 +3881,43 @@ async function adminRemoveChannelFollowers(req, res) {
   }
 }
 module.exports.adminRemoveChannelFollowers = adminRemoveChannelFollowers;
+
+/**
+ * GET /admin/synthetic-followers/legacy
+ * How many legacy per-follower synthetic docs still exist platform-wide.
+ */
+async function adminLegacySyntheticFollowersStatus(req, res) {
+  if (!requireAdmin(req, res)) return;
+  const ChannelSub = require('../subscriptions/channel_subscription.model');
+  try {
+    res.json({ remaining: await ChannelSub.countLegacySyntheticDocs() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminLegacySyntheticFollowersStatus = adminLegacySyntheticFollowersStatus;
+
+/**
+ * POST /admin/synthetic-followers/convert
+ * Deletes legacy synthetic follower docs and moves their count onto each
+ * channel's counter (displayed totals unchanged). Processes up to 2,000 docs
+ * per call; call again while remaining > 0.
+ */
+async function adminConvertLegacySyntheticFollowers(req, res) {
+  const caller = requireAdmin(req, res);
+  if (!caller) return;
+  const ChannelSub = require('../subscriptions/channel_subscription.model');
+  try {
+    const result = await ChannelSub.convertLegacySyntheticFollowers(2000);
+    if (result.converted > 0) {
+      await AuditService.logAction(caller.id, 'convert_legacy_synthetic_followers', 'platform', result);
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+module.exports.adminConvertLegacySyntheticFollowers = adminConvertLegacySyntheticFollowers;
 
 /**
  * GET /admin/waves/search?channelId=&waveId=&limit=

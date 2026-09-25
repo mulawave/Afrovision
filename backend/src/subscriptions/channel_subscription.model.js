@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const admin = require('firebase-admin');
 const { getFirestore } = require('../utils/firestore');
 
 const COLLECTION = 'channel_subscriptions';
@@ -162,7 +163,7 @@ async function markRenewed(id) {
 // request, taking the entire channel list down for all users. The count
 // aggregation is computed server-side and returns just a number, with
 // memory cost independent of how many documents match.
-async function countActiveByChannel(channelId) {
+async function countRealActiveByChannel(channelId) {
   const db = getFirestore();
   const snapshot = await db.collection(COLLECTION)
     .where('channel_id', '==', channelId)
@@ -170,6 +171,17 @@ async function countActiveByChannel(channelId) {
     .count()
     .get();
   return snapshot.data().count;
+}
+
+// Public follower count shown everywhere: real subscriptions plus the
+// admin-injected counter on channel_stats (served from its in-memory cache).
+async function countActiveByChannel(channelId) {
+  const ChannelStats = require('../channels/channel_stats.model');
+  const [real, synthetic] = await Promise.all([
+    countRealActiveByChannel(channelId),
+    ChannelStats.getSyntheticFollowers(channelId).catch(() => 0),
+  ]);
+  return real + synthetic;
 }
 
 async function getActiveSubscriberUids(channelId) {
@@ -234,87 +246,114 @@ async function unbanSubscriber(channelId, subscriberUid) {
   return { ...doc.data(), id: doc.id, status: 'active' };
 }
 
-/**
- * Create `amount` synthetic (admin-injected) follower rows for a channel.
- * These are real `channel_subscriptions` docs (status 'active', amount 0)
- * so they count everywhere real followers do (countActiveByChannel, the
- * public channel payload, etc.) — flagged is_synthetic so they can be
- * targeted for removal without touching genuine followers.
- */
-async function injectSyntheticFollowers(channelId, channelName, ownerId, amount) {
+// Legacy: synthetic followers used to be stored as one channel_subscriptions
+// doc each (is_synthetic: true). They are now a counter on channel_stats; these
+// helpers remove/convert any legacy docs that still exist.
+const LEGACY_BATCH = 400; // stay under Firestore's 500-write batch limit
+
+async function deleteLegacySyntheticDocs(channelId, amount) {
   const db = getFirestore();
-  const now = Date.now();
-  const batchSize = 400; // stay under Firestore's 500-write batch limit
-  let remaining = Math.max(0, Math.floor(amount));
-  const created = [];
-
-  while (remaining > 0) {
-    const chunk = Math.min(remaining, batchSize);
+  let removed = 0;
+  while (removed < amount) {
+    const snapshot = await db.collection(COLLECTION)
+      .where('channel_id', '==', channelId)
+      .where('is_synthetic', '==', true)
+      .limit(Math.min(LEGACY_BATCH, amount - removed))
+      .get();
+    if (snapshot.empty) break;
     const batch = db.batch();
-    for (let i = 0; i < chunk; i++) {
-      const id = crypto.randomUUID();
-      const sub = {
-        id,
-        subscriber_uid: `synthetic:admin:${id}`,
-        channel_id: channelId,
-        channel_name: channelName || '',
-        owner_id: ownerId || '',
-        plan: 'channel_subscription',
-        currency: null,
-        amount: 0,
-        vpt_equivalent: 0,
-        status: 'active',
-        is_premium: false,
-        interval_count: 1,
-        interval_unit: 'month',
-        next_billing: null,
-        subscribed_at: now,
-        last_renewed_at: null,
-        cancelled_at: null,
-        cancel_reason: null,
-        renewal_count: 0,
-        is_synthetic: true,
-      };
-      batch.set(db.collection(COLLECTION).doc(id), sub);
-      created.push(sub);
-    }
+    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
     await batch.commit();
-    remaining -= chunk;
+    removed += snapshot.size;
   }
-
-  return created;
+  return removed;
 }
 
 /**
- * Remove up to `amount` synthetic (admin-injected) follower rows for a
- * channel, oldest first. Returns the number actually removed (may be less
- * than requested if there aren't that many synthetic rows left).
+ * Add `amount` synthetic (admin-injected) followers to a channel. One write to
+ * channel_stats; no per-follower documents.
+ */
+async function injectSyntheticFollowers(channelId, amount) {
+  const ChannelStats = require('../channels/channel_stats.model');
+  return ChannelStats.adjustSyntheticFollowers(channelId, Math.max(0, Math.floor(amount)));
+}
+
+/**
+ * Remove up to `amount` synthetic followers. Takes from the counter first,
+ * then deletes any remaining legacy synthetic docs. Never touches real
+ * subscriptions. Returns the number actually removed.
  */
 async function removeSyntheticFollowers(channelId, amount) {
-  const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION)
-    .where('channel_id', '==', channelId)
-    .where('is_synthetic', '==', true)
-    .orderBy('subscribed_at', 'asc')
-    .limit(Math.max(0, Math.floor(amount)))
-    .get();
-
-  if (snapshot.empty) return 0;
-
-  const batch = db.batch();
-  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-  await batch.commit();
-  return snapshot.size;
+  const ChannelStats = require('../channels/channel_stats.model');
+  const wanted = Math.max(0, Math.floor(amount));
+  const { applied } = await ChannelStats.adjustSyntheticFollowers(channelId, -wanted);
+  let removed = -applied;
+  if (removed < wanted) {
+    removed += await deleteLegacySyntheticDocs(channelId, wanted - removed);
+  }
+  return removed;
 }
 
+/** Synthetic followers for a channel: counter plus any legacy docs. */
 async function countSyntheticByChannel(channelId) {
+  const ChannelStats = require('../channels/channel_stats.model');
   const db = getFirestore();
-  const snapshot = await db.collection(COLLECTION)
-    .where('channel_id', '==', channelId)
-    .where('is_synthetic', '==', true)
-    .count()
-    .get();
-  return snapshot.data().count || 0;
+  const [legacy, counter] = await Promise.all([
+    db.collection(COLLECTION)
+      .where('channel_id', '==', channelId)
+      .where('is_synthetic', '==', true)
+      .count()
+      .get()
+      .then((snap) => snap.data().count || 0),
+    ChannelStats.getSyntheticFollowers(channelId),
+  ]);
+  return legacy + counter;
+}
+
+async function countLegacySyntheticDocs() {
+  const db = getFirestore();
+  const snap = await db.collection(COLLECTION).where('is_synthetic', '==', true).count().get();
+  return snap.data().count || 0;
+}
+
+/**
+ * One-time conversion: delete legacy synthetic follower docs and add the same
+ * number to each channel's synthetic counter, atomically per batch, so the
+ * displayed follower count never changes. Safe to re-run; processes at most
+ * `maxDocs` per call. Returns { converted, remaining }.
+ */
+async function convertLegacySyntheticFollowers(maxDocs = 2000) {
+  const ChannelStats = require('../channels/channel_stats.model');
+  const db = getFirestore();
+  let converted = 0;
+
+  while (converted < maxDocs) {
+    const snapshot = await db.collection(COLLECTION)
+      .where('is_synthetic', '==', true)
+      .limit(Math.min(LEGACY_BATCH, maxDocs - converted))
+      .get();
+    if (snapshot.empty) break;
+
+    const perChannel = new Map();
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => {
+      const channelId = doc.data().channel_id;
+      if (channelId) perChannel.set(channelId, (perChannel.get(channelId) || 0) + 1);
+      batch.delete(doc.ref);
+    });
+    for (const [channelId, count] of perChannel) {
+      batch.set(
+        db.collection('channel_stats').doc(channelId),
+        { synthetic_followers: admin.firestore.FieldValue.increment(count), updated_at: Date.now() },
+        { merge: true },
+      );
+    }
+    await batch.commit();
+    perChannel.forEach((_, channelId) => ChannelStats.invalidate(channelId));
+    converted += snapshot.size;
+  }
+
+  return { converted, remaining: await countLegacySyntheticDocs() };
 }
 
 module.exports = {
@@ -328,6 +367,7 @@ module.exports = {
   markCancelledOnFailure,
   markRenewed,
   countActiveByChannel,
+  countRealActiveByChannel,
   getActiveSubscriberUids,
   getActiveSubscribedChannelIds,
   findBySubscriberAndChannel,
@@ -336,4 +376,6 @@ module.exports = {
   injectSyntheticFollowers,
   removeSyntheticFollowers,
   countSyntheticByChannel,
+  countLegacySyntheticDocs,
+  convertLegacySyntheticFollowers,
 };

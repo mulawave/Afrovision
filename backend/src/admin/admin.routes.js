@@ -145,6 +145,8 @@ router.post('/channels/:id/views/inject', authenticateToken, ctrl.adminInjectCha
 router.post('/channels/:id/views/remove', authenticateToken, ctrl.adminRemoveChannelViews);
 router.post('/channels/:id/followers/inject', authenticateToken, ctrl.adminInjectChannelFollowers);
 router.post('/channels/:id/followers/remove', authenticateToken, ctrl.adminRemoveChannelFollowers);
+router.get('/synthetic-followers/legacy', authenticateToken, ctrl.adminLegacySyntheticFollowersStatus);
+router.post('/synthetic-followers/convert', authenticateToken, ctrl.adminConvertLegacySyntheticFollowers);
 
 // Data injection — waves (views/replays)
 router.get('/waves/search', authenticateToken, ctrl.adminSearchWaves);
