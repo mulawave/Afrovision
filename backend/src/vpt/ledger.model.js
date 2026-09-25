@@ -137,6 +137,17 @@ async function getRecent(limit = 50) {
   return snapshot.docs.map((doc) => doc.data());
 }
 
+/** Newest-first page of the global ledger; optional type filter; cursor = created_at (ms). */
+async function getPage({ limit, before, type } = {}) {
+  const { pageByTime } = require('../admin/paging');
+  return pageByTime(getFirestore(), COLLECTION, 'created_at', {
+    limit,
+    before,
+    filter: type ? ['type', type] : null,
+    map: (d) => d,
+  });
+}
+
 async function getStats() {
   const db = getFirestore();
   const [
@@ -239,6 +250,7 @@ function removeFromCache(id) {
 }
 
 module.exports = {
+  getPage,
   init,
   isInitialized,
   create,

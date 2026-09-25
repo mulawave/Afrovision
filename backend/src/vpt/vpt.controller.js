@@ -56,9 +56,14 @@ async function getLedgerStats(req, res) {
 
 async function getFullLedger(req, res) {
   if (!(await requireAdmin(req, res))) return;
-  const limit = parseInt(req.query.limit) || 50;
-  const entries = await Ledger.getRecent(limit);
-  res.json({ ledger: entries });
+  try {
+    const type = typeof req.query.type === 'string' && req.query.type ? req.query.type : null;
+    const page = await Ledger.getPage({ limit: req.query.limit, before: req.query.before, type });
+    res.json({ ledger: page.items, nextBefore: page.nextBefore });
+  } catch (err) {
+    console.error('[VPT] ledger page error', err.message);
+    res.status(500).json({ error: 'Failed to load ledger' });
+  }
 }
 
 async function getBatchHistory(req, res) {

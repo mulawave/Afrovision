@@ -1695,9 +1695,9 @@ async function getAuditLogs(req, res) {
   if (!requireAdmin(req, res)) return;
 
   try {
-    const limit = parseInt(req.query.limit, 10) || 50;
-    const logs = await AuditService.getRecent(Math.min(limit, 200));
-    res.json({ logs });
+    const action = typeof req.query.action === 'string' && req.query.action ? req.query.action : null;
+    const page = await AuditService.getPage({ limit: req.query.limit, before: req.query.before, action });
+    res.json({ logs: page.items, nextBefore: page.nextBefore });
   } catch (error) {
     res.status(getAdminDataErrorStatus(error)).json({ error: error.message });
   }

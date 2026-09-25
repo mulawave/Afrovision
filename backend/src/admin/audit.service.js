@@ -141,7 +141,19 @@ async function getRecent(limit = 50) {
   return snapshot.docs.map((doc) => enrichAuditEntry({ id: doc.id, ...doc.data() }));
 }
 
+/** Newest-first page of admin audit logs; optional action filter; cursor = timestamp (ms). */
+async function getPage({ limit, before, action } = {}) {
+  const { pageByTime } = require('./paging');
+  return pageByTime(getFirestore(), COLLECTION, 'timestamp', {
+    limit,
+    before,
+    filter: action ? ['action', action] : null,
+    map: enrichAuditEntry,
+  });
+}
+
 module.exports = {
   logAction,
   getRecent,
+  getPage,
 };
