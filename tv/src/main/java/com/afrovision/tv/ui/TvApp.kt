@@ -173,6 +173,27 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                 )
             }
         }
+
+        // Shown over every screen, including the player, while the TV has
+        // no network. Not focusable, so it never takes D-pad focus from the
+        // screen underneath.
+        val online by viewModel.isOnline.collectAsState()
+        if (!online) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 24.dp)
+                    .background(Color(0xE6120A0A), androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    .padding(horizontal = 28.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = "No connection · reconnecting to Wi-Fi…",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
     }
 }
 

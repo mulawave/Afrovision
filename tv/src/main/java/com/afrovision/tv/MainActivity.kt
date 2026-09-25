@@ -27,6 +27,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Hold the Wi-Fi lock only while the app is visible.
+    override fun onStart() {
+        super.onStart()
+        (application as TvApplication).networkReconnector.acquireWifiLock()
+    }
+
+    override fun onStop() {
+        (application as TvApplication).networkReconnector.releaseWifiLock()
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         viewModel.handleDeeplink(intent.data)

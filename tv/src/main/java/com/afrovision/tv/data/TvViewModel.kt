@@ -246,6 +246,13 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            var wasOnline = com.afrovision.tv.net.NetworkReconnector.online.value
+            com.afrovision.tv.net.NetworkReconnector.online.collect { online ->
+                if (online && !wasOnline) reloadFailedAfterReconnect()
+                wasOnline = online
+            }
+        }
+        viewModelScope.launch {
             val initWork = async {
                 ensureDeviceId()
                 _token.value = dataStore.token.first()
@@ -420,6 +427,33 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         screenBeforePlayer = null
         playerMedia = null
         navigateTo(target)
+    }
+
+    /** Mirrors NetworkReconnector: false while the TV has no network at all. */
+    val isOnline: StateFlow<Boolean> = com.afrovision.tv.net.NetworkReconnector.online
+
+    /**
+     * When the network comes back, reload every screen whose last load
+     * failed, so nothing stays on a dead error/loading state until the
+     * viewer backs out or restarts. Screens that already have data are
+     * left alone (no flash back to "Loading"); Home always refreshes
+     * because its rails fail independently.
+     */
+    private fun reloadFailedAfterReconnect() {
+        if (!_isPaired.value) return
+        Log.i(TV_APP_TAG, "Network back - reloading failed screens")
+        loadHome()
+        if (liveChannels !is LoadState.Success) loadLiveChannels()
+        if (catchUp is LoadState.Error) loadCatchUp()
+        if (waves is LoadState.Error) loadWaves()
+        if (moviesSeries.movies is LoadState.Error || moviesSeries.series is LoadState.Error) loadMoviesSeries()
+        if (library is LoadState.Error) loadLibrary()
+        if (exclusive is LoadState.Error) loadExclusive()
+        if (exclusiveMovies is LoadState.Error || exclusiveSeries is LoadState.Error || exclusiveLibrary is LoadState.Error) loadExclusiveContent()
+        if (messages is LoadState.Error) loadMessages()
+        if (feed is LoadState.Error) loadFeed()
+        if (continueReading is LoadState.Error) loadContinueReading()
+        if (search is LoadState.Error) search(searchQuery)
     }
 
     fun loadAll() {

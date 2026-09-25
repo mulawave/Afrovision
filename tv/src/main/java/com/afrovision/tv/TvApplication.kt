@@ -15,7 +15,7 @@ import java.io.StringWriter
 
 class TvApplication : Application(), ImageLoaderFactory {
 
-    private val networkReconnector by lazy { NetworkReconnector(this) }
+    val networkReconnector by lazy { NetworkReconnector(this) }
 
     override fun onCreate() {
         super.onCreate()

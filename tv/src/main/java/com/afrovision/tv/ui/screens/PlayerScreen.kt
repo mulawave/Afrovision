@@ -196,6 +196,19 @@ fun PlayerScreen(viewModel: TvViewModel) {
         startPlayback()
     }
 
+    // Network back after a drop: re-tune a channel that died or stalled
+    // while offline, instead of leaving it on an error or tuning screen.
+    LaunchedEffect(media) {
+        var wasOnline = viewModel.isOnline.value
+        viewModel.isOnline.collect { online ->
+            if (online && !wasOnline && (unavailable || isTuning || offAir)) {
+                Log.i(TV_APP_TAG, "Network back - re-tuning ${media.title}")
+                retryTune()
+            }
+            wasOnline = online
+        }
+    }
+
     // Give up on an initial tune that shows no picture within the limit.
     LaunchedEffect(media, tuneAttempt) {
         delay(TUNE_TIMEOUT_MS)
