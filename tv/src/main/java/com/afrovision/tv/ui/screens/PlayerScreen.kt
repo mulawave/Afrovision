@@ -61,6 +61,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -76,6 +80,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.afrovision.tv.BASE_URL
 import com.afrovision.tv.R
 import com.afrovision.tv.TV_APP_TAG
 import com.afrovision.tv.data.LoadState
@@ -109,6 +114,13 @@ fun PlayerScreen(viewModel: TvViewModel) {
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var isTuning by remember { mutableStateOf(true) }
+    // Native channel with nothing scheduled right now.
+    var offAir by remember { mutableStateOf(false) }
+    val playbackScope = rememberCoroutineScope()
+    // Native channels have no URL of their own: they air whatever the
+    // broadcast scheduler has on now, joined at the scheduled position.
+    val isScheduledChannel = media.isLive && media.mediaType == "channel" &&
+        media.streamUrl.isNullOrBlank() && media.externalUrl.isNullOrBlank()
 
     // Re-applied whenever the user changes Settings > Default quality, or
     // when the network's metered-ness might differ (new media = fresh
@@ -118,6 +130,25 @@ fun PlayerScreen(viewModel: TvViewModel) {
     }
 
     fun startPlayback() {
+        if (isScheduledChannel) {
+            playbackScope.launch {
+                val now = viewModel.getNowPlaying(media.id)
+                if (now == null) {
+                    offAir = true
+                    isTuning = false
+                    return@launch
+                }
+                offAir = false
+                // Pre-transcoded HLS is served by the backend itself under a
+                // relative /broadcast/hls/ path.
+                val nowUrl = if (now.videoUrl.startsWith("/")) BASE_URL + now.videoUrl else now.videoUrl
+                player.repeatMode = Player.REPEAT_MODE_OFF
+                player.setMediaItem(MediaItem.fromUri(nowUrl), now.position * 1000L)
+                player.prepare()
+                player.playWhenReady = true
+            }
+            return
+        }
         val url = media.streamUrl ?: media.externalUrl ?: return
         // Matches mobile: a Wave loops by default (autoscroll-to-next is a
         // Waves-screen concept, not a thing this single-item full player
@@ -149,10 +180,18 @@ fun PlayerScreen(viewModel: TvViewModel) {
         onDispose { player.removeListener(loopListener) }
     }
 
-    DisposableEffect(player) {
+    // Keyed on media too: the listener calls startPlayback(), which closes
+    // over the current media. Keyed on player alone, a retry after channel
+    // surfing re-tuned the first channel instead of the one on screen.
+    DisposableEffect(player, media) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) isTuning = false
+                // A scheduled program finished: tune to whatever airs next.
+                if (playbackState == Player.STATE_ENDED && isScheduledChannel) {
+                    isTuning = true
+                    startPlayback()
+                }
             }
 
             // Without this, a playback error (a dropped segment request, a
@@ -220,7 +259,43 @@ fun PlayerScreen(viewModel: TvViewModel) {
         }
     }
 
+    // Continue Watching: save position every 15s while playing and once on
+    // exit. `position`/`duration` are the 1s-polled copies above, so the
+    // exit save doesn't touch the player after it's released.
+    LaunchedEffect(player, media) {
+        while (true) {
+            delay(15_000)
+            if (player.isPlaying) viewModel.saveWatchProgress(media, position, duration)
+        }
+    }
+    DisposableEffect(media) {
+        onDispose { viewModel.saveWatchProgress(media, position, duration) }
+    }
+
+    // Off air: check the schedule again every minute.
+    LaunchedEffect(offAir) {
+        while (offAir) {
+            delay(60_000)
+            startPlayback()
+        }
+    }
+
     BackHandler { viewModel.closePlayer() }
+
+    // The key handler below lives on the root Box, but Compose only routes
+    // key events through focused nodes and their ancestors. With nothing
+    // focusable here, every D-pad press outside the channel surfer went
+    // nowhere: play/pause and seek were dead and the auto-hidden overlay
+    // could never be brought back. Make the root the focus target and take
+    // focus back whenever the surfer (which owns focus while open) closes.
+    val playerFocus = remember { FocusRequester() }
+    LaunchedEffect(showSurfer) {
+        if (!showSurfer) {
+            // Wait a frame so the surfer's nodes are gone and the root is placed.
+            withFrameNanos { }
+            try { playerFocus.requestFocus() } catch (_: IllegalStateException) { }
+        }
+    }
 
     val liveChannelCards = (viewModel.liveChannels as? LoadState.Success)?.data?.map { it.toMediaCard() } ?: emptyList()
     var dialBuffer by remember { mutableStateOf("") }
@@ -319,6 +394,10 @@ fun PlayerScreen(viewModel: TvViewModel) {
                     else -> false
                 }
             }
+            // Must come after onKeyEvent: key events reach modifiers to the
+            // left of (i.e. wrapping) the focused node, not to its right.
+            .focusRequester(playerFocus)
+            .focusable()
     ) {
         AndroidView(
             factory = {
@@ -444,6 +523,14 @@ fun PlayerScreen(viewModel: TvViewModel) {
 
         if (isTuning) {
             TuningOverlay(channelName = media.title, modifier = Modifier.fillMaxSize())
+        } else if (offAir) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "Nothing is airing on ${media.title} right now",
+                    color = nocturne.textMuted,
+                    fontSize = 24.sp
+                )
+            }
         }
 
         if (dialBuffer.isNotEmpty()) {

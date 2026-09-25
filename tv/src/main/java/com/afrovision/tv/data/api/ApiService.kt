@@ -215,12 +215,45 @@ interface ApiService {
     @POST("/distribution/tv/chat/connections/{connectionId}/read")
     suspend fun markChatConnectionRead(@Path("connectionId") connectionId: String): SuccessResponse
 
-    @POST("/watch-progress/{mediaType}/{mediaId}")
+    // The backend route is PUT, not POST, and takes position_seconds +
+    // duration_seconds (progress.controller.js). Plain /watch-progress is
+    // user-token only; a TV holding just its device token must use the
+    // /distribution/tv/ mirror, which acts as the paired account.
+    @PUT("/watch-progress/{mediaType}/{mediaId}")
     suspend fun updateWatchProgress(
         @Path("mediaType") mediaType: String,
         @Path("mediaId") mediaId: String,
-        @Body position: Map<String, Long>
+        @Body body: com.afrovision.tv.data.api.model.WatchProgressUpdate
     )
+
+    @PUT("/distribution/tv/watch-progress/{mediaType}/{mediaId}")
+    suspend fun updateTvWatchProgress(
+        @Path("mediaType") mediaType: String,
+        @Path("mediaId") mediaId: String,
+        @Body body: com.afrovision.tv.data.api.model.WatchProgressUpdate
+    )
+
+    @GET("/distribution/tv/watch-progress")
+    suspend fun getTvWatchProgress(): WatchProgressResponse
+
+    @GET("/movies/{movieId}")
+    suspend fun getMovie(@Path("movieId") movieId: String): com.afrovision.tv.data.api.model.MovieDetailResponse
+
+    @GET("/channels/{channelId}/series/{seriesId}")
+    suspend fun getSeriesDetail(
+        @Path("channelId") channelId: String,
+        @Path("seriesId") seriesId: String
+    ): com.afrovision.tv.data.api.model.SeriesDetailResponse
+
+    @GET("/channels/{channelId}/series/{seriesId}/episodes/{episodeId}")
+    suspend fun getEpisode(
+        @Path("channelId") channelId: String,
+        @Path("seriesId") seriesId: String,
+        @Path("episodeId") episodeId: String
+    ): com.afrovision.tv.data.api.model.EpisodeDetailResponse
+
+    @GET("/broadcast/now-playing/{channelId}")
+    suspend fun getNowPlaying(@Path("channelId") channelId: String): com.afrovision.tv.data.api.model.NowPlayingResponse
 
     @POST("/wave/{id}/view")
     suspend fun trackWaveView(@Path("id") waveId: String)

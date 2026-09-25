@@ -82,7 +82,7 @@ fun MoviesSeriesScreen(viewModel: TvViewModel) {
 
     val continueWatching = (viewModel.homeState.continueWatching as? LoadState.Success)?.data.orEmpty()
     val continueWatchingMovies = continueWatching.filter { it.mediaType == "movie" }
-    val continueWatchingSeries = continueWatching.filter { it.mediaType == "series" }
+    val continueWatchingSeries = continueWatching.filter { it.mediaType == "episode" }
     val moviesById = movies.associateBy { it.id }
     val seriesById = series.associateBy { it.id }
 

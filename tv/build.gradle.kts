@@ -16,8 +16,8 @@ android {
         applicationId = "com.afrovision.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 39
-        versionName = "4.6"
+        versionCode = 40
+        versionName = "4.7"
     }
 
     signingConfigs {
@@ -41,7 +41,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            // No debug-key fallback: a debug-signed release can never be
+            // upgraded by the real (Ricardo Roze Limited) key already on
+            // installed TVs. If key.properties is missing, the release
+            // build fails below instead of quietly shipping a dead end.
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
@@ -110,5 +114,22 @@ dependencies {
 
     implementation("io.socket:socket.io-client:2.1.1") {
         exclude(group = "org.json", module = "json")
+    }
+}
+
+// Fail release builds loudly when the real signing key isn't configured,
+// rather than producing an unsigned (or debug-signed) APK/AAB. Debug builds
+// are unaffected.
+gradle.taskGraph.whenReady {
+    val buildsRelease = allTasks.any { task ->
+        task.project == project && task.name.contains("Release") &&
+            (task.name.startsWith("assemble") || task.name.startsWith("bundle") ||
+                task.name.startsWith("package") || task.name.startsWith("install"))
+    }
+    if (buildsRelease && android.signingConfigs.findByName("release") == null) {
+        throw GradleException(
+            "Release signing is not configured: tv/key.properties is missing. " +
+                "Add it (keyAlias, keyPassword, storeFile, storePassword) to build a release."
+        )
     }
 }

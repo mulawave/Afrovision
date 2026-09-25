@@ -1,5 +1,6 @@
 package com.afrovision.tv.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.background
@@ -15,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -94,6 +96,21 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
             val snoozed = System.currentTimeMillis() < updateSnoozedUntil
             val updateShowing = update != null && !updateDismissed && !snoozed
 
+            // Back used to exit the app from every top-level screen (no
+            // handler here), which fails Google TV app-quality review. Now:
+            // Back in content -> focus the nav rail; Back on the rail -> go
+            // Home; Back on the rail while already Home -> fall through to
+            // the system and exit. Screen-level overlays (detail sheets,
+            // CatchUp detail, the update dialog) register their own
+            // BackHandlers later, so they still take priority over this one.
+            var railHasFocus by remember { mutableStateOf(false) }
+            var railFocusTrigger by remember { mutableIntStateOf(0) }
+            BackHandler(enabled = !railHasFocus || currentScreen != Screen.Home) {
+                TvSoundManager.play("back")
+                if (railHasFocus) viewModel.navigateTo(Screen.Home)
+                railFocusTrigger++
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -112,7 +129,9 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                     currentScreen = currentScreen,
                     unreadMessages = viewModel.unreadMessages,
                     onSelect = { viewModel.navigateTo(it) },
-                    modifier = Modifier.width(146.dp)
+                    modifier = Modifier.width(146.dp),
+                    focusTrigger = railFocusTrigger,
+                    onRailFocusChanged = { railHasFocus = it }
                 )
                 AnimatedContent(
                     targetState = currentScreen,

@@ -118,7 +118,9 @@ data class MediaCard(
     val externalUrl: String? = null,
     val duration: Long = 0L,
     val channelNumber: Int? = null,
-    val channelId: String? = null
+    val channelId: String? = null,
+    // Episodes only: the parent series, needed to fetch the episode.
+    val seriesId: String? = null
 )
 
 data class PlayerMedia(
@@ -129,7 +131,9 @@ data class PlayerMedia(
     val isLive: Boolean,
     val progress: Long = 0,
     val duration: Long = 0,
-    val mediaType: String = ""
+    val mediaType: String = "",
+    val channelId: String? = null,
+    val seriesId: String? = null
 )
 
 class TvViewModel(application: Application) : AndroidViewModel(application) {
@@ -311,11 +315,85 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     private var screenBeforePlayer: com.afrovision.tv.ui.navigation.Screen? = null
 
     fun play(media: PlayerMedia) {
+        // Continue Watching cards carry no URL (the progress endpoint doesn't
+        // return one), so a movie or episode without one is fetched first.
+        if (media.streamUrl.isNullOrBlank() && media.externalUrl.isNullOrBlank() &&
+            (media.mediaType == "movie" || media.mediaType == "episode")
+        ) {
+            viewModelScope.launch {
+                val resolved = resolvePlayableMedia(media)
+                if (resolved != null) showPlayer(resolved)
+                else Log.w(TV_APP_TAG, "No playable URL for ${media.mediaType} ${media.id}")
+            }
+            return
+        }
+        showPlayer(media)
+    }
+
+    private fun showPlayer(media: PlayerMedia) {
         if (currentScreen != com.afrovision.tv.ui.navigation.Screen.Player) {
             screenBeforePlayer = currentScreen
         }
         playerMedia = media
         currentScreen = com.afrovision.tv.ui.navigation.Screen.Player
+    }
+
+    private suspend fun resolvePlayableMedia(media: PlayerMedia): PlayerMedia? = try {
+        when (media.mediaType) {
+            "movie" -> api.getMovie(media.id).data.movie?.let { movie ->
+                media.copy(streamUrl = movie.streamUrl, externalUrl = movie.externalUrl)
+            }
+            "episode" -> {
+                val channelId = media.channelId
+                val seriesId = media.seriesId
+                if (channelId == null || seriesId == null) null
+                else api.getEpisode(channelId, seriesId, media.id).data.episode?.let { ep ->
+                    media.copy(streamUrl = ep.streamUrl, externalUrl = ep.externalUrl)
+                }
+            }
+            else -> null
+        }?.takeIf { !it.streamUrl.isNullOrBlank() || !it.externalUrl.isNullOrBlank() }
+    } catch (e: Exception) {
+        Log.e(TV_APP_TAG, "Resolving ${media.mediaType} ${media.id} failed", e)
+        null
+    }
+
+    // True when requests go out with the device token rather than a user
+    // token (TV activated by code, never QR-paired). User-auth routes 401
+    // for those, so the /distribution/tv/ mirrors must be used instead.
+    private fun usesDeviceAuth(): Boolean {
+        val token = TokenHolder.token
+        return token.isBlank() || jwtKind(token) == "tv_device"
+    }
+
+    /**
+     * Records playback position for Continue Watching. Only movies and
+     * episodes are tracked (the backend rejects other types). Failures are
+     * logged and dropped - the player saves again on its next tick.
+     */
+    fun saveWatchProgress(media: PlayerMedia, positionMs: Long, durationMs: Long) {
+        if (media.mediaType != "movie" && media.mediaType != "episode") return
+        if (durationMs <= 0 || positionMs < 0) return
+        val body = com.afrovision.tv.data.api.model.WatchProgressUpdate(
+            positionSeconds = positionMs / 1000,
+            durationSeconds = durationMs / 1000
+        )
+        viewModelScope.launch {
+            try {
+                if (usesDeviceAuth()) api.updateTvWatchProgress(media.mediaType, media.id, body)
+                else api.updateWatchProgress(media.mediaType, media.id, body)
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "Saving watch progress for ${media.mediaType} ${media.id} failed", e)
+            }
+        }
+    }
+
+    /** What a native (scheduler-driven) channel is airing now, or null if nothing is. */
+    suspend fun getNowPlaying(channelId: String): com.afrovision.tv.data.api.model.NowPlaying? = try {
+        api.getNowPlaying(channelId).nowPlaying?.takeIf { it.videoUrl.isNotBlank() }
+    } catch (e: Exception) {
+        Log.e(TV_APP_TAG, "now-playing for $channelId failed", e)
+        null
     }
 
     fun playChannel(card: MediaCard) {
@@ -446,7 +524,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
             // Each endpoint loads independently — one failure does NOT kill all rails
             val progressResult = try {
-                val r = api.getWatchProgress()
+                val r = if (usesDeviceAuth()) api.getTvWatchProgress() else api.getWatchProgress()
                 Log.d(TV_APP_TAG, "Home /watch-progress/me: ${r.data.items.size} items")
                 r
             } catch (e: Exception) {
@@ -499,24 +577,13 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
 
-            // Build continue-watching cards from whatever loaded successfully.
-            // Library items are reading content, not video - they have no
-            // watch progress and don't belong in this map.
-            val mediaById = buildMap<String, Any> {
-                liveResult?.channels?.forEach { put(it.id, it) }
-                moviesResult?.movies?.forEach { put(it.id, it) }
-                seriesResult?.series?.forEach { put(it.id, it) }
-                wavesResult?.data?.forEach { put(it.id, it) }
-            }
-            val continueCards = progressResult?.data?.items?.mapNotNull { wp ->
-                val mediaId = wp.movieId ?: wp.seriesId ?: wp.episodeId ?: ""
-                when (val media = mediaById[mediaId]) {
-                    is Channel -> wp.toMediaCard(media)
-                    is Movie -> wp.toMediaCard(media)
-                    is Series -> wp.toMediaCard(media)
-                    is Wave -> wp.toMediaCard(media)
-                    else -> wp.toMediaCard()
-                }
+            // Build continue-watching cards. Movies found in the loaded
+            // rail get its richer metadata; everything else (including every
+            // episode) uses the title/poster the progress endpoint joins in.
+            val moviesById = moviesResult?.movies?.associateBy { it.id }.orEmpty()
+            val continueCards = progressResult?.data?.items?.map { wp ->
+                val movie = if (wp.mediaType == "movie") moviesById[wp.movieId] else null
+                if (movie != null) wp.toMediaCard(movie) else wp.toMediaCard()
             } ?: emptyList()
             Log.d(TV_APP_TAG, "Home continue-watching enriched: ${continueCards.size} cards")
 
@@ -725,7 +792,23 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     // entries) - this is what they were for.
     fun selectMovie(movie: Movie) { selectedMovie = movie }
     fun clearSelectedMovie() { selectedMovie = null }
-    fun selectSeries(series: Series) { selectedSeries = series }
+    // List endpoints return series without seasons, so the detail sheet
+    // could never offer "Play S1E1". Show the sheet at once, then swap in
+    // the channel-scoped detail (seasons + episodes) when it arrives. If
+    // that fails (e.g. exclusive channel, no access) the list item stays.
+    fun selectSeries(series: Series) {
+        selectedSeries = series
+        val channelId = series.channelId ?: return
+        if (series.seasons.any { it.episodes.isNotEmpty() }) return
+        viewModelScope.launch {
+            try {
+                val detail = api.getSeriesDetail(channelId, series.id).data.series ?: return@launch
+                if (selectedSeries?.id == series.id) selectedSeries = detail
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "Series detail for ${series.id} failed", e)
+            }
+        }
+    }
     fun clearSelectedSeries() { selectedSeries = null }
 
     fun loadMoviesSeries() {
@@ -786,35 +869,62 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun search(query: String) {
-        viewModelScope.launch {
-            searchQuery = query
-            search = LoadState.Loading
-            if (query.isBlank()) {
-                search = LoadState.Success(emptyList())
-                return@launch
+    // None of /channels, /movies, /series or /wave/feed accept a `q` param -
+    // the backend silently ignores it and returns the unfiltered list. So
+    // search fetches the catalog once (cached for SEARCH_CATALOG_TTL_MS) and
+    // filters by title on-device. Each source is fetched independently so
+    // one failing endpoint doesn't blank the others.
+    private var searchCatalog: List<MediaCard>? = null
+    private var searchCatalogFetchedAt = 0L
+    private var searchJob: Job? = null
+
+    private suspend fun loadSearchCatalog(): List<MediaCard> {
+        val cached = searchCatalog
+        if (cached != null && System.currentTimeMillis() - searchCatalogFetchedAt < SEARCH_CATALOG_TTL_MS) {
+            return cached
+        }
+        val catalog = kotlinx.coroutines.coroutineScope {
+            val channels = async {
+                runCatching { api.getChannels().let { it.channels.ifEmpty { it.data } }.map { it.toMediaCard() } }
             }
-            try {
-                val channels = api.getChannels(mapOf("q" to query)).data
-                val movies = api.getMovies(mapOf("q" to query)).movies
-                val series = api.getSeries(mapOf("q" to query)).series
-                val waves = api.getWaves(mapOf("q" to query)).data
-                val result = mutableListOf<MediaCard>()
-                result += channels.map {
-                    MediaCard(id = it.id, title = it.name, imageUrl = it.posterUrl, mediaType = "channel", streamUrl = it.streamUrl, externalUrl = it.externalUrl)
-                }
-                result += movies.map {
-                    MediaCard(id = it.id, title = it.title, imageUrl = it.posterUrl, mediaType = "movie", streamUrl = it.streamUrl, externalUrl = it.externalUrl)
-                }
-                result += series.map {
-                    MediaCard(id = it.id, title = it.title, imageUrl = it.posterUrl, mediaType = "series")
-                }
-                result += waves.map {
-                    MediaCard(id = it.id, title = it.title, imageUrl = it.thumbnailUrl, mediaType = "wave", streamUrl = it.streamUrl, externalUrl = it.externalUrl)
-                }
-                search = LoadState.Success(result)
+            val movies = async {
+                runCatching { api.getMovies(mapOf("limit" to "100")).movies.map { it.toMediaCard() } }
+            }
+            val series = async {
+                runCatching { api.getSeries(mapOf("limit" to "100")).series.map { it.toMediaCard() } }
+            }
+            val waves = async {
+                runCatching { api.getWaves(mapOf("limit" to "50")).let { it.waves.ifEmpty { it.data } }.map { it.toMediaCard() } }
+            }
+            val results = listOf(channels.await(), movies.await(), series.await(), waves.await())
+            // Only surface an error if every source failed; otherwise search
+            // what we did get.
+            if (results.all { it.isFailure }) throw results.first().exceptionOrNull()!!
+            results.flatMap { it.getOrDefault(emptyList()) }
+        }
+        searchCatalog = catalog
+        searchCatalogFetchedAt = System.currentTimeMillis()
+        return catalog
+    }
+
+    fun search(query: String) {
+        searchJob?.cancel()
+        searchQuery = query
+        val needle = query.trim()
+        if (needle.isEmpty()) {
+            search = LoadState.Success(emptyList())
+            return
+        }
+        searchJob = viewModelScope.launch {
+            if (searchCatalog == null) search = LoadState.Loading
+            search = try {
+                LoadState.Success(
+                    loadSearchCatalog().filter { it.title.contains(needle, ignoreCase = true) }
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                search = LoadState.Error(e.toUserFacingMessage())
+                LoadState.Error(e.toUserFacingMessage())
             }
         }
     }
@@ -1577,3 +1687,6 @@ data class DownloadItem(
     val localPath: String? = null,
     val status: String = "completed"
 )
+
+/** How long TvViewModel.search() reuses its fetched catalog before refetching. */
+private const val SEARCH_CATALOG_TTL_MS = 5 * 60_000L

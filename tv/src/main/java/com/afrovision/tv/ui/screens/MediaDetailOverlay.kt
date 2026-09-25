@@ -175,6 +175,10 @@ fun firstEpisodePlayerMedia(series: com.afrovision.tv.data.api.model.Series): Pl
         isLive = false,
         progress = 0,
         duration = (episode.duration ?: 0).toLong() * 1000L,
-        mediaType = "series"
+        // "episode" (not "series") so the player records watch progress
+        // under the type the backend accepts.
+        mediaType = "episode",
+        channelId = series.channelId,
+        seriesId = series.id
     )
 }

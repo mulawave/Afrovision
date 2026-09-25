@@ -62,80 +62,40 @@ fun Wave.toMediaCard() = MediaCard(
     duration = duration * 1000L
 )
 
-fun WatchProgress.toMediaCard(channel: Channel): MediaCard {
-    val total = if (durationSeconds > 0) durationSeconds else 0L
-    return MediaCard(
-        id = movieId ?: seriesId ?: episodeId ?: "",
-        title = channel.name,
-        subtitle = channel.description ?: "",
-        imageUrl = channel.posterUrl,
-        progress = if (total > 0) positionSeconds.toFloat() / total else 0f,
-        badge = if (channel.isLive) "LIVE" else "",
-        mediaType = "channel",
-        streamUrl = channel.streamUrl,
-        externalUrl = channel.externalUrl,
-        duration = total
-    )
-}
-
+// Continue Watching cards. The backend only records progress for "movie"
+// and "episode" (progress.controller.js VALID_MEDIA_TYPES). An episode card
+// keeps its own id (not the series id) plus seriesId/channelId, so tapping it
+// can fetch and resume that exact episode. duration is milliseconds, like
+// every other MediaCard - toPlayerMedia() turns progress * duration into the
+// ExoPlayer seek position, so seconds here resumed ~1000x too early.
 fun WatchProgress.toMediaCard(movie: Movie): MediaCard {
-    val total = if (durationSeconds > 0) durationSeconds else (movie.duration ?: 0).toLong()
+    val totalSeconds = if (durationSeconds > 0) durationSeconds else (movie.duration ?: 0).toLong()
     return MediaCard(
-        id = movieId ?: "",
+        id = movieId ?: movie.id,
         title = movie.title,
         subtitle = movie.description ?: "",
         imageUrl = movie.posterUrl,
-        progress = if (total > 0) positionSeconds.toFloat() / total else 0f,
-        badge = "",
+        progress = if (totalSeconds > 0) positionSeconds.toFloat() / totalSeconds else 0f,
         mediaType = "movie",
         streamUrl = movie.streamUrl,
         externalUrl = movie.externalUrl,
-        duration = total
-    )
-}
-
-fun WatchProgress.toMediaCard(series: Series): MediaCard {
-    val total = if (durationSeconds > 0) durationSeconds else 0L
-    return MediaCard(
-        id = seriesId ?: "",
-        title = series.title,
-        subtitle = series.description ?: "",
-        imageUrl = series.posterUrl,
-        progress = if (total > 0) positionSeconds.toFloat() / total else 0f,
-        badge = "",
-        mediaType = "series",
-        streamUrl = null,
-        externalUrl = null,
-        duration = total
-    )
-}
-
-fun WatchProgress.toMediaCard(wave: Wave): MediaCard {
-    val total = durationSeconds
-    return MediaCard(
-        id = movieId ?: "",
-        title = wave.title,
-        subtitle = wave.creatorName ?: wave.description ?: "",
-        imageUrl = wave.thumbnailUrl,
-        progress = if (total > 0) positionSeconds.toFloat() / total else 0f,
-        badge = "",
-        mediaType = "wave",
-        streamUrl = wave.streamUrl,
-        externalUrl = wave.externalUrl,
-        duration = total
+        duration = totalSeconds * 1000L,
+        channelId = channelId
     )
 }
 
 fun WatchProgress.toMediaCard(): MediaCard {
-    val pct = if (this.durationSeconds > 0) this.positionSeconds.toFloat() / this.durationSeconds else 0f
+    val pct = if (durationSeconds > 0) positionSeconds.toFloat() / durationSeconds else 0f
     return MediaCard(
-        id = movieId ?: seriesId ?: episodeId ?: "",
+        id = (if (mediaType == "episode") episodeId else movieId) ?: "",
         title = title,
-        subtitle = episodeTitle ?: mediaType,
+        subtitle = episodeTitle ?: "",
         imageUrl = posterUrl,
         progress = pct,
         mediaType = mediaType,
-        duration = this.durationSeconds
+        duration = durationSeconds * 1000L,
+        channelId = channelId,
+        seriesId = seriesId
     )
 }
 
@@ -147,5 +107,7 @@ fun MediaCard.toPlayerMedia() = PlayerMedia(
     isLive = mediaType == "channel",
     progress = (progress * duration).toLong(),
     duration = duration,
-    mediaType = mediaType
+    mediaType = mediaType,
+    channelId = channelId,
+    seriesId = seriesId
 )

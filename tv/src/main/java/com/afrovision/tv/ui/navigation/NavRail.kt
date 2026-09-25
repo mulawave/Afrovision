@@ -32,12 +32,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -79,7 +81,11 @@ fun NavRail(
     currentScreen: Screen,
     unreadMessages: Int,
     onSelect: (Screen) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Bump to pull focus onto the selected rail item (used by TvApp's Back
+    // handling). Starts at 0, which never triggers.
+    focusTrigger: Int = 0,
+    onRailFocusChanged: (Boolean) -> Unit = {}
 ) {
     val nocturne = LocalNocturne.current
     val firstFocus = remember { FocusRequester() }
@@ -101,6 +107,7 @@ fun NavRail(
             )
             .padding(top = 34.dp, bottom = 28.dp)
             .verticalScroll(rememberScrollState())
+            .onFocusChanged { onRailFocusChanged(it.hasFocus) }
             .focusGroup()
             .onGloballyPositioned { placed = true },
         horizontalAlignment = Alignment.CenterHorizontally
@@ -154,6 +161,18 @@ fun NavRail(
             onClick = { onSelect(settingsRail.screen) },
             focusRequester = remember { FocusRequester() }
         )
+    }
+
+    LaunchedEffect(focusTrigger) {
+        if (focusTrigger > 0) {
+            // Wait a frame so a screen change has recomposed and firstFocus
+            // is attached to the newly selected item.
+            withFrameNanos { }
+            try {
+                firstFocus.requestFocus()
+            } catch (_: IllegalStateException) {
+            }
+        }
     }
 
     LaunchedEffect(placed) {

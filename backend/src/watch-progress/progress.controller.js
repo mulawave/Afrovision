@@ -68,6 +68,7 @@ exports.listMine = async (req, res) => {
           items.push({
             media_type: 'movie',
             movie_id: movie.id,
+            channel_id: movie.channel_id || null,
             title: movie.title || '',
             poster_url: movie.poster_url || null,
             position_seconds: Number(p.position_seconds) || 0,
@@ -84,6 +85,9 @@ exports.listMine = async (req, res) => {
           items.push({
             media_type: 'episode',
             series_id: series.id,
+            // Clients need the channel to fetch the episode: episode detail
+            // is only exposed channel-scoped (series.routes.js).
+            channel_id: series.channel_id || null,
             episode_id: episode.id,
             title: series.title || '',
             episode_title: episode.title || '',

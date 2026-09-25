@@ -24,9 +24,17 @@ data class Channel(
     @SerialName("is_live") val isLive: Boolean = false,
     @SerialName("exclusive_monthly_fee_ngn") val exclusiveMonthlyFeeNgn: Double = 0.0,
     @SerialName("external_url") val externalUrl: String? = null,
-    @SerialName("stream_url") val streamUrl: String? = null
+    @SerialName("stream_url") val rawStreamUrl: String? = null,
+    // What the channel enrichers actually emit for external-source channels
+    // (channel.controller.js). Nothing ever sends `stream_url`, so reading
+    // only that left every channel without a URL.
+    @SerialName("resolved_playback_url") val resolvedPlaybackUrl: String? = null,
+    // "native" channels have no URL of their own - they play whatever the
+    // broadcast scheduler says is on now (GET /broadcast/now-playing/:id).
+    @SerialName("stream_source_mode") val streamSourceMode: String = "native"
 ) {
     val isExclusive: Boolean get() = type == "exclusive" || exclusiveMonthlyFeeNgn > 0
+    val streamUrl: String? get() = resolvedPlaybackUrl ?: rawStreamUrl
 }
 
 @Serializable
@@ -101,6 +109,9 @@ data class Series(
     // used elsewhere (e.g. seasons/episodes). This was silently mapping to
     // nothing for every series on every screen that renders one.
     @SerialName("cover_url") val posterUrl: String? = null,
+    // Needed for the channel-scoped detail route - there is no global
+    // GET /series/:id (series.routes.js).
+    @SerialName("channel_id") val channelId: String? = null,
     val seasons: List<Season> = emptyList(),
     @SerialName("published_at") val publishedAt: Long? = null,
     @SerialName("created_at") val createdAt: Long? = null
@@ -109,7 +120,7 @@ data class Series(
 @Serializable
 data class Season(
     val id: String = "",
-    val number: Int = 0,
+    @SerialName("season_number") val number: Int = 0,
     val episodes: List<Episode> = emptyList()
 )
 
@@ -119,8 +130,8 @@ data class Season(
 data class Episode(
     val id: String = "",
     val title: String = "",
-    val description: String? = null,
-    val number: Int = 0,
+    @SerialName("synopsis") val description: String? = null,
+    @SerialName("episode_number") val number: Int = 0,
     @SerialName("video_source_mode") val videoSourceMode: String = "hosted",
     @SerialName("hosted_url") val hostedUrl: String? = null,
     @SerialName("hls_url") val hlsUrl: String? = null,
@@ -195,6 +206,7 @@ data class WaveListResponse(
 @Serializable
 data class WatchProgress(
     @SerialName("media_type") val mediaType: String = "",
+    @SerialName("channel_id") val channelId: String? = null,
     @SerialName("movie_id") val movieId: String? = null,
     @SerialName("series_id") val seriesId: String? = null,
     @SerialName("episode_id") val episodeId: String? = null,
@@ -215,6 +227,51 @@ data class WatchProgressData(
 data class WatchProgressResponse(
     val success: Boolean = false,
     val data: WatchProgressData = WatchProgressData()
+)
+
+// Body of PUT /watch-progress/:mediaType/:mediaId (progress.controller.js).
+@Serializable
+data class WatchProgressUpdate(
+    @SerialName("position_seconds") val positionSeconds: Long,
+    @SerialName("duration_seconds") val durationSeconds: Long
+)
+
+// GET /movies/:movieId -> { success, data: { movie } }. Unlike the list
+// endpoint, the detail route resolves hosted/HLS URLs to playable ones.
+@Serializable
+data class MovieDetailResponse(val data: MovieDetailData = MovieDetailData())
+
+@Serializable
+data class MovieDetailData(val movie: Movie? = null)
+
+// GET /channels/:channelId/series/:seriesId -> { success, data: { series } },
+// with published seasons and their episodes nested.
+@Serializable
+data class SeriesDetailResponse(val data: SeriesDetailData = SeriesDetailData())
+
+@Serializable
+data class SeriesDetailData(val series: Series? = null)
+
+// GET /channels/:channelId/series/:seriesId/episodes/:episodeId
+@Serializable
+data class EpisodeDetailResponse(val data: EpisodeDetailData = EpisodeDetailData())
+
+@Serializable
+data class EpisodeDetailData(val episode: Episode? = null)
+
+// GET /broadcast/now-playing/:channelId - what a native channel is airing.
+@Serializable
+data class NowPlayingResponse(
+    @SerialName("now_playing") val nowPlaying: NowPlaying? = null
+)
+
+@Serializable
+data class NowPlaying(
+    @SerialName("video_url") val videoUrl: String = "",
+    @SerialName("video_title") val videoTitle: String = "",
+    // Seconds into the video the schedule is at right now.
+    val position: Long = 0,
+    val duration: Long = 0
 )
 
 @Serializable
