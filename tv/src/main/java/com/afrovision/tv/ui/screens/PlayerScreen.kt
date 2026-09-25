@@ -61,10 +61,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.foundation.focusable
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -282,19 +278,11 @@ fun PlayerScreen(viewModel: TvViewModel) {
 
     BackHandler { viewModel.closePlayer() }
 
-    // The key handler below lives on the root Box, but Compose only routes
-    // key events through focused nodes and their ancestors. With nothing
-    // focusable here, every D-pad press outside the channel surfer went
-    // nowhere: play/pause and seek were dead and the auto-hidden overlay
-    // could never be brought back. Make the root the focus target and take
-    // focus back whenever the surfer (which owns focus while open) closes.
-    val playerFocus = remember { FocusRequester() }
-    LaunchedEffect(showSurfer) {
-        if (!showSurfer) {
-            // Wait a frame so the surfer's nodes are gone and the root is placed.
-            withFrameNanos { }
-            try { playerFocus.requestFocus() } catch (_: IllegalStateException) { }
-        }
+    // Channel up/down, number dialing and the surfer all read liveChannels.
+    // If its load failed (e.g. a timeout at launch), nothing retried until an
+    // app restart - retry whenever the player opens without it.
+    LaunchedEffect(Unit) {
+        if (viewModel.liveChannels !is LoadState.Success) viewModel.loadLiveChannels()
     }
 
     val liveChannelCards = (viewModel.liveChannels as? LoadState.Success)?.data?.map { it.toMediaCard() } ?: emptyList()
@@ -394,10 +382,6 @@ fun PlayerScreen(viewModel: TvViewModel) {
                     else -> false
                 }
             }
-            // Must come after onKeyEvent: key events reach modifiers to the
-            // left of (i.e. wrapping) the focused node, not to its right.
-            .focusRequester(playerFocus)
-            .focusable()
     ) {
         AndroidView(
             factory = {
@@ -679,6 +663,11 @@ private fun ChannelSurferOverlay(viewModel: TvViewModel, currentMedia: PlayerMed
     val channels = viewModel.liveChannels
     val items = (channels as? LoadState.Success)?.data?.map { it.toMediaCard() } ?: emptyList()
     val listState = rememberLazyListState()
+    // Opened with no channels loaded (failed earlier): try again, rather
+    // than showing an empty surfer.
+    LaunchedEffect(Unit) {
+        if (channels is LoadState.Error) viewModel.loadLiveChannels()
+    }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val scope = rememberCoroutineScope()
 

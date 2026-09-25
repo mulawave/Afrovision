@@ -45,7 +45,14 @@ object RetrofitClient {
         chain.proceed(newRequest)
     }
 
+    // OkHttp's 10s defaults are too tight here: the backend already takes
+    // 4-6s for /channels and /movies on a good connection, and a low-end TV
+    // on a slower network regularly went past 10s. A timed-out /channels
+    // left the channel surfer, channel up/down and number dialing empty.
     private val client = OkHttpClient.Builder()
+        .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .addInterceptor(authInterceptor)
         .addInterceptor(
             HttpLoggingInterceptor().apply {

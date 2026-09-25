@@ -36,6 +36,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalFocusManager
@@ -71,6 +74,15 @@ fun SearchScreen(viewModel: TvViewModel) {
             try { focusRequester.requestFocus() } catch (_: IllegalStateException) { }
         }
     }
+
+    fun submitSearch() {
+        viewModel.search(query.text)
+        focusManager.moveFocus(FocusDirection.Down)
+    }
+
+    // Start fetching the catalog as soon as Search opens, so the first
+    // query doesn't wait on four list requests.
+    LaunchedEffect(Unit) { viewModel.prefetchSearchCatalog() }
 
     // Debounce keystrokes so typing on the on-screen keyboard doesn't fire a
     // search per character.
@@ -133,16 +145,23 @@ fun SearchScreen(viewModel: TvViewModel) {
                             textStyle = TextStyle(color = nocturne.text, fontSize = 22.sp),
                             cursorBrush = SolidColor(nocturne.accent),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = {
-                                // Run immediately (skip the debounce) and hand
-                                // D-pad focus to the results row.
-                                viewModel.search(query.text)
-                                focusManager.moveFocus(FocusDirection.Down)
-                            }),
+                            // TV keyboards differ in which action their
+                            // confirm key sends (Search, Done, Go or a raw
+                            // Enter), so treat any of them as "search now":
+                            // skip the debounce and move focus to results.
+                            keyboardActions = KeyboardActions(onAny = { submitSearch() }),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(focusRequester)
-                                .onFocusChanged { focused = it.isFocused },
+                                .onFocusChanged { focused = it.isFocused }
+                                .onPreviewKeyEvent { event ->
+                                    val code = event.nativeKeyEvent.keyCode
+                                    val isConfirm = code == android.view.KeyEvent.KEYCODE_ENTER ||
+                                        code == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                        code == android.view.KeyEvent.KEYCODE_SEARCH
+                                    if (isConfirm && event.type == KeyEventType.KeyUp) submitSearch()
+                                    isConfirm
+                                },
                             decorationBox = { inner ->
                                 Box(contentAlignment = Alignment.CenterStart) {
                                     if (query.text.isEmpty()) {

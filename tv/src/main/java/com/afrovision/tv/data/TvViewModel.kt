@@ -907,6 +907,11 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         return catalog
     }
 
+    /** Warms the search catalog cache in the background; errors are ignored here and surface on search. */
+    fun prefetchSearchCatalog() {
+        viewModelScope.launch { runCatching { loadSearchCatalog() } }
+    }
+
     fun search(query: String) {
         searchJob?.cancel()
         searchQuery = query
