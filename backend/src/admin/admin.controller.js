@@ -3767,6 +3767,10 @@ module.exports.adminChannelsLiveOverview = adminChannelsLiveOverview;
 
 // ─── Channel/Wave Data Injection ─────────────────────────────────────────────
 
+// Per-request ceiling for counter adjustments (views/replays). Guards against
+// typos such as an extra zero; keep in sync with the admin data-injection page.
+const MAX_COUNTER_ADJUSTMENT = 1000000;
+
 function parsePositiveAmount(raw) {
   const amount = Math.floor(Number(raw));
   if (!Number.isFinite(amount) || amount <= 0) return null;
@@ -3782,6 +3786,7 @@ async function adminInjectChannelViews(req, res) {
   const ChannelStats = require('../channels/channel_stats.model');
   const amount = parsePositiveAmount(req.body?.amount);
   if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+  if (amount > MAX_COUNTER_ADJUSTMENT) return res.status(400).json({ error: 'amount too large (max 1,000,000 per request)' });
 
   try {
     const channel = await Channel.findById(req.params.id);
@@ -3804,6 +3809,7 @@ async function adminRemoveChannelViews(req, res) {
   const ChannelStats = require('../channels/channel_stats.model');
   const amount = parsePositiveAmount(req.body?.amount);
   if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+  if (amount > MAX_COUNTER_ADJUSTMENT) return res.status(400).json({ error: 'amount too large (max 1,000,000 per request)' });
 
   try {
     const channel = await Channel.findById(req.params.id);
@@ -3939,6 +3945,7 @@ async function adminInjectWaveViews(req, res) {
   const Wave = require('../wave/wave.model');
   const amount = parsePositiveAmount(req.body?.amount);
   if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+  if (amount > MAX_COUNTER_ADJUSTMENT) return res.status(400).json({ error: 'amount too large (max 1,000,000 per request)' });
 
   try {
     const wave = await Wave.findById(req.params.id);
@@ -3962,6 +3969,7 @@ async function adminRemoveWaveViews(req, res) {
   const Wave = require('../wave/wave.model');
   const amount = parsePositiveAmount(req.body?.amount);
   if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+  if (amount > MAX_COUNTER_ADJUSTMENT) return res.status(400).json({ error: 'amount too large (max 1,000,000 per request)' });
 
   try {
     const wave = await Wave.findById(req.params.id);
@@ -3984,6 +3992,7 @@ async function adminInjectWaveReplays(req, res) {
   const Wave = require('../wave/wave.model');
   const amount = parsePositiveAmount(req.body?.amount);
   if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+  if (amount > MAX_COUNTER_ADJUSTMENT) return res.status(400).json({ error: 'amount too large (max 1,000,000 per request)' });
 
   try {
     const wave = await Wave.findById(req.params.id);
@@ -4007,6 +4016,7 @@ async function adminRemoveWaveReplays(req, res) {
   const Wave = require('../wave/wave.model');
   const amount = parsePositiveAmount(req.body?.amount);
   if (!amount) return res.status(400).json({ error: 'amount must be a positive number' });
+  if (amount > MAX_COUNTER_ADJUSTMENT) return res.status(400).json({ error: 'amount too large (max 1,000,000 per request)' });
 
   try {
     const wave = await Wave.findById(req.params.id);
