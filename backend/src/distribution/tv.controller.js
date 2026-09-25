@@ -464,6 +464,12 @@ exports.getChannels = async (req, res) => {
 
     const visibleChannels = channels.filter((channel) => {
       if (channel.is_banned) return false;
+      // A channel's own creator always sees it - the same owner rule the
+      // content routes apply (utils/exclusive-access-helper.js). Owners hold
+      // no exclusive_channel_access record for their own channel, so without
+      // this their exclusive channel and its movies/series/library vanished
+      // from their TV.
+      if (ownerUid && channel.owner_id === ownerUid) return true;
       // Public channels: always visible (exclusive-fee public channels need active access)
       if (channel.type === 'public') {
         if (Number(channel.exclusive_monthly_fee_ngn || 0) > 0) {

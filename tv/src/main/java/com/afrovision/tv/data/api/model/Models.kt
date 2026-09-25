@@ -31,9 +31,16 @@ data class Channel(
     @SerialName("resolved_playback_url") val resolvedPlaybackUrl: String? = null,
     // "native" channels have no URL of their own - they play whatever the
     // broadcast scheduler says is on now (GET /broadcast/now-playing/:id).
-    @SerialName("stream_source_mode") val streamSourceMode: String = "native"
+    @SerialName("stream_source_mode") val streamSourceMode: String = "native",
+    // Result of the backend's stream health check (channel.controller.js):
+    // valid | offline | invalid | access_denied | unknown.
+    @SerialName("stream_status") val streamStatus: String = "unknown"
 ) {
     val isExclusive: Boolean get() = type == "exclusive" || exclusiveMonthlyFeeNgn > 0
+    // External streams the health check has already found broken. Listing
+    // them just sent viewers into a tune that could never succeed.
+    val isKnownBroken: Boolean get() =
+        streamSourceMode != "native" && streamStatus in setOf("offline", "invalid", "access_denied")
     val streamUrl: String? get() = resolvedPlaybackUrl ?: rawStreamUrl
 }
 

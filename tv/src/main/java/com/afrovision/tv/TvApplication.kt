@@ -131,8 +131,31 @@ class TvApplication : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .crossfade(true)
-            .diskCache(DiskCache.Builder().directory(File(cacheDir, "image_cache")).build())
+            // Coil's built-in client uses 10s timeouts. On a slow link, a
+            // screenful of posters/covers downloading at once regularly ran
+            // past that and stayed blank with no retry.
+            .okHttpClient {
+                okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+            }
+            // filesDir, not cacheDir: Android empties cacheDir whenever
+            // storage runs low, which on small-storage TVs meant every
+            // logo, poster and cover was downloaded again on each launch.
+            // Fixed budget so it can't grow unbounded on a small disk.
+            .diskCache(
+                DiskCache.Builder()
+                    .directory(File(filesDir, "image_cache"))
+                    .maxSizeBytes(IMAGE_DISK_CACHE_BYTES)
+                    .build()
+            )
             .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.25).build() }
+            // Half the memory per opaque image; keeps low-RAM TVs from
+            // dropping decodes when many cards are on screen.
+            .allowRgb565(true)
             .build()
     }
 }
+
+private const val IMAGE_DISK_CACHE_BYTES = 150L * 1024 * 1024

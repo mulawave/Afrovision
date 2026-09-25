@@ -142,6 +142,18 @@ fun LibraryScreen(viewModel: TvViewModel) {
                                 message = (library as LoadState.Error).message,
                                 onRetry = { viewModel.loadLibrary() }
                             )
+                            // Loaded, but this category has nothing in it.
+                            // Showing "Loading…" here made every empty
+                            // category look stuck forever.
+                            is LoadState.Success -> Text(
+                                text = when (selectedFilter) {
+                                    "All" -> "Nothing in the library yet"
+                                    "Reading now" -> if (continueReadingItems.isEmpty()) "Nothing in progress yet" else ""
+                                    else -> "No ${selectedFilter.lowercase()} yet"
+                                },
+                                color = nocturne.textFaint,
+                                fontSize = 22.sp
+                            )
                             else -> Text(text = "Loading library…", color = nocturne.textFaint, fontSize = 22.sp)
                         }
                     }

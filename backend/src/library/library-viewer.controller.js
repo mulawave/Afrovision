@@ -822,7 +822,10 @@ exports.listPublicLibrary = async (req, res) => {
     const seenIds = new Set();
     let allItems = [];
 
-    // 2. Fetch items from public non-exclusive channels (chunked for Firestore 'in' limit of 30)
+    // 2. Items from public non-exclusive channels (chunked for Firestore's
+    // 'in' limit of 30). The chunks and the opt-in query below run in
+    // parallel - sequentially they made this feed take 10s+.
+    const chunkQueries = [];
     for (let i = 0; i < publicNonExclusiveIds.length; i += 30) {
       const chunk = publicNonExclusiveIds.slice(i, i + 30);
       let q = db
@@ -833,17 +836,13 @@ exports.listPublicLibrary = async (req, res) => {
       if (contentType) {
         q = q.where('contentType', '==', contentType);
       }
-
-      const snap = await q.get();
-      for (const doc of snap.docs) {
-        if (!seenIds.has(doc.id)) {
-          seenIds.add(doc.id);
-          allItems.push(mapDoc(doc));
-        }
-      }
+      chunkQueries.push(q.get());
     }
 
-    // 3. Fetch items opted-in via isPublic=true from any channel (including exclusive/private)
+    // 3. Items opted in via isPublic=true from other channels. Items from
+    // exclusive channels are never included: exclusive content is only
+    // shown behind the channel's own membership gate, never in the public
+    // library where minors and non-members browse.
     let optInQuery = db
       .collection('channel_library_items')
       .where('isPublic', '==', true)
@@ -853,12 +852,39 @@ exports.listPublicLibrary = async (req, res) => {
       optInQuery = optInQuery.where('contentType', '==', contentType);
     }
 
-    const optInSnap = await optInQuery.get();
-    for (const doc of optInSnap.docs) {
-      if (!seenIds.has(doc.id)) {
-        seenIds.add(doc.id);
-        allItems.push(mapDoc(doc));
+    const [chunkSnaps, optInSnap] = await Promise.all([
+      Promise.all(chunkQueries),
+      optInQuery.get(),
+    ]);
+
+    for (const snap of chunkSnaps) {
+      for (const doc of snap.docs) {
+        if (!seenIds.has(doc.id)) {
+          seenIds.add(doc.id);
+          allItems.push(mapDoc(doc));
+        }
       }
+    }
+
+    const publicNonExclusiveSet = new Set(publicNonExclusiveIds);
+    const optInItems = optInSnap.docs
+      .map(mapDoc)
+      .filter((item) => !seenIds.has(item.id));
+    const otherChannelIds = [...new Set(
+      optInItems.map((item) => item.channelId).filter((id) => id && !publicNonExclusiveSet.has(id))
+    )];
+    const otherChannels = await Promise.all(otherChannelIds.map((id) => Channel.findById(id)));
+    // A channel that can't be found is treated as exclusive (fail closed).
+    const exclusiveChannelIds = new Set(
+      otherChannelIds.filter((id, index) => {
+        const ch = otherChannels[index];
+        return !ch || ch.type === 'exclusive' || Number(ch.exclusive_monthly_fee_ngn || 0) > 0;
+      })
+    );
+    for (const item of optInItems) {
+      if (exclusiveChannelIds.has(item.channelId)) continue;
+      seenIds.add(item.id);
+      allItems.push(item);
     }
 
     // 4. Sort by publishedAt desc (fallback to createdAt)

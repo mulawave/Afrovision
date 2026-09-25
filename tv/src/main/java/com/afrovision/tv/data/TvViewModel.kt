@@ -16,6 +16,10 @@ import com.afrovision.tv.data.recommendation.RecommendationManager
 import com.afrovision.tv.data.api.model.CatchUpHome
 import com.afrovision.tv.data.api.model.CatchUpItem
 import com.afrovision.tv.data.api.model.Channel
+import com.afrovision.tv.data.api.model.ChannelListResponse
+import com.afrovision.tv.data.api.model.LibraryFeedResponse
+import com.afrovision.tv.data.api.model.MovieListResponse
+import com.afrovision.tv.data.api.model.SeriesListResponse
 import com.afrovision.tv.data.api.model.HomepageFeaturedItem
 import com.afrovision.tv.data.api.model.Message
 import com.afrovision.tv.data.api.model.FeedPost
@@ -140,6 +144,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     private val dataStore = TvDataStore(application)
     private val api = RetrofitClient.api
+    private val apiCache = ApiResponseCache(application)
 
     private val _token = MutableStateFlow("")
     val token: StateFlow<String> = _token
@@ -487,9 +492,10 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun loadHome() {
         viewModelScope.launch {
             homeState = homeState.copy(continueWatching = LoadState.Loading)
+            showCachedHomeRails()
 
             // Hero slides + featured channels — from /home/content
-            val homepageResult = try {
+            val homepageResultAsync = async { try {
                 val response = api.getHomepageContent()
                 val content = response.homepage ?: response.data
                 val heroSection = content?.sections?.find { it.key == "hero" && it.enabled }
@@ -502,10 +508,10 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "getHomepageContent failed", e)
                 Triple(com.afrovision.tv.ui.components.defaultHeroSlides(), 8000L, emptyList<HomepageFeaturedItem>())
-            }
+            } }
 
             // Recently viewed channels — from local DataStore
-            val recentChannelList = try {
+            val recentChannelListAsync = async { try {
                 val recent = dataStore.recentChannels.first()
                 Log.d(TV_APP_TAG, "Home recent channels from DataStore: ${recent.size} items")
                 recent.map { rc ->
@@ -520,62 +526,73 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "Home recent channels load FAILED", e)
                 emptyList()
-            }
+            } }
 
             // Each endpoint loads independently — one failure does NOT kill all rails
-            val progressResult = try {
+            val progressResultAsync = async { try {
                 val r = if (usesDeviceAuth()) api.getTvWatchProgress() else api.getWatchProgress()
                 Log.d(TV_APP_TAG, "Home /watch-progress/me: ${r.data.items.size} items")
                 r
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "Home /watch-progress/me FAILED", e)
                 null
-            }
+            } }
 
-            val liveResult = try {
+            val liveResultAsync = async { try {
                 val r = api.getChannels(mapOf("live" to "true"))
                 Log.d(TV_APP_TAG, "Home /channels?live=true: ${r.channels.size} items")
                 r
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "Home /channels?live=true FAILED", e)
                 null
-            }
+            } }
 
-            val moviesResult = try {
+            val moviesResultAsync = async { try {
                 val r = api.getMovies(mapOf("sort" to "new"))
                 Log.d(TV_APP_TAG, "Home /movies?sort=new: ${r.movies.size} items")
                 r
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "Home /movies?sort=new FAILED", e)
                 null
-            }
+            } }
 
-            val seriesResult = try {
+            val seriesResultAsync = async { try {
                 val r = api.getSeries(mapOf("sort" to "new"))
                 Log.d(TV_APP_TAG, "Home /series?sort=new: ${r.series.size} items")
                 r
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "Home /series?sort=new FAILED", e)
                 null
-            }
+            } }
 
-            val wavesResult = try {
+            val wavesResultAsync = async { try {
                 val r = api.getWaves(mapOf("limit" to "12"))
                 Log.d(TV_APP_TAG, "Home /wave?limit=12: ${r.data.size} items")
                 r
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "Home /wave?limit=12 FAILED", e)
                 null
-            }
+            } }
 
-            val libraryResult = try {
+            val libraryResultAsync = async { try {
                 val r = api.getLibraryFeed(mapOf("limit" to "20"))
                 Log.d(TV_APP_TAG, "Home /library/feed: ${r.data.items.size} items")
                 r
             } catch (e: Exception) {
                 Log.e(TV_APP_TAG, "Home /library/feed FAILED", e)
                 null
-            }
+            } }
+
+            // All sources load in parallel. Awaited one after another they
+            // took the sum of every request (8 x 4-12s) before Home filled.
+            val homepageResult = homepageResultAsync.await()
+            val recentChannelList = recentChannelListAsync.await()
+            val progressResult = progressResultAsync.await()
+            val liveResult = liveResultAsync.await()
+            val moviesResult = moviesResultAsync.await()
+            val seriesResult = seriesResultAsync.await()
+            val wavesResult = wavesResultAsync.await()
+            val libraryResult = libraryResultAsync.await()
 
             // Build continue-watching cards. Movies found in the loaded
             // rail get its richer metadata; everything else (including every
@@ -591,7 +608,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 continueWatching = if (progressResult != null) LoadState.Success(continueCards) else LoadState.Error("Failed"),
                 recentChannels = LoadState.Success(recentChannelList),
                 featuredChannels = LoadState.Success(homepageResult.third),
-                liveChannels = if (liveResult != null) LoadState.Success(liveResult.channels.filter { !it.isExclusive }) else LoadState.Error("Failed"),
+                liveChannels = if (liveResult != null) LoadState.Success(liveResult.channels.filter { !it.isExclusive && !it.isKnownBroken }) else LoadState.Error("Failed"),
                 newMovies = if (moviesResult != null) LoadState.Success(moviesResult.movies) else LoadState.Error("Failed"),
                 newSeries = if (seriesResult != null) LoadState.Success(seriesResult.series) else LoadState.Error("Failed"),
                 waves = if (wavesResult != null) LoadState.Success(wavesResult.data) else LoadState.Error("Failed"),
@@ -600,6 +617,10 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 heroAutoRotateMs = homepageResult.second
             )
             homeState = newState
+            liveResult?.let { apiCache.write(CACHE_CHANNELS, ChannelListResponse.serializer(), it) }
+            moviesResult?.let { apiCache.write(CACHE_MOVIES, MovieListResponse.serializer(), it) }
+            seriesResult?.let { apiCache.write(CACHE_SERIES, SeriesListResponse.serializer(), it) }
+            libraryResult?.let { apiCache.write(CACHE_LIBRARY_FEED, LibraryFeedResponse.serializer(), it) }
             Log.d(TV_APP_TAG, "Home state assembled: recent=${recentChannelList.size} featured=${homepageResult.third.size} continue=${continueCards.size} live=${liveResult?.channels?.size ?: 0} movies=${moviesResult?.movies?.size ?: 0} series=${seriesResult?.series?.size ?: 0} waves=${wavesResult?.data?.size ?: 0} library=${libraryResult?.data?.items?.size ?: 0}")
 
             if (progressResult != null) {
@@ -610,13 +631,40 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadLiveChannels() {
         viewModelScope.launch {
-            liveChannels = LoadState.Loading
-            liveChannels = try {
+            // Last-known channels straight away so the surfer, channel
+            // up/down and number dialing work before the (slow) refresh.
+            val cached = if (liveChannels !is LoadState.Success) {
+                apiCache.read(CACHE_CHANNELS, ChannelListResponse.serializer())
+            } else null
+            if (cached != null) liveChannels = LoadState.Success(cached.channels.filterNot { it.isKnownBroken })
+            else if (liveChannels !is LoadState.Success) liveChannels = LoadState.Loading
+            try {
                 val response = api.getChannels(mapOf("live" to "true"))
-                LoadState.Success(response.channels)
+                liveChannels = LoadState.Success(response.channels.filterNot { it.isKnownBroken })
+                apiCache.write(CACHE_CHANNELS, ChannelListResponse.serializer(), response)
             } catch (e: Exception) {
-                LoadState.Error(e.toUserFacingMessage())
+                // Keep showing what we have; only surface an error if nothing loaded.
+                if (liveChannels !is LoadState.Success) liveChannels = LoadState.Error(e.toUserFacingMessage())
             }
+        }
+    }
+
+    // Fills any Home rail that hasn't loaded yet from the on-disk copy of
+    // the last successful response. Fresh data replaces it when it arrives.
+    private suspend fun showCachedHomeRails() {
+        val state = homeState
+        val channels = if (state.liveChannels !is LoadState.Success) apiCache.read(CACHE_CHANNELS, ChannelListResponse.serializer()) else null
+        val movies = if (state.newMovies !is LoadState.Success) apiCache.read(CACHE_MOVIES, MovieListResponse.serializer()) else null
+        val series = if (state.newSeries !is LoadState.Success) apiCache.read(CACHE_SERIES, SeriesListResponse.serializer()) else null
+        val library = if (state.library !is LoadState.Success) apiCache.read(CACHE_LIBRARY_FEED, LibraryFeedResponse.serializer()) else null
+        homeState = homeState.copy(
+            liveChannels = channels?.let { LoadState.Success(it.channels.filter { c -> !c.isExclusive && !c.isKnownBroken }) } ?: homeState.liveChannels,
+            newMovies = movies?.let { LoadState.Success(it.movies) } ?: homeState.newMovies,
+            newSeries = series?.let { LoadState.Success(it.series) } ?: homeState.newSeries,
+            library = library?.let { LoadState.Success(it.data.items) } ?: homeState.library
+        )
+        if (liveChannels !is LoadState.Success && channels != null) {
+            liveChannels = LoadState.Success(channels.channels.filterNot { it.isKnownBroken })
         }
     }
 
@@ -1695,3 +1743,9 @@ data class DownloadItem(
 
 /** How long TvViewModel.search() reuses its fetched catalog before refetching. */
 private const val SEARCH_CATALOG_TTL_MS = 5 * 60_000L
+
+// ApiResponseCache keys for the last successful list responses.
+private const val CACHE_CHANNELS = "channels_live"
+private const val CACHE_MOVIES = "movies_new"
+private const val CACHE_SERIES = "series_new"
+private const val CACHE_LIBRARY_FEED = "library_feed"

@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
@@ -112,6 +114,15 @@ fun PlayerScreen(viewModel: TvViewModel) {
     var isTuning by remember { mutableStateOf(true) }
     // Native channel with nothing scheduled right now.
     var offAir by remember { mutableStateOf(false) }
+    // Initial-tune failure handling. A stream that never starts (dead link,
+    // 403, source down) used to sit on the tuning screen forever: every error
+    // triggered another retry, each waiting on slow timeouts. Once a stream
+    // has played at least once, errors are still retried indefinitely as
+    // before - that is what rides out network hiccups mid-programme.
+    var everReady by remember(media) { mutableStateOf(false) }
+    var tuneFailures by remember(media) { mutableIntStateOf(0) }
+    var unavailable by remember(media) { mutableStateOf(false) }
+    var tuneAttempt by remember(media) { mutableIntStateOf(0) }
     val playbackScope = rememberCoroutineScope()
     // Native channels have no URL of their own: they air whatever the
     // broadcast scheduler has on now, joined at the scheduled position.
@@ -125,10 +136,23 @@ fun PlayerScreen(viewModel: TvViewModel) {
         PlayerFactory.applyQualityCap(player, context, viewModel.settings.defaultQuality)
     }
 
+    // The in-flight now-playing lookup for a scheduled channel. Cancelled on
+    // every new tune so a slow answer for a channel already left can't start.
+    var scheduleJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     fun startPlayback() {
+        scheduleJob?.cancel()
+        // Drop the previous stream (and its last frame) straight away.
+        // Otherwise the old channel stays on screen, often still playing,
+        // until the new stream renders a frame - on slow sources that is
+        // 10s+, while the overlay already shows the new channel's name.
+        player.stop()
+        player.clearMediaItems()
         if (isScheduledChannel) {
-            playbackScope.launch {
-                val now = viewModel.getNowPlaying(media.id)
+            val tunedId = media.id
+            scheduleJob = playbackScope.launch {
+                val now = viewModel.getNowPlaying(tunedId)
+                if (viewModel.playerMedia?.id != tunedId) return@launch
                 if (now == null) {
                     offAir = true
                     isTuning = false
@@ -154,6 +178,31 @@ fun PlayerScreen(viewModel: TvViewModel) {
         player.prepare()
         player.playWhenReady = true
         if (media.progress > 0 && !media.isLive) player.seekTo(media.progress)
+    }
+
+    fun markUnavailable() {
+        scheduleJob?.cancel()
+        player.stop()
+        player.clearMediaItems()
+        isTuning = false
+        unavailable = true
+    }
+
+    fun retryTune() {
+        unavailable = false
+        tuneFailures = 0
+        isTuning = true
+        tuneAttempt += 1
+        startPlayback()
+    }
+
+    // Give up on an initial tune that shows no picture within the limit.
+    LaunchedEffect(media, tuneAttempt) {
+        delay(TUNE_TIMEOUT_MS)
+        if (!everReady && !unavailable && !offAir) {
+            Log.e(TV_APP_TAG, "${media.title} showed no picture in ${TUNE_TIMEOUT_MS}ms, marking unavailable")
+            markUnavailable()
+        }
     }
 
     LaunchedEffect(media) {
@@ -182,7 +231,11 @@ fun PlayerScreen(viewModel: TvViewModel) {
     DisposableEffect(player, media) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) isTuning = false
+                if (playbackState == Player.STATE_READY) {
+                    isTuning = false
+                    everReady = true
+                    unavailable = false
+                }
                 // A scheduled program finished: tune to whatever airs next.
                 if (playbackState == Player.STATE_ENDED && isScheduledChannel) {
                     isTuning = true
@@ -197,6 +250,14 @@ fun PlayerScreen(viewModel: TvViewModel) {
             // exactly the "player just freezes and won't recover" bug. Retry
             // by re-setting the same media item and re-preparing.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                if (!everReady) {
+                    tuneFailures += 1
+                    if (tuneFailures >= MAX_TUNE_FAILURES) {
+                        Log.e(TV_APP_TAG, "${media.title} failed to start $tuneFailures times, marking unavailable", error)
+                        markUnavailable()
+                        return
+                    }
+                }
                 Log.e(TV_APP_TAG, "Player error for ${media.title}, retrying", error)
                 isTuning = true
                 startPlayback()
@@ -215,6 +276,10 @@ fun PlayerScreen(viewModel: TvViewModel) {
         var stuckSinceMs = 0L
         while (true) {
             delay(5000)
+            if (unavailable) {
+                stuckSinceMs = 0L
+                continue
+            }
             val stalled = player.playWhenReady &&
                 (player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY) &&
                 !player.isPlaying
@@ -288,13 +353,27 @@ fun PlayerScreen(viewModel: TvViewModel) {
     val liveChannelCards = (viewModel.liveChannels as? LoadState.Success)?.data?.map { it.toMediaCard() } ?: emptyList()
     var dialBuffer by remember { mutableStateOf("") }
 
+    // Channel the viewer is stepping to with Up/Down/CH+/-, shown on screen
+    // and only tuned once they stop pressing. Tuning on every press started
+    // a stream per step on slow sources, and the screen could keep showing
+    // an earlier channel while the overlay named a later one.
+    var pendingSurf by remember(media.id) { mutableStateOf<com.afrovision.tv.data.MediaCard?>(null) }
+
     fun surfChannel(step: Int) {
         if (liveChannelCards.isEmpty()) return
-        val currentIndex = liveChannelCards.indexOfFirst { it.id == media.id }
+        val fromId = pendingSurf?.id ?: media.id
+        val currentIndex = liveChannelCards.indexOfFirst { it.id == fromId }
         if (currentIndex < 0) return
         val nextIndex = (currentIndex + step + liveChannelCards.size) % liveChannelCards.size
         TvSoundManager.play("chan")
-        viewModel.playChannel(liveChannelCards[nextIndex])
+        pendingSurf = liveChannelCards[nextIndex]
+    }
+
+    LaunchedEffect(pendingSurf) {
+        val target = pendingSurf ?: return@LaunchedEffect
+        delay(SURF_CONFIRM_DELAY_MS)
+        if (target.id != media.id) viewModel.playChannel(target)
+        pendingSurf = null
     }
 
     LaunchedEffect(dialBuffer) {
@@ -337,7 +416,10 @@ fun PlayerScreen(viewModel: TvViewModel) {
                         true
                     }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                        if (showSurfer || media.isLive) {
+                        if (unavailable && !showSurfer) {
+                            retryTune()
+                            true
+                        } else if (showSurfer || media.isLive) {
                             false
                         } else {
                             if (player.isPlaying) player.pause() else player.play()
@@ -507,12 +589,56 @@ fun PlayerScreen(viewModel: TvViewModel) {
 
         if (isTuning) {
             TuningOverlay(channelName = media.title, modifier = Modifier.fillMaxSize())
+        } else if (unavailable) {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "${media.title} isn't available right now",
+                    color = Color.White,
+                    fontSize = 26.sp
+                )
+                Text(
+                    text = if (media.isLive) "Press OK to try again, or change channel" else "Press OK to try again",
+                    color = nocturne.textMuted,
+                    fontSize = 18.sp
+                )
+            }
         } else if (offAir) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = "Nothing is airing on ${media.title} right now",
                     color = nocturne.textMuted,
                     fontSize = 24.sp
+                )
+            }
+        }
+
+        pendingSurf?.let { target ->
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 40.dp, end = 48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF0A0B12).copy(alpha = 0.85f))
+                    .border(2.dp, nocturne.gold, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = target.channelNumber?.toString()?.padStart(2, '0') ?: "--",
+                    color = nocturne.goldLight,
+                    fontSize = 30.sp
+                )
+                Text(
+                    text = target.title,
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -706,93 +832,127 @@ private fun ChannelSurferOverlay(viewModel: TvViewModel, currentMedia: PlayerMed
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        // Left scrim: opaque behind the info panel, fading out toward the
-        // video on the right.
+        // One backdrop for the whole surfer. It used to be two separate
+        // scrims (left panel 72% tall, bottom strip 42% tall) whose edges
+        // showed where they met. Both gradients now span the full screen
+        // and are drawn together, so the left and bottom darkening blend
+        // into a single L-shaped shade with no seams.
         Box(
             modifier = Modifier
-                .fillMaxHeight(0.72f)
-                .fillMaxWidth()
-                .align(Alignment.TopStart)
-                .background(
-                    Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = 0.92f),
-                        0.24f to Color.Black.copy(alpha = 0.8f),
-                        0.4f to Color.Black.copy(alpha = 0.35f),
-                        0.5f to Color.Transparent,
-                        1f to Color.Transparent
+                .fillMaxSize()
+                .drawBehind {
+                    drawRect(
+                        Brush.horizontalGradient(
+                            0f to Color.Black.copy(alpha = 0.9f),
+                            0.28f to Color.Black.copy(alpha = 0.72f),
+                            0.5f to Color.Black.copy(alpha = 0.25f),
+                            0.68f to Color.Transparent
+                        )
                     )
-                )
-        )
-        // Bottom scrim: dark strip behind the card row.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.42f)
-                .align(Alignment.BottomStart)
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.5f to Color.Black.copy(alpha = 0.75f),
-                        1f to Color.Black.copy(alpha = 0.92f)
+                    drawRect(
+                        Brush.verticalGradient(
+                            0.45f to Color.Transparent,
+                            0.7f to Color.Black.copy(alpha = 0.6f),
+                            1f to Color.Black.copy(alpha = 0.92f)
+                        )
                     )
-                )
+                }
         )
 
-        // Left detail panel for whichever card is currently centered.
+        // Details for whichever card is centred.
         focusedChannel?.let { channel ->
             Column(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .width(560.dp)
-                    .padding(start = 56.dp, top = 64.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .width(600.dp)
+                    .padding(start = 64.dp, top = 72.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .border(1.dp, nocturne.accent700, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.White.copy(alpha = 0.08f))
+                            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
                     ) {
+                        val logo = rememberCacheableImageRequest(channel.imageUrl)
+                        if (logo != null) {
+                            AsyncImage(
+                                model = logo,
+                                contentDescription = null,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize().padding(8.dp)
+                            )
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(nocturne.gold.copy(alpha = 0.16f))
+                                    .border(1.dp, nocturne.gold.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 10.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = "CH " + (channel.channelNumber?.toString()?.padStart(2, '0') ?: "--"),
+                                    color = nocturne.goldLight,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 0.08.em
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFFE2543F).copy(alpha = 0.18f))
+                                    .padding(horizontal = 10.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(modifier = Modifier.size(7.dp).clip(RoundedCornerShape(50)).background(Color(0xFFE2543F)))
+                                Text(text = "LIVE", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em)
+                            }
+                            if (channel.id == currentMedia.id) {
+                                Text(text = "Now watching", color = Color.White.copy(alpha = 0.55f), fontSize = 14.sp)
+                            }
+                        }
                         Text(
-                            text = channel.channelNumber?.toString()?.padStart(2, '0') ?: "--",
-                            color = nocturne.accentLight,
-                            fontSize = 15.sp
+                            text = channel.title,
+                            color = Color.White,
+                            fontSize = 36.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Text(text = "1080p HLS", color = Color.White.copy(alpha = 0.6f), fontSize = 15.sp)
                 }
-
-                Text(
-                    text = channel.title,
-                    color = Color.White,
-                    fontSize = 38.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
 
                 if (channel.subtitle.isNotBlank()) {
                     Text(
                         text = channel.subtitle,
-                        color = Color.White.copy(alpha = 0.72f),
+                        color = Color.White.copy(alpha = 0.74f),
                         fontSize = 17.sp,
-                        lineHeight = 24.sp,
+                        lineHeight = 25.sp,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                // No live EPG feed wired yet - same placeholder-schedule
-                // convention already used on the Live TV screen's "Tonight on"
-                // list, until a real schedule endpoint exists.
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 6.dp)) {
-                    Text(text = "ON NOW", color = nocturne.goldLight, fontSize = 13.sp, letterSpacing = 0.14.em)
-                    Text(text = "Evening programme · 9:00 PM – 10:00 PM", color = Color.White.copy(alpha = 0.85f), fontSize = 18.sp)
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(text = "UP NEXT", color = Color.White.copy(alpha = 0.45f), fontSize = 13.sp, letterSpacing = 0.14.em)
-                    Text(text = "Late programme · 10:00 PM – 12:00 AM", color = Color.White.copy(alpha = 0.65f), fontSize = 17.sp)
+                Box(
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .width(56.dp)
+                        .height(2.dp)
+                        .background(nocturne.gold.copy(alpha = 0.7f))
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SurferKeyHint(key = "OK", label = "Watch")
+                    SurferKeyHint(key = "\u25C0 \u25B6", label = "Browse")
+                    SurferKeyHint(key = "BACK", label = "Close")
                 }
             }
         }
@@ -1112,4 +1272,28 @@ private fun buildEmbedHtml(url: String): String {
     <iframe src="$src" allowfullscreen allow="autoplay; encrypted-media; fullscreen; picture-in-picture"></iframe>
 </body>
 </html>"""
+}
+
+/** How long Up/Down must be idle before the stepped-to channel is tuned. */
+private const val SURF_CONFIRM_DELAY_MS = 700L
+
+/** Failed attempts before a stream that never started is shown as unavailable. */
+private const val MAX_TUNE_FAILURES = 3
+
+/** Longest an initial tune may show no picture before it's shown as unavailable. */
+private const val TUNE_TIMEOUT_MS = 45_000L
+
+@Composable
+private fun SurferKeyHint(key: String, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(5.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(5.dp))
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+        ) {
+            Text(text = key, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Text(text = label, color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+    }
 }
