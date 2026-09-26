@@ -755,7 +755,7 @@ async function getSystemTotals(req, res) {
       balance_ngn: 0, total_collected: 0, total_refunded: 0, transaction_count: 0,
     };
 
-    const ledgerStats = LedgerModel.getStats();
+    const ledgerStats = await LedgerModel.getStats();
     const pendingWithdrawals = await WithdrawalModel.getPending();
     const totalPendingAmount = pendingWithdrawals.reduce((sum, w) => sum + w.amount, 0);
 
