@@ -12,6 +12,7 @@ const { serializeCreatorSubscriptionForAdmin } = require('../admin/admin.present
 const NotificationService = require('../notifications/notification.service');
 const PoolService = require('../vpt/pool.service');
 const { chargeWallet } = require('./wallet_payment.helper');
+const { getSubscriptionSplit } = require('./split');
 
 // Default creator subscription prices (configurable per-creator in future)
 const DEFAULT_NGN_PRICE = 2000; // ₦2,000 / month
@@ -99,18 +100,17 @@ async function subscribe(req, res) {
     }
 
     // ── Payout Split (applies identically to NGN and vPT subscriptions) ──
-    // 50% → Operations pool (platform keeps — no transfer needed)
-    // 15% → Subscriber vPT reward (always credited as vPT)
-    // 15% → 5-level referral reward (50% cash / 50% vPT per level)
-    // 20% → Community pool (retained by platform for future use)
+    // Operations (70 − community)% | 15% subscriber vPT | 15% referral |
+    // community % from COMMUNITY_POOL_PERCENT (default 20 → 50/15/15/20). See subscriptions/split.js.
     const payoutAmount = selectedCurrency === 'wallet' ? DEFAULT_NGN_PRICE : (selectedCurrency === 'vpt' ? DEFAULT_VPT_PRICE : DEFAULT_NGN_PRICE);
-    const opsPool = Math.floor(payoutAmount * 0.50);
+    const split = await getSubscriptionSplit();
+    const opsPool = Math.floor(payoutAmount * split.operations);
     const subscriberVptNgn = Math.floor(payoutAmount * 0.15);
     const subscriberVptUnits = parseFloat(
       (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),
     );
     const referralPool = Math.floor(payoutAmount * 0.15);
-    const communityPool = payoutAmount - opsPool - subscriberVptNgn - referralPool; // remainder ≈ 20%
+    const communityPool = payoutAmount - opsPool - subscriberVptNgn - referralPool; // remainder = community %
 
     // Credit subscriber vPT reward (always as vPT units regardless of payment currency)
     if (subscriberVptUnits > 0) {

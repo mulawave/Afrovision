@@ -254,6 +254,9 @@ function validatePercentSetting(key, value) {
   if (String(value).trim() === '' || !Number.isFinite(n) || n < 0 || n > 100) {
     return `${key} must be a number from 0 to 100.`;
   }
+  if (key === 'COMMUNITY_POOL_PERCENT' && n > 70) {
+    return 'COMMUNITY_POOL_PERCENT can be at most 70 (15% subscriber vPT and 15% referrals are fixed).';
+  }
   return null;
 }
 

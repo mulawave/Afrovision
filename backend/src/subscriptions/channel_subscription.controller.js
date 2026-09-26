@@ -12,6 +12,7 @@ const StreamStats = require('../analytics/stream_stats.model');
 const NotificationService = require('../notifications/notification.service');
 const PoolService = require('../vpt/pool.service');
 const { chargeWallet } = require('./wallet_payment.helper');
+const { getSubscriptionSplit } = require('./split');
 
 /**
  * POST /subscriptions/channel/subscribe
@@ -95,7 +96,8 @@ async function subscribe(req, res) {
       }
 
       // ── Payout Split ──
-      const opsPool = Math.floor(amount * 0.50);
+      const split = await getSubscriptionSplit();
+      const opsPool = Math.floor(amount * split.operations);
       const subscriberVptNgn = Math.floor(amount * 0.15);
       const subscriberVptUnits = parseFloat(
         (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),

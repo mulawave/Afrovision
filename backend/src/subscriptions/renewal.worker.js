@@ -18,6 +18,7 @@ const { distributeReferralEarnings } = require('../referrals/referral.controller
 const PoolService = require('../vpt/pool.service');
 const { getFirestore } = require('../utils/firestore');
 const { chargeWallet } = require('./wallet_payment.helper');
+const { getSubscriptionSplit } = require('./split');
 
 const RENEWAL_LOCK_COLLECTION = 'ops_locks';
 const RENEWAL_LOCK_DOC = 'subscription_renewals';
@@ -140,13 +141,14 @@ async function processRenewals() {
       }
 
       // Correct payout split: 50% ops, 15% subscriber vPT, 15% referral, 20% community
-      const opsPool = Math.floor(amount * 0.50);
+      const split = await getSubscriptionSplit();
+      const opsPool = Math.floor(amount * split.operations);
       const subscriberVptNgn = Math.floor(amount * 0.15);
       const subscriberVptUnits = parseFloat(
         (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),
       );
       const referralPool = Math.floor(amount * 0.15);
-      const communityPool = amount - opsPool - subscriberVptNgn - referralPool; // remainder ≈ 20%
+      const communityPool = amount - opsPool - subscriberVptNgn - referralPool; // remainder = community %
 
       // Credit subscriber vPT reward
       if (subscriberVptUnits > 0) {
@@ -267,7 +269,8 @@ async function processRenewals() {
       }
 
       // Correct payout split: 50% ops, 15% subscriber vPT, 15% referral, 20% community
-      const opsPool = Math.floor(amount * 0.50);
+      const split = await getSubscriptionSplit();
+      const opsPool = Math.floor(amount * split.operations);
       const subscriberVptNgn = Math.floor(amount * 0.15);
       const subscriberVptUnits = parseFloat(
         (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),

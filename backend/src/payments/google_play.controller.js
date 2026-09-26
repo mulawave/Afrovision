@@ -17,6 +17,7 @@ const PoolService = require('../vpt/pool.service');
 const { distributeReferralEarnings } = require('../referrals/referral.controller');
 const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 const StreamStats = require('../analytics/stream_stats.model');
+const { getSubscriptionSplit } = require('../subscriptions/split');
 
 const DEFAULT_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME || 'com.afrovision.app';
 
@@ -279,7 +280,8 @@ async function applyCreatorSubscriptionGooglePlay(payment, user) {
   if (existing) return;
 
   const amount = payment.amount_ngn;
-  const opsPool = Math.floor(amount * 0.50);
+  const split = await getSubscriptionSplit();
+  const opsPool = Math.floor(amount * split.operations);
   const subscriberVptNgn = Math.floor(amount * 0.15);
   const subscriberVptUnits = parseFloat(
     (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),
@@ -385,7 +387,8 @@ async function applyChannelSubscriptionGooglePlay(payment, user) {
   if (existing) return;
 
   const amount = payment.amount_ngn;
-  const opsPool = Math.floor(amount * 0.50);
+  const split = await getSubscriptionSplit();
+  const opsPool = Math.floor(amount * split.operations);
   const subscriberVptNgn = Math.floor(amount * 0.15);
   const subscriberVptUnits = parseFloat(
     (subscriberVptNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),

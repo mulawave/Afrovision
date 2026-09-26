@@ -11,6 +11,7 @@ const { distributeReferralEarnings } = require('../referrals/referral.controller
 const NotificationService = require('../notifications/notification.service');
 const ReputationService = require('../reputation/reputation.service');
 const { previewWalletPayment, chargeWallet } = require('./wallet_payment.helper');
+const { getSubscriptionSplit } = require('./split');
 
 async function getPlans(req, res) {
   const plans = await Plan.getAll();
@@ -95,12 +96,13 @@ async function activatePlatformPlan({
     description: `${plan.name} plan subscription via ${paymentMethod}`,
   });
 
+  const split = await getSubscriptionSplit();
   const subscriberVptRewardNgn = Math.floor(subscriptionAmount * 0.15);
   const subscriberVptRewardUnits = parseFloat(
     (subscriberVptRewardNgn / ReferralModel.VPT_PRICE_NGN).toFixed(4),
   );
   const referralPool = Math.floor(subscriptionAmount * 0.15);
-  const communityPool = Math.floor(subscriptionAmount * 0.20);
+  const communityPool = Math.floor(subscriptionAmount * split.community);
 
   if (subscriberVptRewardUnits > 0) {
     await Ledger.create({
@@ -143,8 +145,8 @@ async function activatePlatformPlan({
     });
   }
 
-  // Credit operations pool (50%)
-  const operationsPool = Math.floor(subscriptionAmount * 0.50);
+  // Credit operations pool ((70 − community)%, 50% by default)
+  const operationsPool = Math.floor(subscriptionAmount * split.operations);
   if (operationsPool > 0) {
     await PoolService.creditOperationsPool(operationsPool, 'subscription', {
       plan_id: plan.id,
@@ -189,7 +191,7 @@ async function activatePlatformPlan({
     wallet_created: walletCreated,
     payout_structure: {
       subscription_amount: subscriptionAmount,
-      operations_pool: Math.floor(subscriptionAmount * 0.50),
+      operations_pool: operationsPool,
       subscriber_vpt_reward: subscriberVptRewardNgn,
       subscriber_vpt_reward_ngn: subscriberVptRewardNgn,
       subscriber_vpt_reward_vpt_units: subscriberVptRewardUnits,
