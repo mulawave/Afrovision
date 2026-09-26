@@ -67,6 +67,17 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
     var updateSnoozedUntil by remember { mutableStateOf(0L) }
     var updateDismissed by remember { mutableStateOf(false) }
 
+    // Never leave a non-member sitting on the Exclusive screen (e.g. access
+    // ended while it was open).
+    val hasExclusive = viewModel.hasExclusiveAccess
+    LaunchedEffect(currentScreen, hasExclusive, viewModel.exclusiveChannels) {
+        if (currentScreen == Screen.Exclusive && !hasExclusive &&
+            viewModel.exclusiveChannels is com.afrovision.tv.data.LoadState.Success
+        ) {
+            viewModel.navigateTo(Screen.Home)
+        }
+    }
+
     LaunchedEffect(viewModel.settings) {
         TvSoundManager.enabled = viewModel.settings.soundEffects
         TvSoundManager.volume = viewModel.settings.soundVolume
@@ -131,7 +142,8 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                     onSelect = { viewModel.navigateTo(it) },
                     modifier = Modifier.width(146.dp),
                     focusTrigger = railFocusTrigger,
-                    onRailFocusChanged = { railHasFocus = it }
+                    onRailFocusChanged = { railHasFocus = it },
+                    showExclusive = viewModel.hasExclusiveAccess
                 )
                 AnimatedContent(
                     targetState = currentScreen,

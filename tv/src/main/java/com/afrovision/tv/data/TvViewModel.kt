@@ -457,6 +457,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadAll() {
+        loadExclusiveContent()
         loadCatchUp()
         loadHome()
         loadLiveChannels()
@@ -645,7 +646,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 liveChannels = if (liveResult != null) LoadState.Success(liveResult.channels.filter { !it.isExclusive && !it.isKnownBroken }) else LoadState.Error("Failed"),
                 newMovies = if (moviesResult != null) LoadState.Success(moviesResult.movies) else LoadState.Error("Failed"),
                 newSeries = if (seriesResult != null) LoadState.Success(seriesResult.series) else LoadState.Error("Failed"),
-                waves = if (wavesResult != null) LoadState.Success(wavesResult.data) else LoadState.Error("Failed"),
+                waves = if (wavesResult != null) LoadState.Success(wavesResult.data.filterNot { it.isExclusive }) else LoadState.Error("Failed"),
                 library = if (libraryResult != null) LoadState.Success(libraryResult.data.items) else LoadState.Error("Failed"),
                 heroSlides = homepageResult.first,
                 heroAutoRotateMs = homepageResult.second
@@ -733,7 +734,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             waves = try {
                 val response = api.getWaves(mapOf("limit" to "24"))
                 wavesNextCursor = response.nextCursor
-                LoadState.Success(response.waves.ifEmpty { response.data })
+                LoadState.Success(response.waves.ifEmpty { response.data }.filterNot { it.isExclusive })
             } catch (e: Exception) {
                 LoadState.Error(e.toUserFacingMessage())
             }
@@ -763,7 +764,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                     query["exclude_ids"] = existingIds.takeLast(160).joinToString(",")
                 }
                 val response = api.getWaves(query)
-                val more = response.waves.ifEmpty { response.data }
+                val more = response.waves.ifEmpty { response.data }.filterNot { it.isExclusive }
                 val existingIdSet = existingIds.toHashSet()
                 waves = LoadState.Success(current + more.filterNot { it.id in existingIdSet })
                 wavesNextCursor = response.nextCursor
@@ -779,7 +780,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             favWaves = LoadState.Loading
             favWaves = try {
-                LoadState.Success(api.getWaveBookmarks())
+                LoadState.Success(api.getWaveBookmarks().filterNot { it.isExclusive })
             } catch (e: Exception) {
                 LoadState.Error(e.toUserFacingMessage())
             }
@@ -1065,7 +1066,15 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     var readerItemId by mutableStateOf<String?>(null)
     private var progressSaveJob: Job? = null
 
+    // Screen the reader was opened from, so closing it goes back there
+    // (Exclusive or Library) rather than always to Library.
+    private var screenBeforeReader: com.afrovision.tv.ui.navigation.Screen? = null
+
+    var readerBookmarks by mutableStateOf<List<com.afrovision.tv.data.api.model.LibraryBookmark>>(emptyList())
+        private set
+
     fun openReaderScreen(channelId: String, itemId: String) {
+        if (currentScreen != com.afrovision.tv.ui.navigation.Screen.Reader) screenBeforeReader = currentScreen
         readerChannelId = channelId
         readerItemId = itemId
         currentScreen = com.afrovision.tv.ui.navigation.Screen.Reader
@@ -1073,9 +1082,53 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closeReader() {
-        currentScreen = com.afrovision.tv.ui.navigation.Screen.Library
+        val target = screenBeforeReader ?: com.afrovision.tv.ui.navigation.Screen.Library
+        screenBeforeReader = null
         readerChannelId = null
         readerItemId = null
+        readerBookmarks = emptyList()
+        navigateTo(target)
+        // Progress changed while reading - refresh the continue-reading rows.
+        loadContinueReading()
+        if (target == com.afrovision.tv.ui.navigation.Screen.Exclusive) loadExclusiveContinueReading()
+    }
+
+    fun loadReaderBookmarks(channelId: String, itemId: String) {
+        viewModelScope.launch {
+            readerBookmarks = try {
+                api.getLibraryBookmarks(channelId, itemId).data.sortedBy { it.spreadIndex }
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "loadReaderBookmarks failed", e)
+                emptyList()
+            }
+        }
+    }
+
+    fun addReaderBookmark(channelId: String, itemId: String, spreadIndex: Int, page: Int?) {
+        viewModelScope.launch {
+            try {
+                val created = api.addLibraryBookmark(
+                    channelId, itemId,
+                    com.afrovision.tv.data.api.model.CreateBookmarkRequest(spreadIndex = spreadIndex, page = page)
+                ).data
+                if (created != null) readerBookmarks = (readerBookmarks + created).sortedBy { it.spreadIndex }
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "addReaderBookmark failed", e)
+            }
+        }
+    }
+
+    fun deleteReaderBookmark(channelId: String, itemId: String, bookmarkId: String) {
+        val before = readerBookmarks
+        readerBookmarks = before.filterNot { it.id == bookmarkId }
+        viewModelScope.launch {
+            try {
+                api.deleteLibraryBookmark(channelId, itemId, bookmarkId)
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "deleteReaderBookmark failed", e)
+                readerBookmarks = before
+            }
+        }
     }
 
     fun loadContinueReading() {
@@ -1089,6 +1142,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openReaderItem(channelId: String, itemId: String) {
+        readerChannelId = channelId
         readerItemId = itemId
         openReader(channelId, itemId)
     }
@@ -1096,6 +1150,8 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun openReader(channelId: String, itemId: String) {
         readerDetail = LoadState.Loading
         readerManifest = LoadState.Loading
+        readerBookmarks = emptyList()
+        loadReaderBookmarks(channelId, itemId)
         viewModelScope.launch {
             readerDetail = try {
                 val response = api.getLibraryItemDetail(channelId, itemId)
@@ -1141,6 +1197,28 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     var exclusiveMovies by mutableStateOf<LoadState<List<Movie>>>(LoadState.Loading)
     var exclusiveSeries by mutableStateOf<LoadState<List<Series>>>(LoadState.Loading)
     var exclusiveLibrary by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.LibraryFeedItem>>>(LoadState.Loading)
+    var exclusiveWaves by mutableStateOf<LoadState<List<Wave>>>(LoadState.Loading)
+    var exclusiveContinueReading by mutableStateOf<LoadState<List<com.afrovision.tv.data.api.model.ContinueReadingRecord>>>(LoadState.Loading)
+
+    /**
+     * Whether this TV's account may see the Exclusive menu at all: the
+     * backend's TV channel list only includes an exclusive channel for its
+     * owner or an active member, so "has at least one exclusive channel"
+     * is exactly "is a member (or the creator)". Non-members never see the
+     * menu item.
+     */
+    val hasExclusiveAccess: Boolean
+        get() = (exclusiveChannels as? LoadState.Success)?.data?.isNotEmpty() == true
+
+    fun loadExclusiveContinueReading() {
+        viewModelScope.launch {
+            exclusiveContinueReading = try {
+                LoadState.Success(api.getContinueReading(12, scope = "exclusive").data)
+            } catch (e: Exception) {
+                LoadState.Error(e.toUserFacingMessage())
+            }
+        }
+    }
     var exclusiveAccess by mutableStateOf<LoadState<com.afrovision.tv.data.api.model.ExclusiveAccessSummary>>(LoadState.Loading)
     // Every exclusive channel the device can see, regardless of membership -
     // needed (alongside exclusiveAccess/channelSubscriptions) to work out
@@ -1182,6 +1260,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             exclusiveMovies = LoadState.Loading
             exclusiveSeries = LoadState.Loading
             exclusiveLibrary = LoadState.Loading
+            exclusiveWaves = LoadState.Loading
             exclusiveChannels = LoadState.Loading
             try {
                 val channels = api.getTvChannels().let { it.channels.ifEmpty { it.data } }
@@ -1192,6 +1271,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                     exclusiveMovies = LoadState.Success(emptyList())
                     exclusiveSeries = LoadState.Success(emptyList())
                     exclusiveLibrary = LoadState.Success(emptyList())
+                    exclusiveWaves = LoadState.Success(emptyList())
                     return@launch
                 }
 
@@ -1220,13 +1300,25 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
+                val waves = exclusiveChannelIds.flatMap { channelId ->
+                    try {
+                        api.getExclusiveChannelWaves(channelId)
+                    } catch (e: Exception) {
+                        Log.e(TV_APP_TAG, "exclusive waves failed for $channelId", e)
+                        emptyList()
+                    }
+                }
+
                 exclusiveMovies = LoadState.Success(movies)
                 exclusiveSeries = LoadState.Success(series)
                 exclusiveLibrary = LoadState.Success(library)
+                exclusiveWaves = LoadState.Success(waves)
             } catch (e: Exception) {
                 exclusiveMovies = LoadState.Error(e.toUserFacingMessage())
                 exclusiveSeries = LoadState.Error(e.toUserFacingMessage())
                 exclusiveLibrary = LoadState.Error(e.toUserFacingMessage())
+                exclusiveWaves = LoadState.Error(e.toUserFacingMessage())
+                exclusiveChannels = LoadState.Error(e.toUserFacingMessage())
             }
         }
     }

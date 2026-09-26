@@ -174,6 +174,32 @@ router.get(
   attachDeviceLibraryUser,
   libraryViewerCtrl.listItems
 );
+// Exclusive waves for one channel, acting as the paired account.
+// getChannelWaves applies the same exclusive-access check as everywhere else
+// (owner or active member), so the TV gets nothing it couldn't see on web.
+router.get(
+  '/tv/exclusive/:channelId/waves',
+  auth.authenticateTvDeviceAsOwner,
+  waveCtrl.getChannelWaves
+);
+
+// Reader bookmarks, acting as the paired account - the same bookmarks the
+// website reader shows (library.routes.js /channels/:channelId/library/:itemId/bookmarks).
+router.get(
+  '/tv/library/:channelId/:itemId/bookmarks',
+  auth.authenticateTvDeviceAsOwner,
+  libraryViewerCtrl.listBookmarks
+);
+router.post(
+  '/tv/library/:channelId/:itemId/bookmarks',
+  auth.authenticateTvDeviceAsOwner,
+  libraryViewerCtrl.createBookmark
+);
+router.delete(
+  '/tv/library/:channelId/:itemId/bookmarks/:bookmarkId',
+  auth.authenticateTvDeviceAsOwner,
+  libraryViewerCtrl.deleteBookmark
+);
 
 // ── Marketer (public login, marketer-token for the rest) ─────────
 

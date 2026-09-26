@@ -177,8 +177,13 @@ data class Wave(
     @SerialName("repeat_play_count") val repeatPlayCount: Long = 0,
     @SerialName("comment_count") val commentCount: Long = 0,
     @SerialName("is_bookmarked") val isBookmarked: Boolean = false,
-    val duration: Long = 0
-)
+    val duration: Long = 0,
+    // Sent with every wave (wave.controller.js). Exclusive waves are kept
+    // off the public Waves screen and shown only in Exclusive.
+    @SerialName("channel_type") val channelType: String = "public"
+) {
+    val isExclusive: Boolean get() = channelType == "exclusive"
+}
 
 @Serializable
 data class WavePulseMoment(
@@ -622,6 +627,28 @@ data class ContinueReadingRecord(
 data class ContinueReadingResponse(
     val success: Boolean = false,
     val data: List<ContinueReadingRecord> = emptyList()
+)
+
+// Reader bookmarks - same records as the website reader
+// (GET/POST/DELETE /distribution/tv/library/{channelId}/{itemId}/bookmarks).
+@Serializable
+data class LibraryBookmark(
+    val id: String = "",
+    @SerialName("spreadIndex") val spreadIndex: Int = 0,
+    val page: Int? = null,
+    val note: String? = null
+)
+
+@Serializable
+data class LibraryBookmarkListResponse(val data: List<LibraryBookmark> = emptyList())
+
+@Serializable
+data class LibraryBookmarkResponse(val data: LibraryBookmark? = null)
+
+@Serializable
+data class CreateBookmarkRequest(
+    @SerialName("spreadIndex") val spreadIndex: Int,
+    val page: Int? = null
 )
 
 // ── Exclusive content, per channel - GET /distribution/tv/exclusive/* ──

@@ -85,8 +85,11 @@ fun NavRail(
     // Bump to pull focus onto the selected rail item (used by TvApp's Back
     // handling). Starts at 0, which never triggers.
     focusTrigger: Int = 0,
-    onRailFocusChanged: (Boolean) -> Unit = {}
+    onRailFocusChanged: (Boolean) -> Unit = {},
+    // Exclusive is only listed for members and the channel's creator.
+    showExclusive: Boolean = false
 ) {
+    val rails = if (showExclusive) mainRails else mainRails.filter { it.screen != Screen.Exclusive }
     val nocturne = LocalNocturne.current
     val firstFocus = remember { FocusRequester() }
     var placed by remember { mutableStateOf(false) }
@@ -132,14 +135,14 @@ fun NavRail(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-        val selectedIndex = mainRails.indexOfFirst { it.screen == currentScreen }.coerceAtLeast(0)
-        val railFocusRequesters = remember { List(mainRails.size) { FocusRequester() } }
+        val selectedIndex = rails.indexOfFirst { it.screen == currentScreen }.coerceAtLeast(0)
+        val railFocusRequesters = remember { List(rails.size) { FocusRequester() } }
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            mainRails.forEachIndexed { index, rail ->
+            rails.forEachIndexed { index, rail ->
                 val focusRequester = if (index == selectedIndex) firstFocus else railFocusRequesters[index]
                 NavRailItem(
                     rail = rail,

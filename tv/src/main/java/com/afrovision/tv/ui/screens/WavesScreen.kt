@@ -487,7 +487,7 @@ private fun WaveSlot.setAudioEnabled(enabled: Boolean) {
 // down and recreated on every card change, which is what caused both the
 // blank-screen flash and the freeze-after-first-play.
 @Composable
-private fun WaveCarousel(
+internal fun WaveCarousel(
     viewModel: TvViewModel,
     rawWaves: List<Wave>,
     paginated: Boolean,

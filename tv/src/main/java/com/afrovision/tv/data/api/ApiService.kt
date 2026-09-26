@@ -86,7 +86,11 @@ interface ApiService {
     suspend fun getLibraryFeed(@QueryMap query: Map<String, String> = emptyMap()): LibraryFeedResponse
 
     @GET("/distribution/tv/library/continue-reading")
-    suspend fun getContinueReading(@Query("limit") limit: Int = 12): ContinueReadingResponse
+    suspend fun getContinueReading(
+        @Query("limit") limit: Int = 12,
+        // "exclusive" = only exclusive-channel items; omitted = only public ones.
+        @Query("scope") scope: String? = null
+    ): ContinueReadingResponse
 
     @GET("/distribution/tv/library/{channelId}/{itemId}")
     suspend fun getLibraryItemDetail(
@@ -121,6 +125,29 @@ interface ApiService {
 
     @GET("/distribution/tv/exclusive/{channelId}/library")
     suspend fun getExclusiveChannelLibrary(@Path("channelId") channelId: String): LibraryFeedResponse
+
+    @GET("/distribution/tv/exclusive/{channelId}/waves")
+    suspend fun getExclusiveChannelWaves(@Path("channelId") channelId: String): List<com.afrovision.tv.data.api.model.Wave>
+
+    @GET("/distribution/tv/library/{channelId}/{itemId}/bookmarks")
+    suspend fun getLibraryBookmarks(
+        @Path("channelId") channelId: String,
+        @Path("itemId") itemId: String
+    ): com.afrovision.tv.data.api.model.LibraryBookmarkListResponse
+
+    @POST("/distribution/tv/library/{channelId}/{itemId}/bookmarks")
+    suspend fun addLibraryBookmark(
+        @Path("channelId") channelId: String,
+        @Path("itemId") itemId: String,
+        @Body body: com.afrovision.tv.data.api.model.CreateBookmarkRequest
+    ): com.afrovision.tv.data.api.model.LibraryBookmarkResponse
+
+    @retrofit2.http.DELETE("/distribution/tv/library/{channelId}/{itemId}/bookmarks/{bookmarkId}")
+    suspend fun deleteLibraryBookmark(
+        @Path("channelId") channelId: String,
+        @Path("itemId") itemId: String,
+        @Path("bookmarkId") bookmarkId: String
+    )
 
     @GET("/home/content")
     suspend fun getHomepageContent(): HomepageContentResponse

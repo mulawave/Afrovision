@@ -799,14 +799,23 @@ exports.getContinueReading = async (req, res) => {
     const allRecords = await libraryService.getContinueReadingForUser(userId, limit);
 
     // Exclusive content never appears in the general library, including
-    // this row - it belongs behind the channel's own membership gate. A
-    // record whose channel can't be found is left out too.
+    // this row - it belongs behind the channel's own membership gate, which
+    // asks for it explicitly with ?scope=exclusive (TV Exclusive screen).
+    // A record whose channel can't be found is left out of both.
+    const wantExclusive = req.query.scope === 'exclusive';
     const channelIds = [...new Set(allRecords.map((r) => r.item?.channelId || r.channelId).filter(Boolean))];
     const channels = await Promise.all(channelIds.map((id) => Channel.findById(id)));
-    const exclusiveIds = new Set(
-      channelIds.filter((id, index) => !channels[index] || isExclusiveChannel(channels[index]))
-    );
-    const records = allRecords.filter((r) => !exclusiveIds.has(r.item?.channelId || r.channelId));
+    const exclusiveIds = new Set();
+    const missingIds = new Set();
+    channelIds.forEach((id, index) => {
+      if (!channels[index]) missingIds.add(id);
+      else if (isExclusiveChannel(channels[index])) exclusiveIds.add(id);
+    });
+    const records = allRecords.filter((r) => {
+      const id = r.item?.channelId || r.channelId;
+      if (missingIds.has(id)) return false;
+      return wantExclusive ? exclusiveIds.has(id) : !exclusiveIds.has(id);
+    });
 
     return res.status(200).json({ success: true, data: records });
   } catch (error) {
