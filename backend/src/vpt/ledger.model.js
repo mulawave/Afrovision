@@ -196,19 +196,35 @@ async function getStats() {
   };
 }
 
-async function getSuccessfulDebitsInRange({ currency = 'ngn', startMs = 0, endMs = Date.now() } = {}) {
-  const db = getFirestore();
+/** Range-only query (single-field index), filtered in code. Used when a composite index is missing. */
+async function _entriesInRange(db, startMs, endMs, predicate) {
   const snapshot = await db.collection(COLLECTION)
-    .where('status', '==', 'success')
-    .where('direction', '==', 'debit')
-    .where('currency', '==', currency)
     .where('created_at', '>=', startMs)
     .where('created_at', '<=', endMs)
     .get();
+  return snapshot.docs.map((doc) => doc.data()).filter(predicate);
+}
 
-  return snapshot.docs
-    .map((doc) => doc.data())
-    .sort((a, b) => b.created_at - a.created_at);
+async function getSuccessfulDebitsInRange({ currency = 'ngn', startMs = 0, endMs = Date.now() } = {}) {
+  const db = getFirestore();
+  let entries;
+  try {
+    const snapshot = await db.collection(COLLECTION)
+      .where('status', '==', 'success')
+      .where('direction', '==', 'debit')
+      .where('currency', '==', currency)
+      .where('created_at', '>=', startMs)
+      .where('created_at', '<=', endMs)
+      .get();
+    entries = snapshot.docs.map((doc) => doc.data());
+  } catch (err) {
+    // No composite index for (status, direction, currency, created_at) in the
+    // shared project: fall back to a date-range query and filter here.
+    if (!_isIndexError(err)) throw err;
+    entries = await _entriesInRange(db, startMs, endMs,
+      (e) => e.status === 'success' && e.direction === 'debit' && e.currency === currency);
+  }
+  return entries.sort((a, b) => b.created_at - a.created_at);
 }
 
 async function getPlanRevenueInRange({ startMs = 0, endMs = Date.now() } = {}) {
@@ -226,15 +242,10 @@ async function getPlanRevenueInRange({ startMs = 0, endMs = Date.now() } = {}) {
     return snapshot.docs.reduce((sum, doc) => sum + Number(doc.data().amount_ngn || 0), 0);
   } catch (err) {
     if (_isIndexError(err)) {
-      const snapshot = await db.collection(COLLECTION)
-        .where('type', '==', 'PLAN_PAYMENT')
-        .where('status', '==', 'success')
-        .where('created_at', '>=', startMs)
-        .where('created_at', '<=', endMs)
-        .get();
-      return snapshot.docs
-        .filter((d) => d.data().direction === 'debit' && d.data().currency === 'ngn')
-        .reduce((sum, doc) => sum + Number(doc.data().amount_ngn || 0), 0);
+      // Date-range query only (single-field index), filtered here.
+      const entries = await _entriesInRange(db, startMs, endMs,
+        (e) => e.type === 'PLAN_PAYMENT' && e.status === 'success' && e.direction === 'debit' && e.currency === 'ngn');
+      return entries.reduce((sum, e) => sum + Number(e.amount_ngn || 0), 0);
     }
     throw err;
   }
