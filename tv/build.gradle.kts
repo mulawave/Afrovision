@@ -16,8 +16,8 @@ android {
         applicationId = "com.afrovision.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 45
-        versionName = "4.12"
+        versionCode = 46
+        versionName = "4.13"
     }
 
     signingConfigs {
