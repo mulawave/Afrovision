@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const { cacheJson } = require('./responseCache');
 const { authenticateToken, requireAdminRole } = require('../utils/jwt');
 const { adminLimiter } = require('../utils/rate_limit');
 const ctrl = require('./admin.controller');
@@ -179,10 +180,12 @@ router.put('/ai-video/providers/:providerKey', authenticateToken, aiVideoAdminCt
 router.post('/ai-video/providers/:providerKey/test', authenticateToken, aiVideoAdminCtrl.testProvider);
 
 // Dashboard
-router.get('/dashboard', authenticateToken, ctrl.getDashboard);
-router.get('/dashboard/trend', authenticateToken, ctrl.getDashboardTrend);
+// Dashboard aggregates are expensive (collection scans); cache briefly so the
+// console's auto-refresh doesn't multiply Firestore reads.
+router.get('/dashboard', authenticateToken, cacheJson(60 * 1000), ctrl.getDashboard);
+router.get('/dashboard/trend', authenticateToken, cacheJson(5 * 60 * 1000), ctrl.getDashboardTrend);
 router.get('/dashboard/exclusive-ops', authenticateToken, ctrl.getExclusiveOpsDashboard);
-router.get('/dashboard/registrations', authenticateToken, ctrl.getRegistrationAnalytics);
+router.get('/dashboard/registrations', authenticateToken, cacheJson(10 * 60 * 1000), ctrl.getRegistrationAnalytics);
 router.post('/renewals/run', authenticateToken, ctrl.runRenewals);
 
 // Analytics
