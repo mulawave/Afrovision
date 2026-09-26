@@ -136,14 +136,17 @@ fun NavRail(
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
         val selectedIndex = rails.indexOfFirst { it.screen == currentScreen }.coerceAtLeast(0)
-        val railFocusRequesters = remember { List(rails.size) { FocusRequester() } }
+        // Keyed by screen, not position: the list changes length when the
+        // Exclusive item appears after access loads, and a list sized once
+        // at first composition crashed with IndexOutOfBounds (4.12).
+        val railFocusRequesters = remember { mutableMapOf<Screen, FocusRequester>() }
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
             rails.forEachIndexed { index, rail ->
-                val focusRequester = if (index == selectedIndex) firstFocus else railFocusRequesters[index]
+                val focusRequester = if (index == selectedIndex) firstFocus else railFocusRequesters.getOrPut(rail.screen) { FocusRequester() }
                 NavRailItem(
                     rail = rail,
                     selected = currentScreen == rail.screen,
