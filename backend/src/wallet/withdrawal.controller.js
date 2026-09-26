@@ -474,6 +474,8 @@ async function fundWallet(req, res) {
 
     const { uid, idempotency_key } = req.body;
     if (!uid) return res.status(400).json({ error: 'uid is required' });
+    const reason = typeof req.body.reason === 'string' ? req.body.reason.trim().slice(0, 300) : '';
+    if (reason.length < 3) return res.status(400).json({ error: 'A reason is required to fund a wallet (at least 3 characters).' });
 
     // Amounts arrive over JSON but the client can send a string (or anything
     // else) — string + number performs concatenation, not addition, so this
@@ -528,7 +530,7 @@ async function fundWallet(req, res) {
           balance_before: before,
           balance_after: after,
           status: 'success',
-          meta: { funded_by: req.userId },
+          meta: { funded_by: req.userId, reason },
         }, tx);
       }
 
@@ -546,7 +548,7 @@ async function fundWallet(req, res) {
           balance_before: before,
           balance_after: after,
           status: 'success',
-          meta: { funded_by: req.userId },
+          meta: { funded_by: req.userId, reason },
         }, tx);
       }
     });
@@ -555,6 +557,7 @@ async function fundWallet(req, res) {
     await GiftWallet.reloadFromFirestore(uid);
 
     await AuditService.logAction(req.userId, 'fund_wallet', uid, {
+      reason,
       recipient_uid: uid,
       amount_ngn: amount_ngn || 0,
       amount_vpt_units: amount_vpt_units || 0,

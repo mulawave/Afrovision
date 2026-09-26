@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const { cacheJson } = require('./responseCache');
+const { requireReason, optionalReason } = require('./requireReason');
 const { authenticateToken, requireAdminRole } = require('../utils/jwt');
 const { adminLimiter } = require('../utils/rate_limit');
 const ctrl = require('./admin.controller');
@@ -81,7 +82,7 @@ router.get('/cers/reporter-state/:userId', authenticateToken, cersAdminCtrl.getR
 // User management
 router.get('/users', authenticateToken, ctrl.listUsers);
 router.get('/users/search', authenticateToken, ctrl.searchUsers);
-router.delete('/users/:uid', authenticateToken, ctrl.deleteUser);
+router.delete('/users/:uid', authenticateToken, requireReason, ctrl.deleteUser);
 router.post('/users/cleanup/duplicates', authenticateToken, ctrl.cleanupDuplicates);
 router.post('/users/cleanup/empty',      authenticateToken, ctrl.cleanupEmpty);
 router.post('/users/recover',            authenticateToken, ctrl.recoverAccounts);
@@ -94,15 +95,15 @@ router.post('/users/cleanup-shells',     authenticateToken, ctrl.cleanupRecovery
 router.post('/users/pitr-restore',       authenticateToken, ctrl.pitrRestore);
 router.get('/users/:uid/wallet', authenticateToken, ctrl.getUserWallet);
 router.get('/users/:uid/detail', authenticateToken, ctrl.getUserDetail);
-router.post('/users/:uid/ban', authenticateToken, ctrl.banUser);
-router.post('/users/:uid/unban', authenticateToken, ctrl.unbanUser);
-router.post('/users/:uid/freeze-wallet', authenticateToken, ctrl.freezeWallet);
-router.post('/users/:uid/unfreeze-wallet', authenticateToken, ctrl.unfreezeWallet);
-router.post('/users/:uid/ban-withdrawal', authenticateToken, ctrl.banWithdrawal);
-router.post('/users/:uid/unban-withdrawal', authenticateToken, ctrl.unbanWithdrawal);
-router.post('/users/:uid/ban-channel-creation', authenticateToken, ctrl.banChannelCreation);
-router.post('/users/:uid/unban-channel-creation', authenticateToken, ctrl.unbanChannelCreation);
-router.post('/users/:uid/debit', authenticateToken, ctrl.debitUserAssets);
+router.post('/users/:uid/ban', authenticateToken, requireReason, ctrl.banUser);
+router.post('/users/:uid/unban', authenticateToken, optionalReason, ctrl.unbanUser);
+router.post('/users/:uid/freeze-wallet', authenticateToken, requireReason, ctrl.freezeWallet);
+router.post('/users/:uid/unfreeze-wallet', authenticateToken, optionalReason, ctrl.unfreezeWallet);
+router.post('/users/:uid/ban-withdrawal', authenticateToken, requireReason, ctrl.banWithdrawal);
+router.post('/users/:uid/unban-withdrawal', authenticateToken, optionalReason, ctrl.unbanWithdrawal);
+router.post('/users/:uid/ban-channel-creation', authenticateToken, requireReason, ctrl.banChannelCreation);
+router.post('/users/:uid/unban-channel-creation', authenticateToken, optionalReason, ctrl.unbanChannelCreation);
+router.post('/users/:uid/debit', authenticateToken, requireReason, ctrl.debitUserAssets);
 router.get('/wallets', authenticateToken, ctrl.listWallets);
 
 // Channel control
@@ -128,8 +129,8 @@ router.post('/channels/:id/recheck-source', authenticateToken, ctrl.adminRecheck
 router.patch('/channels/:id/external-source', authenticateToken, ctrl.adminUpdateChannelExternalSource);
 router.patch('/channels/:id/owner-display', authenticateToken, ctrl.adminUpdateChannelOwnerDisplay);
 router.delete('/channels/:id', authenticateToken, ctrl.adminHardDeleteChannel);
-router.post('/channels/:id/ban', authenticateToken, ctrl.adminBanChannel);
-router.post('/channels/:id/unban', authenticateToken, ctrl.adminUnbanChannel);
+router.post('/channels/:id/ban', authenticateToken, requireReason, ctrl.adminBanChannel);
+router.post('/channels/:id/unban', authenticateToken, optionalReason, ctrl.adminUnbanChannel);
 router.get('/channels/:id/analytics', authenticateToken, ctrl.adminChannelAnalytics);
 router.get('/channels/:id/audit/gifts', authenticateToken, ctrl.adminChannelAuditGifts);
 router.get('/channels/:id/audit/subscriptions', authenticateToken, ctrl.adminChannelAuditSubscriptions);

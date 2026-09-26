@@ -247,6 +247,16 @@ async function getSetting(req, res) {
   }
 }
 
+/** Every *_PERCENT setting must be a number from 0 to 100 (some drive real payouts). */
+function validatePercentSetting(key, value) {
+  if (!/_PERCENT$/.test(String(key))) return null;
+  const n = Number(value);
+  if (String(value).trim() === '' || !Number.isFinite(n) || n < 0 || n > 100) {
+    return `${key} must be a number from 0 to 100.`;
+  }
+  return null;
+}
+
 async function updateSetting(req, res) {
   if (!requireAdmin(req, res)) return;
   const caller = requireAdmin(req, res);
@@ -256,6 +266,8 @@ async function updateSetting(req, res) {
 
   if (!SettingsService.isValidKey(key)) return res.status(404).json({ error: 'Setting not found' });
   if (value === undefined || value === null) return res.status(400).json({ error: 'value is required' });
+  const percentError = validatePercentSetting(key, value);
+  if (percentError) return res.status(400).json({ error: percentError });
 
   try {
     const result = await SettingsService.set(key, String(value), caller.id);
@@ -281,6 +293,8 @@ async function bulkUpdateSettings(req, res) {
     if (!SettingsService.isValidKey(entry.key)) {
       return res.status(400).json({ error: `Invalid setting key: ${entry.key}` });
     }
+    const percentError = validatePercentSetting(entry.key, entry.value);
+    if (percentError) return res.status(400).json({ error: percentError });
   }
 
   try {
@@ -453,6 +467,7 @@ async function deleteUser(req, res) {
 
   const deleted = await User.softDelete(uid, caller.id);
   await AuditService.logAction(caller.id, 'delete_user', uid, {
+    reason: req.body?.reason || null,
     deleted_email: user.deleted_email || user.email,
     disabled_channels: activeOwnedChannels.length,
   });
@@ -2563,7 +2578,7 @@ async function unbanUser(req, res) {
   try {
     const user = await User.unbanUser(uid);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    await AuditService.logAction(caller.id, 'unban_user', uid, {});
+    await AuditService.logAction(caller.id, 'unban_user', uid, { reason: req.body?.reason || null });
     res.json({ user: User.toSafeUser(user), message: 'User unbanned successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2579,7 +2594,7 @@ async function freezeWallet(req, res) {
   try {
     const user = await User.freezeWallet(uid);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    await AuditService.logAction(caller.id, 'freeze_wallet', uid, {});
+    await AuditService.logAction(caller.id, 'freeze_wallet', uid, { reason: req.body?.reason || null });
     res.json({ user: User.toSafeUser(user), message: 'Wallet frozen successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2593,7 +2608,7 @@ async function unfreezeWallet(req, res) {
   try {
     const user = await User.unfreezeWallet(uid);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    await AuditService.logAction(caller.id, 'unfreeze_wallet', uid, {});
+    await AuditService.logAction(caller.id, 'unfreeze_wallet', uid, { reason: req.body?.reason || null });
     res.json({ user: User.toSafeUser(user), message: 'Wallet unfrozen successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2607,7 +2622,7 @@ async function banWithdrawal(req, res) {
   try {
     const user = await User.banWithdrawal(uid);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    await AuditService.logAction(caller.id, 'ban_withdrawal', uid, {});
+    await AuditService.logAction(caller.id, 'ban_withdrawal', uid, { reason: req.body?.reason || null });
     res.json({ user: User.toSafeUser(user), message: 'Withdrawals banned successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2621,7 +2636,7 @@ async function unbanWithdrawal(req, res) {
   try {
     const user = await User.unbanWithdrawal(uid);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    await AuditService.logAction(caller.id, 'unban_withdrawal', uid, {});
+    await AuditService.logAction(caller.id, 'unban_withdrawal', uid, { reason: req.body?.reason || null });
     res.json({ user: User.toSafeUser(user), message: 'Withdrawals unbanned successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2668,7 +2683,7 @@ async function unbanChannelCreation(req, res) {
   try {
     const user = await User.unbanChannelCreation(uid);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    await AuditService.logAction(caller.id, 'unban_channel_creation', uid, {});
+    await AuditService.logAction(caller.id, 'unban_channel_creation', uid, { reason: req.body?.reason || null });
     res.json({ user: User.toSafeUser(user), message: 'Channel creation unbanned successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2800,7 +2815,7 @@ async function adminUnbanChannel(req, res) {
   try {
     const channel = await Channel.unbanChannel(id);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    await AuditService.logAction(caller.id, 'unban_channel', id, {});
+    await AuditService.logAction(caller.id, 'unban_channel', id, { reason: req.body?.reason || null });
     res.json({ channel: serializeChannelForAdmin(channel), message: 'Channel unbanned successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
