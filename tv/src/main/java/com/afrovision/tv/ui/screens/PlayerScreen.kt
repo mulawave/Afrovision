@@ -47,7 +47,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,15 +113,10 @@ fun PlayerScreen(viewModel: TvViewModel) {
     var isTuning by remember { mutableStateOf(true) }
     // Native channel with nothing scheduled right now.
     var offAir by remember { mutableStateOf(false) }
-    // Initial-tune failure handling. A stream that never starts (dead link,
-    // 403, source down) used to sit on the tuning screen forever: every error
-    // triggered another retry, each waiting on slow timeouts. Once a stream
-    // has played at least once, errors are still retried indefinitely as
-    // before - that is what rides out network hiccups mid-programme.
-    var everReady by remember(media) { mutableStateOf(false) }
-    var tuneFailures by remember(media) { mutableIntStateOf(0) }
-    var unavailable by remember(media) { mutableStateOf(false) }
-    var tuneAttempt by remember(media) { mutableIntStateOf(0) }
+    // Every playback error is retried, for as long as the channel is on
+    // screen, whether or not it has played yet. 4.10-4.14 gave up on a
+    // stream after 3 errors or 45s without a picture; on weak networks that
+    // abandoned channels that only needed longer to start (e.g. BET Comedy).
     val playbackScope = rememberCoroutineScope()
     // Native channels have no URL of their own: they air whatever the
     // broadcast scheduler has on now, joined at the scheduled position.
@@ -180,19 +174,8 @@ fun PlayerScreen(viewModel: TvViewModel) {
         if (media.progress > 0 && !media.isLive) player.seekTo(media.progress)
     }
 
-    fun markUnavailable() {
-        scheduleJob?.cancel()
-        player.stop()
-        player.clearMediaItems()
-        isTuning = false
-        unavailable = true
-    }
-
     fun retryTune() {
-        unavailable = false
-        tuneFailures = 0
         isTuning = true
-        tuneAttempt += 1
         startPlayback()
     }
 
@@ -201,20 +184,11 @@ fun PlayerScreen(viewModel: TvViewModel) {
     LaunchedEffect(media) {
         var wasOnline = viewModel.isOnline.value
         viewModel.isOnline.collect { online ->
-            if (online && !wasOnline && (unavailable || isTuning || offAir)) {
+            if (online && !wasOnline && (isTuning || offAir)) {
                 Log.i(TV_APP_TAG, "Network back - re-tuning ${media.title}")
                 retryTune()
             }
             wasOnline = online
-        }
-    }
-
-    // Give up on an initial tune that shows no picture within the limit.
-    LaunchedEffect(media, tuneAttempt) {
-        delay(TUNE_TIMEOUT_MS)
-        if (!everReady && !unavailable && !offAir) {
-            Log.e(TV_APP_TAG, "${media.title} showed no picture in ${TUNE_TIMEOUT_MS}ms, marking unavailable")
-            markUnavailable()
         }
     }
 
@@ -246,8 +220,6 @@ fun PlayerScreen(viewModel: TvViewModel) {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
                     isTuning = false
-                    everReady = true
-                    unavailable = false
                 }
                 // A scheduled program finished: tune to whatever airs next.
                 if (playbackState == Player.STATE_ENDED && isScheduledChannel) {
@@ -263,14 +235,6 @@ fun PlayerScreen(viewModel: TvViewModel) {
             // exactly the "player just freezes and won't recover" bug. Retry
             // by re-setting the same media item and re-preparing.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                if (!everReady) {
-                    tuneFailures += 1
-                    if (tuneFailures >= MAX_TUNE_FAILURES) {
-                        Log.e(TV_APP_TAG, "${media.title} failed to start $tuneFailures times, marking unavailable", error)
-                        markUnavailable()
-                        return
-                    }
-                }
                 Log.e(TV_APP_TAG, "Player error for ${media.title}, retrying", error)
                 isTuning = true
                 startPlayback()
@@ -289,10 +253,6 @@ fun PlayerScreen(viewModel: TvViewModel) {
         var stuckSinceMs = 0L
         while (true) {
             delay(5000)
-            if (unavailable) {
-                stuckSinceMs = 0L
-                continue
-            }
             val stalled = player.playWhenReady &&
                 (player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY) &&
                 !player.isPlaying
@@ -429,10 +389,7 @@ fun PlayerScreen(viewModel: TvViewModel) {
                         true
                     }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                        if (unavailable && !showSurfer) {
-                            retryTune()
-                            true
-                        } else if (showSurfer || media.isLive) {
+                        if (showSurfer || media.isLive) {
                             false
                         } else {
                             if (player.isPlaying) player.pause() else player.play()
@@ -602,23 +559,6 @@ fun PlayerScreen(viewModel: TvViewModel) {
 
         if (isTuning) {
             TuningOverlay(channelName = media.title, modifier = Modifier.fillMaxSize())
-        } else if (unavailable) {
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "${media.title} isn't available right now",
-                    color = Color.White,
-                    fontSize = 26.sp
-                )
-                Text(
-                    text = if (media.isLive) "Press OK to try again, or change channel" else "Press OK to try again",
-                    color = nocturne.textMuted,
-                    fontSize = 18.sp
-                )
-            }
         } else if (offAir) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -1289,12 +1229,6 @@ private fun buildEmbedHtml(url: String): String {
 
 /** How long Up/Down must be idle before the stepped-to channel is tuned. */
 private const val SURF_CONFIRM_DELAY_MS = 700L
-
-/** Failed attempts before a stream that never started is shown as unavailable. */
-private const val MAX_TUNE_FAILURES = 3
-
-/** Longest an initial tune may show no picture before it's shown as unavailable. */
-private const val TUNE_TIMEOUT_MS = 45_000L
 
 @Composable
 private fun SurferKeyHint(key: String, label: String) {

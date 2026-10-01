@@ -38,7 +38,6 @@ class NetworkReconnector(app: Application) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var dropConfirmJob: Job? = null
     private var reconnectLoopJob: Job? = null
-    private var wifiLock: WifiManager.WifiLock? = null
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -76,38 +75,6 @@ class NetworkReconnector(app: Application) {
         }
         // Launched with no network at all: start recovering straight away.
         if (cm.activeNetwork == null) startReconnectLoop()
-    }
-
-    /**
-     * Keeps the Wi-Fi radio fully awake while the app is in the foreground.
-     * Low-cost TV firmware aggressively power-saves Wi-Fi when it thinks the
-     * device is idle (including during playback), which drops the link to a
-     * perfectly healthy hotspot. Unlike forcing a reconnect, a Wi-Fi lock is
-     * allowed for every app on every Android version.
-     */
-    fun acquireWifiLock() {
-        val wifi = wifiManager ?: return
-        try {
-            if (wifiLock == null) {
-                @Suppress("DEPRECATION")
-                val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-                } else {
-                    WifiManager.WIFI_MODE_FULL_HIGH_PERF
-                }
-                wifiLock = wifi.createWifiLock(mode, "AfroVision:foreground").apply { setReferenceCounted(false) }
-            }
-            if (wifiLock?.isHeld == false) wifiLock?.acquire()
-        } catch (e: Exception) {
-            Log.e(TV_APP_TAG, "NetworkReconnector: could not acquire Wi-Fi lock", e)
-        }
-    }
-
-    fun releaseWifiLock() {
-        try {
-            if (wifiLock?.isHeld == true) wifiLock?.release()
-        } catch (_: Exception) {
-        }
     }
 
     fun stop() {

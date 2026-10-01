@@ -27,16 +27,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Hold the Wi-Fi lock only while the app is visible.
-    override fun onStart() {
-        super.onStart()
-        (application as TvApplication).networkReconnector.acquireWifiLock()
-    }
-
-    override fun onStop() {
-        (application as TvApplication).networkReconnector.releaseWifiLock()
-        super.onStop()
-    }
+    // No Wi-Fi lock (4.11-4.14 held a low-latency one while the app was open).
+    // On this class of TV it stopped the system's own Wi-Fi scanning, which
+    // is what rejoins the hotspot after a drop, and coincided with heavier
+    // buffering. Back to the 4.10 behaviour: the system manages the radio.
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
