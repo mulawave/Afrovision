@@ -378,6 +378,16 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                           My Subscriptions
                         </Link>
                         <Link
+                          href="/my-pics"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-av-light-orange hover:text-av-white hover:bg-av-input-fill/50 transition-colors"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-av-light-orange">
+                            <path d="M12.65 10A6 6 0 1 0 12.65 14H17v4h4v-4h2v-4H12.65zM7 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+                          </svg>
+                          My PICs
+                        </Link>
+                        <Link
                           href="/leaderboard"
                           onClick={() => setUserMenuOpen(false)}
                           className="flex items-center gap-3 px-4 py-2.5 text-sm text-av-light-orange hover:text-av-white hover:bg-av-input-fill/50 transition-colors"
@@ -799,6 +809,13 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                   className="block px-4 py-3 text-sm font-medium text-av-light-orange hover:text-av-white rounded-lg hover:bg-av-white/5 transition-colors"
                 >
                   My Subscriptions
+                </Link>
+                <Link
+                  href="/my-pics"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-4 py-3 text-sm font-medium text-av-light-orange hover:text-av-white rounded-lg hover:bg-av-white/5 transition-colors"
+                >
+                  My PICs
                 </Link>
                 <Link
                   href="/leaderboard"

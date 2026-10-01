@@ -112,6 +112,7 @@ async function markLifecycleFlag(id, flag, at = Date.now()) {
 async function grantOrRenew({
   userUid,
   channelId,
+  pic,
   picHash,
   sourcePaymentId,
   monthlyFeeNgn,
@@ -124,6 +125,7 @@ async function grantOrRenew({
   if (current) {
     const updated = {
       ...current,
+      pic,
       pic_hash: picHash,
       status: 'active',
       issued_at: now,
@@ -141,6 +143,7 @@ async function grantOrRenew({
     id: crypto.randomUUID(),
     user_uid: userUid,
     channel_id: channelId,
+    pic,
     pic_hash: picHash,
     status: 'active',
     issued_at: now,

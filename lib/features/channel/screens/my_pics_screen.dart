@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
-import '../services/pic_storage_service.dart';
 import '../services/channel_service.dart';
 
 class MyPicsScreen extends StatefulWidget {
@@ -30,15 +29,19 @@ class _MyPicsScreenState extends State<MyPicsScreen> {
     });
 
     try {
-      final pics = await PicStorageService.getPics();
-      final accesses = await ChannelService.getMyExclusiveAccesses();
-      
+      // PICs come from the account, so they're the same on every device.
+      final result = await ChannelService.getMyPics();
+
       if (!mounted) return;
-      
-      // Create a map of channel_id to channel details
+
+      final pics = <String, String>{};
       final channelMap = <String, dynamic>{};
-      for (final access in (accesses['accesses'] as List<dynamic>? ?? [])) {
-        channelMap[access['channel_id']] = access;
+      for (final item in (result['pics'] as List<dynamic>? ?? [])) {
+        final channelId = item['channel_id']?.toString();
+        final pic = item['pic']?.toString();
+        if (channelId == null || pic == null || pic.isEmpty) continue;
+        pics[channelId] = pic;
+        channelMap[channelId] = item;
       }
 
       setState(() {

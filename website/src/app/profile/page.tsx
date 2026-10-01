@@ -164,6 +164,7 @@ export default function ProfilePage() {
                 <div className="mt-4 space-y-3">
                   <QuickLink href="/notifications" label="Notifications" note="Review go-live alerts, admin notices, and account updates" />
                   <QuickLink href="/wallet" label="Wallet" note="View balances, ledger, and creator wallet status" />
+                  <QuickLink href="/my-pics" label="My PICs" note="Personal Identifier Codes for your exclusive channel subscriptions" />
                   <QuickLink href="/leaderboard" label="Leaderboard" note="See your reputation rank and the top gifters" />
                   <QuickLink href="/referrals" label="Referrals" note="Track your referral earnings and network" />
                   {(profile.role === "creator" || profile.role === "admin") ? <QuickLink href="/create-channel" label="Create Channel" note="Launch a new public or private channel with media" /> : null}

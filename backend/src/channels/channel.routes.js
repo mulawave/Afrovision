@@ -17,6 +17,7 @@ router.get('/me', authenticateToken, ctrl.getMyChannels);
 // Must come before /:id routes
 router.get('/my-accesses', authenticateToken, premiumCtrl.getMyAccesses);
 router.get('/exclusive/my-accesses', authenticateToken, exclusiveCtrl.getMyExclusiveAccesses);
+router.get('/exclusive/my-pics', authenticateToken, exclusiveCtrl.getMyPics);
 router.get('/subscriber-feed', authenticateToken, ctrl.getSubscriberFeed);
 router.post('/resolve-source', authenticateToken, ctrl.resolveStreamSource);
 router.patch('/admin/:id/featured', authenticateToken, ctrl.adminSetFeatured);

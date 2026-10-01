@@ -999,6 +999,22 @@ export async function renewExclusiveAccessApi(channelId: string) {
   );
 }
 
+export interface MyPic {
+  channel_id: string;
+  channel_name: string;
+  channel_logo: string | null;
+  pic: string;
+  expires_at: number;
+}
+
+/** The account's PICs, one per active exclusive subscription. */
+export async function getMyPicsApi() {
+  return api<{ pics: MyPic[]; total: number } | ErrorResponse>(
+    "/channels/exclusive/my-pics",
+    { requireAuth: true },
+  );
+}
+
 export async function verifyExclusivePicApi(channelId: string, pic: string) {
   return api<ExclusivePicVerifyResponse | ErrorResponse>(
     `/channels/${channelId}/exclusive/verify-pic`,

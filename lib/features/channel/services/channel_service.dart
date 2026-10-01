@@ -454,6 +454,14 @@ class ChannelService {
     return data;
   }
 
+  /// GET /channels/exclusive/my-pics — the account's PICs, one per active
+  /// exclusive subscription. `{pics: [{channel_id, channel_name,
+  /// channel_logo, pic, expires_at}], total}`.
+  static Future<Map<String, dynamic>> getMyPics() async {
+    final data = await ApiService.get('/channels/exclusive/my-pics');
+    return data;
+  }
+
   static Future<ExclusivePurchaseResultModel> renewExclusiveAccess(
     String channelId,
   ) async {

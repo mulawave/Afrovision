@@ -180,7 +180,7 @@ function generatePic() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let index = 0; index < 10; index += 1) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[crypto.randomInt(chars.length)];
   }
   return code;
 }
@@ -423,10 +423,14 @@ async function purchaseExclusiveAccess(req, res) {
       channel,
     });
 
-    const pic = generatePic();
+    // A subscriber keeps the same PIC across renewals; it's always visible
+    // in their account (mobile + website "My PICs"), so it isn't reissued.
+    const previousAccess = await ExclusiveAccess.findLatestByUserAndChannel(req.userId, channel.id);
+    const pic = previousAccess?.pic || generatePic();
     const access = await ExclusiveAccess.grantOrRenew({
       userUid: req.userId,
       channelId: channel.id,
+      pic,
       picHash: hashPic(pic),
       sourcePaymentId: paymentReference,
       monthlyFeeNgn: amount,
@@ -1010,6 +1014,61 @@ async function getMyExclusiveAccesses(req, res) {
   }
 }
 
+/**
+ * GET /channels/exclusive/my-pics
+ * The signed-in subscriber's PICs, one per active exclusive subscription.
+ * Subscriptions bought before PICs were stored readably only have a hash,
+ * so they're issued a fresh PIC here once; from then on it stays the same.
+ */
+async function getMyPics(req, res) {
+  try {
+    const userId = req.userId;
+    if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+    const db = getFirestore();
+    const snapshot = await db.collection(COLLECTION)
+      .where('user_uid', '==', userId)
+      .where('status', '==', 'active')
+      .get();
+
+    const now = Date.now();
+    const accesses = snapshot.docs
+      .map((doc) => ({ ...doc.data(), id: doc.id }))
+      .filter((access) => Number(access.expires_at || 0) > now);
+
+    for (const access of accesses) {
+      if (access.pic) continue;
+      const pic = generatePic();
+      await ExclusiveAccess.updateAccess(access.id, { pic, pic_hash: hashPic(pic) });
+      access.pic = pic;
+      await safeAuditLog(userId, 'exclusive_pic_issued', access.id, {
+        channel_id: access.channel_id,
+        reason: 'legacy_hash_only',
+      });
+    }
+
+    const channelIds = [...new Set(accesses.map((a) => a.channel_id))];
+    const channelDocs = await Promise.all(channelIds.map((id) => Channel.findById(id)));
+    const channels = {};
+    channelDocs.forEach((channel) => {
+      if (channel) channels[channel.id] = channel;
+    });
+
+    const pics = accesses.map((access) => ({
+      channel_id: access.channel_id,
+      channel_name: channels[access.channel_id]?.name || 'Unknown Channel',
+      channel_logo: channels[access.channel_id]?.logo_url || null,
+      pic: access.pic,
+      expires_at: access.expires_at,
+    }));
+
+    return res.json({ pics, total: pics.length });
+  } catch (err) {
+    console.error('[Exclusive] get-my-pics:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 module.exports = {
   checkExclusiveAccessStatus,
   purchaseExclusiveAccess,
@@ -1021,4 +1080,7 @@ module.exports = {
   cancelSubscription,
   giftSubscription,
   getMyExclusiveAccesses,
+  getMyPics,
+  generatePic,
+  hashPic,
 };
