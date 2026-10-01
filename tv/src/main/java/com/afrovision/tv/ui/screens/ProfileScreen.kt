@@ -132,10 +132,13 @@ fun ProfileScreen(viewModel: TvViewModel) {
             item {
                 Column {
                     if (viewModel.exclusiveActivated) {
-                        // Forgotten PIN or a new one: removes it here; the PIC sets a new one.
+                        // Forgotten PIN or a new one: removes it here; the PIC (or, for a
+                        // channel's creator, just a new PIN) sets it again.
                         ProfileButton(label = "Reset exclusive PIN", onClick = { viewModel.resetExclusiveActivation() }, modifier = Modifier.fillMaxWidth())
                         Spacer(modifier = Modifier.height(12.dp))
-                    } else if (viewModel.hasExclusiveAccess || exclusiveChannelCount > 0) {
+                    } else if (exclusiveAccess is com.afrovision.tv.data.LoadState.Success &&
+                        (viewModel.hasExclusiveAccess || exclusiveChannelCount > 0)
+                    ) {
                         ProfileButton(label = "Activate exclusive content", onClick = { showExclusiveActivation = true }, modifier = Modifier.fillMaxWidth())
                         Spacer(modifier = Modifier.height(12.dp))
                     }

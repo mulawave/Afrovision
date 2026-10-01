@@ -1346,6 +1346,10 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     val exclusiveSubscriptions: List<com.afrovision.tv.data.api.model.ExclusiveAccess>
         get() = (exclusiveAccess as? LoadState.Success)?.data?.accesses.orEmpty()
 
+    /** The account created an exclusive channel: it sets the PIN without a PIC (creators have none). */
+    val isExclusiveCreator: Boolean
+        get() = (exclusiveAccess as? LoadState.Success)?.data?.ownedChannels?.isNotEmpty() == true
+
     /** Calls back with null when the PIC is valid, otherwise the message to show. */
     fun verifyExclusivePic(channelId: String, pic: String, onResult: (String?) -> Unit) {
         viewModelScope.launch {

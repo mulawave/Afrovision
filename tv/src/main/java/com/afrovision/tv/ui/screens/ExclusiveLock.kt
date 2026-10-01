@@ -137,12 +137,22 @@ private enum class ActivationStep { Channel, Pic, CreatePin, ConfirmPin, Done }
  * Profile → "Activate exclusive content": PIC (from My PICs in the app or
  * website) → create PIN → confirm PIN. Only subscribers have a PIC, so the
  * channel list comes from the account's active exclusive subscriptions.
+ * A channel's creator has no PIC and goes straight to creating the PIN.
  */
 @Composable
 fun ExclusiveActivationDialog(viewModel: TvViewModel, onDismiss: () -> Unit) {
     val subscriptions = viewModel.exclusiveSubscriptions
+    val isCreator = viewModel.isExclusiveCreator
     var channelId by remember { mutableStateOf(subscriptions.singleOrNull()?.channelId) }
-    var step by remember { mutableStateOf(if (subscriptions.size > 1) ActivationStep.Channel else ActivationStep.Pic) }
+    var step by remember {
+        mutableStateOf(
+            when {
+                isCreator -> ActivationStep.CreatePin
+                subscriptions.size > 1 -> ActivationStep.Channel
+                else -> ActivationStep.Pic
+            }
+        )
+    }
     var pic by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
@@ -150,7 +160,7 @@ fun ExclusiveActivationDialog(viewModel: TvViewModel, onDismiss: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
 
     LockDialog(onDismiss = onDismiss) {
-        if (subscriptions.isEmpty()) {
+        if (subscriptions.isEmpty() && !isCreator) {
             LockTitle("No exclusive subscription")
             LockBody("Exclusive content needs an active subscription to an exclusive channel. Your PIC is shown under My PICs in the AfroVision app and website.")
             LockButtons(primary = "Close", onPrimary = onDismiss, onCancel = null)

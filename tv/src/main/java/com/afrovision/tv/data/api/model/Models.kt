@@ -584,7 +584,15 @@ data class VerifyPicResponse(val valid: Boolean = false)
 @Serializable
 data class ExclusiveAccessSummary(
     val accesses: List<ExclusiveAccess> = emptyList(),
-    val total: Int = 0
+    val total: Int = 0,
+    // Exclusive channels this account created (no PIC needed for the TV PIN).
+    @SerialName("owned_channels") val ownedChannels: List<OwnedExclusiveChannel> = emptyList()
+)
+
+@Serializable
+data class OwnedExclusiveChannel(
+    @SerialName("channel_id") val channelId: String = "",
+    @SerialName("channel_name") val channelName: String = ""
 )
 
 @Serializable

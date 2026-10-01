@@ -529,7 +529,15 @@ exports.getExclusiveAccessSummary = async (req, res) => {
       monthly_fee_ngn: access.monthly_fee_ngn || null,
     }));
 
-    return res.status(200).json({ accesses: enriched, total: enriched.length });
+    // Exclusive channels this account created. A creator has no PIC (PICs
+    // are for paying subscribers), so the TV lets them set the Exclusive
+    // PIN without one.
+    const allChannels = await Channel.getAll();
+    const owned = allChannels
+      .filter((channel) => channel.owner_id === ownerUid && isExclusiveChannel(channel) && !channel.is_banned)
+      .map((channel) => ({ channel_id: channel.id, channel_name: channel.name || 'Exclusive channel' }));
+
+    return res.status(200).json({ accesses: enriched, total: enriched.length, owned_channels: owned });
   } catch (error) {
     console.error('[Distribution] TV getExclusiveAccessSummary error:', error);
     return res.status(500).json({ error: 'Internal server error', message: error.message });
