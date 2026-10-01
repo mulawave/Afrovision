@@ -576,6 +576,12 @@ data class ExclusiveAccess(
 )
 
 @Serializable
+data class VerifyPicRequest(val pic: String)
+
+@Serializable
+data class VerifyPicResponse(val valid: Boolean = false)
+
+@Serializable
 data class ExclusiveAccessSummary(
     val accesses: List<ExclusiveAccess> = emptyList(),
     val total: Int = 0

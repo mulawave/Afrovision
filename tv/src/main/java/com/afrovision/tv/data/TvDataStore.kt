@@ -53,6 +53,10 @@ class TvDataStore(context: Context) {
     val safeAreaEnabled: Flow<Boolean> = dataStore.data.map { it[KEY_SAFE_AREA] != false }
     val networkProfile: Flow<String> = dataStore.data.map { it[KEY_NETWORK_PROFILE] ?: "auto" }
     val autoplay: Flow<Boolean> = dataStore.data.map { it[KEY_AUTOPLAY] != false }
+    // Exclusive lock: the PIN set after a valid PIC. Stored only on this TV,
+    // as a salted SHA-256 hash; blank means Exclusive isn't activated here.
+    val exclusivePinHash: Flow<String> = dataStore.data.map { it[KEY_EXCLUSIVE_PIN_HASH] ?: "" }
+    val exclusivePinSalt: Flow<String> = dataStore.data.map { it[KEY_EXCLUSIVE_PIN_SALT] ?: "" }
     val recentChannels: Flow<List<RecentChannel>> = dataStore.data.map { data ->
         val json = data[KEY_RECENT_CHANNELS] ?: ""
         if (json.isBlank()) emptyList()
@@ -78,6 +82,14 @@ class TvDataStore(context: Context) {
     suspend fun setSafeAreaEnabled(value: Boolean) = dataStore.edit { it[KEY_SAFE_AREA] = value }
     suspend fun setNetworkProfile(value: String) = dataStore.edit { it[KEY_NETWORK_PROFILE] = value }
     suspend fun setAutoplay(value: Boolean) = dataStore.edit { it[KEY_AUTOPLAY] = value }
+    suspend fun setExclusivePin(hash: String, salt: String) = dataStore.edit {
+        it[KEY_EXCLUSIVE_PIN_HASH] = hash
+        it[KEY_EXCLUSIVE_PIN_SALT] = salt
+    }
+    suspend fun clearExclusivePin() = dataStore.edit {
+        it.remove(KEY_EXCLUSIVE_PIN_HASH)
+        it.remove(KEY_EXCLUSIVE_PIN_SALT)
+    }
 
     suspend fun recordRecentChannel(channel: RecentChannel) {
         dataStore.edit { prefs ->
@@ -111,5 +123,7 @@ class TvDataStore(context: Context) {
         private val KEY_NETWORK_PROFILE = stringPreferencesKey("network_profile")
         private val KEY_AUTOPLAY = booleanPreferencesKey("autoplay")
         private val KEY_RECENT_CHANNELS = stringPreferencesKey("recent_channels")
+        private val KEY_EXCLUSIVE_PIN_HASH = stringPreferencesKey("exclusive_pin_hash")
+        private val KEY_EXCLUSIVE_PIN_SALT = stringPreferencesKey("exclusive_pin_salt")
     }
 }

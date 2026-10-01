@@ -276,6 +276,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 TokenHolder.deviceToken = loadedDeviceToken
                 _isPaired.value = dataStore.isPaired.first() && _token.value.isNotBlank()
                 _userName.value = dataStore.userName.first()
+                exclusiveActivated = dataStore.exclusivePinHash.first().isNotBlank()
                 if (_isPaired.value) {
                     currentScreen = com.afrovision.tv.ui.navigation.Screen.Home
                     loadAll()
@@ -1323,6 +1324,111 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ── Exclusive lock (PIC activation + PIN on this TV) ─────────
+    //
+    // A subscriber activates Exclusive on this TV once with their PIC (the
+    // code shown under My PICs in the app/website), then sets a PIN. The
+    // Exclusive menu only appears once activated, and the screen opens
+    // locked every time the app starts or returns from the background.
+
+    /** A PIN has been set on this TV after a valid PIC. */
+    var exclusiveActivated by mutableStateOf(false)
+        private set
+
+    /** The PIN was entered this session; reset when the app goes to the background. */
+    var exclusiveUnlocked by mutableStateOf(false)
+        private set
+
+    private var exclusivePinFailures = 0
+    private var exclusivePinLockedUntil = 0L
+
+    /** Channels this account subscribes to (so it has a PIC for), from the device-token summary. */
+    val exclusiveSubscriptions: List<com.afrovision.tv.data.api.model.ExclusiveAccess>
+        get() = (exclusiveAccess as? LoadState.Success)?.data?.accesses.orEmpty()
+
+    /** Calls back with null when the PIC is valid, otherwise the message to show. */
+    fun verifyExclusivePic(channelId: String, pic: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val error = try {
+                val response = api.verifyExclusivePic(
+                    channelId,
+                    com.afrovision.tv.data.api.model.VerifyPicRequest(pic.trim().uppercase())
+                )
+                if (response.valid) null else "That PIC isn't valid."
+            } catch (e: HttpException) {
+                when (e.code()) {
+                    403 -> parseApiError(e).error?.takeIf { it.contains("entitlement") }
+                        ?.let { "There's no active subscription for this channel on this account." }
+                        ?: "That PIC isn't valid. Check it under My PICs in the app or website."
+                    429 -> "Too many wrong attempts. Please try again later."
+                    else -> parseApiError(e).message ?: parseApiError(e).error ?: e.toUserFacingMessage()
+                }
+            } catch (e: Exception) {
+                e.toUserFacingMessage()
+            }
+            onResult(error)
+        }
+    }
+
+    /** Saves the PIN (after a valid PIC) and shows the Exclusive menu. Stays locked until the PIN is entered. */
+    fun setExclusivePin(pin: String) {
+        viewModelScope.launch {
+            val salt = java.util.UUID.randomUUID().toString()
+            dataStore.setExclusivePin(hashExclusivePin(pin, salt), salt)
+            exclusivePinFailures = 0
+            exclusivePinLockedUntil = 0L
+            exclusiveUnlocked = false
+            exclusiveActivated = true
+        }
+    }
+
+    /** Calls back with null when unlocked, otherwise the message to show. */
+    fun unlockExclusive(pin: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            if (now < exclusivePinLockedUntil) {
+                val minutes = ((exclusivePinLockedUntil - now) / 60_000L) + 1
+                onResult("Too many wrong PINs. Try again in $minutes min.")
+                return@launch
+            }
+            val hash = dataStore.exclusivePinHash.first()
+            val salt = dataStore.exclusivePinSalt.first()
+            if (hash.isNotBlank() && hashExclusivePin(pin, salt) == hash) {
+                exclusivePinFailures = 0
+                exclusiveUnlocked = true
+                onResult(null)
+            } else {
+                exclusivePinFailures += 1
+                if (exclusivePinFailures >= EXCLUSIVE_PIN_MAX_FAILURES) {
+                    exclusivePinFailures = 0
+                    exclusivePinLockedUntil = now + EXCLUSIVE_PIN_LOCKOUT_MS
+                    onResult("Too many wrong PINs. Try again in ${EXCLUSIVE_PIN_LOCKOUT_MS / 60_000L} min.")
+                } else {
+                    onResult("Wrong PIN.")
+                }
+            }
+        }
+    }
+
+    fun lockExclusive() {
+        exclusiveUnlocked = false
+    }
+
+    /** Removes the PIN from this TV; Exclusive needs the PIC again to come back. */
+    fun resetExclusiveActivation() {
+        viewModelScope.launch {
+            dataStore.clearExclusivePin()
+            exclusiveUnlocked = false
+            exclusiveActivated = false
+        }
+    }
+
+    private fun hashExclusivePin(pin: String, salt: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$salt:$pin".toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
     // ── TV-to-TV chat ────────────────────────────────────────────
 
     var chatPin by mutableStateOf<String?>(null)
@@ -1716,6 +1822,10 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             com.afrovision.tv.chat.ChatSocket.disconnect()
             dataStore.setToken("")
             dataStore.setPaired(false)
+            // The PIN belongs to the account that set it.
+            dataStore.clearExclusivePin()
+            exclusiveActivated = false
+            exclusiveUnlocked = false
             _token.value = ""
             TokenHolder.token = ""
             _isPaired.value = false
@@ -1869,6 +1979,8 @@ data class DownloadItem(
 
 /** How long TvViewModel.search() reuses its fetched catalog before refetching. */
 private const val SEARCH_CATALOG_TTL_MS = 5 * 60_000L
+private const val EXCLUSIVE_PIN_MAX_FAILURES = 5
+private const val EXCLUSIVE_PIN_LOCKOUT_MS = 5 * 60_000L
 
 // ApiResponseCache keys for the last successful list responses.
 private const val CACHE_CHANNELS = "channels_live"

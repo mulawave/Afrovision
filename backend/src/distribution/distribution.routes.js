@@ -36,6 +36,13 @@ router.post('/tv/crash-report', tvCtrl.reportCrash);
 router.post('/tv/heartbeat', auth.authenticateTvDevice, tvCtrl.heartbeat);
 router.get('/tv/channels', auth.authenticateTvDevice, tvCtrl.getChannels);
 router.get('/tv/exclusive/access', auth.authenticateTvDevice, tvCtrl.getExclusiveAccessSummary);
+// PIC check for unlocking Exclusive on the TV, acting as the paired account.
+// Same controller (and attempt lockout) as the app/website verify-pic.
+router.post(
+  '/tv/exclusive/:id/verify-pic',
+  auth.authenticateTvDeviceAsOwner,
+  require('../channels/exclusive_channel.controller').verifyExclusivePic
+);
 router.get('/tv/channel/:channelNumber', auth.authenticateTvDevice, tvCtrl.getChannelByNumber);
 // Library reader, acting as the paired account. Same controllers as the
 // user-auth routes in library.routes.js, so entitlement checks are identical.

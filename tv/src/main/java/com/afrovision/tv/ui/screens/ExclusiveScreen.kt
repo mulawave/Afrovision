@@ -72,6 +72,12 @@ private enum class ExclusiveTab(val label: String) { Movies("Movies"), Series("S
  */
 @Composable
 fun ExclusiveScreen(viewModel: TvViewModel) {
+    // Locked until this session's PIN entry (see ExclusiveLock.kt).
+    if (viewModel.exclusiveUnlocked) ExclusiveContent(viewModel) else ExclusiveLockedScreen(viewModel)
+}
+
+@Composable
+private fun ExclusiveContent(viewModel: TvViewModel) {
     val nocturne = LocalNocturne.current
     val moviesState = viewModel.exclusiveMovies
     val seriesState = viewModel.exclusiveSeries

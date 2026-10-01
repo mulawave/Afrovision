@@ -69,13 +69,26 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
 
     // Never leave a non-member sitting on the Exclusive screen (e.g. access
     // ended while it was open).
+    // The menu also needs Exclusive activated on this TV (PIC + PIN).
     val hasExclusive = viewModel.hasExclusiveAccess
-    LaunchedEffect(currentScreen, hasExclusive, viewModel.exclusiveChannels) {
-        if (currentScreen == Screen.Exclusive && !hasExclusive &&
-            viewModel.exclusiveChannels is com.afrovision.tv.data.LoadState.Success
+    val exclusiveActivated = viewModel.exclusiveActivated
+    LaunchedEffect(currentScreen, hasExclusive, exclusiveActivated, viewModel.exclusiveChannels) {
+        if (currentScreen == Screen.Exclusive && (!exclusiveActivated || (!hasExclusive &&
+            viewModel.exclusiveChannels is com.afrovision.tv.data.LoadState.Success))
         ) {
             viewModel.navigateTo(Screen.Home)
         }
+    }
+
+    // Exclusive locks again whenever the app leaves the screen (Home button,
+    // another app, TV standby), so the next viewer needs the PIN.
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) viewModel.lockExclusive()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(viewModel.settings) {
@@ -143,7 +156,7 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                     modifier = Modifier.width(146.dp),
                     focusTrigger = railFocusTrigger,
                     onRailFocusChanged = { railHasFocus = it },
-                    showExclusive = viewModel.hasExclusiveAccess
+                    showExclusive = viewModel.hasExclusiveAccess && viewModel.exclusiveActivated
                 )
                 AnimatedContent(
                     targetState = currentScreen,

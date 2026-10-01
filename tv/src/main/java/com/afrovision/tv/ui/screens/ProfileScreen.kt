@@ -55,12 +55,17 @@ fun ProfileScreen(viewModel: TvViewModel) {
     val profile = viewModel.profile
     val userName = viewModel.userName.collectAsState("").value
     var page by remember(profile.posts.size) { mutableStateOf(0) }
+    var showExclusiveActivation by remember { mutableStateOf(false) }
     val exclusiveAccess = viewModel.exclusiveAccess
     val exclusiveChannelCount = (exclusiveAccess as? com.afrovision.tv.data.LoadState.Success)?.data?.accesses?.size ?: 0
 
     LaunchedEffect(Unit) {
         viewModel.loadProfile()
         viewModel.loadExclusiveAccess()
+    }
+
+    if (showExclusiveActivation) {
+        ExclusiveActivationDialog(viewModel = viewModel, onDismiss = { showExclusiveActivation = false })
     }
 
     Box(modifier = Modifier.fillMaxSize().background(nocturne.primaryGradient)) {
@@ -126,6 +131,14 @@ fun ProfileScreen(viewModel: TvViewModel) {
             }
             item {
                 Column {
+                    if (viewModel.exclusiveActivated) {
+                        // Forgotten PIN or a new one: removes it here; the PIC sets a new one.
+                        ProfileButton(label = "Reset exclusive PIN", onClick = { viewModel.resetExclusiveActivation() }, modifier = Modifier.fillMaxWidth())
+                        Spacer(modifier = Modifier.height(12.dp))
+                    } else if (viewModel.hasExclusiveAccess || exclusiveChannelCount > 0) {
+                        ProfileButton(label = "Activate exclusive content", onClick = { showExclusiveActivation = true }, modifier = Modifier.fillMaxWidth())
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
                     ProfileButton(label = "Pair new TV", onClick = { viewModel.navigateTo(Screen.Pairing) }, modifier = Modifier.fillMaxWidth())
                     Spacer(modifier = Modifier.height(12.dp))
                     ProfileButton(label = "Settings", onClick = { viewModel.navigateTo(Screen.Settings) }, modifier = Modifier.fillMaxWidth())

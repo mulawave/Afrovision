@@ -189,6 +189,14 @@ interface ApiService {
     @GET("/distribution/tv/exclusive/access")
     suspend fun getExclusiveAccessSummary(): ExclusiveAccessSummary
 
+    // Checks a subscriber's PIC for one exclusive channel, acting as the
+    // paired account (same lockout as the app/website).
+    @POST("/distribution/tv/exclusive/{channelId}/verify-pic")
+    suspend fun verifyExclusivePic(
+        @Path("channelId") channelId: String,
+        @Body request: com.afrovision.tv.data.api.model.VerifyPicRequest
+    ): com.afrovision.tv.data.api.model.VerifyPicResponse
+
     // Real user-JWT endpoint (not device-token) - only works once the TV has
     // a real signed-in/registered user token, but unlike the device-token
     // summary above, it returns EVERY membership regardless of status, which
