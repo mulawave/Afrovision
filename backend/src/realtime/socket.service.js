@@ -107,6 +107,11 @@ async function authenticateSocket(socket, next) {
   try {
     const payload = await verifyToken(token);
 
+    // Scoped partner tokens (e.g. OMS) are only for a few HTTP routes.
+    if (payload.scope) {
+      return next(new Error('Token not valid for realtime'));
+    }
+
     if (payload.kind === 'tv_device') {
       // AfroVision TV devices authenticate with a distinct device JWT (see
       // distribution/distribution.auth.js), signed with the same secret but

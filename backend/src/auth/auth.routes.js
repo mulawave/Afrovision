@@ -8,6 +8,9 @@ const router = Router();
 
 router.post('/register', authLimiter, ctrl.register);
 router.post('/login', authLimiter, ctrl.login);
+// OMS signs in with its Firebase ID token (same Firebase project) and gets a
+// waves-only token. See firebaseLogin.
+router.post('/firebase', authLimiter, ctrl.firebaseLogin);
 router.post('/pak-login', authLimiter, ctrl.pakLogin);
 router.post('/wallet-login', authLimiter, ctrl.walletLogin);
 router.get('/me', authenticateToken, ctrl.me);

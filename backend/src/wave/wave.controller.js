@@ -301,6 +301,9 @@ async function ensureChannelOwner(userId, channelId) {
   return { user, channel };
 }
 
+/** Partner apps allowed to tag the waves they post (POST /wave/register `source`). */
+const WAVE_SOURCES = ['oms'];
+
 async function ensureCreatorNotLocked(userId) {
   const lock = await CersService.getCreatorLockStatus(userId);
   if (!lock) return null;
@@ -526,6 +529,8 @@ async function registerWave(req, res) {
       hasEroticDancing: has_erotic_dancing || false,
       hasSexualNature: has_sexual_nature || false,
       hasSex: has_sex || false,
+      // Only known partner apps are recorded; anything else is ignored.
+      source: WAVE_SOURCES.includes(req.body.source) ? req.body.source : null,
     });
 
     // Thumbnail generation is now client-side (ThumbnailService in the

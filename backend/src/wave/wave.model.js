@@ -38,6 +38,7 @@ async function create({
   hasEroticDancing = false,
   hasSexualNature = false,
   hasSex = false,
+  source = null,
 }) {
   const db = getFirestore();
   const id = crypto.randomUUID();
@@ -67,6 +68,8 @@ async function create({
     has_erotic_dancing: Boolean(hasEroticDancing),
     has_sexual_nature: Boolean(hasSexualNature),
     has_sex: Boolean(hasSex),
+    // Where the wave was posted from (e.g. 'oms'); null for Afrovision's own apps.
+    source: source || null,
     pulse_count: 0,
     comment_count: 0,
     bookmark_count: 0,

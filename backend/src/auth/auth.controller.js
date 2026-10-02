@@ -2,7 +2,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const https = require('https');
 const User = require('../users/user.model');
-const { generateToken } = require('../utils/jwt');
+const { generateToken, generateScopedToken } = require('../utils/jwt');
 const { getFirestore } = require('../utils/firestore');
 const ReferralModel = require('../referrals/referral.model');
 const { verifyCaptcha } = require('../utils/captcha');
@@ -132,6 +132,46 @@ async function login(req, res, next) {
     }
 
     const token = await generateToken(user.id);
+    res.json({ token, user: User.toSafeUser(user) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /auth/firebase  { idToken }
+ * Sign-in for OMS, which shares the Firebase project (raven-ai-6ff76) and
+ * can't pass Play Integrity or reCAPTCHA for this app. The verified Firebase
+ * token is the proof of identity; the account is matched by email and never
+ * created here. Same response shape as /auth/login ({ token, user }), but the
+ * token only works for the OMS waves routes (TOKEN_SCOPES.oms_waves in
+ * utils/jwt.js) - never a full Afrovision session.
+ */
+async function firebaseLogin(req, res, next) {
+  const { idToken } = req.body || {};
+  if (!idToken || typeof idToken !== 'string') {
+    return res.status(400).json({ error: 'idToken is required' });
+  }
+  try {
+    getFirestore(); // makes sure firebase-admin is initialised
+    const { getAuth } = require('firebase-admin/auth');
+    let decoded;
+    try {
+      decoded = await getAuth().verifyIdToken(idToken);
+    } catch (_) {
+      return res.status(401).json({ error: 'Invalid or expired sign-in token' });
+    }
+    if (!decoded.email || decoded.email_verified !== true) {
+      return res.status(401).json({ error: 'Verify your email address first' });
+    }
+    const user = await User.findByEmail(String(decoded.email).trim().toLowerCase());
+    if (!user || user.deleted_at) {
+      return res.status(404).json({ error: 'no_afrovision_account' });
+    }
+    if (user.is_banned && user.role !== 'admin') {
+      return res.status(403).json({ error: 'ACCOUNT_BANNED', message: 'Your account has been banned. Contact support.' });
+    }
+    const token = await generateScopedToken(user.id, 'oms_waves');
     res.json({ token, user: User.toSafeUser(user) });
   } catch (err) {
     next(err);
@@ -529,4 +569,4 @@ async function walletLogin(req, res, next) {
   }
 }
 
-module.exports = { register, login, me, forgotPassword, resetPassword, logout, pakLogin, walletLogin };
+module.exports = { register, login, firebaseLogin, me, forgotPassword, resetPassword, logout, pakLogin, walletLogin };
