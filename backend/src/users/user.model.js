@@ -3,6 +3,8 @@ const { getFirestore } = require('../utils/firestore');
 
 const USERS_COLLECTION = 'users';
 const RESET_TOKENS_COLLECTION = 'password_reset_tokens';
+const OMS_REFRESH_TOKENS_COLLECTION = 'oms_refresh_tokens';
+const OMS_REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const NOTIFICATION_TARGETS_COLLECTION = 'notification_targets';
 const OPS_SUMMARIES_COLLECTION = 'ops_summaries';
 const USER_BALANCE_SUMMARY_DOC = 'user_balances';
@@ -429,7 +431,48 @@ async function updatePassword(userId, passwordHash) {
   if (!user) return null;
   user.password_hash = passwordHash;
   await persistUser(user);
+  // A password change invalidates any standing OMS server-to-server session.
+  await revokeOmsRefreshTokens(userId).catch((err) => {
+    console.error('[User] revokeOmsRefreshTokens after password change error:', err.message);
+  });
   return user;
+}
+
+/**
+ * OMS server-to-server refresh tokens (POST /auth/oms-login, /auth/oms-refresh).
+ * Opaque, single-use, DB-backed — mirrors the password-reset-token pattern
+ * above rather than being a JWT, since these must be individually revocable.
+ */
+async function issueOmsRefreshToken(userId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const db = getFirestore();
+  await db.collection(OMS_REFRESH_TOKENS_COLLECTION).doc(token).set({
+    token,
+    userId,
+    expires: Date.now() + OMS_REFRESH_TOKEN_TTL_MS,
+    created_at: new Date().toISOString(),
+  });
+  return token;
+}
+
+async function consumeOmsRefreshToken(token) {
+  const db = getFirestore();
+  const ref = db.collection(OMS_REFRESH_TOKENS_COLLECTION).doc(token);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+  const entry = doc.data();
+  await ref.delete(); // single-use: always rotate, even if expired
+  if (Date.now() > entry.expires) return null;
+  return entry;
+}
+
+async function revokeOmsRefreshTokens(userId) {
+  const db = getFirestore();
+  const snapshot = await db.collection(OMS_REFRESH_TOKENS_COLLECTION).where('userId', '==', userId).get();
+  if (snapshot.empty) return;
+  const batch = db.batch();
+  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
 }
 
 async function updateProfile(userId, fields) {
@@ -1112,6 +1155,9 @@ module.exports = {
   storeResetToken,
   validateResetToken,
   deleteResetToken,
+  issueOmsRefreshToken,
+  consumeOmsRefreshToken,
+  revokeOmsRefreshTokens,
   hasActiveSubscription,
   toSafeUser,
   toDetailedUser,

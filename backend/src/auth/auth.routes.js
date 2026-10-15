@@ -11,6 +11,10 @@ router.post('/login', authLimiter, ctrl.login);
 // OMS signs in with its Firebase ID token (same Firebase project) and gets a
 // waves-only token. See firebaseLogin.
 router.post('/firebase', authLimiter, ctrl.firebaseLogin);
+// OMS server-to-server login/refresh (no captcha/Play Integrity available there),
+// gated by a pre-shared secret header instead. Same oms_waves-scoped token as /firebase.
+router.post('/oms-login', authLimiter, ctrl.requireOmsSharedSecret, ctrl.omsLogin);
+router.post('/oms-refresh', authLimiter, ctrl.requireOmsSharedSecret, ctrl.omsRefresh);
 router.post('/pak-login', authLimiter, ctrl.pakLogin);
 router.post('/wallet-login', authLimiter, ctrl.walletLogin);
 router.get('/me', authenticateToken, ctrl.me);

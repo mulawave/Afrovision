@@ -8,6 +8,7 @@ const ReferralModel = require('../referrals/referral.model');
 const { verifyCaptcha } = require('../utils/captcha');
 const { verifyPlayIntegrity } = require('../utils/play_integrity');
 const SmtpService = require('../admin/smtp.service');
+const SettingsService = require('../admin/settings.service');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SALT_ROUNDS = 10;
@@ -173,6 +174,98 @@ async function firebaseLogin(req, res, next) {
     }
     const token = await generateScopedToken(user.id, 'oms_waves');
     res.json({ token, user: User.toSafeUser(user) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Route guard for the OMS server-to-server endpoints below. OMS calls these
+ * from its own backend, not a phone or browser, so there's no captcha/Play
+ * Integrity signal to check — instead it must present a pre-shared secret
+ * (x-oms-key) that only OMS and Afrovision ops know, set as OMS_SHARED_SECRET.
+ */
+async function requireOmsSharedSecret(req, res, next) {
+  try {
+    const expected = await SettingsService.get('OMS_SHARED_SECRET');
+    const provided = req.headers['x-oms-key'];
+    if (
+      typeof provided !== 'string' ||
+      !expected ||
+      provided.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
+    ) {
+      return res.status(401).json({ error: 'Invalid or missing x-oms-key' });
+    }
+    next();
+  } catch (err) {
+    if (err.message && err.message.startsWith('Missing setting')) {
+      return res.status(503).json({ error: 'OMS_SHARED_SECRET is not configured' });
+    }
+    next(err);
+  }
+}
+
+/**
+ * POST /auth/oms-login  { email, password }  (behind requireOmsSharedSecret)
+ * Lets an OMS user connect a specific Afrovision account by password rather
+ * than the one-account-per-email auto-match in firebaseLogin. Same account
+ * checks as /auth/login (bcrypt compare, banned check), but — like
+ * firebaseLogin — issues the oms_waves-scoped token, never a full session,
+ * plus a refresh token so OMS doesn't have to ask for the password again.
+ */
+async function omsLogin(req, res, next) {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  try {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = await User.findByEmail(normalizedEmail);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    if (user.is_banned && user.role !== 'admin') {
+      return res.status(403).json({ error: 'ACCOUNT_BANNED', message: 'Your account has been banned. Contact support.' });
+    }
+    const token = await generateScopedToken(user.id, 'oms_waves');
+    const refreshToken = await User.issueOmsRefreshToken(user.id);
+    res.json({ token, refreshToken, user: User.toSafeUser(user) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /auth/oms-refresh  { refreshToken }  (behind requireOmsSharedSecret)
+ * Exchanges a still-valid, unused refresh token for a new scoped token plus
+ * a new refresh token (single-use rotation — the old one is consumed even
+ * if expired, so it can never be replayed).
+ */
+async function omsRefresh(req, res, next) {
+  const { refreshToken } = req.body || {};
+  if (!refreshToken || typeof refreshToken !== 'string') {
+    return res.status(400).json({ error: 'refreshToken is required' });
+  }
+  try {
+    const entry = await User.consumeOmsRefreshToken(refreshToken);
+    if (!entry) {
+      return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    }
+    const user = await User.findById(entry.userId);
+    if (!user || user.deleted_at) {
+      return res.status(404).json({ error: 'no_afrovision_account' });
+    }
+    if (user.is_banned && user.role !== 'admin') {
+      return res.status(403).json({ error: 'ACCOUNT_BANNED', message: 'Your account has been banned. Contact support.' });
+    }
+    const token = await generateScopedToken(user.id, 'oms_waves');
+    const newRefreshToken = await User.issueOmsRefreshToken(user.id);
+    res.json({ token, refreshToken: newRefreshToken, user: User.toSafeUser(user) });
   } catch (err) {
     next(err);
   }
@@ -569,4 +662,17 @@ async function walletLogin(req, res, next) {
   }
 }
 
-module.exports = { register, login, firebaseLogin, me, forgotPassword, resetPassword, logout, pakLogin, walletLogin };
+module.exports = {
+  register,
+  login,
+  firebaseLogin,
+  requireOmsSharedSecret,
+  omsLogin,
+  omsRefresh,
+  me,
+  forgotPassword,
+  resetPassword,
+  logout,
+  pakLogin,
+  walletLogin,
+};

@@ -442,6 +442,12 @@ const SETTING_DEFINITIONS = {
     sensitive: true,
     defaultValue: null,
   },
+  OMS_SHARED_SECRET: {
+    category: 'system',
+    description: 'Shared secret OMS sends as x-oms-key on POST /auth/oms-login and /auth/oms-refresh (server-to-server, no captcha/Play Integrity available)',
+    sensitive: true,
+    defaultValue: null,
+  },
   ENVIRONMENT: {
     category: 'system',
     description: 'Runtime environment for blockchain execution guards (staging, production)',

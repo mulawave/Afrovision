@@ -628,6 +628,31 @@ async function getLiveStats(req, res) {
   }
 }
 
+/**
+ * GET /channels/live
+ * Fully public, no-auth list of channels that are live right now — same
+ * kind of data the Afrovision app's own live tab shows, built for a partner
+ * app (OMS's Live tab) with no Afrovision session to send. Read-only, no PII.
+ */
+async function getLiveChannels(req, res) {
+  try {
+    const channels = await Channel.getLiveNow();
+    const liveStats = await ChannelLive.getForChannels(channels.map((channel) => channel.id));
+    res.json({
+      channels: channels.map((channel) => ({
+        id: channel.id,
+        name: channel.name,
+        thumbnail: channel.logo_url || channel.banner_url || null,
+        viewer_count: liveStats.get(channel.id)?.current_viewers || 0,
+        playback_url: channel.resolved_playback_url || channel.external_url || null,
+      })),
+    });
+  } catch (err) {
+    console.error('[Channel] getLiveChannels error:', err.message);
+    res.status(500).json({ error: 'Failed to load live channels' });
+  }
+}
+
 async function recordView(req, res) {
   try {
     const channel = await Channel.findById(req.params.id);
@@ -847,6 +872,7 @@ module.exports = {
   uploadMedia,
   getSubscriberFeed,
   getLiveStats,
+  getLiveChannels,
   recordView,
   recordWatchPing,
   adminSetFeatured,

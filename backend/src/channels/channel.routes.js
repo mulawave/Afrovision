@@ -13,6 +13,8 @@ router.post('/', authenticateToken, blockMinors, blockChannelCreationBan, ctrl.c
 router.post('/create-with-media', authenticateToken, blockMinors, blockChannelCreationBan, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), uploadFieldsToGCS, ctrl.createChannelWithMedia);
 router.get('/', optionalAuth, ctrl.getPublicChannels);
 router.get('/featured', optionalAuth, ctrl.getFeaturedChannels);
+// Fully public (no auth) — OMS's Live tab and similar partner surfaces.
+router.get('/live', ctrl.getLiveChannels);
 router.get('/me', authenticateToken, ctrl.getMyChannels);
 // Must come before /:id routes
 router.get('/my-accesses', authenticateToken, premiumCtrl.getMyAccesses);

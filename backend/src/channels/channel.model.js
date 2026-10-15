@@ -593,6 +593,21 @@ async function getEvery() {
 }
 
 /**
+ * Channels that are live right now — for the public "live now" list
+ * (e.g. OMS's Live tab). `stream_status === 'live'` is the on/off signal set
+ * by the stream resolver (see updateExternalSource); viewer counts are a
+ * separate, socket-driven concern (channel_live.model.js), joined in by the caller.
+ */
+async function getLiveNow() {
+  const db = getFirestore();
+  const snapshot = await db.collection(COLLECTION)
+    .where('stream_status', '==', 'live')
+    .where('is_active', '==', true)
+    .get();
+  return snapshot.docs.map((doc) => cacheChannel({ ...doc.data(), id: doc.id }));
+}
+
+/**
  * Backfill legacy channel documents with external-source field defaults.
  * Only channels missing `stream_source_mode` are updated; already-migrated
  * channels are skipped.  Uses Firestore batched writes (max 500 per batch).
@@ -771,6 +786,7 @@ module.exports = {
   disable,
   enable,
   getEvery,
+  getLiveNow,
   hardDelete,
   banChannel,
   unbanChannel,
