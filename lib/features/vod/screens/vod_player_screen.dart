@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
+import '../../../core/media/playback_focus.dart';
 import '../../../core/services/app_preferences_service.dart';
 import '../../../core/services/player_settings_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -78,6 +79,8 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
     unawaited(_controller?.disposeAsync() ?? Future.value());
+    final embed = _embedController;
+    if (embed != null) PlaybackFocus.instance.abandon(embed);
     _embedController = null;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
@@ -316,6 +319,16 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     if (platform is AndroidWebViewController) {
       AndroidWebViewController.enableDebugging(false);
       await platform.setMediaPlaybackRequiresUserGesture(false);
+    }
+
+    await PlaybackFocus.instance.acquire(ctrl, () async {
+      try {
+        await ctrl.loadRequest(Uri.parse('about:blank'));
+      } catch (_) {}
+    });
+    if (!mounted) {
+      PlaybackFocus.instance.abandon(ctrl);
+      return;
     }
 
     await ctrl.loadHtmlString(

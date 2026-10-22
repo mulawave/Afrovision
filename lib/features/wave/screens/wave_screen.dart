@@ -19,6 +19,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/media/playback_focus.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/video_cache_service.dart';
 import '../../../core/services/thumbnail_service.dart';
@@ -201,6 +202,7 @@ class _WaveScreenState extends State<WaveScreen> {
 
   @override
   void dispose() {
+    PlaybackFocus.instance.abandon(this);
     _restoreSystemUi();
     _pageController.dispose();
     _disposeWaveControllers();
@@ -861,7 +863,11 @@ class _WaveScreenState extends State<WaveScreen> {
           },
         )
         .then((_) {
-          if (!mounted) return;
+          if (!mounted) {
+            // Screen closed mid-load: nothing else holds this decoder.
+            controller.dispose();
+            return;
+          }
 
           _initializingControllerCount--;
           _initializingWaveIds.remove(wave.id);
@@ -922,7 +928,7 @@ class _WaveScreenState extends State<WaveScreen> {
           if (widget.isActive &&
               _isActiveWave(wave.id) &&
               (_accessDecisions[wave.id]?.allowed ?? false)) {
-            controller.play();
+            _playWithFocus(controller);
           }
 
           setState(() {});
@@ -1298,6 +1304,12 @@ class _WaveScreenState extends State<WaveScreen> {
     }
   }
 
+  // Stops the channel mini-player (or any other source) before a wave plays.
+  void _playWithFocus(VideoPlayerController controller) {
+    unawaited(PlaybackFocus.instance.acquire(this, () async => _pauseAll()));
+    controller.play();
+  }
+
   Future<void> _ensureWaveAccessAndPlay({bool force = false}) async {
     if (!widget.isActive) return;
     if (_activeWaveIndex < 0 || _activeWaveIndex >= _waves.length) return;
@@ -1404,13 +1416,13 @@ class _WaveScreenState extends State<WaveScreen> {
         if (retryController != null &&
             retryController.value.isInitialized &&
             (_accessDecisions[active.id]?.allowed ?? false)) {
-          retryController.play();
+          _playWithFocus(retryController);
         }
       });
       return;
     }
     if (controller.value.isInitialized) {
-      controller.play();
+      _playWithFocus(controller);
     }
   }
 
@@ -2519,7 +2531,7 @@ class _WaveScreenState extends State<WaveScreen> {
           if (isPlaying) {
             controller.pause();
           } else {
-            controller.play();
+            _playWithFocus(controller);
           }
           setState(() {});
         }

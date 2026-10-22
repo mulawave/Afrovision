@@ -30,6 +30,11 @@ const TOKEN_SCOPES = {
     ['POST', /^\/wave\/register$/],
     ['POST', /^\/wave\/[^/]+\/thumbnail$/],
   ],
+  // Pets & Care's server-side relay (POST /auth/petcare-login). Read-only:
+  // one channel's wave list, nothing else — it never uploads or registers.
+  petcare_waves: [
+    ['GET', /^\/wave\/channel\/[^/]+$/],
+  ],
 };
 
 async function generateScopedToken(userId, scope) {

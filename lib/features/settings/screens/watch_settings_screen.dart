@@ -164,6 +164,8 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
   Widget _buildQualityOptions(PlayerSettings settings, PlaybackCapabilities capabilities) {
     return Column(
       children: QualityProfile.values.map((profile) {
+        // Live channels publish their own quality ladder, so every tier caps
+        // them. Capabilities only describe what scheduled uploads offer.
         final supported = capabilities.supports(profile);
         return _buildRadioTile<QualityProfile>(
           value: profile,
@@ -171,8 +173,7 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
           title: profile.label,
           subtitle: supported
               ? profile.description
-              : 'Unavailable — this server isn\'t producing this quality yet',
-          enabled: supported,
+              : '${profile.description} · live channels',
           onChanged: (v) => _setQuality(v!),
         );
       }).toList(),
@@ -191,7 +192,8 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
             value: true,
             groupValue: settings.useMediaKit,
             title: 'media_kit',
-            subtitle: 'Recommended — larger buffer, better HLS/MPV control',
+            subtitle:
+                'Recommended — scheduled programs use media_kit, live channels use adaptive quality',
             onChanged: (v) => _setUseMediaKit(v!),
           ),
           const Divider(height: 1, color: AppColors.inputBorder, indent: 56),
@@ -199,7 +201,7 @@ class _WatchSettingsScreenState extends State<WatchSettingsScreen> {
             value: false,
             groupValue: settings.useMediaKit,
             title: 'video_player',
-            subtitle: 'Legacy engine — use if media_kit is unstable',
+            subtitle: 'Use for everything — try this if media_kit is unstable',
             onChanged: (v) => _setUseMediaKit(v!),
           ),
         ],

@@ -271,6 +271,63 @@ async function omsRefresh(req, res, next) {
   }
 }
 
+/**
+ * Same shape as requireOmsSharedSecret, its own secret (PETCARE_SHARED_SECRET)
+ * so the two partner apps' keys are never interchangeable.
+ */
+async function requirePetcareSharedSecret(req, res, next) {
+  try {
+    const expected = await SettingsService.get('PETCARE_SHARED_SECRET');
+    const provided = req.headers['x-petcare-key'];
+    if (
+      typeof provided !== 'string' ||
+      !expected ||
+      provided.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
+    ) {
+      return res.status(401).json({ error: 'Invalid or missing x-petcare-key' });
+    }
+    next();
+  } catch (err) {
+    if (err.message && err.message.startsWith('Missing setting')) {
+      return res.status(503).json({ error: 'PETCARE_SHARED_SECRET is not configured' });
+    }
+    next(err);
+  }
+}
+
+/**
+ * POST /auth/petcare-login  { email, password }  (behind requirePetcareSharedSecret)
+ * Pets & Care's backend relay signs in as one designated Afrovision account
+ * to read its "Pets & Care Tips" channel — scoped to that one read, same as
+ * omsLogin's oms_waves scope. No Play Integrity/reCAPTCHA check: the shared
+ * secret, known only to the two backends, is the bot-check for this path.
+ */
+async function petcareLogin(req, res, next) {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  try {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = await User.findByEmail(normalizedEmail);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    if (user.is_banned && user.role !== 'admin') {
+      return res.status(403).json({ error: 'ACCOUNT_BANNED', message: 'Your account has been banned. Contact support.' });
+    }
+    const token = await generateScopedToken(user.id, 'petcare_waves');
+    res.json({ token, user: User.toSafeUser(user) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function me(req, res) {
   const user = await User.findById(req.userId);
   if (!user) {
@@ -669,6 +726,8 @@ module.exports = {
   requireOmsSharedSecret,
   omsLogin,
   omsRefresh,
+  requirePetcareSharedSecret,
+  petcareLogin,
   me,
   forgotPassword,
   resetPassword,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../core/media/afrovision_video_controller.dart';
+import '../../../core/media/playback_focus.dart';
 import '../../../core/services/video_cache_service.dart';
 
 /// Single playable item for the media player (movie or episode).
@@ -146,6 +147,7 @@ class _MediaPlayerScreenState extends State<MediaPlayerScreen> {
     _controller = controller;
 
     try {
+      await PlaybackFocus.instance.acquire(controller, controller.pause);
       await controller.initialize();
       if (!mounted) return;
 
@@ -217,6 +219,7 @@ class _MediaPlayerScreenState extends State<MediaPlayerScreen> {
     final ctrl = _controller;
     if (ctrl != null) {
       _controller = null;
+      PlaybackFocus.instance.abandon(ctrl);
       ctrl.removeListener(_onControllerUpdate);
       ctrl.dispose();
     }
@@ -242,6 +245,7 @@ class _MediaPlayerScreenState extends State<MediaPlayerScreen> {
     if (ctrl.value.isPlaying) {
       await ctrl.pause();
     } else {
+      await PlaybackFocus.instance.acquire(ctrl, ctrl.pause);
       await ctrl.play();
     }
     setState(() {});

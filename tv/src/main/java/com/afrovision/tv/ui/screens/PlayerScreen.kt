@@ -84,6 +84,7 @@ import com.afrovision.tv.data.LoadState
 import com.afrovision.tv.data.PlayerMedia
 import com.afrovision.tv.data.TvViewModel
 import com.afrovision.tv.data.toMediaCard
+import com.afrovision.tv.player.LoadMeter
 import com.afrovision.tv.player.PlayerFactory
 import com.afrovision.tv.ui.focus.autoRequestFocus
 import com.afrovision.tv.ui.components.rememberCacheableImageRequest
@@ -104,7 +105,8 @@ fun PlayerScreen(viewModel: TvViewModel) {
         return
     }
 
-    val player = remember { PlayerFactory.create(context) }
+    val loadMeter = remember { LoadMeter() }
+    val player = remember { PlayerFactory.create(context, loadMeter) }
     var isPlaying by remember { mutableStateOf(true) }
     var showOverlay by remember { mutableStateOf(true) }
     var showSurfer by remember { mutableStateOf(false) }
@@ -235,6 +237,25 @@ fun PlayerScreen(viewModel: TvViewModel) {
             // exactly the "player just freezes and won't recover" bug. Retry
             // by re-setting the same media item and re-preparing.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                // A slow connection lets live playback drift out of the
+                // stream's window. That only needs a jump back to the live
+                // point; a full re-tune threw away everything buffered.
+                if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    Log.w(TV_APP_TAG, "Behind live window for ${media.title}, rejoining live")
+                    player.seekToDefaultPosition()
+                    player.prepare()
+                    return
+                }
+                // A movie/episode retries in place: re-tuning restarted it
+                // from the beginning (or the saved resume point).
+                if (!media.isLive && player.currentMediaItem != null) {
+                    Log.e(TV_APP_TAG, "Player error for ${media.title}, retrying in place", error)
+                    playbackScope.launch {
+                        delay(3000)
+                        player.prepare()
+                    }
+                    return
+                }
                 Log.e(TV_APP_TAG, "Player error for ${media.title}, retrying", error)
                 isTuning = true
                 startPlayback()
@@ -248,8 +269,13 @@ fun PlayerScreen(viewModel: TvViewModel) {
     // (the loader just quietly stops making progress on a bad connection) -
     // watch for playback position not advancing while ExoPlayer thinks it
     // should be playing, and force a fresh prepare() if it's stuck too long.
+    // Stuck means nothing is arriving, not just a still picture: on a slow
+    // link the first load (a movie's MP4 index can be 10MB+) or the refill
+    // after a stall takes longer than 20s, and re-tuning then threw the
+    // partial download away and started over - so it never got to play.
     LaunchedEffect(player, media) {
         var lastPosition = -1L
+        var lastBytes = -1L
         var stuckSinceMs = 0L
         while (true) {
             delay(5000)
@@ -257,7 +283,10 @@ fun PlayerScreen(viewModel: TvViewModel) {
                 (player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY) &&
                 !player.isPlaying
             val pos = player.currentPosition
-            if (stalled && pos == lastPosition) {
+            val bytes = loadMeter.bytes.get()
+            val downloading = bytes != lastBytes
+            lastBytes = bytes
+            if (stalled && pos == lastPosition && !downloading) {
                 if (stuckSinceMs == 0L) stuckSinceMs = System.currentTimeMillis()
                 else if (System.currentTimeMillis() - stuckSinceMs > 20_000) {
                     Log.e(TV_APP_TAG, "Player stalled at $pos for 20s+ with no error, forcing retry")

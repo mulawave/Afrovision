@@ -15,6 +15,9 @@ router.post('/firebase', authLimiter, ctrl.firebaseLogin);
 // gated by a pre-shared secret header instead. Same oms_waves-scoped token as /firebase.
 router.post('/oms-login', authLimiter, ctrl.requireOmsSharedSecret, ctrl.omsLogin);
 router.post('/oms-refresh', authLimiter, ctrl.requireOmsSharedSecret, ctrl.omsRefresh);
+// Pets & Care's backend relay, same server-to-server pattern as oms-login,
+// its own secret header/setting. Returns a petcare_waves-scoped token.
+router.post('/petcare-login', authLimiter, ctrl.requirePetcareSharedSecret, ctrl.petcareLogin);
 router.post('/pak-login', authLimiter, ctrl.pakLogin);
 router.post('/wallet-login', authLimiter, ctrl.walletLogin);
 router.get('/me', authenticateToken, ctrl.me);

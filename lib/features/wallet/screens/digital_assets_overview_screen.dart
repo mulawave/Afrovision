@@ -188,6 +188,21 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
     _loadData();
   }
 
+  Future<void> _onTopUpVpt() async {
+    if (!await KycGuard.ensureKycVerified(context)) return;
+    if (!mounted) return;
+    await Navigator.pushNamed(
+      context,
+      '/checkout',
+      arguments: {
+        'purpose': 'wallet_topup',
+        'title': 'vPT Top-Up',
+        'balanceType': 'vpt',
+      },
+    );
+    _loadData();
+  }
+
   Future<void> _onConvert() async {
     if (!await KycGuard.ensureKycVerified(context)) return;
     if (!mounted) return;
@@ -259,17 +274,10 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
         ? '•••• Ravens'
         : '${walletFormatAmount(_ravensBalance)} Ravens';
 
+    // Cash leads the list — it's the default wallet. Every tile below uses the
+    // same accented-card treatment (own bg/border/actions) so none reads as a
+    // plain info row; each only gets actions it actually has a working flow for.
     final List<WalletListItem> items = [
-      WalletListItem(
-        key: 'offchain',
-        label: 'Off-chain vPT',
-        value: offChainValue,
-        sub: 'Combined vPT from gifts, rewards and funding. Convertible to Ravens.',
-        icon: Icons.card_giftcard_rounded,
-        tint: Nocturne.blue,
-        bg: Nocturne.surfaceRaised,
-        border: Nocturne.borderCard,
-      ),
       WalletListItem(
         key: 'cash',
         label: 'Cash balance',
@@ -312,6 +320,24 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
           ),
         ],
       ),
+      WalletListItem(
+        key: 'offchain',
+        label: 'Off-chain vPT',
+        value: offChainValue,
+        sub: 'Combined vPT from gifts, rewards and funding. Convertible to Ravens.',
+        icon: Icons.card_giftcard_rounded,
+        tint: Nocturne.blue,
+        bg: const Color(0xFF0F1D3A),
+        border: const Color(0xFF1F3F6B),
+        actions: [
+          WalletAction(
+            label: 'Top Up',
+            icon: Icons.add_circle_outline_rounded,
+            color: Nocturne.blue,
+            onTap: _onTopUpVpt,
+          ),
+        ],
+      ),
     ];
 
     final connected = _connectedWallet;
@@ -325,8 +351,8 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
           sub: 'Connect MetaMask, Trust Wallet, or any BSC wallet for on-chain transfers.',
           icon: Icons.account_balance_wallet_rounded,
           tint: Nocturne.goldLight,
-          bg: Nocturne.surfaceRaised,
-          border: Nocturne.borderCard,
+          bg: const Color(0xFF141A30),
+          border: const Color(0xFF4A3A1A),
           tag: 'CONNECT',
           tagColor: Nocturne.gold,
           actions: [
@@ -353,8 +379,8 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
           sub: 'Connected for on-chain transfers.',
           icon: Icons.link_rounded,
           tint: Nocturne.green,
-          bg: Nocturne.surfaceRaised,
-          border: Nocturne.borderCard,
+          bg: const Color(0xFF101D43),
+          border: const Color(0xFF25553F),
           tag: 'CONNECTED',
           tagColor: Nocturne.green,
           address: address,
@@ -397,8 +423,8 @@ class _DigitalAssetsScreenState extends State<DigitalAssetsScreen>
           sub: 'Deposit address for on-chain vPT.',
           icon: Icons.currency_exchange_rounded,
           tint: Nocturne.blue,
-          bg: Nocturne.surfaceRaised,
-          border: Nocturne.borderCard,
+          bg: const Color(0xFF0F1D3A),
+          border: const Color(0xFF1F3F6B),
           address: bscAddress,
         ),
       );

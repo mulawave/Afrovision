@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/media/hls_variant_cap.dart';
 import '../../../core/storage/auth_storage.dart';
 import '../services/broadcast_service.dart';
 
@@ -67,6 +69,8 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
     List<int> renditions = const [],
     int? quality,
     int liveDelaySeconds = 0,
+    VideoFormat? formatHint,
+    int? capBps,
   }) async {
     programStartTime = startTime;
     programEndTime = endTime;
@@ -81,6 +85,8 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
     final effectiveUrl = _withQuality(videoUrl, quality);
     final lowerUrl = effectiveUrl.toLowerCase();
     final adaptiveStream =
+        formatHint == VideoFormat.hls ||
+        formatHint == VideoFormat.dash ||
         lowerUrl.contains('.m3u8') ||
         lowerUrl.contains('.mpd') ||
         lowerUrl.contains('application/vnd.apple.mpegurl');
@@ -90,19 +96,24 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
         !_isContinuousStream && startTime > 0 && endTime > startTime;
     _currentVideoUrl = effectiveUrl;
 
-    await _disposeController();
+    _formatHint = formatHint;
+    _capBps = capBps;
 
-    final httpHeaders = await _buildNetworkHeaders(effectiveUrl);
-    final ctrl = VideoPlayerController.networkUrl(
-      Uri.parse(effectiveUrl),
-      httpHeaders: httpHeaders,
-    );
+    await _disposeController();
+    if (_disposed) return;
+
+    final ctrl = await _createController(effectiveUrl);
+    // Disposed while the token/playlist lookup was pending: a controller
+    // created now would be a decoder that nothing ever disposes.
+    if (ctrl == null) return;
     _controller = ctrl;
 
     ctrl.addListener(_onPlayerStateChange);
 
+    _initInFlight = true;
     try {
       await ctrl.initialize().timeout(const Duration(seconds: 30));
+      _initInFlight = false;
       if (_disposed) return;
 
       if (isLoop) {
@@ -129,12 +140,45 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
 
       _startSyncTimer();
     } catch (e) {
+      _initInFlight = false;
       if (_disposed) return;
+      // The trimmed local playlist didn't open on this device; play the
+      // original stream (uncapped, still adaptive) rather than failing.
+      if (_usingCappedPlaylist && !_cappedPlaylistFailed) {
+        _cappedPlaylistFailed = true;
+        await initialize(
+          videoUrl: videoUrl,
+          startTime: startTime,
+          endTime: endTime,
+          duration: duration,
+          positionSec: positionSec,
+          loop: loop,
+          renditions: renditions,
+          quality: quality,
+          liveDelaySeconds: liveDelaySeconds,
+          formatHint: formatHint,
+          capBps: capBps,
+        );
+        return;
+      }
       hasError = true;
       errorMessage = sanitizeError(e);
+      final description = e.toString();
+      if (description.contains('403')) {
+        isRecovering = false;
+        notifyListeners();
+        onAccessDenied?.call();
+        return;
+      }
+      isRecovering = true;
       notifyListeners();
+      unawaited(_retryPlayback());
     }
   }
+
+  // While initialize() runs it handles its own failure (capped-playlist
+  // fallback, then the retry loop); the listener must not start a second one.
+  bool _initInFlight = false;
 
   String _withQuality(String videoUrl, int? quality) {
     if (quality == null || !videoUrl.toLowerCase().contains('.m3u8')) {
@@ -165,6 +209,43 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
       renditions: availableRenditions,
       quality: quality,
       liveDelaySeconds: _liveDelayMs ~/ 1000,
+      formatHint: _formatHint,
+      capBps: _capBps,
+    );
+  }
+
+  VideoFormat? _formatHint;
+  int? _capBps;
+  bool _usingCappedPlaylist = false;
+  bool _cappedPlaylistFailed = false;
+
+  /// ExoPlayer adapts quality to the connection on its own; for HLS the
+  /// user's bitrate cap is applied by trimming the master playlist.
+  Future<VideoPlayerController?> _createController(String url) async {
+    final headers = await _buildNetworkHeaders(url);
+    if (_disposed) return null;
+
+    final isHls =
+        _formatHint == VideoFormat.hls || url.toLowerCase().contains('.m3u8');
+    final cap = _capBps;
+    _usingCappedPlaylist = false;
+    if (isHls && cap != null && !_cappedPlaylistFailed) {
+      final cappedPath = await HlsVariantCap.writeCapped(
+        url,
+        capBps: cap,
+        headers: headers,
+      );
+      if (_disposed) return null;
+      if (cappedPath != null) {
+        _usingCappedPlaylist = true;
+        return VideoPlayerController.file(File(cappedPath));
+      }
+    }
+
+    return VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      httpHeaders: headers,
+      formatHint: _formatHint,
     );
   }
 
@@ -216,6 +297,8 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
         await BroadcastService.syncServerOffset();
       }
 
+      if (_holdPaused) return;
+
       if (isLoop) {
         if (!_controller!.value.isPlaying && !isBuffering) {
           _controller!.play();
@@ -243,9 +326,12 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
       // Expected position respects live delay.
       final expectedMs = correctedTime - programStartTime - _liveDelayMs;
       final actualMs = _controller!.value.position.inMilliseconds;
-      final driftMs = (expectedMs - actualMs).abs();
+      final behindMs = expectedMs - actualMs;
 
-      if (driftMs > 8000) {
+      // Falling behind on a slow connection is fine; seeking forward to catch
+      // up throws the buffer away and stalls again, which was a hang loop.
+      // Only re-sync when far behind, or when ahead of the broadcast.
+      if (behindMs > 60000 || behindMs < -8000) {
         _isSeeking = true;
         if (expectedMs > 0) {
           await _controller!.seekTo(Duration(milliseconds: expectedMs));
@@ -270,11 +356,15 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
     final wasBuffering = isBuffering;
     isBuffering = value.isBuffering;
 
-    if (wasBuffering && !isBuffering && !value.isPlaying && !_adPaused) {
+    if (wasBuffering &&
+        !isBuffering &&
+        !value.isPlaying &&
+        !_adPaused &&
+        !_holdPaused) {
       _controller!.play();
     }
 
-    if (value.hasError && !hasError) {
+    if (value.hasError && !hasError && !_initInFlight) {
       hasError = true;
       final description = value.errorDescription ?? '';
       if (description.contains('403')) {
@@ -298,6 +388,13 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
 
   void setAppActive(bool active) {
     _isAppActive = active;
+  }
+
+  bool _holdPaused = false;
+
+  /// While held, the sync timer and buffer listener don't auto-resume.
+  void setHoldPaused(bool held) {
+    _holdPaused = held;
   }
 
   void onAppResumed() {
@@ -350,13 +447,8 @@ class LegacyBroadcastPlayer extends ChangeNotifier {
           }
 
           if (url != null && url.isNotEmpty) {
-            final headers = await _buildNetworkHeaders(url);
-            if (_disposed) return;
-
-            final replacement = VideoPlayerController.networkUrl(
-              Uri.parse(url),
-              httpHeaders: headers,
-            );
+            final replacement = await _createController(url);
+            if (replacement == null) return;
             replacement.addListener(_onPlayerStateChange);
             final previous = _controller;
             _controller = replacement;

@@ -5,6 +5,9 @@ import 'package:video_player/video_player.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/media/afrovision_video_controller.dart';
+import '../../../core/media/playback_focus.dart';
+import '../../../core/services/network_profile_service.dart';
+import '../../../core/utils/mpv_buffer_config.dart';
 import '../../../core/services/player_settings_service.dart';
 import '../../../core/services/telemetry_service.dart';
 import '../../../core/storage/auth_storage.dart';
@@ -61,16 +64,15 @@ class BroadcastPlayer extends ChangeNotifier {
   bool isRecovering = false;
   String? errorMessage;
 
-  // Only one channel player may exist at a time. A player that leaked (e.g.
-  // its async start-up outlived a channel switch) is force-disposed as soon as
-  // the next one starts, so the previous channel's audio can never keep
-  // playing under the new channel.
-  static BroadcastPlayer? _current;
   Future<void>? _disposeFuture;
 
   // Sync / settings
   bool _disposed = false;
   bool _adPaused = false;
+  // Set by pause(): the media_kit state listener auto-resumes stalled
+  // playback, and without this it also resumed every deliberate pause
+  // (backgrounding, covered route, mini-player close), leaving invisible audio.
+  bool _holdPaused = false;
   bool _isContinuousStream = false;
   int _liveDelaySeconds = 30;
   int? _userHlsBps;
@@ -79,6 +81,9 @@ class BroadcastPlayer extends ChangeNotifier {
   String? _baseVideoUrl;
   int _mkInitAttempts = 0;
   static const int _maxMkAttempts = 2;
+
+  /// External live feed (HLS/DASH) with no schedule window.
+  bool get isContinuousStream => _isContinuousStream;
 
   bool get _hasProgramWindow =>
       !_isContinuousStream &&
@@ -132,16 +137,31 @@ class BroadcastPlayer extends ChangeNotifier {
 
   /// Resume playback.
   Future<void> play() async {
+    if (_disposed) return;
+    _holdPaused = false;
+    _legacyPlayer?.setHoldPaused(false);
     await _mkController?.play();
     await _legacyPlayer?.controller?.play();
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
-  /// Pause playback.
+  /// Pause playback. Stays paused until [play] or [onAppResumed].
   Future<void> pause() async {
+    if (_disposed) return;
+    _holdPaused = true;
+    _legacyPlayer?.setHoldPaused(true);
     await _mkController?.pause();
     await _legacyPlayer?.controller?.pause();
-    notifyListeners();
+    if (!_disposed) notifyListeners();
+  }
+
+  /// Fired after this player was stopped because another player took
+  /// playback focus.
+  VoidCallback? onPlaybackFocusLost;
+
+  Future<void> _releaseFocus() async {
+    await disposeAsync();
+    onPlaybackFocusLost?.call();
   }
 
   /// Seek to a position. For live streams this re-syncs to the
@@ -210,6 +230,7 @@ class BroadcastPlayer extends ChangeNotifier {
       liveDelaySeconds: settings.liveDelaySeconds,
       userHlsBps: settings.quality.bps,
       useMediaKit: settings.useMediaKit,
+      formatHint: _formatHint,
     );
   }
 
@@ -228,8 +249,10 @@ class BroadcastPlayer extends ChangeNotifier {
     int? liveDelaySeconds,
     int? userHlsBps,
     bool? useMediaKit,
+    VideoFormat? formatHint,
   }) async {
     programStartTime = startTime;
+    _formatHint = formatHint;
     programEndTime = endTime;
     videoDuration = duration;
     isLoop = loop;
@@ -244,26 +267,31 @@ class BroadcastPlayer extends ChangeNotifier {
 
     final lowerUrl = effectiveUrl.toLowerCase();
     final adaptiveStream =
+        formatHint == VideoFormat.hls ||
+        formatHint == VideoFormat.dash ||
         lowerUrl.contains('.m3u8') ||
         lowerUrl.contains('.mpd') ||
         lowerUrl.contains('application/vnd.apple.mpegurl');
     _isContinuousStream =
         adaptiveStream && !(startTime > 0 && endTime > startTime);
 
-    final previous = _current;
-    _current = this;
-    if (previous != null && !identical(previous, this)) {
-      await previous.disposeAsync();
-    }
+    await PlaybackFocus.instance.acquire(this, _releaseFocus);
     if (_disposed) return;
+    _holdPaused = false;
 
-    // Load persisted user settings.
+    // Load persisted user settings and the connection type (for the cap).
     await PlayerSettingsService.instance.initialize();
+    await NetworkProfileService.instance.initialize();
     if (_disposed) return;
     final settings = PlayerSettingsService.instance.current;
     _liveDelaySeconds = liveDelaySeconds ?? settings.liveDelaySeconds;
     _userHlsBps = userHlsBps ?? settings.quality.bps;
-    final shouldUseMediaKit = useMediaKit ?? settings.useMediaKit;
+    // mpv picks one HLS variant when the stream opens and never steps down,
+    // so a live feed on a slowing connection just stalls. ExoPlayer adapts
+    // quality to the connection, which is what live feeds need. mpv stays
+    // for scheduled programs, where its large read-ahead buffer helps.
+    final shouldUseMediaKit =
+        (useMediaKit ?? settings.useMediaKit) && !_isContinuousStream;
 
     // Remember these settings so a later PlayerSettingsService update can
     // decide whether a re-init is needed.
@@ -294,6 +322,19 @@ class BroadcastPlayer extends ChangeNotifier {
         positionSec: positionSec,
       );
     }
+  }
+
+  VideoFormat? _formatHint;
+
+  /// The same ceiling mpv gets: the user's quality tier combined with the
+  /// network profile (cellular cap, data saver). Null means no cap.
+  int? _effectiveCapBps() {
+    final resolved = MpvBufferConfig.resolveHlsBitrateWithUserCap(
+      type: NetworkProfileService.instance.currentType,
+      profileBps: NetworkProfileService.instance.maxHlsBitrateBps,
+      userBps: _userHlsBps,
+    );
+    return int.tryParse(resolved);
   }
 
   String _withQuality(String videoUrl, int? quality) {
@@ -482,6 +523,8 @@ class BroadcastPlayer extends ChangeNotifier {
       renditions: availableRenditions,
       quality: selectedQuality,
       liveDelaySeconds: _liveDelaySeconds,
+      formatHint: _formatHint,
+      capBps: _effectiveCapBps(),
     );
     if (_disposed) {
       // Engine disposal already ran; make sure this one can't linger.
@@ -522,7 +565,11 @@ class BroadcastPlayer extends ChangeNotifier {
       return;
     }
 
-    if (!_adPaused && isInitialized && !v.isPlaying && !isBuffering) {
+    if (!_adPaused &&
+        !_holdPaused &&
+        isInitialized &&
+        !v.isPlaying &&
+        !isBuffering) {
       _mkController?.play();
     }
 
@@ -551,6 +598,8 @@ class BroadcastPlayer extends ChangeNotifier {
   /// Call when app resumes from background.
   void onAppResumed() {
     if (_disposed) return;
+    _holdPaused = false;
+    _legacyPlayer?.setHoldPaused(false);
 
     if (_mkController != null && _mkController!.isInitialized) {
       _syncOnResumeForMk();
@@ -678,7 +727,7 @@ class BroadcastPlayer extends ChangeNotifier {
 
   void _preDispose() {
     _disposed = true;
-    if (identical(_current, this)) _current = null;
+    PlaybackFocus.instance.abandon(this);
     _settingsReinitTimer?.cancel();
     PlayerSettingsService.instance.notifier.removeListener(_onSettingsChanged);
   }

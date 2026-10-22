@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:video_player/video_player.dart' as vp;
 
 import '../../../core/media/afrovision_video_controller.dart';
+import '../../../core/media/playback_focus.dart';
 import '../../../core/services/player_settings_service.dart';
 
 /// Simplified, VOD-focused player that reuses the channel [AfrovisionVideoController]
@@ -87,7 +88,12 @@ class VodPlayerController extends ChangeNotifier {
     _activeSource = requestedSource;
     if (!_disposed) notifyListeners();
 
+    await PlaybackFocus.instance.acquire(this, pause);
     await _disposeController();
+    if (_disposed) {
+      _isInitializing = false;
+      return;
+    }
 
     await PlayerSettingsService.instance.initialize();
     final settings = PlayerSettingsService.instance.current;
@@ -213,6 +219,8 @@ class VodPlayerController extends ChangeNotifier {
   }
 
   Future<void> play() async {
+    if (_disposed) return;
+    await PlaybackFocus.instance.acquire(this, pause);
     if (_useMediaKit) {
       await _controller?.play();
     } else {
@@ -316,6 +324,7 @@ class VodPlayerController extends ChangeNotifier {
 
   Future<void> disposeAsync() async {
     _disposed = true;
+    PlaybackFocus.instance.abandon(this);
     await _disposeController();
     if (!_superDisposed) {
       _superDisposed = true;
@@ -326,6 +335,7 @@ class VodPlayerController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    PlaybackFocus.instance.abandon(this);
     _disposeController();
     if (!_superDisposed) {
       _superDisposed = true;

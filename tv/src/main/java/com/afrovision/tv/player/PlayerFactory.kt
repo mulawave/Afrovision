@@ -13,8 +13,27 @@ import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.TransferListener
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * Counts bytes the player has downloaded. A stall watchdog must tell "slow
+ * but still downloading" (wait) from "nothing arriving" (re-tune): position
+ * alone can't, e.g. while a large MP4 index or a post-stall refill loads.
+ */
+class LoadMeter : TransferListener {
+    val bytes = AtomicLong(0)
+    override fun onTransferInitializing(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) {}
+    override fun onTransferStart(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) {}
+    override fun onBytesTransferred(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean, bytesTransferred: Int) {
+        bytes.addAndGet(bytesTransferred.toLong())
+    }
+    override fun onTransferEnd(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) {}
+}
 
 /**
  * Buffering / bitrate configuration for the TV video player, mirroring the
@@ -72,7 +91,7 @@ object PlayerFactory {
     // surfaces as an error (ExoPlayer's default is 3).
     private const val LOAD_RETRY_COUNT = 8
 
-    fun create(context: Context): ExoPlayer {
+    fun create(context: Context, loadMeter: LoadMeter? = null): ExoPlayer {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 MIN_BUFFER_MS,
@@ -83,10 +102,9 @@ object PlayerFactory {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-        val dataSourceFactory = DefaultDataSource.Factory(
-            context,
-            OkHttpDataSource.Factory(httpClient)
-        )
+        val httpFactory = OkHttpDataSource.Factory(httpClient)
+        if (loadMeter != null) httpFactory.setTransferListener(loadMeter)
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
 
         val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
             .setInitialBitrateEstimate(INITIAL_BITRATE_ESTIMATE)

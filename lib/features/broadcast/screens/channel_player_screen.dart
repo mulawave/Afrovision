@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:video_player/video_player.dart' show VideoFormat;
 import 'package:volume_controller/volume_controller.dart';
 import 'dart:async';
 import '../../../core/services/telemetry_service.dart';
@@ -27,6 +28,7 @@ import '../../../core/api/api_service.dart';
 import '../../static_pages/static_pages_registry.dart';
 import '../../../core/services/pip_service.dart';
 import '../../../core/services/floating_player_service.dart';
+import '../../../core/media/playback_focus.dart';
 
 class ChannelPlayerScreen extends StatefulWidget {
   const ChannelPlayerScreen({super.key});
@@ -36,7 +38,7 @@ class ChannelPlayerScreen extends StatefulWidget {
 }
 
 class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
   late AnimationController _animCtrl;
   late Animation<double> _fadeIn;
 
@@ -146,6 +148,14 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   // the controllers that the floating overlay is still using.
   bool _isHandedOffToFloat = false;
 
+  // ── Playback-focus state ──
+  bool _routeSubscribed = false;
+  // Another player took playback focus and stopped ours; re-tune when this
+  // screen is visible again.
+  bool _needsRetune = false;
+  bool _stoppedInBackground = false;
+  int _fetchGeneration = 0;
+
   // ── Freeze detection ──
   Duration? _lastKnownPosition;
   Timer? _freezeWatchdogTimer;
@@ -226,6 +236,13 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!_routeSubscribed) {
+      final route = ModalRoute.of(context);
+      if (route is PageRoute) {
+        playbackRouteObserver.subscribe(this, route);
+        _routeSubscribed = true;
+      }
+    }
     if (_channelId == null) {
       _channelId = ModalRoute.of(context)?.settings.arguments as String?;
       if (_channelId != null) {
@@ -236,8 +253,59 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     }
   }
 
+  // Live keeps running under pages pushed on top. If one of them started its
+  // own player, ours was stopped by playback focus; rejoin the live broadcast.
+  @override
+  void didPopNext() {
+    if (!mounted || _isInBackground || !_needsRetune) return;
+    _resumeVisiblePlayback();
+  }
+
+  void _resumeVisiblePlayback() {
+    // Resuming a continuous feed would play from where it stopped, behind
+    // the broadcast; re-tune so it rejoins live.
+    final stopped = _stoppedInBackground;
+    _stoppedInBackground = false;
+    if (_needsRetune || (stopped && _player?.isContinuousStream == true)) {
+      _needsRetune = false;
+      _activePlaybackKey = null;
+      _fetchNowPlaying();
+      return;
+    }
+    _player?.setAppActive(true);
+    _player?.onAppResumed();
+    if (_externalRuntimeMode == 'youtube' && _ytWebViewController != null) {
+      _ytWebViewController!
+          .runJavaScript(
+            'try{document.getElementById("yt").contentWindow'
+            '.postMessage(\'{"event":"command","func":"playVideo","args":[]}\', "*");}catch(e){}',
+          )
+          .catchError((_) {});
+    }
+  }
+
+  void _onPlaybackFocusLost(Object owner) {
+    if (!mounted) return;
+    final ownsPlayer = identical(_player, owner);
+    final ownsYouTube = identical(_ytWebViewController, owner);
+    if (!ownsPlayer && !ownsYouTube) return;
+    if (ownsPlayer) _player = null;
+    if (ownsYouTube) {
+      _ytWebViewController = null;
+      _youtubeReady = false;
+    }
+    _activePlaybackKey = null;
+    _needsRetune = true;
+    _eventTimer?.cancel();
+    _eventTimer = null;
+    _freezeWatchdogTimer?.cancel();
+    _silentRetryTimer?.cancel();
+    setState(() {});
+  }
+
   @override
   void dispose() {
+    if (_routeSubscribed) playbackRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     // Disable PiP auto-enter so it doesn't trigger on unrelated screens.
     PipService.setAutoEnterEnabled(false);
@@ -288,16 +356,9 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       // Floating-mode lifecycle is handled by FloatingPlayerService itself.
       if (!FloatingPlayerService.instance.isActive) {
         // Normal resume — resync native player and restart polling.
-        _player?.setAppActive(true);
-        _player?.onAppResumed();
-        if (_externalRuntimeMode == 'youtube' && _ytWebViewController != null) {
-          _ytWebViewController!
-              .runJavaScript(
-                'try{document.getElementById("yt").contentWindow'
-                '.postMessage(\'{"event":"command","func":"playVideo","args":[]}\', "*");}catch(e){}',
-              )
-              .catchError((_) {});
-        }
+        final retuning = _needsRetune;
+        _resumeVisiblePlayback();
+        if (retuning) return;
       }
       if (_channelId != null && _eventTimer == null) _startEventPolling();
       _startFreezeWatchdog();
@@ -311,6 +372,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       if (!_isInPiPMode) {
         _player?.pause();
         _pauseYouTubePlayback();
+        _stoppedInBackground = true;
       }
       _eventTimer?.cancel();
       _eventTimer = null;
@@ -336,6 +398,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     final ctrl = _ytWebViewController;
     _ytWebViewController = null;
     if (ctrl == null) return;
+    PlaybackFocus.instance.abandon(ctrl);
     await _pauseYouTubePlayback(controller: ctrl);
     try {
       // Loading a blank page stops the platform WebView from keeping the
@@ -430,6 +493,12 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     // Never fetch while the app is in the background — the result is
     // unreliable and can tear down a healthy player on resume.
     if (_isInBackground) return;
+    // Program end, silent retries, freeze recovery, access-denied recovery
+    // and pull-to-refresh can all fire this concurrently; only the newest
+    // call may touch the player.
+    final generation = ++_fetchGeneration;
+    bool stale() =>
+        !mounted || generation != _fetchGeneration || _channelId != channelId;
 
     TelemetryService.marker(
       'channel_player_fetch_now_playing',
@@ -470,9 +539,12 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
           playableSnapshot,
           triggerAdChecks: false,
         );
+        if (stale()) return;
       }
 
-      _channel = await channelFuture;
+      final channel = await channelFuture;
+      if (stale()) return;
+      _channel = channel;
 
       // Load schedule in parallel so the player can show precise
       // starting-soon / missing-video messages for native channels.
@@ -496,8 +568,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
 
       if (_channel!.requiresPayment) {
         final access = await PremiumStreamService.checkAccess(channelId);
+        if (stale()) return;
         if ((access['has_access'] as bool? ?? false) != true) {
-          if (!mounted) return;
           setState(() {
             _loading = false;
             _premiumBlocked = true;
@@ -515,8 +587,9 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             BroadcastService.getCachedNowPlaying(channelId) ??
             <String, dynamic>{},
       );
-      if (!mounted) return;
+      if (stale()) return;
       await _applyPlaybackPayload(channelId, data);
+      if (stale()) return;
 
       // If the resolver returned nothing but the native channel has a schedule,
       // retry once with cache disabled — the cached snapshot may be stale.
@@ -534,9 +607,10 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
           channelId,
           preferCache: false,
         ).timeout(const Duration(seconds: 15));
-        if (mounted) await _applyPlaybackPayload(channelId, retryData);
+        if (!stale()) await _applyPlaybackPayload(channelId, retryData);
       }
     } catch (e, st) {
+      if (stale()) return;
       TelemetryService.error(
         'channel_player_fetch_now_playing',
         e,
@@ -631,7 +705,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       _duration = (_nowPlaying!['duration'] as num?)?.toInt() ?? 0;
       _videoTitle = _nowPlaying!['video_title'] as String? ?? '';
       _isLoop = _nowPlaying!['is_loop'] as bool? ?? false;
-      final positionSec = (_nowPlaying!['position'] as num?)?.toInt() ?? 0;
+      final positionSec = _livePositionSec(data, _nowPlaying!, _duration);
       final videoUrl = _nowPlaying!['video_url'] as String? ?? '';
       final fullUrl = _resolvePlaybackUrl(videoUrl);
       final runtimeMode = _inferExternalRuntimeMode(
@@ -639,7 +713,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         fullUrl,
       );
       final playbackKey =
-          '$channelId|$runtimeMode|${_nowPlaying!['program_id'] ?? ''}|$fullUrl';
+          '$channelId|$runtimeMode|${_nowPlaying!['program_id'] ?? ''}|'
+          '${_stableUrlKey(fullUrl)}';
 
       if (_activePlaybackKey != playbackKey) {
         _activePlaybackKey = playbackKey;
@@ -658,6 +733,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
             _duration,
             positionSec,
             _isLoop,
+            formatHint: _formatHintFor(runtimeMode),
           );
         }
       } else if (mounted) {
@@ -687,7 +763,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         _channel!.streamSourceMode,
         playbackUrl,
       );
-      final playbackKey = '$channelId|$runtimeMode|external|$playbackUrl';
+      final playbackKey =
+          '$channelId|$runtimeMode|external|${_stableUrlKey(playbackUrl)}';
       if (_activePlaybackKey != playbackKey) {
         _activePlaybackKey = playbackKey;
         await _initExternalStream(_channel!, 0, 0, 0);
@@ -719,7 +796,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
           surferFallback.streamSourceMode,
           playbackUrl,
         );
-        final playbackKey = '$channelId|$runtimeMode|external|$playbackUrl';
+        final playbackKey =
+            '$channelId|$runtimeMode|external|${_stableUrlKey(playbackUrl)}';
         if (_activePlaybackKey != playbackKey) {
           _activePlaybackKey = playbackKey;
           await _initExternalStream(surferFallback, 0, 0, 0);
@@ -1151,8 +1229,9 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     int endTime,
     int duration,
     int positionSec,
-    bool loop,
-  ) async {
+    bool loop, {
+    VideoFormat? formatHint,
+  }) async {
     TelemetryService.marker(
       'channel_player_init_broadcast',
       parameters: {
@@ -1179,6 +1258,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     };
 
     player.onAccessDenied = _handleAccessDeniedRecovery;
+    player.onPlaybackFocusLost = () => _onPlaybackFocusLost(player);
 
     player.onRefreshUrl = () async {
       if (!mounted || _channelId == null) return null;
@@ -1245,6 +1325,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         positionSec: positionSec,
         loop: loop,
         renditions: renditions,
+        formatHint: formatHint,
       );
       // A channel switch retired this player while it was starting up.
       if (!mounted || !identical(_player, player)) return;
@@ -1354,7 +1435,13 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         runtimeMode == 'url') {
       // External streams are continuous feeds, so avoid schedule-based
       // program window sync/end checks that can retrigger "tuning" loops.
-      await _playExternalStream(playbackUrl, 0, 0, 0);
+      await _playExternalStream(
+        playbackUrl,
+        0,
+        0,
+        0,
+        formatHint: _formatHintFor(runtimeMode),
+      );
     } else {
       setState(() {
         _error =
@@ -1384,6 +1471,33 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     if (lower.contains('.mpd')) return 'dash';
     if (lower.startsWith('http')) return 'url';
     return 'unknown';
+  }
+
+  // now_playing.video_url is re-signed on every request, so keying playback on
+  // the full URL made the fresh response tear down the player the cached
+  // snapshot had just started, for the same program.
+  String _stableUrlKey(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return url;
+    return uri.replace(query: '').toString();
+  }
+
+  // A cached snapshot's `position` is as old as the snapshot; advance it by
+  // the time elapsed since the server produced it.
+  int _livePositionSec(
+    Map<String, dynamic> payload,
+    Map<String, dynamic> nowPlaying,
+    int durationSec,
+  ) {
+    final reported = (nowPlaying['position'] as num?)?.toInt() ?? 0;
+    final serverTime = (payload['server_time'] as num?)?.toInt() ?? 0;
+    if (serverTime <= 0) return reported;
+    final elapsedSec = (BroadcastService.correctedNow - serverTime) ~/ 1000;
+    if (elapsedSec <= 0) return reported;
+    final advanced = reported + elapsedSec;
+    if (durationSec <= 0) return advanced;
+    final isLoop = nowPlaying['is_loop'] as bool? ?? false;
+    return isLoop ? advanced % durationSec : advanced.clamp(0, durationSec);
   }
 
   String _resolvePlaybackUrl(String rawUrl) {
@@ -1571,6 +1685,19 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
       platform.setMediaPlaybackRequiresUserGesture(false);
     }
 
+    // Stop whatever else is playing before the embed autoplays with sound.
+    await PlaybackFocus.instance.acquire(ctrl, () async {
+      await _pauseYouTubePlayback(controller: ctrl);
+      try {
+        await ctrl.loadRequest(Uri.parse('about:blank'));
+      } catch (_) {}
+      _onPlaybackFocusLost(ctrl);
+    });
+    if (!mounted) {
+      PlaybackFocus.instance.abandon(ctrl);
+      return;
+    }
+
     // baseUrl = youtube-nocookie.com so the iframe origin matches the src.
     await ctrl.loadHtmlString(
       html,
@@ -1596,11 +1723,28 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     String url,
     int startTime,
     int endTime,
-    int duration,
-  ) async {
+    int duration, {
+    VideoFormat? formatHint,
+  }) async {
     final fullUrl = _resolvePlaybackUrl(url);
-    await _initBroadcastPlayer(fullUrl, startTime, endTime, duration, 0, false);
+    await _initBroadcastPlayer(
+      fullUrl,
+      startTime,
+      endTime,
+      duration,
+      0,
+      false,
+      formatHint: formatHint,
+    );
   }
+
+  // Feed URLs often lack a .m3u8/.mpd extension; the channel's configured
+  // mode is what tells the player it's adaptive.
+  VideoFormat? _formatHintFor(String runtimeMode) => switch (runtimeMode) {
+        'hls' => VideoFormat.hls,
+        'dash' => VideoFormat.dash,
+        _ => null,
+      };
 
   // ─── Freeze watchdog (bug 4) ───
   // Detects when the native player stops advancing despite reporting "playing"

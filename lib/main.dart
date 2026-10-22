@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/deep_link_service.dart';
 import 'core/services/floating_player_service.dart';
+import 'core/media/playback_focus.dart';
 import 'core/theme/app_colors.dart';
 import 'firebase_options.dart';
 import 'features/auth/screens/splash_screen.dart';
@@ -127,7 +128,11 @@ class AfroVisionApp extends StatelessWidget {
       title: 'AfroVision',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
-      navigatorObservers: [ProfileSetupGuard(), PangleRouteObserver()],
+      navigatorObservers: [
+        ProfileSetupGuard(),
+        PangleRouteObserver(),
+        playbackRouteObserver,
+      ],
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: AppColors.darkBlue,

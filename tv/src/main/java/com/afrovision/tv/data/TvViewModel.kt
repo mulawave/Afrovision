@@ -420,8 +420,36 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
         }
-        play(card.toPlayerMedia())
+        if (!card.streamUrl.isNullOrBlank() || !card.externalUrl.isNullOrBlank()) {
+            play(card.toPlayerMedia())
+            return
+        }
+        // Recently Viewed cards are rebuilt from local storage with only
+        // id/name/logo. Without its URL an external feed was treated as a
+        // scheduled native channel and waited forever on a now-playing slot
+        // that never comes. Use the channel's real record.
+        val known = findChannel(card.id)
+        if (known != null) {
+            play(known.toMediaCard().toPlayerMedia())
+            return
+        }
+        viewModelScope.launch {
+            val fetched = findChannelCached(card.id) ?: try {
+                api.getChannels(mapOf("live" to "true")).channels.firstOrNull { it.id == card.id }
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "Looking up channel ${card.id} failed", e)
+                null
+            }
+            play((fetched?.toMediaCard() ?: card).toPlayerMedia())
+        }
     }
+
+    private suspend fun findChannelCached(id: String): Channel? =
+        apiCache.read(CACHE_CHANNELS, ChannelListResponse.serializer())
+            ?.channels?.firstOrNull { it.id == id }
+
+    private fun findChannel(id: String): Channel? =
+        (liveChannels as? LoadState.Success)?.data?.firstOrNull { it.id == id }
 
     fun closePlayer() {
         val target = screenBeforePlayer ?: com.afrovision.tv.ui.navigation.Screen.Home

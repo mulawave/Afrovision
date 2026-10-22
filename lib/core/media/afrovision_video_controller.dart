@@ -84,6 +84,7 @@ class AfrovisionVideoController extends ChangeNotifier {
   StreamSubscription? _heightSub;
   StreamSubscription? _errorSub;
   StreamSubscription? _networkSub;
+  Timer? _errorPromoteTimer;
 
   /// Optional callback fired once when non-looping playback reaches the end.
   VoidCallback? onCompleted;
@@ -222,9 +223,15 @@ class AfrovisionVideoController extends ChangeNotifier {
     });
 
     _positionSub = _player!.stream.position.listen((pos) {
+      final advanced = pos > _position;
       // Don't regress position after completion snap.
       if (!_completed || pos >= _position) {
         _position = pos;
+      }
+      // Playing again after a reported error means mpv recovered on its own.
+      if (advanced && _isInitialized && _hasError) {
+        _hasError = false;
+        _errorMessage = null;
       }
       if (!_disposed) notifyListeners();
     });
@@ -245,10 +252,26 @@ class AfrovisionVideoController extends ChangeNotifier {
     });
 
     _errorSub = _player!.stream.error.listen((error) {
-      _hasError = true;
-      _errorMessage = error;
       debugPrint('[AfrovisionVideoController] Error: $error');
-      if (!_disposed) notifyListeners();
+      if (!_isInitialized) {
+        _hasError = true;
+        _errorMessage = error;
+        if (!_disposed) notifyListeners();
+        return;
+      }
+      // Once playing, mpv reports recoverable network errors here (segment
+      // timeouts, reconnects) that its own retry logic gets past. Surfacing
+      // each one replaced a working stream with "Signal lost"; only report it
+      // if playback has stopped advancing.
+      final positionAtError = _position;
+      _errorPromoteTimer?.cancel();
+      _errorPromoteTimer = Timer(const Duration(seconds: 10), () {
+        if (_disposed) return;
+        if (_position > positionAtError + const Duration(seconds: 1)) return;
+        _hasError = true;
+        _errorMessage = error;
+        notifyListeners();
+      });
     });
 
     // Keep the bitrate cap in sync if the user switches networks mid-session.
@@ -415,6 +438,7 @@ class AfrovisionVideoController extends ChangeNotifier {
   }
 
   void _cancelSubscriptions() {
+    _errorPromoteTimer?.cancel();
     _playingSub?.cancel();
     _completedSub?.cancel();
     _bufferingSub?.cancel();

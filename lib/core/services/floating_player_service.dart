@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../media/playback_focus.dart';
 import '../../features/broadcast/widgets/broadcast_player.dart';
 import '../../features/broadcast/widgets/floating_player_widget.dart';
 
@@ -123,6 +124,14 @@ class FloatingPlayerService with WidgetsBindingObserver {
       return;
     }
 
+    // The mini-player now owns playback: any other player starting closes it.
+    final focusOwner = broadcastPlayer ?? ytController;
+    if (focusOwner != null) {
+      unawaited(PlaybackFocus.instance.acquire(focusOwner, () async {
+        dismiss();
+      }));
+    }
+
     // Observe app lifecycle ourselves so playback is paused/resumed correctly
     // even after the originating ChannelPlayerScreen is disposed.
     _registerLifecycleObserver();
@@ -162,15 +171,23 @@ class FloatingPlayerService with WidgetsBindingObserver {
       // Entry may already have been removed by a background transition.
     }
     _entry = null;
-    _pauseYouTubePlayback();
     // Dispose the player so it releases audio focus and stops decoding.
     // Pausing alone can leave audio holding focus, which conflicts with the
     // next channel and previously required an app restart.
-    try {
-      _broadcastPlayer?.pause();
-      unawaited(_broadcastPlayer?.disposeAsync());
-    } catch (_) {
-      // Controller may already be disposed by the owning screen.
+    final player = _broadcastPlayer;
+    if (player != null) {
+      try {
+        unawaited(player.disposeAsync());
+      } catch (_) {
+        // Controller may already be disposed by the owning screen.
+      }
+    }
+    final yt = _ytController;
+    if (yt != null) {
+      PlaybackFocus.instance.abandon(yt);
+      _pauseYouTubePlayback();
+      // A paused WebView can keep its audio session; blanking it ends it.
+      yt.loadRequest(Uri.parse('about:blank')).catchError((_) {});
     }
     _broadcastPlayer = null;
     _ytController = null;
@@ -179,31 +196,12 @@ class FloatingPlayerService with WidgetsBindingObserver {
     _unregisterLifecycleObserver();
   }
 
-  /// Remove overlay and pause playback (expand back to full player).
-  void removeWithoutStopping() {
-    _entry?.remove();
-    _entry = null;
-    _broadcastPlayer?.pause();
-    _broadcastPlayer = null;
-    _ytController = null;
-    _channelId = null;
-    _sessionNotifier.value = null;
-    _unregisterLifecycleObserver();
-  }
+  // Both used to "pause" and then drop the only reference to the player, so
+  // nothing could ever stop it again once it resumed. Closing the overlay
+  // always stops playback now.
+  void removeWithoutStopping() => dismiss();
 
-  /// Remove overlay and pause playback (return to app).
-  void removeOverlayOnly() {
-    try {
-      _entry?.remove();
-    } catch (_) {
-      // Entry may have been removed during background transition
-    }
-    _entry = null;
-    _broadcastPlayer?.pause();
-    _broadcastPlayer = null;
-    _ytController = null;
-    _unregisterLifecycleObserver();
-  }
+  void removeOverlayOnly() => dismiss();
 
   void onExpandToChannel() {
     final id = _channelId;

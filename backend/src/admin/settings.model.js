@@ -448,6 +448,12 @@ const SETTING_DEFINITIONS = {
     sensitive: true,
     defaultValue: null,
   },
+  PETCARE_SHARED_SECRET: {
+    category: 'system',
+    description: 'Shared secret Pets & Care sends as x-petcare-key on POST /auth/petcare-login (server-to-server relay reading the "Pets & Care Tips" channel)',
+    sensitive: true,
+    defaultValue: null,
+  },
   ENVIRONMENT: {
     category: 'system',
     description: 'Runtime environment for blockchain execution guards (staging, production)',
