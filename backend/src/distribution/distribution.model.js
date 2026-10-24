@@ -252,6 +252,118 @@ async function mintActivationCode({ distributorId, marketerId }) {
   return entry;
 }
 
+// ── Hotel codes ─────────────────────────────────────────────────
+// One code for a whole property: each TV that activates with it takes one
+// seat, and the code stops activating new TVs once every seat is taken.
+// Paid once, no renewal.
+
+// Bracketed like tax bands: each rate applies only to the TVs inside its
+// band, so a bigger hotel always pays more in total while the average price
+// per TV keeps falling. (A single rate for the whole count made 21 TVs
+// cheaper than 20, and 50 cheaper than 31.)
+const HOTEL_PRICE_BANDS = [
+  { upTo: 20, perTvNgn: 25000 },
+  { upTo: 30, perTvNgn: 8500 },
+  { upTo: 49, perTvNgn: 5000 },
+  { upTo: Infinity, perTvNgn: 2500 },
+];
+
+function hotelPriceNgn(tvCount) {
+  const count = Math.max(0, Math.floor(Number(tvCount) || 0));
+  let total = 0;
+  let previousLimit = 0;
+  for (const band of HOTEL_PRICE_BANDS) {
+    if (count <= previousLimit) break;
+    const tvsInBand = Math.min(count, band.upTo) - previousLimit;
+    total += tvsInBand * band.perTvNgn;
+    previousLimit = band.upTo;
+  }
+  return total;
+}
+
+async function mintHotelCode({ hotelName, tvCount, contactName, contactPhone, distributorId, createdBy }) {
+  const db = getFirestore();
+  const code = generateActivationCode();
+  const entry = {
+    code,
+    type: 'hotel',
+    hotel_name: hotelName,
+    contact_name: contactName || null,
+    contact_phone: contactPhone || null,
+    distributor_id: distributorId || null,
+    marketer_id: null,
+    max_activations: tvCount,
+    activations_count: 0,
+    seat_device_ids: [],
+    price_ngn: hotelPriceNgn(tvCount),
+    status: 'issued', // issued | full | revoked
+    issued_at: new Date().toISOString(),
+    created_by: createdBy || null,
+  };
+  await db.collection(ACTIVATION_CODES).doc(normalizeCode(code)).set(entry);
+  return entry;
+}
+
+/**
+ * Takes a seat on a hotel code for [deviceId], atomically, so two TVs
+ * activating at the same moment can't both take the last seat. A device
+ * that already holds a seat (e.g. after a factory reset) keeps it without
+ * using another. Returns { ok, alreadySeated, entry } or { ok: false, reason }.
+ */
+async function claimHotelSeat(code, deviceId) {
+  const db = getFirestore();
+  const ref = db.collection(ACTIVATION_CODES).doc(normalizeCode(code));
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { ok: false, reason: 'not_found' };
+    const entry = snap.data();
+    if (entry.type !== 'hotel') return { ok: false, reason: 'not_hotel' };
+    if (entry.status === 'revoked') return { ok: false, reason: 'revoked' };
+    const seats = Array.isArray(entry.seat_device_ids) ? entry.seat_device_ids : [];
+    if (seats.includes(deviceId)) return { ok: true, alreadySeated: true, entry };
+    if (seats.length >= entry.max_activations) return { ok: false, reason: 'full', entry };
+    const nextSeats = [...seats, deviceId];
+    const patch = {
+      seat_device_ids: nextSeats,
+      activations_count: nextSeats.length,
+      status: nextSeats.length >= entry.max_activations ? 'full' : 'issued',
+      last_activated_at: new Date().toISOString(),
+    };
+    tx.update(ref, patch);
+    return { ok: true, alreadySeated: false, entry: { ...entry, ...patch } };
+  });
+}
+
+/** Frees [deviceId]'s seat so a replacement TV can use it. */
+async function releaseHotelSeat(code, deviceId) {
+  const db = getFirestore();
+  const ref = db.collection(ACTIVATION_CODES).doc(normalizeCode(code));
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { ok: false, reason: 'not_found' };
+    const entry = snap.data();
+    const seats = Array.isArray(entry.seat_device_ids) ? entry.seat_device_ids : [];
+    if (!seats.includes(deviceId)) return { ok: false, reason: 'not_seated' };
+    const nextSeats = seats.filter((id) => id !== deviceId);
+    const patch = {
+      seat_device_ids: nextSeats,
+      activations_count: nextSeats.length,
+      status: entry.status === 'revoked' ? 'revoked' : 'issued',
+    };
+    tx.update(ref, patch);
+    return { ok: true, entry: { ...entry, ...patch } };
+  });
+}
+
+async function listHotelCodes(limit = 500) {
+  const db = getFirestore();
+  const snapshot = await db.collection(ACTIVATION_CODES).where('type', '==', 'hotel').get();
+  return snapshot.docs
+    .map((doc) => doc.data())
+    .sort((a, b) => (b.issued_at || '').localeCompare(a.issued_at || ''))
+    .slice(0, limit);
+}
+
 async function findActivationCode(code) {
   const normalized = normalizeCode(code);
   if (!normalized) return null;
@@ -487,6 +599,13 @@ module.exports = {
   updateActivationCode,
   listCodesByMarketer,
   listCodesByDistributor,
+  // hotel codes
+  HOTEL_PRICE_BANDS,
+  hotelPriceNgn,
+  mintHotelCode,
+  claimHotelSeat,
+  releaseHotelSeat,
+  listHotelCodes,
   // devices
   upsertDevice,
   findDeviceById,

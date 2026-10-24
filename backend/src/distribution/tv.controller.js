@@ -185,6 +185,121 @@ exports.reportCrash = async (req, res) => {
   }
 };
 
+/**
+ * Hotel code activation: one code shared by every TV in the property, each
+ * TV taking one seat until max_activations is reached. Paid once when the
+ * code was created, so no revenue is booked per TV here.
+ */
+async function activateHotelSeat(req, res, { entry, isSignIn, email, fullName, phone, password, deviceId, device_name, app_version }) {
+  const seats = Array.isArray(entry.seat_device_ids) ? entry.seat_device_ids : [];
+  const alreadySeated = seats.includes(deviceId);
+
+  if (alreadySeated) {
+    const device = await model.findDeviceById(deviceId);
+    if (device?.status === 'disabled') {
+      return res.status(403).json({
+        error: 'DEVICE_DISABLED',
+        message: device.disabled_reason || 'This TV has been disabled. Contact AfroVision.',
+      });
+    }
+    const deviceToken = await auth.generateDeviceToken(deviceId);
+    await model.updateDevice(deviceId, {
+      last_seen_at: new Date().toISOString(),
+      app_version: app_version || device?.app_version || null,
+    });
+    const settings = await model.getSettings();
+    const userToken = device?.owner_user_id ? await generateToken(device.owner_user_id) : null;
+    return res.status(200).json({
+      success: true,
+      reactivated: true,
+      device_token: deviceToken,
+      user_token: userToken,
+      device_id: deviceId,
+      owner: { email: device?.owner_email || email, name: device?.owner_name || fullName },
+      hotel: { name: entry.hotel_name, seats_used: seats.length, seats_total: entry.max_activations },
+      config_version: settings.config_version,
+    });
+  }
+
+  // Checked before the owner account is resolved, so a full code doesn't
+  // create an account for a TV that can't be activated anyway.
+  if (seats.length >= entry.max_activations) {
+    return res.status(409).json({
+      error: 'HOTEL_CODE_FULL',
+      message: `All ${entry.max_activations} TVs on this hotel code are already activated. Contact AfroVision to release a seat.`,
+    });
+  }
+
+  if (entry.distributor_id) {
+    const distributor = await model.findDistributorById(entry.distributor_id);
+    if (!distributor || distributor.status === 'banned') {
+      return res.status(403).json({ error: 'DISTRIBUTOR_INVALID', message: 'The issuing distributor is no longer active.' });
+    }
+  }
+
+  const resolved = isSignIn
+    ? await resolveOwnerForSignIn({ email, password, deviceId, activationCode: entry.code })
+    : await resolveOwnerForRegister({ email, fullName, phone, deviceId, activationCode: entry.code });
+  if (resolved.error) {
+    return res.status(resolved.status).json({ error: resolved.error, message: resolved.message });
+  }
+  const owner = resolved.user;
+
+  const claim = await model.claimHotelSeat(entry.code, deviceId);
+  if (!claim.ok) {
+    if (claim.reason === 'full') {
+      return res.status(409).json({
+        error: 'HOTEL_CODE_FULL',
+        message: `All ${entry.max_activations} TVs on this hotel code are already activated. Contact AfroVision to release a seat.`,
+      });
+    }
+    if (claim.reason === 'revoked') {
+      return res.status(410).json({ error: 'CODE_REVOKED', message: 'This hotel code has been revoked. Contact AfroVision.' });
+    }
+    return res.status(404).json({ error: 'INVALID_CODE', message: 'This activation code does not exist.' });
+  }
+
+  const now = new Date().toISOString();
+  await model.upsertDevice(deviceId, {
+    activation_code: entry.code,
+    hotel_code: entry.code,
+    hotel_name: entry.hotel_name,
+    owner_user_id: owner.id,
+    owner_email: email,
+    owner_name: owner.name || fullName,
+    owner_phone: owner.phoneNumber || phone,
+    distributor_id: entry.distributor_id || null,
+    marketer_id: null,
+    device_name: device_name || `${entry.hotel_name} TV`,
+    app_version: app_version || null,
+    location: { ip: clientIp(req) },
+    status: 'active',
+    disabled_reason: null,
+    disabled_by: null,
+    activated_at: now,
+    last_seen_at: now,
+    last_read_message_at: now,
+  });
+
+  const settings = await model.getSettings();
+  const deviceToken = await auth.generateDeviceToken(deviceId);
+  const userToken = await generateToken(owner.id);
+  return res.status(200).json({
+    success: true,
+    reactivated: claim.alreadySeated,
+    device_token: deviceToken,
+    user_token: userToken,
+    device_id: deviceId,
+    owner: { email, name: owner.name || fullName },
+    hotel: {
+      name: entry.hotel_name,
+      seats_used: claim.entry.activations_count,
+      seats_total: entry.max_activations,
+    },
+    config_version: settings.config_version,
+  });
+}
+
 exports.activate = async (req, res) => {
   try {
     const {
@@ -222,6 +337,12 @@ exports.activate = async (req, res) => {
     }
     if (entry.status === 'revoked') {
       return res.status(410).json({ error: 'CODE_REVOKED', message: 'This activation code has been revoked. Contact your distributor.' });
+    }
+
+    if (entry.type === 'hotel') {
+      return activateHotelSeat(req, res, {
+        entry, isSignIn, email, fullName, phone, password, deviceId, device_name, app_version,
+      });
     }
 
     // ── Re-activation path: code already bound to this exact device ──

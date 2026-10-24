@@ -533,3 +533,154 @@ exports.getLedger = async (req, res) => {
     return res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 };
+
+// ── Hotel codes ──────────────────────────────────────────────────
+
+const MAX_HOTEL_TVS = 1000;
+
+function parseTvCount(value) {
+  const count = Number(value);
+  return Number.isInteger(count) && count >= 1 && count <= MAX_HOTEL_TVS ? count : null;
+}
+
+/**
+ * GET /distribution/admin/hotel-codes/price?tv_count=50  (admin token)
+ * Price preview for the create form, with the per-band breakdown.
+ */
+exports.previewHotelPrice = async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  const tvCount = parseTvCount(req.query.tv_count);
+  if (!tvCount) return res.status(400).json({ error: `tv_count must be a whole number from 1 to ${MAX_HOTEL_TVS}` });
+  return res.status(200).json({
+    success: true,
+    tv_count: tvCount,
+    price_ngn: model.hotelPriceNgn(tvCount),
+    bands: model.HOTEL_PRICE_BANDS.map((b) => ({ up_to: Number.isFinite(b.upTo) ? b.upTo : null, per_tv_ngn: b.perTvNgn })),
+  });
+};
+
+/**
+ * POST /distribution/admin/hotel-codes  (admin token)
+ * Body: { hotel_name, tv_count, contact_name?, contact_phone?, distributor_id? }
+ * One-off payment, no renewal. The sale is booked in the ledger once, here.
+ */
+exports.createHotelCode = async (req, res) => {
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
+  try {
+    const { hotel_name, tv_count, contact_name, contact_phone, distributor_id } = req.body || {};
+    const hotelName = String(hotel_name || '').trim();
+    const tvCount = parseTvCount(tv_count);
+    if (hotelName.length < 2) return res.status(400).json({ error: 'hotel_name is required' });
+    if (!tvCount) return res.status(400).json({ error: `tv_count must be a whole number from 1 to ${MAX_HOTEL_TVS}` });
+
+    let distributor = null;
+    if (distributor_id) {
+      distributor = await model.findDistributorById(distributor_id);
+      if (!distributor) return res.status(404).json({ error: 'Distributor not found' });
+    }
+
+    const entry = await model.mintHotelCode({
+      hotelName,
+      tvCount,
+      contactName: String(contact_name || '').trim(),
+      contactPhone: String(contact_phone || '').trim(),
+      distributorId: distributor?.id || null,
+      createdBy: caller.id,
+    });
+
+    const settings = await model.getSettings();
+    const splitPercent = distributor ? model.distributorSplitPercent(distributor, settings) : 100;
+    const afrovisionShare = Math.round((entry.price_ngn * splitPercent) / 100);
+    await model.addLedgerEntry({
+      type: 'activation_revenue',
+      distributor_id: entry.distributor_id,
+      marketer_id: null,
+      code: entry.code,
+      hotel_name: hotelName,
+      seats: tvCount,
+      amount_ngn: entry.price_ngn,
+      split_percent_afrovision: splitPercent,
+      afrovision_share_ngn: afrovisionShare,
+      distributor_share_ngn: entry.price_ngn - afrovisionShare,
+    });
+
+    await AuditService.logAction(caller.id, 'dist_create_hotel_code', entry.code, {
+      hotel_name: hotelName, tv_count: tvCount, price_ngn: entry.price_ngn, distributor_id: entry.distributor_id,
+    });
+    return res.status(201).json({ success: true, hotel_code: entry });
+  } catch (error) {
+    console.error('[Distribution] Create hotel code error:', error);
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+};
+
+/** GET /distribution/admin/hotel-codes  (admin token) */
+exports.listHotelCodes = async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const codes = await model.listHotelCodes();
+    return res.status(200).json({ success: true, hotel_codes: codes });
+  } catch (error) {
+    console.error('[Distribution] List hotel codes error:', error);
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+};
+
+/** GET /distribution/admin/hotel-codes/:code  (admin token) - the code plus every seated TV. */
+exports.getHotelCode = async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const entry = await model.findActivationCode(req.params.code);
+    if (!entry || entry.type !== 'hotel') return res.status(404).json({ error: 'Hotel code not found' });
+    const devices = await Promise.all((entry.seat_device_ids || []).map((id) => model.findDeviceById(id)));
+    return res.status(200).json({
+      success: true,
+      hotel_code: entry,
+      devices: devices.filter(Boolean).map((d) => ({
+        device_id: d.id,
+        device_name: d.device_name,
+        status: d.status,
+        activated_at: d.activated_at,
+        last_seen_at: d.last_seen_at,
+        app_version: d.app_version,
+      })),
+    });
+  } catch (error) {
+    console.error('[Distribution] Get hotel code error:', error);
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+};
+
+/**
+ * POST /distribution/admin/hotel-codes/:code/release-seat  (admin token)
+ * Body: { device_id, reason? }
+ * Frees the TV's seat (replacement, or a TV reported as stolen) and disables
+ * that TV so it stops working.
+ */
+exports.releaseHotelSeat = async (req, res) => {
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
+  try {
+    const deviceId = String(req.body?.device_id || '').trim();
+    if (!deviceId) return res.status(400).json({ error: 'device_id is required' });
+    const result = await model.releaseHotelSeat(req.params.code, deviceId);
+    if (!result.ok) {
+      const status = result.reason === 'not_found' ? 404 : 400;
+      return res.status(status).json({ error: result.reason === 'not_found' ? 'Hotel code not found' : 'That TV does not hold a seat on this code' });
+    }
+    const reason = String(req.body?.reason || '').trim() || 'Hotel seat released by AfroVision admin';
+    if (await model.findDeviceById(deviceId)) {
+      await model.updateDevice(deviceId, { status: 'disabled', disabled_reason: reason, disabled_by: req.userId });
+    }
+    await AuditService.logAction(caller.id, 'dist_release_hotel_seat', result.entry.code, { device_id: deviceId, reason });
+    return res.status(200).json({
+      success: true,
+      seats_used: result.entry.activations_count,
+      seats_total: result.entry.max_activations,
+    });
+  } catch (error) {
+    console.error('[Distribution] Release hotel seat error:', error);
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+};

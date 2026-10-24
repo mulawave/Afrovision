@@ -242,6 +242,11 @@ router.patch('/admin/devices/:deviceId', authenticateToken, adminCtrl.updateDevi
 router.get('/admin/settings', authenticateToken, adminCtrl.getSettings);
 router.patch('/admin/settings', authenticateToken, adminCtrl.updateSettings);
 router.get('/admin/ledger', authenticateToken, adminCtrl.getLedger);
+router.get('/admin/hotel-codes/price', authenticateToken, adminCtrl.previewHotelPrice);
+router.get('/admin/hotel-codes', authenticateToken, adminCtrl.listHotelCodes);
+router.post('/admin/hotel-codes', authenticateToken, adminCtrl.createHotelCode);
+router.get('/admin/hotel-codes/:code', authenticateToken, adminCtrl.getHotelCode);
+router.post('/admin/hotel-codes/:code/release-seat', authenticateToken, adminCtrl.releaseHotelSeat);
 router.post('/admin/messages', authenticateToken, adminCtrl.createMessage);
 router.get('/admin/messages', authenticateToken, adminCtrl.listMessages);
 router.get('/admin/messages/:id/replies', authenticateToken, adminCtrl.listMessageReplies);
