@@ -23,14 +23,25 @@ const NAV_LINKS: NavLink[] = [
   { label: "Live", href: "/live" },
   { label: "Wave", href: "/wave" },
   { label: "Channels", href: "/channels" },
+   {
+   label: "ACU",
+    href: "#",
+    children: [
+      { label: "Comic", href: "/comic" },
+     // { label: "Cartoons", href: "/cartoons" },
+     // { label: "Animations", href: "/animation" },
+     // { label: "Collections", href: "/collections" },
+     //   { label: "Merchandize", href: "/shop" },
+    ],
+   },
   {
     label: "Media Center",
     href: "#",
     children: [
-      { label: "Movies", href: "/movies" },
-      { label: "Series", href: "/series" },
+     // { label: "Movies", href: "/movies" },
+     // { label: "Series", href: "/series" },
       { label: "Library", href: "/library" },
-      { label: "Downloads", href: "/downloads" },
+     // { label: "Downloads", href: "/downloads" },
     ],
   },
   { label: "Pricing", href: "/pricing" },
@@ -46,7 +57,7 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
-  const [mediaCenterOpen, setMediaCenterOpen] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [walletMode, setWalletMode] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
   const [walletBusy, setWalletBusy] = useState(false);
@@ -57,7 +68,7 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
   const { user, isAuthenticated, isLoading, logout, walletLogin } = useAuth();
   const menuRef = useRef<HTMLDivElement>(null);
   const authPanelRef = useRef<HTMLDivElement>(null);
-  const mediaCenterRef = useRef<HTMLDivElement>(null);
+  const dropdownRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -78,18 +89,20 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
     }
   }, [userMenuOpen]);
 
-  // Close media center dropdown on outside click
+  // Close any open dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (mediaCenterRef.current && !mediaCenterRef.current.contains(e.target as Node)) {
-        setMediaCenterOpen(false);
+      if (!openDropdown) return;
+      const ref = dropdownRefs.current[openDropdown];
+      if (ref && !ref.contains(e.target as Node)) {
+        setOpenDropdown(null);
       }
     };
-    if (mediaCenterOpen) {
+    if (openDropdown) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [mediaCenterOpen]);
+  }, [openDropdown]);
   useEffect(() => {
     if (!userMenuOpen || !isAuthenticated) return;
     setRepLoading(true);
@@ -211,11 +224,11 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
           <div className="hidden md:flex items-center gap-1">
             {NAV_LINKS.map((link) =>
               link.children ? (
-                <div key={link.label} className="relative" ref={link.label === "Media Center" ? mediaCenterRef : undefined}>
+                <div key={link.label} className="relative" ref={(el) => { dropdownRefs.current[link.label] = el; }}>
                   <button
-                    onClick={() => setMediaCenterOpen(!mediaCenterOpen)}
+                    onClick={() => setOpenDropdown(openDropdown === link.label ? null : link.label)}
                     className={`flex items-center gap-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors hover:bg-av-white/5 ${
-                      mediaCenterOpen || link.children.some((c) => c.href === pathname)
+                      openDropdown === link.label || link.children.some((c) => c.href === pathname)
                         ? "text-av-orange"
                         : "text-av-light-orange hover:text-av-white"
                     }`}
@@ -226,18 +239,18 @@ export function Navbar({ logoUrl }: { logoUrl?: string | null }) {
                       height="10"
                       viewBox="0 0 24 24"
                       fill="currentColor"
-                      className={`transition-transform ${mediaCenterOpen ? "rotate-180" : ""}`}
+                      className={`transition-transform ${openDropdown === link.label ? "rotate-180" : ""}`}
                     >
                       <path d="M7 10l5 5 5-5z" />
                     </svg>
                   </button>
-                  {mediaCenterOpen && (
+                  {openDropdown === link.label && (
                     <div className="absolute left-0 top-full mt-2 w-48 rounded-xl bg-av-card border border-av-input-border/30 shadow-2xl shadow-black/40 overflow-hidden z-50 animate-fade-in-up">
                       {link.children.map((child) => (
                         <Link
                           key={child.label}
                           href={child.href}
-                          onClick={() => setMediaCenterOpen(false)}
+                          onClick={() => setOpenDropdown(null)}
                           className={`block px-4 py-2.5 text-sm transition-colors hover:bg-av-input-fill/50 ${
                             pathname === child.href ? "text-av-orange bg-av-orange/5" : "text-av-light-orange hover:text-av-white"
                           }`}

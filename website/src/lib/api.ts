@@ -3676,6 +3676,59 @@ export async function deleteWaveCommentApi(waveId: string, commentId: string) {
   });
 }
 
+// ─── Comic Comment API ──────────────────────────────────────────────────────
+
+export interface ComicComment {
+  id: string;
+  issue_id: number;
+  user_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  text: string;
+  created_at: number;
+  updated_at: number;
+  reply_count: number;
+  reaction_count: number;
+  is_edited: boolean;
+  parent_comment_id?: string;
+  viewer_has_reacted?: boolean;
+  viewer_is_author?: boolean;
+}
+
+export async function getComicCommentsApi(issueId: number) {
+  return api<ComicComment[] | ErrorResponse>(`/comic/${issueId}/comments`);
+}
+
+export async function postComicCommentApi(issueId: number, text: string, parentCommentId?: string) {
+  return api<ComicComment | ErrorResponse>(`/comic/${issueId}/comments`, {
+    method: "POST",
+    body: { text, parent_comment_id: parentCommentId },
+    requireAuth: true,
+  });
+}
+
+export async function editComicCommentApi(issueId: number, commentId: string, text: string) {
+  return api<ComicComment | ErrorResponse>(`/comic/${issueId}/comments/${commentId}`, {
+    method: "PATCH",
+    body: { text },
+    requireAuth: true,
+  });
+}
+
+export async function deleteComicCommentApi(issueId: number, commentId: string) {
+  return api<{ success: boolean } | ErrorResponse>(`/comic/${issueId}/comments/${commentId}`, {
+    method: "DELETE",
+    requireAuth: true,
+  });
+}
+
+export async function toggleComicCommentReactionApi(issueId: number, commentId: string) {
+  return api<{ reacted: boolean } | ErrorResponse>(`/comic/${issueId}/comments/${commentId}/reaction`, {
+    method: "POST",
+    requireAuth: true,
+  });
+}
+
 export async function trackWaveViewApi(waveId: string) {
   return api<{ success: boolean; unique?: boolean } | ErrorResponse>(`/wave/${waveId}/view`, {
     method: "POST",

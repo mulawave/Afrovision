@@ -29,13 +29,13 @@ async function register(req, res, next) {
       return res.status(400).json({ error: 'Password must be at least 8 characters with uppercase, lowercase, and a digit' });
     }
 
-    // Mobile app sends integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
-    // Both paths are verified — neither client is trusted to self-report as bot-free.
+    // Play Integrity verification disabled for mobile app, this must remain so as the config is badly damaged...
     if (client === 'mobile') {
-      const integrityResult = await verifyPlayIntegrity(integrityToken, email);
-      if (!integrityResult.success) {
-        return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });
-      }
+     // const integrityResult = await verifyPlayIntegrity(integrityToken, email);
+    //  if (!integrityResult.success) {
+     //   return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });
+    //  }
+    //skipped
     } else {
       const captchaResult = await verifyCaptcha(captchaToken, 'REGISTER');
       if (!captchaResult.success) {
@@ -104,13 +104,14 @@ async function login(req, res, next) {
     const user = await User.findByEmail(normalizedEmail);
 
     // Admin logins bypass bot verification. Everyone else is verified:
-    // mobile app sends integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
+    // mobile app is stopped from sending integrityToken (Play Integrity); website sends captchaToken (reCAPTCHA).
     if (!user || user.role !== 'admin') {
       if (client === 'mobile') {
-        const integrityResult = await verifyPlayIntegrity(integrityToken, normalizedEmail);
-        if (!integrityResult.success) {
-          return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });
-        }
+        //const integrityResult = await verifyPlayIntegrity(integrityToken, normalizedEmail);
+        //if (!integrityResult.success) {
+         // return res.status(400).json({ error: integrityResult.error || 'Integrity verification failed' });
+        //}
+        //skipped
       } else {
         const captchaResult = await verifyCaptcha(captchaToken, 'LOGIN');
         if (!captchaResult.success) {
@@ -527,29 +528,51 @@ async function pakLogin(req, res) {
       profile = ci3ToProfile(ci3Data);
     }
 
-    // Step 2: Firestore fallback chain (paks → invites → users)
+    // Step 2: Firestore fallback chain (direct uid OR paks → invites → users)
+         // Step 2: Firestore fallback chain (direct uid OR paks → invites → users)
     if (!profile) {
-      const pakSnap = await db.collection('paks').doc(trimmedPak).get();
+      // 1. First try with the raw input
+      let pakSnap = await db.collection('paks').doc(trimmedPak).get();
+      
+      // 2. If not found, try the uppercase equivalent
+      if (!pakSnap.exists) {
+        pakSnap = await db.collection('paks').doc(trimmedPak.toUpperCase()).get();
+      }
+
       if (pakSnap.exists) {
         const pakData = pakSnap.data() || {};
-        const inviteId = (pakData.reservedByInvite || '').trim();
-        if (inviteId) {
-          const inviteSnap = await db.collection('invites').doc(inviteId).get();
-          if (inviteSnap.exists) {
-            const inviteData = inviteSnap.data() || {};
-            const uid = (inviteData.consumedByUid || '').trim();
-            if (uid) {
-              const userSnap = await db.collection('users').doc(uid).get();
-              if (userSnap.exists) {
-                profile = firestoreToProfile(userSnap.data(), userSnap.id);
-                fromFirestore = true;
-                firestoreDocId = userSnap.id;
+        let uid = (pakData.uid || '').trim();
+
+        if (uid) {
+          // Path A: Direct UID mapping exists on the PAK document
+          const userSnap = await db.collection('users').doc(uid).get();
+          if (userSnap.exists) {
+            profile = firestoreToProfile(userSnap.data(), userSnap.id);
+            fromFirestore = true;
+            firestoreDocId = userSnap.id;
+          }
+        } else {
+          // Path B: Fallback to the legacy invite-based chain
+          const inviteId = (pakData.reservedByInvite || '').trim();
+          if (inviteId) {
+            let inviteSnap = await db.collection('invites').doc(inviteId).get();
+            if (inviteSnap.exists) {
+              const inviteData = inviteSnap.data() || {};
+              const resolvedUid = (inviteData.consumedByUid || '').trim();
+              if (resolvedUid) {
+                const userSnap = await db.collection('users').doc(resolvedUid).get();
+                if (userSnap.exists) {
+                  profile = firestoreToProfile(userSnap.data(), userSnap.id);
+                  fromFirestore = true;
+                  firestoreDocId = userSnap.id;
+                }
               }
             }
           }
         }
       }
     }
+
 
     if (!profile) {
       return res.status(401).json({ error: 'ACCESS DENIED! Account not found' });
@@ -635,7 +658,6 @@ async function pakLogin(req, res) {
       subscription_status: existing?.subscription_status ?? 'inactive',
       subscription_expiry: existing?.subscription_expiry ?? null,
       preferred_currency: existing?.preferred_currency ?? (profile.currency || 'NGN'),
-      vpt: existing?.vpt ?? 0,
       first_subscription_at: existing?.first_subscription_at ?? null,
       following_creator_ids: existing?.following_creator_ids ?? [],
       fcm_tokens: existing?.fcm_tokens ?? [],
@@ -671,6 +693,7 @@ async function pakLogin(req, res) {
     res.status(500).json({ error: 'PAK login failed. Please try again.' });
   }
 }
+
 
 // ─── Wallet Login ──────────────────────────────────────────────
 

@@ -11,6 +11,47 @@ interface FloatingReaction {
 
 const REACTION_EMOJIS = ["🔥", "❤️", "👏", "😂", "🎉", "💯", "👑", "🇳🇬"];
 
+// ─── localStorage persistence for reaction UI state ──────────────────────────
+const REACTION_STORAGE_KEY = "afrovision_reactions_state";
+
+function loadReactionState(): {
+  floaters: FloatingReaction[];
+  cooldowns: Record<string, boolean>;
+} | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(REACTION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object"
+      ? {
+          floaters: Array.isArray(parsed.floaters) ? parsed.floaters : [],
+          cooldowns:
+            parsed.cooldowns && typeof parsed.cooldowns === "object"
+              ? parsed.cooldowns
+              : {},
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveReactionState(
+  floaters: FloatingReaction[],
+  cooldowns: Record<string, boolean>
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      REACTION_STORAGE_KEY,
+      JSON.stringify({ floaters, cooldowns })
+    );
+  } catch {
+    // Ignore quota errors etc.
+  }
+}
+
 interface ReactionsProps {
   onReact: (emoji: string) => void;
 }
@@ -19,6 +60,20 @@ export function Reactions({ onReact }: ReactionsProps) {
   const [floaters, setFloaters] = useState<FloatingReaction[]>([]);
   const [cooldowns, setCooldowns] = useState<Record<string, boolean>>({});
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate reaction UI state from localStorage on mount
+  useEffect(() => {
+    const saved = loadReactionState();
+    if (saved) {
+      setFloaters(saved.floaters);
+      setCooldowns(saved.cooldowns);
+    }
+  }, []);
+
+  // Persist reaction UI state whenever it changes
+  useEffect(() => {
+    saveReactionState(floaters, cooldowns);
+  }, [floaters, cooldowns]);
 
   // Clean up old floaters
   useEffect(() => {
