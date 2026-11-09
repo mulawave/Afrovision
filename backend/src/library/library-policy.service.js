@@ -8,6 +8,7 @@ const Channel = require('../channels/channel.model');
 const User = require('../users/user.model');
 const ExclusiveAccess = require('../channels/exclusive_access.model');
 const { isAdultKycVerified } = require('../channels/exclusive_policy.service');
+const { isExclusiveChannel } = require('../utils/exclusive-access-helper');
 
 class LibraryPolicyService {
   /**
@@ -22,7 +23,23 @@ class LibraryPolicyService {
    * @returns {Promise<boolean>} true if entitled
    */
   async hasLibraryAccess(userId, channelId) {
+    if (!channelId) return false;
+
+    // Check channel type: public (non-exclusive) channels are open to all viewers
+    const channel = await Channel.findById(channelId);
+    if (!channel) return false;
+
+    if (!isExclusiveChannel(channel)) {
+      return true;
+    }
+
+    // For exclusive channels:
     if (!userId) return false;
+
+    // Owner or admin bypass for exclusive channels
+    if (channel.owner_id === userId) return true;
+    const user = await User.findById(userId);
+    if (user && user.role === 'admin') return true;
 
     // KYC policy follows existing exclusive policy source of truth.
     const isKycAllowed = await isAdultKycVerified(userId);
@@ -94,6 +111,7 @@ class LibraryPolicyService {
    * @returns {Promise<boolean>}
    */
   async canModifyFavorites(userId, channelId, itemId) {
+    if (!userId) return false;
     // User must have entitlement to favorite an item
     return this.hasLibraryAccess(userId, channelId);
   }

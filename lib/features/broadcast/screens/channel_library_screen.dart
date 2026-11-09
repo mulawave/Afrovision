@@ -16,6 +16,7 @@ class ChannelLibraryScreen extends StatefulWidget {
 class _ChannelLibraryScreenState extends State<ChannelLibraryScreen>
     with SingleTickerProviderStateMixin {
   String? _channelId;
+  bool _isExclusive = true;
   bool _argsHandled = false;
   bool _loading = true;
   String? _error;
@@ -52,6 +53,9 @@ class _ChannelLibraryScreenState extends State<ChannelLibraryScreen>
       _channelId = args;
     } else if (args is Map) {
       _channelId = args['channelId']?.toString() ?? args['id']?.toString();
+      if (args['isExclusive'] != null) {
+        _isExclusive = args['isExclusive'] == true;
+      }
     }
 
     if (_channelId == null || _channelId!.isEmpty) {
@@ -159,9 +163,9 @@ class _ChannelLibraryScreenState extends State<ChannelLibraryScreen>
             ),
           ),
           const SizedBox(width: 16),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Exclusive Library',
+              _isExclusive ? 'Exclusive Library' : 'Library',
               style: TextStyle(
                 color: AppColors.white,
                 fontSize: 20,

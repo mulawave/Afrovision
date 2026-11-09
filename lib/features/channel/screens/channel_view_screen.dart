@@ -498,7 +498,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
 
   Future<void> _loadLibraryUnreadCount() async {
     final ch = _channel;
-    if (ch == null || !ch.isExclusive) {
+    if (ch == null || (!ch.isExclusive && !ch.isPublic)) {
       if (!mounted) return;
       setState(() => _libraryUnreadCount = 0);
       return;
@@ -521,7 +521,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
 
   Future<void> _markLibraryViewed() async {
     final ch = _channel;
-    if (ch == null || !ch.isExclusive) return;
+    if (ch == null || (!ch.isExclusive && !ch.isPublic)) return;
 
     try {
       await ChannelLibraryService.markLibraryViewed(ch.id);
@@ -1397,7 +1397,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     // and management-only tabs follow rather than leading.
     final sections = <ChannelSection>[
       ChannelSection.about,
-      if (ch.isExclusive) ChannelSection.library,
+      if (ch.isExclusive || ch.isPublic) ChannelSection.library,
       ChannelSection.movies,
       ChannelSection.series,
       ChannelSection.streams,
@@ -1749,11 +1749,11 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   }
 
   Widget _buildLibrarySection(ChannelModel ch) {
-    if (!ch.isExclusive) {
+    if (!ch.isExclusive && !ch.isPublic) {
       return _buildInfoCard(
         icon: Icons.lock_outline_rounded,
         label: 'Library',
-        value: 'Library is available for exclusive channels only.',
+        value: 'Library is available for public and exclusive channels only.',
       );
     }
 
@@ -1761,7 +1761,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       children: [
         _buildInfoCard(
           icon: Icons.menu_book_rounded,
-          label: 'Exclusive Library',
+          label: ch.isExclusive ? 'Exclusive Library' : 'Library',
           value: 'Read books, comics, and magazines for this channel.',
         ),
         if (_libraryUnreadCount > 0 || _libraryUnreadLoading) ...[
@@ -1807,7 +1807,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
           onTap: () => Navigator.pushNamed(
             context,
             '/channel-library',
-            arguments: {'channelId': ch.id},
+            arguments: {
+              'channelId': ch.id,
+              'isExclusive': ch.isExclusive,
+            },
           ),
           child: Container(
             width: double.infinity,
@@ -2173,7 +2176,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
           onTap: () => Navigator.pushNamed(
             context,
             '/wave',
-            arguments: {'channelId': ch.id},
+            arguments: {
+              'channelId': ch.id,
+              'isExclusive': ch.isExclusive,
+            },
           ),
           child: Container(
             width: double.infinity,

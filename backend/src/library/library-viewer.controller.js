@@ -19,8 +19,20 @@ const db = {
 const libraryService = new LibraryService();
 const policyService = new LibraryPolicyService();
 
-async function enforceLibraryRollout(userId, res, isChannelAdmin = false) {
+async function enforceLibraryRollout(userId, res, isChannelAdmin = false, isPublicChannel = false) {
   if (isChannelAdmin) return true;
+  if (isPublicChannel) {
+    const { getLibraryRolloutConfig } = require('./library-rollout.service');
+    const config = await getLibraryRolloutConfig();
+    if (!config.enabled) {
+      res.status(403).json({
+        error: 'Feature unavailable',
+        message: 'Library is not enabled yet',
+      });
+      return false;
+    }
+    return true;
+  }
   const enabled = await isLibraryRolloutEnabledForUser(userId);
   if (!enabled) {
     res.status(403).json({
@@ -41,7 +53,9 @@ exports.listItems = async (req, res) => {
     const { channelId } = req.params;
     const userId = req.userId;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
@@ -158,7 +172,9 @@ exports.getItemDetail = async (req, res) => {
     const userId = req.userId;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
@@ -325,7 +341,9 @@ exports.getReaderManifest = async (req, res) => {
     const userId = req.userId;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
@@ -414,7 +432,9 @@ exports.getProgress = async (req, res) => {
     const userId = req.userId;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
@@ -457,7 +477,9 @@ exports.updateProgress = async (req, res) => {
     const userId = req.userId;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
@@ -509,7 +531,9 @@ exports.createBookmark = async (req, res) => {
     const userId = req.userId;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
@@ -553,7 +577,9 @@ exports.listBookmarks = async (req, res) => {
     const userId = req.userId;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
@@ -615,7 +641,9 @@ exports.addToFavorites = async (req, res) => {
     const userId = req.userId;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
@@ -678,7 +706,9 @@ exports.getRecommendations = async (req, res) => {
     const { limit = 5 } = req.query;
     const isChannelAdmin = await policyService.canManageLibrary(userId, channelId);
 
-    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin))) {
+    const channel = await Channel.findById(channelId);
+    const isPublicChannel = channel && !isExclusiveChannel(channel);
+    if (!(await enforceLibraryRollout(userId, res, isChannelAdmin, isPublicChannel))) {
       return;
     }
 
