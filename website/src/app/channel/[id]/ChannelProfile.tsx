@@ -161,11 +161,12 @@ export function ChannelProfile({ id }: { id: string }) {
   const [reminderProgramIds, setReminderProgramIds] = useState<Set<string>>(new Set());
   const [reminderToggling, setReminderToggling] = useState<string | null>(null);
   const isExclusive = channel?.type === "exclusive";
+  const isPublic = channel?.type === "public";
   const channelId = channel?.id;
   const canManageChannel = !!user && (user.role === "admin" || user.id === channel?.owner_id);
 
   const loadLibraryUnreadCount = useCallback(async () => {
-    if (!isAuthenticated || !channelId || !isExclusive) {
+    if (!isAuthenticated || !channelId || (!isExclusive && !isPublic)) {
       setLibraryUnreadCount(0);
       return;
     }
@@ -174,7 +175,7 @@ export function ChannelProfile({ id }: { id: string }) {
     if (res.ok && "unread_count" in res.data) {
       setLibraryUnreadCount(res.data.unread_count);
     }
-  }, [channelId, isAuthenticated, isExclusive]);
+  }, [channelId, isAuthenticated, isExclusive, isPublic]);
 
   // Fetch channel + now-playing on mount
   useEffect(() => {
@@ -391,7 +392,7 @@ export function ChannelProfile({ id }: { id: string }) {
   }, [activeTab, channelWavesLoaded, loadChannelWaves]);
 
   useEffect(() => {
-    if (!isAuthenticated || !channelId || !isExclusive) return;
+    if (!isAuthenticated || !channelId || (!isExclusive && !isPublic)) return;
 
     let cancelled = false;
 
@@ -410,11 +411,11 @@ export function ChannelProfile({ id }: { id: string }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [channelId, isAuthenticated, isExclusive, loadLibraryUnreadCount]);
+  }, [channelId, isAuthenticated, isExclusive, isPublic, loadLibraryUnreadCount]);
 
   // Lazy-load library when library tab is activated for exclusive channels
   useEffect(() => {
-    if (activeTab !== "library" || libraryLoaded || !isExclusive || !hasAccess) return;
+    if (activeTab !== "library" || libraryLoaded || (!isExclusive && !isPublic) || (isExclusive && !hasAccess)) return;
     let cancelled = false;
 
     const isChannelAdmin = !!user && (user.role === "admin" || user.id === channel?.owner_id);
@@ -459,7 +460,7 @@ export function ChannelProfile({ id }: { id: string }) {
     loadLibrary();
 
     return () => { cancelled = true; };
-  }, [activeTab, libraryLoaded, isExclusive, hasAccess, id, user, channel?.owner_id]);
+  }, [activeTab, libraryLoaded, isExclusive, isPublic, hasAccess, id, user, channel?.owner_id]);
 
   // Lazy-load transactions when assets tab is activated
   useEffect(() => {
@@ -797,7 +798,7 @@ export function ChannelProfile({ id }: { id: string }) {
     { key: "movies", label: "Movies" },
     { key: "series", label: "Series" },
     { key: "waves", label: "Waves" },
-    ...(isExclusive ? [{ key: "library" as Tab, label: "Library" }] : []),
+    ...(isExclusive || isPublic ? [{ key: "library" as Tab, label: "Library" }] : []),
     { key: "schedule", label: "Schedule" },
     { key: "streams", label: "Past Streams" },
     ...(canManageChannel ? [{ key: "manage" as Tab, label: "⚙ Manage" }] : []),
@@ -1653,7 +1654,7 @@ export function ChannelProfile({ id }: { id: string }) {
             )}
 
             {/* Library tab (exclusive channels only) */}
-            {activeTab === "library" && isExclusive && (
+            {activeTab === "library" && (isExclusive || isPublic) && (
               <div className="space-y-5">
                 {/* About + Channel Info now horizontal above library grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1714,7 +1715,7 @@ export function ChannelProfile({ id }: { id: string }) {
                 {/* Library header row */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-bold text-av-white tracking-tight">Exclusive Library</h2>
+                    <h2 className="text-base font-bold text-av-white tracking-tight">{isExclusive ? "Exclusive Library" : "Library"}</h2>
                     {libraryLoaded && libraryItems.length > 0 && (
                       <p className="text-xs text-av-light-orange mt-0.5">
                         {libraryItems.length} title{libraryItems.length !== 1 ? "s" : ""} available
@@ -1733,7 +1734,7 @@ export function ChannelProfile({ id }: { id: string }) {
                   )}
                 </div>
 
-                {!hasAccess ? (
+                {!hasAccess && isExclusive ? (
                   <div className="text-center py-16 rounded-2xl bg-av-card/50 border border-av-input-border/20">
                     <p className="text-4xl mb-3">🔒</p>
                     <p className="text-sm font-semibold text-av-white mb-1">Exclusive Access Required</p>

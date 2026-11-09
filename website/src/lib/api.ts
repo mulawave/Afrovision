@@ -1,4 +1,4 @@
-﻿const PRIMARY_API_BASE =
+const PRIMARY_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://afrovision-backend-zoeqld5lsa-uc.a.run.app";
@@ -1502,21 +1502,21 @@ export async function getChannelLibraryApi(channelId: string, params?: {
       };
     };
   } | ErrorResponse>(`/channels/${channelId}/library${qs}`, {
-    requireAuth: true,
+    requireAuth: false,
   });
 }
 
 export async function getChannelLibraryItemDetailApi(channelId: string, itemId: string) {
   return api<{ data: LibraryItemDetail } | ErrorResponse>(
     `/channels/${channelId}/library/${itemId}`,
-    { requireAuth: true },
+    { requireAuth: false },
   );
 }
 
 export async function getChannelLibraryReaderManifestApi(channelId: string, itemId: string) {
   return api<{ data: LibraryReaderManifestResponse } | ErrorResponse>(
     `/channels/${channelId}/library/${itemId}/reader-manifest`,
-    { requireAuth: true },
+    { requireAuth: false },
   );
 }
 
@@ -1577,7 +1577,7 @@ export async function deleteChannelLibraryBookmarkApi(channelId: string, itemId:
 export async function getChannelLibraryRecommendationsApi(channelId: string, limit = 5) {
   return api<{ data: LibraryItem[] } | ErrorResponse>(
     `/channels/${channelId}/library/recommendations?limit=${limit}`,
-    { requireAuth: true },
+    { requireAuth: false },
   );
 }
 

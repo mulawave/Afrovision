@@ -178,13 +178,13 @@ export default function CreatorStudioLibraryPage() {
       throw new Error("Failed to load your channels");
     }
 
-    const exclusiveOnly = channelsRes.data.channels.filter(
-      (channel) => channel.type === "exclusive",
+    const eligibleChannels = channelsRes.data.channels.filter(
+      (channel) => channel.type === "exclusive" || channel.type === "public",
     );
-    setChannels(exclusiveOnly);
+    setChannels(eligibleChannels);
 
-    if (exclusiveOnly.length > 0) {
-      setSelectedChannelId((current) => current || exclusiveOnly[0].id);
+    if (eligibleChannels.length > 0) {
+      setSelectedChannelId((current) => current || eligibleChannels[0].id);
     }
   }, []);
 
@@ -799,9 +799,9 @@ export default function CreatorStudioLibraryPage() {
         <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-av-light-orange">Library Studio</p>
-            <h1 className="mt-2 text-3xl font-bold text-av-white">Exclusive Channel Library</h1>
+            <h1 className="mt-2 text-3xl font-bold text-av-white">Channel Library</h1>
             <p className="mt-2 max-w-3xl text-sm text-av-light-orange">
-              Create series, draft reading items, and control publish/archive lifecycle for your exclusive channels.
+              Create series, draft reading items, and control publish/archive lifecycle for your channels.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -834,15 +834,15 @@ export default function CreatorStudioLibraryPage() {
           </div>
         ) : channels.length === 0 ? (
           <div className="rounded-3xl border border-av-input-border/30 bg-av-card p-8 text-center">
-            <h2 className="text-2xl font-semibold text-av-white">No exclusive channels found</h2>
+            <h2 className="text-2xl font-semibold text-av-white">No channels found</h2>
             <p className="mt-2 text-sm text-av-light-orange">
-              Library management is available for exclusive channels. Create one in Creator Studio first.
+              Library management is available for your channels. Create one in Creator Studio first.
             </p>
             <Link
               href="/create-channel"
               className="mt-5 inline-flex rounded-full bg-gradient-to-r from-av-orange to-av-light-orange px-5 py-2.5 text-sm font-semibold text-av-dark-blue"
             >
-              Create exclusive channel
+              Create channel
             </Link>
           </div>
         ) : (
@@ -856,13 +856,13 @@ export default function CreatorStudioLibraryPage() {
               >
                 {channels.map((channel) => (
                   <option key={channel.id} value={channel.id}>
-                    {channel.name}
+                    {channel.name} {channel.type === "exclusive" ? "(Exclusive)" : "(Public)"}
                   </option>
                 ))}
               </select>
               {selectedChannel ? (
                 <p className="mt-3 text-xs text-av-light-orange/80">
-                  Managing library for {selectedChannel.name}
+                  Managing library for {selectedChannel.name} ({selectedChannel.type === "exclusive" ? "Exclusive" : "Public"})
                 </p>
               ) : null}
             </div>

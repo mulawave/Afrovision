@@ -123,17 +123,17 @@ router.get('/library/feed', optionalAuth, viewerController.listPublicLibrary);
  */
 
 // List library items with filters
-router.get('/channels/:channelId/library', authenticateToken, viewerController.listItems);
+router.get('/channels/:channelId/library', optionalAuth, viewerController.listItems);
 
 // Get recommendations (must be before :itemId route)
 router.get(
   '/channels/:channelId/library/recommendations',
-  authenticateToken,
+  optionalAuth,
   viewerController.getRecommendations
 );
 
 // Get item detail with navigation
-router.get('/channels/:channelId/library/:itemId', authenticateToken, viewerController.getItemDetail);
+router.get('/channels/:channelId/library/:itemId', optionalAuth, viewerController.getItemDetail);
 
 /**
  * Reader Access
@@ -142,7 +142,7 @@ router.get('/channels/:channelId/library/:itemId', authenticateToken, viewerCont
 // Get reader manifest (signed URLs)
 router.get(
   '/channels/:channelId/library/:itemId/reader-manifest',
-  authenticateToken,
+  optionalAuth,
   viewerController.getReaderManifest
 );
 
