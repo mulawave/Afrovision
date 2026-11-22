@@ -87,7 +87,8 @@ fun NavRail(
     focusTrigger: Int = 0,
     onRailFocusChanged: (Boolean) -> Unit = {},
     // Exclusive is only listed for members and the channel's creator.
-    showExclusive: Boolean = false
+    showExclusive: Boolean = false,
+    downloadsCount: Int = 0
 ) {
     val rails = if (showExclusive) mainRails else mainRails.filter { it.screen != Screen.Exclusive }
     val nocturne = LocalNocturne.current
@@ -150,7 +151,11 @@ fun NavRail(
                 NavRailItem(
                     rail = rail,
                     selected = currentScreen == rail.screen,
-                    badgeCount = if (rail.screen == Screen.Messages) unreadMessages else 0,
+                    badgeCount = when (rail.screen) {
+                        Screen.Messages -> unreadMessages
+                        Screen.Downloads -> downloadsCount
+                        else -> 0
+                    },
                     onClick = { onSelect(rail.screen) },
                     focusRequester = focusRequester
                 )

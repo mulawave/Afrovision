@@ -41,7 +41,11 @@ import {
   serveInStreamAdsApi,
   recordAdImpressionApi,
   recordChannelViewApi,
+  recordChannelWatchPingApi,
+  API_BASE,
+  getToken,
 } from "@/lib/api";
+import { io } from "socket.io-client";
 import { resolveWebsiteMediaUrl } from "@/lib/media";
 
 type RightPanel = "channels" | "chat" | "gifts";
@@ -344,13 +348,47 @@ export function LiveStream({ id }: { id: string }) {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
 
+    // Report watch time every 30s so Admin Live Viewers shows real web watch hours.
+    const watchPingInterval = setInterval(() => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      recordChannelWatchPingApi(id, 30).catch(() => {});
+    }, 30 * 1000);
+
     return () => {
       cancelled = true;
       clearInterval(interval);
+      clearInterval(watchPingInterval);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
   }, [id, isAuthenticated, applyLiveDataSnapshot, fetchLiveDataSnapshot, user?.kyc_status, refreshUser]);
+
+  // Track real-time viewer presence via Socket.IO regardless of whether LiveChat tab is open.
+  useEffect(() => {
+    if (!isAuthenticated || !access.checked || !access.has_access) return;
+    const token = getToken();
+    if (!token) return;
+
+    const socket = io(API_BASE, {
+      transports: ["websocket", "polling"],
+      autoConnect: false,
+      auth: { token },
+    });
+
+    socket.on("connect", () => {
+      socket.emit("channel:join", { channelId: id, platform: "web" });
+    });
+
+    socket.connect();
+
+    return () => {
+      if (socket.connected) {
+        socket.emit("channel:leave", { channelId: id });
+      }
+      socket.disconnect();
+    };
+  }, [id, isAuthenticated, access.checked, access.has_access]);
 
   // Synchronous logout protection: when isAuthenticated flips true→false on an
   // exclusive channel, immediately deny access and stop loading so the paywall

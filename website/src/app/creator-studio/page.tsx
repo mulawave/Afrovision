@@ -266,6 +266,8 @@ export default function CreatorStudioPage() {
   const [extUrlValidation, setExtUrlValidation] = useState<{ ok: boolean; message: string } | null>(null);
   const [extSaving, setExtSaving] = useState(false);
   const [extRechecking, setExtRechecking] = useState(false);
+  const [extUseStreamProxy, setExtUseStreamProxy] = useState(false);
+  const [togglingStreamProxy, setTogglingStreamProxy] = useState(false);
 
   // ── Content rating editor for legacy videos
   const [ratingEditorVideo, setRatingEditorVideo] = useState<ChannelVideo | null>(null);
@@ -492,6 +494,7 @@ export default function CreatorStudioPage() {
     const timeoutId = window.setTimeout(() => {
       setExtSourceMode(ch.stream_source_mode ?? "native");
       setExtSourceUrl(ch.external_url ?? "");
+      setExtUseStreamProxy(Boolean(ch.use_stream_proxy));
       setExtUrlValidation(null);
     }, 0);
     return () => window.clearTimeout(timeoutId);
@@ -1315,6 +1318,7 @@ export default function CreatorStudioPage() {
         : {
             stream_source_mode: extSourceMode,
             external_url: extSourceUrl.trim(),
+            use_stream_proxy: extUseStreamProxy,
           },
     );
     setExtSaving(false);
@@ -1324,6 +1328,29 @@ export default function CreatorStudioPage() {
       setExtUrlValidation({ ok: true, message: "Stream source saved successfully." });
     } else {
       setError("error" in res.data ? res.data.error : "Failed to save stream source.");
+    }
+  }
+
+  async function handleToggleStreamProxy(nextValue: boolean) {
+    if (!selectedChannelId || togglingStreamProxy) return;
+    setExtUseStreamProxy(nextValue);
+    setTogglingStreamProxy(true);
+    setError(null);
+    const res = await updateChannelApi(selectedChannelId, { use_stream_proxy: nextValue });
+    setTogglingStreamProxy(false);
+    if (res.ok && "channel" in res.data) {
+      const updatedChannel = res.data.channel;
+      setChannels((prev) => prev.map((c) => c.id === selectedChannelId ? updatedChannel : c));
+      setExtUseStreamProxy(Boolean(updatedChannel.use_stream_proxy));
+      setExtUrlValidation({
+        ok: true,
+        message: nextValue
+          ? "Server Stream Relay enabled ? viewers can watch without a VPN."
+          : "Server Stream Relay disabled ? viewers will connect directly.",
+      });
+    } else {
+      setExtUseStreamProxy(!nextValue);
+      setError("error" in res.data ? res.data.error : "Failed to update stream relay setting.");
     }
   }
 
@@ -1996,6 +2023,41 @@ export default function CreatorStudioPage() {
                             </p>
                           </>
                         )}
+                      </div>
+
+                      {/* Server Stream Relay (VPN Bypass) toggle */}
+                      <div className="mb-4 flex items-center justify-between gap-4 rounded-2xl border border-av-input-border/30 bg-av-input-fill/60 px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs font-semibold text-av-white">
+                              Relay stream via AfroVision server (No VPN needed)
+                            </p>
+                            {extUseStreamProxy && (
+                              <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-bold text-green-400">
+                                ACTIVE
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-av-light-orange/70">
+                            Enable for streams that require a VPN or face ISP/geo blocks. Viewers watch directly without a VPN.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={extUseStreamProxy}
+                          disabled={togglingStreamProxy}
+                          onClick={() => handleToggleStreamProxy(!extUseStreamProxy)}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:opacity-50 ${
+                            extUseStreamProxy ? "bg-av-orange" : "bg-av-input-border/40"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              extUseStreamProxy ? "translate-x-6" : "translate-x-1"
+                            }`}
+                          />
+                        </button>
                       </div>
 
                       <div className="flex gap-2">

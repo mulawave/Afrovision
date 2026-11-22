@@ -32,6 +32,7 @@ import '../../profile/screens/profile_screen.dart';
 import '../../../core/widgets/marquee_ticker_widget.dart';
 import '../../../core/widgets/grace_period_banner.dart';
 import '../../vod/screens/media_center_screen.dart';
+import '../../vod/widgets/download_stats_beacon.dart';
 import '../../channel/screens/channel_list_screen.dart';
 import '../../wave/screens/wave_screen.dart';
 import '../../../core/widgets/shimmer_box.dart';
@@ -554,6 +555,9 @@ class _HomeScreenState extends State<HomeScreen>
                                     children: [
                                       const ActiveFloatingPlayerBanner(),
                                       const GracePeriodBanner(),
+                                      const DownloadStatsBeacon(
+                                        margin: EdgeInsets.only(top: 10),
+                                      ),
                                       const SizedBox(height: 14),
                                       _buildUserAssetsSection(),
                                       const SizedBox(height: 14),

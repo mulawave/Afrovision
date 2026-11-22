@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+.slide { width: 1920px; height: 1080px; overflow: hidden; position: relative; background-color: #050a30; }
+.bg-texture { position: absolute; inset: 0; background-image: repeating-linear-gradient(60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px), repeating-linear-gradient(-60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px); }
+.left-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: linear-gradient(180deg, #f39517 0%, #233dff 100%); }
+.top-border { position: absolute; top: 0; left: 6px; right: 0; height: 3px; background: linear-gradient(90deg, #f39517 0%, #233dff 60%, transparent 100%); }
+.logo-wrap { position: absolute; top: 36px; left: 52px; }
+.logo-wrap img { width: 150px; }
+.slide-label { position: absolute; top: 52px; right: 72px; font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 3px; text-transform: uppercase; }
+.header-area { position: absolute; top: 120px; left: 80px; right: 80px; }
+.section-tag { font-size: 14px; letter-spacing: 6px; color: #233dff; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+.heading { font-family: 'Playfair Display', serif; font-size: 68px; font-weight: 900; color: #f39517; margin-bottom: 10px; }
+.sub { font-size: 24px; color: #c8b58f; font-weight: 300; font-style: italic; }
+.divider { width: 100px; height: 3px; background: linear-gradient(90deg, #f39517, #233dff); margin-top: 20px; }
+/* 3-col cards */
+.cards-row { position: absolute; top: 320px; left: 80px; right: 80px; display: flex; gap: 32px; }
+.card { flex: 1; background: rgba(35,61,255,0.07); border: 1px solid rgba(35,61,255,0.2); border-top: 3px solid #f39517; padding: 36px 32px; }
+.card-num { font-size: 56px; font-weight: 900; color: #f39517; line-height: 1; margin-bottom: 10px; }
+.card-title { font-size: 22px; font-weight: 700; color: #ffffff; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
+.card-body { font-size: 18px; color: #c8b58f; line-height: 1.65; }
+/* Quote bar */
+.quote-bar { position: absolute; bottom: 62px; left: 80px; right: 80px; background: rgba(243,149,23,0.07); border: 1px solid rgba(243,149,23,0.2); border-left: 4px solid #f39517; padding: 20px 36px; }
+.quote-text { font-size: 22px; color: #ffffff; font-weight: 300; font-style: italic; }
+.quote-text span { color: #f39517; font-weight: 700; font-style: normal; }
+.bottom-bar { position: absolute; bottom: 0; left: 6px; right: 0; height: 52px; background: rgba(35,61,255,0.08); border-top: 1px solid rgba(35,61,255,0.2); display: flex; align-items: center; justify-content: space-between; padding: 0 80px; }
+.b-left { font-size: 14px; color: #528ff1; letter-spacing: 2px; }
+.b-right { font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<section class="slide" style="width:1920px;height:1080px;overflow:hidden;position:relative;">
+  <div class="bg-texture"></div>
+  <div class="left-bar"></div>
+  <div class="top-border"></div>
+  <div class="logo-wrap"><img src="/home/user/afrovision-materials/investor-pitch.html-slides/assets/logo.png" alt="AfroVision"/></div>
+  <div class="slide-label">03 / 10</div>
+  <div class="header-area">
+    <div class="section-tag">The Solution</div>
+    <div class="heading">A Program That Builds, Tests &amp; Elevates</div>
+    <div class="sub">Not a popularity contest — a structured pipeline for real business talent</div>
+    <div class="divider"></div>
+  </div>
+  <div class="cards-row">
+    <div class="card">
+      <div class="card-num">01</div>
+      <div class="card-title">Discover</div>
+      <div class="card-body">Women aged 18–30 across Africa apply and are selected through a rigorous intake process. Novices and experienced strategists compete side by side.</div>
+    </div>
+    <div class="card">
+      <div class="card-num">02</div>
+      <div class="card-title">Test</div>
+      <div class="card-body">Participants face a series of stress-based challenges simulating real-world business pressure: decision-making, leadership, creative problem-solving, and execution speed.</div>
+    </div>
+    <div class="card">
+      <div class="card-num">03</div>
+      <div class="card-title">Elevate</div>
+      <div class="card-body">5 outstanding women emerge — not as contestants, but as co-founders. The show is their launchpad into Africa's business ecosystem.</div>
+    </div>
+  </div>
+  <div class="quote-bar">
+    <div class="quote-text">This is not about popularity. This is about <span>resilience, raw intelligence, logical intuition</span> and execution under pressure.</div>
+  </div>
+  <div class="bottom-bar">
+    <div class="b-left">AfroVision Challenge: The Amazons</div>
+    <div class="b-right">Confidential — For Investor Review</div>
+  </div>
+</section>
+</body>
+</html>

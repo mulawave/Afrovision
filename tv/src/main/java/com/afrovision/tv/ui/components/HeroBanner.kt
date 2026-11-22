@@ -108,16 +108,8 @@ fun HeroBanner(
         modifier = Modifier
             .fillMaxWidth()
             .height(heroHeight)
-            .onFocusChanged { if (it.hasFocus) onFocusWithin() }
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.DirectionLeft -> { advancePrev(); true }
-                        Key.DirectionRight -> { advanceNext(); true }
-                        else -> false
-                    }
-                } else false
-            },
+            .onFocusChanged { if (it.hasFocus) onFocusWithin() },
+
         contentAlignment = Alignment.BottomStart
     ) {
         AnimatedContent(targetState = index, label = "hero") { slideIndex ->
@@ -193,8 +185,8 @@ fun HeroBanner(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .widthIn(max = 820.dp)
-                .padding(start = 60.dp)
+                .widthIn(max = 1080.dp)
+                .padding(start = 60.dp, end = 60.dp)
                 .align(Alignment.CenterStart),
             verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.Start
@@ -209,7 +201,8 @@ fun HeroBanner(
                 lineHeight = 68.sp,
                 letterSpacing = (-0.025).em,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 800.dp)
             )
 
             Text(
@@ -244,6 +237,21 @@ fun HeroBanner(
 
                 if (slide.showBookmark) {
                     BookmarkButton()
+                }
+
+                if (slides.size > 1) {
+                    HeroButton(
+                        label = "Prev",
+                        iconRes = R.drawable.ic_ph_caret_left,
+                        accent = false,
+                        onClick = { TvSoundManager.play("move"); advancePrev() }
+                    )
+                    HeroButton(
+                        label = "Next",
+                        iconRes = R.drawable.ic_ph_caret_right,
+                        accent = false,
+                        onClick = { TvSoundManager.play("move"); advanceNext() }
+                    )
                 }
             }
         }
@@ -390,11 +398,11 @@ private fun HeroButton(
             .background(buttonBrush)
             .border(if (focused) 3.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = if (accent) 32.dp else 28.dp, vertical = 16.dp),
+            .padding(horizontal = if (accent) 28.dp else 22.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(13.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -406,8 +414,10 @@ private fun HeroButton(
             Text(
                 text = label,
                 color = contentColor,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Medium
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }

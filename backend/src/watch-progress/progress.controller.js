@@ -6,6 +6,8 @@
 const Progress = require('./progress.model');
 const Movie = require('../movies/movie.model');
 const Series = require('../series/series.model');
+const Channel = require('../channels/channel.model');
+const { isExclusiveChannel, checkChannelAccess } = require('../utils/exclusive-access-helper');
 
 const VALID_MEDIA_TYPES = ['movie', 'episode'];
 
@@ -44,6 +46,8 @@ exports.saveProgress = async (req, res) => {
  * GET /watch-progress/me
  * Returns the caller's most-recently-updated in-progress media, joined with
  * movie or series metadata for immediate rendering (Continue Watching rail).
+ * Strictly enforces per-channel exclusive membership so exclusive items only
+ * appear for channels where the user currently holds an active membership.
  */
 exports.listMine = async (req, res) => {
   try {
@@ -57,6 +61,25 @@ exports.listMine = async (req, res) => {
       return res.json({ success: true, data: { items: [] } });
     }
 
+    const accessCache = new Map();
+    async function canViewChannel(channelId) {
+      if (!channelId) return true;
+      if (accessCache.has(channelId)) return accessCache.get(channelId);
+      const channel = await Channel.findById(channelId);
+      if (!channel || !channel.is_active) {
+        accessCache.set(channelId, false);
+        return false;
+      }
+      if (!isExclusiveChannel(channel)) {
+        accessCache.set(channelId, true);
+        return true;
+      }
+      const access = await checkChannelAccess(channel, req.userId || null);
+      const allowed = Boolean(access && access.allowed);
+      accessCache.set(channelId, allowed);
+      return allowed;
+    }
+
     // Join with the underlying media. Series episodes resolve up to the parent
     // series card so the rail always points at a poster-bearing entity.
     const items = [];
@@ -65,6 +88,7 @@ exports.listMine = async (req, res) => {
         if (p.media_type === 'movie') {
           const movie = await Movie.findById(p.media_id);
           if (!movie) continue;
+          if (!(await canViewChannel(movie.channel_id))) continue;
           items.push({
             media_type: 'movie',
             movie_id: movie.id,
@@ -82,6 +106,7 @@ exports.listMine = async (req, res) => {
             ? await Series.findSeriesById(episode.series_id)
             : null;
           if (!series) continue;
+          if (!(await canViewChannel(series.channel_id))) continue;
           items.push({
             media_type: 'episode',
             series_id: series.id,

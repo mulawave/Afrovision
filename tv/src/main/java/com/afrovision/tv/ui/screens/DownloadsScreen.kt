@@ -186,9 +186,15 @@ private fun DownloadCard(item: DownloadItem, viewModel: TvViewModel) {
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(text = item.title, color = nocturne.text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+            val statusLabel = when {
+                item.completed -> "Ready to watch offline"
+                item.status == "paused" -> "Paused ? ${(item.progress * 100).toInt()}%"
+                item.status == "failed" -> "Download failed ? Tap Retry"
+                else -> "Downloading ? ${(item.progress * 100).toInt()}%"
+            }
             Text(
-                text = if (item.completed) "Ready to watch offline" else "${(item.progress * 100).toInt()}% · ${item.status}",
-                color = nocturne.textFaint,
+                text = statusLabel,
+                color = if (item.status == "failed") Color(0xFFFF6B6B) else if (item.completed) nocturne.goldLight else nocturne.textFaint,
                 fontSize = 15.sp,
                 modifier = Modifier.padding(top = 2.dp)
             )
@@ -205,9 +211,22 @@ private fun DownloadCard(item: DownloadItem, viewModel: TvViewModel) {
                         modifier = Modifier
                             .fillMaxWidth(item.progress.coerceIn(0f, 1f))
                             .fillMaxHeight()
-                            .background(nocturne.accent)
+                            .background(if (item.status == "paused") nocturne.gold else nocturne.accent)
                     )
                 }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (item.status == "downloading") {
+                DownloadsActionChip(label = "Pause") { viewModel.pauseDownload(item.id) }
+                DownloadsActionChip(label = "Cancel") { viewModel.removeDownload(item.id) }
+            } else if (item.status == "paused" || item.status == "failed") {
+                DownloadsActionChip(label = if (item.status == "failed") "Retry" else "Resume") {
+                    viewModel.resumeDownload(item.id)
+                }
+                DownloadsActionChip(label = "Cancel") { viewModel.removeDownload(item.id) }
+            } else if (item.completed) {
+                DownloadsActionChip(label = "Delete") { viewModel.removeDownload(item.id) }
             }
         }
     }

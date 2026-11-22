@@ -274,11 +274,13 @@ class ChannelService {
     String? name,
     String? description,
     String? category,
+    bool? useStreamProxy,
   }) async {
     final data = await ApiService.patch('/channels/$id', {
       if (name != null) 'name': name,
       if (description != null) 'description': description,
       if (category != null) 'category': category,
+      if (useStreamProxy != null) 'use_stream_proxy': useStreamProxy,
     });
     _invalidatePublicChannelCache();
     return ChannelModel.fromJson(data['channel'] as Map<String, dynamic>);

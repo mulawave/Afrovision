@@ -114,13 +114,14 @@ object TvSoundManager {
     var enabled: Boolean = true
 
     @Volatile
-    var volume: Float = 0.5f
+    var volume: Float = 1.0f
 
     fun play(kind: String) {
         val cue = cueMap[kind] ?: return
         scope.launch {
             if (!enabled) return@launch
-            val masterVolume = volume * 0.5f
+            val masterVolume = volume.coerceIn(0f, 1f)
+            if (masterVolume <= 0f) return@launch
             val samples = renderCue(cue, masterVolume)
             playSamples(samples)
         }

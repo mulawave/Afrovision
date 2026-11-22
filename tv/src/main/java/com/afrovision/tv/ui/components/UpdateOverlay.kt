@@ -38,6 +38,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.afrovision.tv.R
 import com.afrovision.tv.data.api.model.AppUpdate
 import com.afrovision.tv.ui.focus.autoRequestFocus
@@ -96,10 +98,15 @@ fun UpdateOverlay(
         }
     }
 
+    Dialog(
+        onDismissRequest = { TvSoundManager.play("close"); onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true, dismissOnClickOutside = false)
+    ) {
+    BackHandler { TvSoundManager.play("close"); onDismiss() }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(nocturne.background.copy(alpha = 0.72f)),
+            .background(nocturne.background.copy(alpha = 0.82f)),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -161,9 +168,18 @@ fun UpdateOverlay(
                         fontSize = 18.sp,
                         modifier = Modifier.padding(top = 12.dp)
                     )
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 20.dp)) {
+                        UpdateButton(
+                            label = if (failed) "Close" else "Hide",
+                            primary = false,
+                            autoFocus = true,
+                            onClick = { TvSoundManager.play("close"); onDismiss() }
+                        )
+                    }
                 }
             }
         }
+    }
     }
 }
 
@@ -173,19 +189,40 @@ private fun UpdateButton(label: String, primary: Boolean, autoFocus: Boolean = f
     val focusRequester = remember { FocusRequester() }
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
+    LaunchedEffect(focused) { if (focused) TvSoundManager.play("move") }
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(nocturne.radiusMd.dp))
-            .background(if (focused && primary) nocturne.accent900 else androidx.compose.ui.graphics.Color.Transparent)
+            .background(
+                when {
+                    focused -> nocturne.gold
+                    primary -> nocturne.accent900
+                    else -> nocturne.surface
+                }
+            )
             .border(
-                if (focused) 2.dp else 1.dp,
-                if (primary) nocturne.accent else nocturne.borderCard,
+                if (focused) 3.dp else 1.dp,
+                when {
+                    focused -> nocturne.goldLight
+                    primary -> nocturne.accent
+                    else -> nocturne.borderCard
+                },
                 RoundedCornerShape(nocturne.radiusMd.dp)
             )
             .autoRequestFocus(focusRequester, enabled = autoFocus)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
             .padding(horizontal = 26.dp, vertical = 15.dp)
     ) {
-        Text(text = label, color = if (primary) nocturne.accentLight else nocturne.textMuted, fontSize = 20.sp)
+        Text(
+            text = label,
+            color = when {
+                focused -> nocturne.background
+                primary -> nocturne.accentLight
+                else -> nocturne.text
+            },
+            fontSize = 20.sp,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }

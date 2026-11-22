@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+.slide { width: 1920px; height: 1080px; overflow: hidden; position: relative; background-color: #050a30; }
+.bg-texture { position: absolute; inset: 0; background-image: repeating-linear-gradient(60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px), repeating-linear-gradient(-60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px); }
+.left-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: linear-gradient(180deg, #f39517 0%, #233dff 100%); }
+.top-border { position: absolute; top: 0; left: 6px; right: 0; height: 3px; background: linear-gradient(90deg, #f39517 0%, #233dff 60%, transparent 100%); }
+.logo-wrap { position: absolute; top: 36px; left: 52px; }
+.logo-wrap img { width: 150px; }
+.slide-label { position: absolute; top: 52px; right: 72px; font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 3px; text-transform: uppercase; }
+/* Main layout */
+.left-col { position: absolute; left: 80px; top: 130px; width: 680px; }
+.section-tag { font-size: 14px; letter-spacing: 6px; color: #233dff; font-weight: 700; text-transform: uppercase; margin-bottom: 18px; }
+.heading { font-family: 'Playfair Display', serif; font-size: 76px; font-weight: 900; color: #f39517; line-height: 1.05; margin-bottom: 20px; }
+.sub-heading { font-size: 28px; font-weight: 700; color: #ffffff; margin-bottom: 24px; }
+.divider { width: 80px; height: 3px; background: linear-gradient(90deg, #f39517, #233dff); margin-bottom: 28px; }
+.body-text { font-size: 22px; color: #c8b58f; line-height: 1.7; font-weight: 300; }
+/* Right col: stat cards */
+.right-col { position: absolute; right: 80px; top: 100px; width: 840px; display: flex; flex-direction: column; gap: 28px; }
+.stat-card { background: rgba(35,61,255,0.08); border: 1px solid rgba(35,61,255,0.25); border-left: 4px solid #f39517; padding: 30px 36px; }
+.stat-card-num { font-size: 52px; font-weight: 900; color: #f39517; line-height: 1; }
+.stat-card-label { font-size: 20px; font-weight: 700; color: #ffffff; margin: 8px 0 6px; }
+.stat-card-sub { font-size: 16px; color: #c8b58f; line-height: 1.5; }
+.bottom-bar { position: absolute; bottom: 0; left: 6px; right: 0; height: 52px; background: rgba(35,61,255,0.08); border-top: 1px solid rgba(35,61,255,0.2); display: flex; align-items: center; justify-content: space-between; padding: 0 80px; }
+.b-left { font-size: 14px; color: #528ff1; letter-spacing: 2px; }
+.b-right { font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<section class="slide" style="width:1920px;height:1080px;overflow:hidden;position:relative;">
+  <div class="bg-texture"></div>
+  <div class="left-bar"></div>
+  <div class="top-border"></div>
+  <div class="logo-wrap"><img src="/home/user/afrovision-materials/investor-pitch.html-slides/assets/logo.png" alt="AfroVision"/></div>
+  <div class="slide-label">02 / 10</div>
+  <div class="left-col">
+    <div class="section-tag">The Problem</div>
+    <div class="heading">Africa's Female Talent Gap</div>
+    <div class="divider"></div>
+    <div class="body-text">Africa has millions of ambitious, intelligent young women with business instincts — but no elite platform to identify, stress-test, and elevate them at scale.<br/><br/>Existing reality formats reward popularity, not execution. They create fans, not founders. The infrastructure to discover the continent's next generation of women-led businesses simply does not exist.</div>
+  </div>
+  <div class="right-col">
+    <div class="stat-card">
+      <div class="stat-card-num">60%</div>
+      <div class="stat-card-label">of African SMEs are led by women</div>
+      <div class="stat-card-sub">Yet fewer than 10% access formal mentorship or structured business development programs</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-num">1.4B+</div>
+      <div class="stat-card-label">People on the African continent</div>
+      <div class="stat-card-sub">A rapidly growing consumer and creator market — with appetite for content that reflects their ambition</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-num">Zero</div>
+      <div class="stat-card-label">Elite business reality formats for African women</div>
+      <div class="stat-card-sub">No show currently bridges entertainment, female empowerment, and business execution at this level</div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <div class="b-left">AfroVision Challenge: The Amazons</div>
+    <div class="b-right">Confidential — For Investor Review</div>
+  </div>
+</section>
+</body>
+</html>

@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:developer';
 
 import '../../../core/api/api_service.dart';
 import '../../../core/services/section_cache.dart';
+import '../../vod/models/movie_model.dart';
 
 class ChannelMovie {
   final String id;
@@ -11,11 +13,15 @@ class ChannelMovie {
   final String? posterUrl;
   final String? hostedUrl;
   final String? externalUrl;
+  final String? hlsUrl;
+  final String? embedUrl;
   final String videoSourceMode;
+  final bool downloadable;
   final String status;
   final String ageClassification;
   final int duration;
   final int totalViews;
+  final int? releaseDate;
   final int? publishedAt;
   final int? createdAt;
 
@@ -27,16 +33,28 @@ class ChannelMovie {
     this.posterUrl,
     this.hostedUrl,
     this.externalUrl,
+    this.hlsUrl,
+    this.embedUrl,
     this.videoSourceMode = 'hosted',
+    this.downloadable = false,
     this.status = 'draft',
     this.ageClassification = 'teen',
     this.duration = 0,
     this.totalViews = 0,
+    this.releaseDate,
     this.publishedAt,
     this.createdAt,
   });
 
   factory ChannelMovie.fromJson(Map<String, dynamic> json) {
+    final rawDl = json['downloadable'];
+    final downloadable = rawDl is bool
+        ? rawDl
+        : rawDl is num
+            ? rawDl != 0
+            : rawDl is String
+                ? (rawDl.toLowerCase() == 'true' || rawDl == '1')
+                : false;
     return ChannelMovie(
       id: json['id'] ?? '',
       channelId: json['channel_id'] ?? '',
@@ -45,11 +63,15 @@ class ChannelMovie {
       posterUrl: json['poster_url'],
       hostedUrl: json['hosted_url'],
       externalUrl: json['external_url'],
+      hlsUrl: json['hls_url'],
+      embedUrl: json['embed_url'],
       videoSourceMode: json['video_source_mode'] ?? 'hosted',
+      downloadable: downloadable,
       status: json['status'] ?? 'draft',
       ageClassification: json['age_classification'] ?? 'teen',
       duration: (json['duration'] as num?)?.toInt() ?? 0,
       totalViews: (json['total_views'] as num?)?.toInt() ?? 0,
+      releaseDate: (json['release_date'] as num?)?.toInt(),
       publishedAt: json['published_at'] is int
           ? json['published_at']
           : (json['published_at'] as num?)?.toInt(),
@@ -60,11 +82,43 @@ class ChannelMovie {
   }
 
   String? get playableUrl {
-    if (videoSourceMode == 'external_url') return externalUrl;
-    return hostedUrl;
+    switch (videoSourceMode) {
+      case 'hls':
+        return hlsUrl ?? hostedUrl;
+      case 'external_url':
+        return externalUrl ?? hostedUrl;
+      case 'embed':
+        return embedUrl ?? hostedUrl;
+      case 'hosted':
+      default:
+        return hostedUrl ?? hlsUrl ?? externalUrl;
+    }
   }
 
   bool get hasVideo => playableUrl != null && playableUrl!.isNotEmpty;
+
+  MovieModel toMovieModel({String? fallbackChannelId}) {
+    return MovieModel(
+      id: id,
+      channelId: channelId.isNotEmpty ? channelId : (fallbackChannelId ?? ''),
+      title: title,
+      synopsis: synopsis.isNotEmpty ? synopsis : null,
+      posterUrl: posterUrl,
+      releaseDate: releaseDate,
+      ageClassification: ageClassification,
+      videoSourceMode: videoSourceMode,
+      hostedUrl: hostedUrl,
+      externalUrl: externalUrl,
+      embedUrl: embedUrl,
+      hlsUrl: hlsUrl,
+      downloadable: downloadable,
+      duration: duration,
+      status: status,
+      publishedAt: publishedAt,
+      createdAt: createdAt ?? 0,
+      totalViews: totalViews,
+    );
+  }
 }
 
 class ChannelSeries {
@@ -117,8 +171,13 @@ class ChannelEpisode {
   final String? videoUrl;
   final String? hostedUrl;
   final String? publicUrl;
+  final String? externalUrl;
+  final String? hlsUrl;
+  final String? embedUrl;
+  final String videoSourceMode;
   final int duration;
   final int? createdAt;
+  final String status;
 
   ChannelEpisode({
     required this.id,
@@ -128,8 +187,13 @@ class ChannelEpisode {
     this.videoUrl,
     this.hostedUrl,
     this.publicUrl,
+    this.externalUrl,
+    this.hlsUrl,
+    this.embedUrl,
+    this.videoSourceMode = 'hosted',
     this.duration = 0,
     this.createdAt,
+    this.status = 'draft',
   });
 
   factory ChannelEpisode.fromJson(Map<String, dynamic> json) {
@@ -141,18 +205,45 @@ class ChannelEpisode {
       videoUrl: json['video_url']?.toString(),
       hostedUrl: json['hosted_url']?.toString(),
       publicUrl: json['public_url']?.toString(),
+      externalUrl: json['external_url']?.toString(),
+      hlsUrl: json['hls_url']?.toString(),
+      embedUrl: json['embed_url']?.toString(),
+      videoSourceMode: _asString(json['video_source_mode'], fallback: 'hosted'),
       duration: (json['duration'] as num?)?.toInt() ?? 0,
       createdAt: json['created_at'] is int
           ? json['created_at']
           : (json['created_at'] as num?)?.toInt(),
+      status: _asString(json['status'], fallback: 'draft'),
     );
   }
 
+  /// Best public playback URL for this episode, resolved by video source mode.
+  ///
+  /// Mirrors the same resolution logic used by [ChannelMovie] and
+  /// [EpisodeModel] so that episodes served via `external_url`, `hls`, or
+  /// `embed` are not treated as missing video on the mobile client.
   String? get playableUrl {
-    return videoUrl ?? hostedUrl ?? publicUrl;
+    switch (videoSourceMode) {
+      case 'external_url':
+        return externalUrl;
+      case 'hls':
+        return hlsUrl;
+      case 'embed':
+        return embedUrl;
+      case 'hosted':
+      default:
+        return videoUrl ?? hostedUrl ?? publicUrl;
+    }
   }
 
   bool get hasVideo => playableUrl != null && playableUrl!.isNotEmpty;
+
+  bool get isPublished => status == 'published';
+}
+
+String _asString(dynamic value, {String fallback = ''}) {
+  if (value == null) return fallback;
+  return value.toString();
 }
 
 class ChannelSeason {
@@ -332,9 +423,18 @@ class ChannelContentService {
       final data = await ApiService.get('/channels/$channelId/series/$seriesId');
       final root = data['data'] as Map<String, dynamic>? ?? data;
       final rawSeries = root['series'] ?? root;
-      if (rawSeries is! Map<String, dynamic>) return null;
+      if (rawSeries is! Map<String, dynamic>) {
+        log('[ChannelContentService] getSeriesDetail: series payload is not a map',
+            name: 'ChannelContentService');
+        return null;
+      }
       return ChannelSeriesDetail.fromJson(rawSeries);
-    } catch (e) {
+    } catch (e, s) {
+      log('[ChannelContentService] getSeriesDetail failed for '
+          'channelId=$channelId seriesId=$seriesId: $e',
+          name: 'ChannelContentService',
+          error: e,
+          stackTrace: s);
       return null;
     }
   }

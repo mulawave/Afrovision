@@ -168,6 +168,15 @@ interface ApiService {
     @GET("/catchup/detail")
     suspend fun getCatchUpDetail(@Query("type") type: String, @Query("id") id: String): CatchUpDetailResponse
 
+    @GET("/catchup/detail")
+    suspend fun getCatchUpDetailByTitle(@Query("type") type: String, @Query("title") title: String): CatchUpDetailResponse
+
+    @POST("/channels/{id}/view")
+    suspend fun recordChannelView(@Path("id") id: String, @Body body: Map<String, String>)
+
+    @POST("/channels/{id}/watch-ping")
+    suspend fun recordWatchPing(@Path("id") id: String, @Body body: com.afrovision.tv.data.api.model.WatchPingRequest)
+
     @GET("/users/me")
     suspend fun getProfile(): com.afrovision.tv.data.api.model.UserProfileResponse
 
@@ -273,6 +282,11 @@ interface ApiService {
 
     @GET("/movies/{movieId}")
     suspend fun getMovie(@Path("movieId") movieId: String): com.afrovision.tv.data.api.model.MovieDetailResponse
+
+    @GET("/series/{seriesId}")
+    suspend fun getSeriesById(
+        @Path("seriesId") seriesId: String
+    ): com.afrovision.tv.data.api.model.SeriesDetailResponse
 
     @GET("/channels/{channelId}/series/{seriesId}")
     suspend fun getSeriesDetail(

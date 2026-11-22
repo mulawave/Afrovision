@@ -28,9 +28,12 @@ import com.afrovision.tv.data.api.model.Series
 import com.afrovision.tv.data.api.model.Wave
 import com.afrovision.tv.data.api.model.WatchProgress
 import com.afrovision.tv.ui.components.HeroSlide
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -228,6 +231,12 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     var selectedCatchUpItem by mutableStateOf<CatchUpItem?>(null)
         private set
 
+    var selectedMediaTmdb by mutableStateOf<CatchUpItem?>(null)
+        private set
+
+    private val tmdbTitleCache = mutableMapOf<String, CatchUpItem>()
+    private val activeDownloadJobs = mutableMapOf<String, Job>()
+
     var profile by mutableStateOf(ProfileState())
         private set
 
@@ -344,6 +353,11 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showPlayer(media: PlayerMedia) {
+        // Always put last viewed live channel first from the left on Home.
+        if (media.isLive && media.id.isNotBlank()) {
+            val ch = findChannel(media.id)
+            recordRecentChannelNow(media.id, media.title, ch?.posterUrl)
+        }
         if (currentScreen != com.afrovision.tv.ui.navigation.Screen.Player) {
             screenBeforePlayer = currentScreen
         }
@@ -379,6 +393,93 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         return token.isBlank() || jwtKind(token) == "tv_device"
     }
 
+    fun refreshContinueWatching() {
+        viewModelScope.launch {
+            try {
+                val r = if (usesDeviceAuth()) api.getTvWatchProgress() else api.getWatchProgress()
+                val moviesById = (moviesSeries.movies as? LoadState.Success)?.data?.associateBy { it.id }.orEmpty()
+                val cards = r.data.items.map { wp ->
+                    val movie = if (wp.mediaType == "movie") moviesById[wp.movieId] else null
+                    if (movie != null) wp.toMediaCard(movie) else wp.toMediaCard()
+                }
+                homeState = homeState.copy(continueWatching = LoadState.Success(cards))
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "refreshContinueWatching failed", e)
+            }
+        }
+    }
+
+    fun recordChannelView(channelId: String) {
+        if (channelId.isBlank()) return
+        viewModelScope.launch {
+            runCatching { api.recordChannelView(channelId, mapOf("platform" to "tv")) }
+        }
+    }
+
+    fun recordWatchPing(channelId: String, seconds: Int) {
+        if (channelId.isBlank() || seconds <= 0) return
+        viewModelScope.launch {
+            runCatching {
+                api.recordWatchPing(
+                    channelId,
+                    com.afrovision.tv.data.api.model.WatchPingRequest(seconds = seconds, platform = "tv")
+                )
+            }
+        }
+    }
+
+    /**
+     * Resolves a Continue Watching card (movie or episode) even when its
+     * streamUrl wasn't included in /watch-progress/me, and resumes playback
+     * at the saved position.
+     */
+    fun playContinueWatching(card: MediaCard) {
+        val savedMs = (card.progress * card.duration).toLong().coerceAtLeast(0L)
+        if (!card.streamUrl.isNullOrBlank() || !card.externalUrl.isNullOrBlank()) {
+            play(card.toPlayerMedia().copy(progress = savedMs))
+            return
+        }
+        viewModelScope.launch {
+            try {
+                if (card.mediaType == "movie") {
+                    val cached = (moviesSeries.movies as? LoadState.Success)?.data?.firstOrNull { it.id == card.id }
+                        ?: (exclusiveMovies as? LoadState.Success)?.data?.firstOrNull { it.id == card.id }
+                    val movie = cached ?: runCatching { api.getMovie(card.id).data.movie }.getOrNull()
+                    if (movie != null) {
+                        play(movie.toMediaCard().toPlayerMedia().copy(progress = savedMs))
+                        return@launch
+                    }
+                } else if (card.mediaType == "episode") {
+                    val chId = card.channelId
+                    val sId = card.seriesId
+                    if (!chId.isNullOrBlank() && !sId.isNullOrBlank()) {
+                        val ep = runCatching { api.getEpisode(chId, sId, card.id).data.episode }.getOrNull()
+                        if (ep != null && !ep.streamUrl.isNullOrBlank()) {
+                            play(
+                                PlayerMedia(
+                                    id = ep.id,
+                                    title = "${card.title} · ${ep.title}",
+                                    streamUrl = ep.streamUrl,
+                                    externalUrl = ep.externalUrl,
+                                    isLive = false,
+                                    progress = savedMs,
+                                    duration = (ep.duration ?: 0) * 1000L,
+                                    mediaType = "episode",
+                                    channelId = chId,
+                                    seriesId = sId
+                                )
+                            )
+                            return@launch
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "playContinueWatching failed for ${card.id}", e)
+            }
+            play(card.toPlayerMedia().copy(progress = savedMs))
+        }
+    }
+
     /**
      * Records playback position for Continue Watching. Only movies and
      * episodes are tracked (the backend rejects other types). Failures are
@@ -387,6 +488,33 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun saveWatchProgress(media: PlayerMedia, positionMs: Long, durationMs: Long) {
         if (media.mediaType != "movie" && media.mediaType != "episode") return
         if (durationMs <= 0 || positionMs < 0) return
+
+        // Update local Continue Watching rail immediately so Home, Movies &
+        // Series, and Waves reflect the latest progress right away.
+        val pct = (positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+        val existingList = (homeState.continueWatching as? LoadState.Success)?.data.orEmpty()
+        val existingCard = existingList.firstOrNull { it.id == media.id }
+        val updatedCard = existingCard?.copy(
+            progress = pct,
+            duration = durationMs,
+            streamUrl = media.streamUrl ?: existingCard.streamUrl
+        ) ?: MediaCard(
+            id = media.id,
+            title = media.title,
+            mediaType = media.mediaType,
+            streamUrl = media.streamUrl,
+            externalUrl = media.externalUrl,
+            progress = pct,
+            duration = durationMs,
+            channelId = media.channelId,
+            seriesId = media.seriesId
+        )
+        homeState = homeState.copy(
+            continueWatching = LoadState.Success(
+                (listOf(updatedCard) + existingList.filterNot { it.id == media.id }).take(20)
+            )
+        )
+
         val body = com.afrovision.tv.data.api.model.WatchProgressUpdate(
             positionSeconds = positionMs / 1000,
             durationSeconds = durationMs / 1000
@@ -409,17 +537,27 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         null
     }
 
+    fun recordRecentChannelNow(id: String, name: String, logoUrl: String?) {
+        if (id.isBlank()) return
+        val now = System.currentTimeMillis()
+        val entry = RecentChannel(id = id, name = name, logoUrl = logoUrl, viewedAt = now)
+        val currentCards = (homeState.recentChannels as? LoadState.Success)?.data.orEmpty()
+        val card = MediaCard(
+            id = id,
+            title = name,
+            subtitle = "Recently watched",
+            imageUrl = logoUrl,
+            badge = "LIVE",
+            mediaType = "channel",
+            channelId = id
+        )
+        val updatedCards = (listOf(card) + currentCards.filterNot { it.id == id }).take(20)
+        homeState = homeState.copy(recentChannels = LoadState.Success(updatedCards))
+        viewModelScope.launch { dataStore.recordRecentChannel(entry) }
+    }
+
     fun playChannel(card: MediaCard) {
-        viewModelScope.launch {
-            dataStore.recordRecentChannel(
-                RecentChannel(
-                    id = card.id,
-                    name = card.title,
-                    logoUrl = card.imageUrl,
-                    viewedAt = System.currentTimeMillis()
-                )
-            )
-        }
+        recordRecentChannelNow(card.id, card.title, card.imageUrl)
         if (!card.streamUrl.isNullOrBlank() || !card.externalUrl.isNullOrBlank()) {
             play(card.toPlayerMedia())
             return
@@ -435,7 +573,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val fetched = findChannelCached(card.id) ?: try {
-                api.getChannels(mapOf("live" to "true")).channels.firstOrNull { it.id == card.id }
+                api.getChannels(emptyMap()).channels.firstOrNull { it.id == card.id }
             } catch (e: Exception) {
                 Log.w(TV_APP_TAG, "Looking up channel ${card.id} failed", e)
                 null
@@ -603,7 +741,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             } }
 
             val liveResultAsync = async { try {
-                val r = api.getChannels(mapOf("live" to "true"))
+                val r = api.getChannels(emptyMap())
                 Log.d(TV_APP_TAG, "Home /channels?live=true: ${r.channels.size} items")
                 r
             } catch (e: Exception) {
@@ -672,7 +810,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 continueWatching = if (progressResult != null) LoadState.Success(continueCards) else LoadState.Error("Failed"),
                 recentChannels = LoadState.Success(recentChannelList),
                 featuredChannels = LoadState.Success(homepageResult.third),
-                liveChannels = if (liveResult != null) LoadState.Success(liveResult.channels.filter { !it.isExclusive && !it.isKnownBroken }) else LoadState.Error("Failed"),
+                liveChannels = if (liveResult != null) LoadState.Success(liveResult.channels.filter { !it.isExclusive }) else LoadState.Error("Failed"),
                 newMovies = if (moviesResult != null) LoadState.Success(moviesResult.movies) else LoadState.Error("Failed"),
                 newSeries = if (seriesResult != null) LoadState.Success(seriesResult.series) else LoadState.Error("Failed"),
                 waves = if (wavesResult != null) LoadState.Success(wavesResult.data.filterNot { it.isExclusive }) else LoadState.Error("Failed"),
@@ -700,11 +838,11 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             val cached = if (liveChannels !is LoadState.Success) {
                 apiCache.read(CACHE_CHANNELS, ChannelListResponse.serializer())
             } else null
-            if (cached != null) liveChannels = LoadState.Success(cached.channels.filterNot { it.isKnownBroken })
+            if (cached != null) liveChannels = LoadState.Success(cached.channels.filter { !it.isExclusive })
             else if (liveChannels !is LoadState.Success) liveChannels = LoadState.Loading
             try {
-                val response = api.getChannels(mapOf("live" to "true"))
-                liveChannels = LoadState.Success(response.channels.filterNot { it.isKnownBroken })
+                val response = api.getChannels(emptyMap())
+                liveChannels = LoadState.Success(response.channels.filter { !it.isExclusive })
                 apiCache.write(CACHE_CHANNELS, ChannelListResponse.serializer(), response)
             } catch (e: Exception) {
                 // Keep showing what we have; only surface an error if nothing loaded.
@@ -722,13 +860,13 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         val series = if (state.newSeries !is LoadState.Success) apiCache.read(CACHE_SERIES, SeriesListResponse.serializer()) else null
         val library = if (state.library !is LoadState.Success) apiCache.read(CACHE_LIBRARY_FEED, LibraryFeedResponse.serializer()) else null
         homeState = homeState.copy(
-            liveChannels = channels?.let { LoadState.Success(it.channels.filter { c -> !c.isExclusive && !c.isKnownBroken }) } ?: homeState.liveChannels,
+            liveChannels = channels?.let { LoadState.Success(it.channels.filter { c -> !c.isExclusive }) } ?: homeState.liveChannels,
             newMovies = movies?.let { LoadState.Success(it.movies) } ?: homeState.newMovies,
             newSeries = series?.let { LoadState.Success(it.series) } ?: homeState.newSeries,
             library = library?.let { LoadState.Success(it.data.items) } ?: homeState.library
         )
         if (liveChannels !is LoadState.Success && channels != null) {
-            liveChannels = LoadState.Success(channels.channels.filterNot { it.isKnownBroken })
+            liveChannels = LoadState.Success(channels.channels.filter { !it.isExclusive })
         }
     }
 
@@ -738,6 +876,25 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     // whether more exist; the Waves screen calls loadMoreWaves() as the
     // user approaches the end of what's currently loaded, appending rather
     // than replacing, and only wraps back to the start once this is null.
+    var watchedWaveIds by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    fun markWaveWatched(waveId: String) {
+        if (waveId.isBlank() || watchedWaveIds.contains(waveId)) return
+        watchedWaveIds = watchedWaveIds + waveId
+        viewModelScope.launch { dataStore.markWaveWatched(waveId) }
+    }
+
+    fun clearWatchedWaves() {
+        watchedWaveIds = emptySet()
+        viewModelScope.launch { dataStore.clearWatchedWaves() }
+    }
+
+
+    fun setNetworkProfile(value: String) {
+        settings = settings.copy(networkProfile = value)
+        viewModelScope.launch { dataStore.setNetworkProfile(value) }
+    }
     var wavesNextCursor by mutableStateOf<String?>(null)
         private set
     var wavesLoadingMore by mutableStateOf(false)
@@ -761,9 +918,19 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             waves = LoadState.Loading
             waves = try {
-                val response = api.getWaves(mapOf("limit" to "24"))
+                val query = mutableMapOf("limit" to "24")
+                if (watchedWaveIds.isNotEmpty()) {
+                    query["exclude_ids"] = watchedWaveIds.toList().takeLast(160).joinToString(",")
+                }
+                var response = api.getWaves(query)
+                var list = response.waves.ifEmpty { response.data }.filterNot { it.isExclusive }
+                // If every wave has already been watched, fall back to the full feed.
+                if (list.isEmpty() && watchedWaveIds.isNotEmpty()) {
+                    response = api.getWaves(mapOf("limit" to "24"))
+                    list = response.waves.ifEmpty { response.data }.filterNot { it.isExclusive }
+                }
                 wavesNextCursor = response.nextCursor
-                LoadState.Success(response.waves.ifEmpty { response.data }.filterNot { it.isExclusive })
+                LoadState.Success(list)
             } catch (e: Exception) {
                 LoadState.Error(e.toUserFacingMessage())
             }
@@ -777,20 +944,11 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         wavesLoadingMore = true
         viewModelScope.launch {
             try {
-                // /wave/feed is a "novel" discovery feed, not a strict
-                // chronological list - its diversity/novelty ranking can
-                // legitimately resurface the same waves on a later page if
-                // it doesn't know what's already been shown. exclude_ids is
-                // the mechanism the backend actually exposes for this
-                // (parseExcludeIdsFromQuery, capped at 160): without it,
-                // "page 2" kept coming back full of waves already in
-                // `current`, which the client-side dedupe below then
-                // silently dropped - net near-zero new waves added, so
-                // pagination looked broken even though the calls succeeded.
                 val existingIds = current.map { it.id }
+                val excludePool = (existingIds + watchedWaveIds).distinct()
                 val query = mutableMapOf("limit" to "24", "cursor" to cursor)
-                if (existingIds.isNotEmpty()) {
-                    query["exclude_ids"] = existingIds.takeLast(160).joinToString(",")
+                if (excludePool.isNotEmpty()) {
+                    query["exclude_ids"] = excludePool.takeLast(160).joinToString(",")
                 }
                 val response = api.getWaves(query)
                 val more = response.waves.ifEmpty { response.data }.filterNot { it.isExclusive }
@@ -902,26 +1060,79 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     // selectedMovie/selectedSeries themselves already existed (unused,
     // alongside the equally-unused Screen.MovieDetail/SeriesDetail enum
     // entries) - this is what they were for.
-    fun selectMovie(movie: Movie) { selectedMovie = movie }
-    fun clearSelectedMovie() { selectedMovie = null }
+    fun selectMovie(movie: Movie) {
+        selectedMovie = movie
+        lookupTmdbForSelected(type = "movie", rawTitle = movie.title)
+    }
+    fun clearSelectedMovie() {
+        selectedMovie = null
+        selectedMediaTmdb = null
+    }
     // List endpoints return series without seasons, so the detail sheet
     // could never offer "Play S1E1". Show the sheet at once, then swap in
     // the channel-scoped detail (seasons + episodes) when it arrives. If
     // that fails (e.g. exclusive channel, no access) the list item stays.
     fun selectSeries(series: Series) {
         selectedSeries = series
-        val channelId = series.channelId ?: return
+        lookupTmdbForSelected(type = "series", rawTitle = series.title)
         if (series.seasons.any { it.episodes.isNotEmpty() }) return
         viewModelScope.launch {
-            try {
-                val detail = api.getSeriesDetail(channelId, series.id).data.series ?: return@launch
-                if (selectedSeries?.id == series.id) selectedSeries = detail
-            } catch (e: Exception) {
-                Log.w(TV_APP_TAG, "Series detail for ${series.id} failed", e)
+            var detail: Series? = null
+            val channelId = series.channelId
+            if (!channelId.isNullOrBlank()) {
+                detail = runCatching {
+                    api.getSeriesDetail(channelId, series.id).data.series
+                }.getOrNull()
+            }
+            if (detail == null || detail.seasons.isEmpty()) {
+                detail = runCatching {
+                    api.getSeriesById(series.id).data.series
+                }.getOrNull() ?: detail
+            }
+            if (detail != null && selectedSeries?.id == series.id) {
+                selectedSeries = if (detail.channelId.isNullOrBlank() && !channelId.isNullOrBlank()) {
+                    detail.copy(channelId = channelId)
+                } else {
+                    detail
+                }
             }
         }
     }
-    fun clearSelectedSeries() { selectedSeries = null }
+    fun clearSelectedSeries() {
+        selectedSeries = null
+        selectedMediaTmdb = null
+    }
+
+    private fun lookupTmdbForSelected(type: String, rawTitle: String) {
+        val clean = rawTitle
+            .replace(Regex("\\b(season|s)\\s*\\d+.*$", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\(\\d{4}\\)"), "")
+            .trim()
+        if (clean.isEmpty()) {
+            selectedMediaTmdb = null
+            return
+        }
+        val key = "$type:${clean.lowercase()}"
+        val cached = tmdbTitleCache[key]
+        if (cached != null) {
+            selectedMediaTmdb = cached
+            return
+        }
+        selectedMediaTmdb = null
+        viewModelScope.launch {
+            try {
+                val detail = api.getCatchUpDetailByTitle(type = type, title = clean).data
+                if (detail.title.isNotBlank()) {
+                    tmdbTitleCache[key] = detail
+                    if (selectedMovie?.title == rawTitle || selectedSeries?.title == rawTitle) {
+                        selectedMediaTmdb = detail
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TV_APP_TAG, "TMDB lookup skipped/unavailable for $clean: ${e.message}")
+            }
+        }
+    }
 
     fun loadMoviesSeries() {
         viewModelScope.launch {
@@ -1314,7 +1525,9 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val series = exclusiveChannelIds.flatMap { channelId ->
                     try {
-                        api.getExclusiveChannelSeries(channelId).data.series
+                        api.getExclusiveChannelSeries(channelId).data.series.map { s ->
+                            if (s.channelId.isNullOrBlank()) s.copy(channelId = channelId) else s
+                        }
                     } catch (e: Exception) {
                         Log.e(TV_APP_TAG, "exclusive series failed for $channelId", e)
                         emptyList()
@@ -1786,6 +1999,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadSettings() {
+        viewModelScope.launch { try { watchedWaveIds = dataStore.watchedWaveIds.first() } catch (_: Exception) {} }
         viewModelScope.launch {
             settings = SettingsState(
                 defaultQuality = dataStore.defaultQuality.first(),
@@ -1834,9 +2048,153 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         updateSettings(settings.copy(soundVolume = volume))
     }
 
+    private fun downloadsDir(): File =
+        File(getApplication<Application>().filesDir, "downloads").apply { mkdirs() }
+
+    fun getLocalDownloadPath(id: String): String? {
+        val file = File(downloadsDir(), "$id.mp4")
+        return if (file.exists() && file.length() > 1024L) file.absolutePath else null
+    }
+
     fun loadDownloads() {
-        // Populated by the download tracker; placeholder for now.
-        downloads = emptyList()
+        val dir = downloadsDir()
+        val existingActive = downloads.filter { !it.completed && it.status == "downloading" }
+        val completedFiles = dir.listFiles { f -> f.isFile && f.extension == "mp4" && f.length() > 1024L }
+            ?.map { file ->
+                val id = file.nameWithoutExtension
+                val existing = downloads.firstOrNull { it.id == id }
+                DownloadItem(
+                    id = id,
+                    title = existing?.title ?: id,
+                    mediaType = existing?.mediaType ?: "movie",
+                    progress = 1f,
+                    completed = true,
+                    localPath = file.absolutePath,
+                    status = "completed"
+                )
+            } ?: emptyList()
+        val merged = (existingActive + completedFiles.filter { c -> existingActive.none { it.id == c.id } })
+        downloads = merged
+    }
+
+    fun startDownload(id: String, title: String, mediaType: String, streamUrl: String) {
+        if (id.isBlank() || streamUrl.isBlank()) return
+        if (activeDownloadJobs[id]?.isActive == true) return
+        val existingLocal = getLocalDownloadPath(id)
+        if (existingLocal != null) {
+            loadDownloads()
+            return
+        }
+
+        val temp = File(downloadsDir(), "$id.mp4.part")
+        val existingBytes = if (temp.exists()) temp.length() else 0L
+        val initial = DownloadItem(
+            id = id,
+            title = title,
+            mediaType = mediaType,
+            progress = 0f,
+            completed = false,
+            localPath = null,
+            status = "downloading",
+            streamUrl = streamUrl,
+            bytesDownloaded = existingBytes
+        )
+        downloads = listOf(initial) + downloads.filterNot { it.id == id }
+
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            val target = File(downloadsDir(), "$id.mp4")
+            try {
+                val client = okhttp3.OkHttpClient.Builder().build()
+                val reqBuilder = okhttp3.Request.Builder().url(streamUrl)
+                val resumeFrom = if (temp.exists() && temp.length() > 0L) temp.length() else 0L
+                if (resumeFrom > 0L) {
+                    reqBuilder.addHeader("Range", "bytes=$resumeFrom-")
+                }
+                client.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (!resp.isSuccessful && resp.code != 206) {
+                        throw IllegalStateException("HTTP ${resp.code}")
+                    }
+                    val body = resp.body ?: throw IllegalStateException("Empty body")
+                    val appendMode = resp.code == 206 && resumeFrom > 0L
+                    val baseOffset = if (appendMode) resumeFrom else 0L
+                    val remainingBytes = body.contentLength().coerceAtLeast(0L)
+                    val totalBytes = if (remainingBytes > 0L) baseOffset + remainingBytes else 0L
+                    var downloadedBytes = baseOffset
+                    var lastReport = 0L
+                    body.byteStream().use { input ->
+                        java.io.FileOutputStream(temp, appendMode).use { output ->
+                            val buf = ByteArray(32 * 1024)
+                            while (true) {
+                                val read = input.read(buf)
+                                if (read < 0) break
+                                output.write(buf, 0, read)
+                                downloadedBytes += read
+                                val now = System.currentTimeMillis()
+                                if (now - lastReport > 350L) {
+                                    lastReport = now
+                                    val pct = if (totalBytes > 0L) {
+                                        (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 0.99f)
+                                    } else 0f
+                                    withContext(Dispatchers.Main) {
+                                        downloads = downloads.map {
+                                            if (it.id == id) {
+                                                it.copy(
+                                                    progress = pct,
+                                                    status = "downloading",
+                                                    bytesDownloaded = downloadedBytes,
+                                                    totalBytes = totalBytes
+                                                )
+                                            } else it
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (temp.exists()) temp.renameTo(target)
+                    withContext(Dispatchers.Main) {
+                        downloads = downloads.map {
+                            if (it.id == id) {
+                                it.copy(
+                                    progress = 1f,
+                                    completed = true,
+                                    localPath = target.absolutePath,
+                                    status = "completed",
+                                    bytesDownloaded = target.length(),
+                                    totalBytes = target.length()
+                                )
+                            } else it
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TV_APP_TAG, "Download failed for $id", e)
+                withContext(Dispatchers.Main) {
+                    downloads = downloads.map {
+                        if (it.id == id) it.copy(status = "failed") else it
+                    }
+                }
+            } finally {
+                activeDownloadJobs.remove(id)
+            }
+        }
+        activeDownloadJobs[id] = job
+    }
+
+    fun pauseDownload(id: String) {
+        activeDownloadJobs[id]?.cancel()
+        activeDownloadJobs.remove(id)
+        downloads = downloads.map {
+            if (it.id == id && !it.completed) it.copy(status = "paused") else it
+        }
+    }
+
+    fun resumeDownload(id: String) {
+        val item = downloads.firstOrNull { it.id == id } ?: return
+        val url = item.streamUrl ?: return
+        startDownload(item.id, item.title, item.mediaType, url)
     }
 
     fun addDownload(item: DownloadItem) {
@@ -1844,6 +2202,10 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun removeDownload(id: String) {
+        activeDownloadJobs[id]?.cancel()
+        activeDownloadJobs.remove(id)
+        File(downloadsDir(), "$id.mp4").delete()
+        File(downloadsDir(), "$id.mp4.part").delete()
         downloads = downloads.filter { it.id != id }
     }
 
@@ -2006,7 +2368,10 @@ data class DownloadItem(
     val progress: Float = 0f,
     val completed: Boolean = false,
     val localPath: String? = null,
-    val status: String = "completed"
+    val status: String = "completed",
+    val streamUrl: String? = null,
+    val bytesDownloaded: Long = 0L,
+    val totalBytes: Long = 0L
 )
 
 /** How long TvViewModel.search() reuses its fetched catalog before refetching. */

@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart' as vp;
 import '../../../core/media/afrovision_video_controller.dart';
 import '../../../core/media/playback_focus.dart';
 import '../../../core/services/player_settings_service.dart';
+import '../services/vod_stream_proxy.dart';
 
 /// Simplified, VOD-focused player that reuses the channel [AfrovisionVideoController]
 /// and the validated [MpvBufferConfig] VOD profile.
@@ -31,6 +32,7 @@ class VodPlayerController extends ChangeNotifier {
   String? _activeSource;
   bool _legacyHasError = false;
   String? _legacyErrorMessage;
+  String? _proxySessionId;
 
   VoidCallback? onCompleted;
   bool _legacyCompletedFired = false;
@@ -48,6 +50,29 @@ class VodPlayerController extends ChangeNotifier {
       _useMediaKit ? (_controller?.value.position ?? Duration.zero) : (_legacyController?.value.position ?? Duration.zero);
   Duration get duration =>
       _useMediaKit ? (_controller?.value.duration ?? Duration.zero) : (_legacyController?.value.duration ?? Duration.zero);
+
+  /// Furthest buffered-ahead playback position combining player buffer ranges
+  /// and our local read-ahead proxy cache.
+  Duration get bufferedPosition {
+    Duration playerBuf = Duration.zero;
+    if (_useMediaKit) {
+      playerBuf = _controller?.player?.state.buffer ?? Duration.zero;
+    } else {
+      final ranges = _legacyController?.value.buffered ?? const <vp.DurationRange>[];
+      if (ranges.isNotEmpty) {
+        playerBuf = ranges.last.end;
+      }
+    }
+    final dur = duration;
+    if (_proxySessionId != null && dur > Duration.zero) {
+      final frac = VodStreamProxy.instance.bufferedFraction(_proxySessionId);
+      if (frac > 0) {
+        final proxyBuf = Duration(milliseconds: (dur.inMilliseconds * frac).round());
+        if (proxyBuf > playerBuf) return proxyBuf > dur ? dur : proxyBuf;
+      }
+    }
+    return playerBuf;
+  }
   double get aspectRatio {
     if (_useMediaKit) {
       final value = _controller?.value;
@@ -97,7 +122,11 @@ class VodPlayerController extends ChangeNotifier {
 
     await PlayerSettingsService.instance.initialize();
     final settings = PlayerSettingsService.instance.current;
-    _useMediaKit = settings.useMediaKit;
+    // On Android VOD (movies/episodes), prefer Android's native ExoPlayer
+    // (`video_player`) first because Unisoc/Mali chipsets (e.g. itel S686LN)
+    // can render a black surface under MPV direct textures while playing audio.
+    // If ExoPlayer fails for an exotic codec/container, fall back to media_kit.
+    _useMediaKit = Platform.isAndroid ? false : settings.useMediaKit;
     final bps = userHlsBps ?? settings.quality.bps;
 
     try {
@@ -114,6 +143,20 @@ class VodPlayerController extends ChangeNotifier {
           localFilePath: localFilePath,
           startPositionSeconds: startPositionSeconds,
         );
+        if (_legacyHasError && !_disposed) {
+          debugPrint('[VodPlayerController] ExoPlayer failed ($_legacyErrorMessage), falling back to media_kit');
+          await _legacyController?.dispose();
+          _legacyController = null;
+          _legacyHasError = false;
+          _legacyErrorMessage = null;
+          _useMediaKit = true;
+          await _initMediaKit(
+            videoUrl: videoUrl,
+            localFilePath: localFilePath,
+            startPositionSeconds: startPositionSeconds,
+            userHlsBps: bps,
+          );
+        }
       }
     } catch (e) {
       debugPrint('[VodPlayerController] Initialize error: $e');
@@ -166,9 +209,21 @@ class VodPlayerController extends ChangeNotifier {
     _legacyErrorMessage = null;
     _legacyCompletedFired = false;
 
+    String? effectiveUrl = videoUrl;
+    if (localFilePath == null && VodStreamProxy.isEligibleUrl(videoUrl)) {
+      try {
+        final reg = await VodStreamProxy.instance.register(videoUrl!);
+        _proxySessionId = reg.sessionId;
+        effectiveUrl = reg.localUrl;
+        debugPrint('[VodPlayerController] Streaming via read-ahead proxy: $effectiveUrl');
+      } catch (e) {
+        debugPrint('[VodPlayerController] Proxy setup skipped: $e');
+      }
+    }
+
     final controller = localFilePath != null
         ? vp.VideoPlayerController.file(File(localFilePath))
-        : vp.VideoPlayerController.networkUrl(Uri.parse(videoUrl!));
+        : vp.VideoPlayerController.networkUrl(Uri.parse(effectiveUrl!));
     _legacyController = controller;
     controller.addListener(_onLegacyStateChanged);
 
@@ -308,6 +363,11 @@ class VodPlayerController extends ChangeNotifier {
   }
 
   Future<void> _disposeController() async {
+    final proxyId = _proxySessionId;
+    _proxySessionId = null;
+    if (proxyId != null) {
+      VodStreamProxy.instance.release(proxyId);
+    }
     final old = _controller;
     _controller = null;
     if (old != null) {

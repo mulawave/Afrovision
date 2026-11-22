@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+.slide {
+  width: 1920px; height: 1080px; overflow: hidden; position: relative;
+  background-color: #050a30;
+}
+/* Background radial glow */
+.bg-glow-left {
+  position: absolute; top: 50%; left: -100px;
+  width: 700px; height: 700px;
+  background: radial-gradient(circle, rgba(35,61,255,0.18) 0%, transparent 70%);
+  transform: translateY(-50%);
+}
+.bg-glow-right {
+  position: absolute; top: 20%; right: -50px;
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(243,149,23,0.10) 0%, transparent 70%);
+}
+/* Hex grid texture overlay */
+.bg-texture {
+  position: absolute; inset: 0;
+  background-image:
+    repeating-linear-gradient(60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(-60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px);
+}
+/* Left accent bar */
+.left-bar {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 6px;
+  background: linear-gradient(180deg, #f39517 0%, #233dff 50%, #050a30 100%);
+}
+/* Gold top border */
+.top-border {
+  position: absolute; top: 0; left: 6px; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #f39517 0%, #233dff 60%, transparent 100%);
+}
+/* Content container */
+.content {
+  position: absolute;
+  left: 140px; top: 0; bottom: 0;
+  width: 900px;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.eyebrow {
+  font-size: 18px; letter-spacing: 6px; color: #528ff1;
+  font-weight: 600; text-transform: uppercase; margin-bottom: 18px;
+}
+.title-line1 {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 58px; font-weight: 900; color: #c8b58f;
+  line-height: 1; text-transform: uppercase; letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+.title-line2 {
+  font-family: 'Playfair Display', serif;
+  font-size: 96px; font-weight: 900; color: #f39517;
+  line-height: 1; text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.title-line3 {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 58px; font-weight: 900; color: #ffffff;
+  line-height: 1; text-transform: uppercase; letter-spacing: 4px;
+  margin-bottom: 32px;
+}
+.divider {
+  width: 120px; height: 3px;
+  background: linear-gradient(90deg, #f39517, #233dff);
+  margin-bottom: 28px;
+}
+.tagline {
+  font-size: 22px; color: #c8b58f; font-weight: 300;
+  font-style: italic; line-height: 1.5; max-width: 520px;
+  margin-bottom: 48px;
+}
+.badges {
+  display: flex; gap: 16px; flex-wrap: wrap;
+}
+.badge {
+  padding: 10px 22px; border: 1px solid #233dff;
+  color: #528ff1; font-size: 14px; letter-spacing: 3px;
+  text-transform: uppercase; font-weight: 600;
+}
+/* Right visual panel */
+.right-panel {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 780px;
+  background: linear-gradient(135deg, #0d1545 0%, #050a30 100%);
+  border-left: 1px solid rgba(35,61,255,0.3);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0;
+}
+.logo-area {
+  position: absolute; top: 52px; right: 340px;
+  width: 200px;
+}
+.logo-area img { width: 200px; }
+/* Big stat */
+.stat-block {
+  text-align: center; margin-bottom: 50px;
+}
+.stat-number {
+  font-size: 120px; font-weight: 900; color: #f39517;
+  line-height: 1; font-family: 'Montserrat', sans-serif;
+}
+.stat-label {
+  font-size: 20px; color: #ffffff; letter-spacing: 4px;
+  text-transform: uppercase; font-weight: 600; margin-top: 4px;
+}
+.stat-sub {
+  font-size: 15px; color: #528ff1; letter-spacing: 2px;
+  text-transform: uppercase; margin-top: 8px;
+}
+/* Right panel items */
+.rp-items { display: flex; flex-direction: column; gap: 24px; width: 480px; }
+.rp-item {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(82,143,241,0.15);
+}
+.rp-item:last-child { border-bottom: none; }
+.rp-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #f39517; margin-top: 8px; flex-shrink: 0;
+}
+.rp-text-title { font-size: 20px; font-weight: 700; color: #ffffff; margin-bottom: 4px; }
+.rp-text-sub { font-size: 15px; color: #c8b58f; line-height: 1.5; }
+/* Bottom bar */
+.bottom-bar {
+  position: absolute; bottom: 0; left: 6px; right: 0;
+  height: 52px;
+  background: rgba(35,61,255,0.12);
+  border-top: 1px solid rgba(35,61,255,0.3);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 60px 0 134px;
+}
+.bottom-url { font-size: 16px; color: #528ff1; letter-spacing: 2px; }
+.bottom-tag { font-size: 14px; color: #c8b58f; letter-spacing: 3px; text-transform: uppercase; }
+.slide-num { font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<section class="slide" style="width:1920px;height:1080px;overflow:hidden;position:relative;">
+  <div class="bg-texture"></div>
+  <div class="bg-glow-left"></div>
+  <div class="bg-glow-right"></div>
+  <div class="left-bar"></div>
+  <div class="top-border"></div>
+
+  <!-- Logo -->
+  <div class="logo-area">
+    <img src="/home/user/afrovision-materials/investor-pitch.html-slides/assets/logo.png" alt="AfroVision Logo"/>
+  </div>
+
+  <!-- Left Content -->
+  <div class="content">
+    <div class="eyebrow">Investor Presentation — Maiden Edition</div>
+    <div class="title-line1">AfroVision Challenge</div>
+    <div class="title-line2">The Amazons</div>
+    <div class="title-line3">Pitch Deck</div>
+    <div class="divider"></div>
+    <div class="tagline">Discovering and transforming young African women into elite business leaders — on camera, under pressure, in real time.</div>
+    <div class="badges">
+      <div class="badge">Reality Program</div>
+      <div class="badge">Maiden Edition</div>
+      <div class="badge">Women 18–30</div>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="right-panel">
+    <div class="stat-block">
+      <div class="stat-number">5</div>
+      <div class="stat-label">Co-Founders Will Emerge</div>
+      <div class="stat-sub">Not contestants — builders</div>
+    </div>
+    <div class="rp-items">
+      <div class="rp-item">
+        <div class="rp-dot"></div>
+        <div>
+          <div class="rp-text-title">Africa's First of Its Kind</div>
+          <div class="rp-text-sub">High-intensity business reality format targeting a continent of 1.4B+</div>
+        </div>
+      </div>
+      <div class="rp-item">
+        <div class="rp-dot"></div>
+        <div>
+          <div class="rp-text-title">Digital-First Production</div>
+          <div class="rp-text-sub">Streamed on AfroVision's proprietary app with community reward pool</div>
+        </div>
+      </div>
+      <div class="rp-item">
+        <div class="rp-dot"></div>
+        <div>
+          <div class="rp-text-title">Scalable Season Model</div>
+          <div class="rp-text-sub">Built for multi-season growth, sponsor stacking &amp; IP expansion</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Bar -->
+  <div class="bottom-bar">
+    <div class="bottom-url">afrovision.online/register</div>
+    <div class="bottom-tag">Confidential — For Investor Review</div>
+    <div class="slide-num">01 / 10</div>
+  </div>
+</section>
+</body>
+</html>

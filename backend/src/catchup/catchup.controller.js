@@ -32,14 +32,18 @@ async function home(req, res) {
  */
 async function detail(req, res) {
   try {
-    const { type, id } = req.query;
-    if (!type || !id || !['movie', 'series'].includes(type)) {
+    const { type, id, title } = req.query;
+    if (!type || (!id && !title) || !['movie', 'series'].includes(type)) {
       return res.status(400).json({
         success: false,
-        error: 'type must be movie or series and id must be provided',
+        error: 'type must be movie or series and id or title must be provided',
       });
     }
-    const result = await catchupService.getDetail(type, String(id));
+    const result = await catchupService.getDetail(
+      type,
+      id ? String(id) : null,
+      title ? String(title) : null,
+    );
     return res.status(200).json(result);
   } catch (error) {
     console.error('[CatchUp] Detail controller error:', error);

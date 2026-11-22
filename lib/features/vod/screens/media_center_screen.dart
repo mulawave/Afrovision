@@ -22,6 +22,10 @@ import '../../../core/utils/image_cache_key.dart';
 import 'catch_up_tab.dart';
 import 'movie_detail_screen.dart';
 import 'series_detail_screen.dart';
+import 'downloads_screen.dart';
+import '../widgets/download_stats_beacon.dart';
+import '../../channel/screens/channel_series_detail_screen.dart';
+import '../../channel/services/channel_content_service.dart';
 
 enum _MediaTab { catchUp, movies, series, library }
 
@@ -151,15 +155,13 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
     if (_libraryLoading) return;
     setState(() => _libraryLoading = true);
     try {
+      final user = await AuthService.getCurrentUser()
+          .then<UserModel?>((u) => u)
+          .catchError((_) => null);
+      final channels = await ChannelService.getPublicChannels()
+          .then<List<ChannelModel>>((c) => c)
+          .catchError((_) => const <ChannelModel>[]);
       final res = await ChannelSubscriptionService.getMine();
-      if (res['success'] != true) {
-        if (!mounted) return;
-        setState(() {
-          _libraryItems = const <_LibraryEntry>[];
-          _libraryLoading = false;
-        });
-        return;
-      }
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final subs = (res['subscriptions'] as List<dynamic>? ?? [])
           .whereType<ChannelSubscriptionModel>()
@@ -169,7 +171,39 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
             return nb == null || nb > nowSec;
           })
           .toList();
-      if (subs.isEmpty) {
+
+      // Build candidate exclusive channels and verify per-channel membership.
+      final candidateById = <String, ChannelModel>{};
+      for (final ch in channels) {
+        if (ch.isExclusive) candidateById[ch.id] = ch;
+      }
+      for (final sub in subs) {
+        if (candidateById.containsKey(sub.channelId)) continue;
+        try {
+          final ch = await ChannelService.getChannelById(sub.channelId);
+          if (ch.isExclusive) {
+            candidateById[ch.id] = ch;
+          }
+        } catch (_) {}
+      }
+
+      final entitledChannels = <ChannelModel>[];
+      for (final ch in candidateById.values) {
+        bool entitled = false;
+        if (user != null && ch.ownerId == user.id) {
+          entitled = true;
+        } else {
+          try {
+            final status = await ChannelService.getExclusiveAccessStatus(ch.id);
+            entitled = status.hasActiveEntitlement;
+          } catch (_) {
+            entitled = false;
+          }
+        }
+        if (entitled) entitledChannels.add(ch);
+      }
+
+      if (entitledChannels.isEmpty) {
         if (!mounted) return;
         setState(() {
           _libraryItems = const <_LibraryEntry>[];
@@ -178,9 +212,9 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
         return;
       }
 
-      final calls = subs
-          .map((s) => ChannelLibraryService.getChannelLibraryCached(
-                s.channelId,
+      final calls = entitledChannels
+          .map((ch) => ChannelLibraryService.getChannelLibraryCached(
+                ch.id,
                 limit: 48,
               ).catchError((_) => const ChannelLibraryListResponse(
                     items: <ChannelLibraryItemModel>[],
@@ -193,14 +227,14 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       final results = await Future.wait(calls);
 
       final items = <_LibraryEntry>[];
-      for (int i = 0; i < subs.length; i++) {
-        final s = subs[i];
+      for (int i = 0; i < entitledChannels.length; i++) {
+        final ch = entitledChannels[i];
         final resp = results[i];
         for (final it in resp.items) {
           items.add(_LibraryEntry(
             item: it,
-            channelName: s.channelName,
-            channelTag: _tagFor(s.channelName),
+            channelName: ch.name,
+            channelTag: _tagFor(ch.name),
           ));
         }
       }
@@ -217,7 +251,6 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       });
     }
   }
-
   void _openLibraryItem(_LibraryEntry entry) {
     Navigator.of(context).pushNamed(
       '/channel-library/item',
@@ -325,11 +358,18 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       // Previously this filter only checked isExclusive/membership, so an
       // unverified user's state D silently collapsed into state C (the
       // discovery card), leaking the channel's existence pre-KYC.
-      final nonMember = (user != null && user.kycVerified)
-          ? channels
-              .where((c) => c.isExclusive && !coveredIds.contains(c.id))
-              .toList()
-          : const <ChannelModel>[];
+      final nonMember = <ChannelModel>[];
+      if (user != null && user.kycVerified) {
+        for (final c in channels.where((c) => c.isExclusive)) {
+          if (coveredIds.contains(c.id) || c.ownerId == user.id) continue;
+          bool entitled = false;
+          try {
+            final status = await ChannelService.getExclusiveAccessStatus(c.id);
+            entitled = status.hasActiveEntitlement;
+          } catch (_) {}
+          if (!entitled) nonMember.add(c);
+        }
+      }
 
       if (!mounted) return;
       setState(() {
@@ -344,43 +384,45 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
     }
   }
 
+  /// Loads exclusive movies and series strictly per channel membership.
+  /// A user who is a member of one exclusive channel (e.g. Xlounge) will
+  /// NEVER see content from another exclusive channel (e.g. BoxMovies)
+  /// unless they hold an active membership (or ownership) for THAT channel.
   Future<_ExclusiveBundle> _loadExclusive() async {
     try {
-      final res = await ChannelSubscriptionService.getMine();
-      if (res['success'] != true) return const _ExclusiveBundle.empty();
-      // Split memberships (per media_center_completion.md Phase 2):
-      //   - allMemberships → drives the CONTENT shelves (any active membership,
-      //     regardless of whether it carries a fee). This fixes admin-granted
-      //     / referral-comped Xlounge Extreme memberships not surfacing.
-      //   - feeBasedMemberships → drives Renew card / paywall (the fee-based
-      //     rule still applies for money-moving flows).
+      final userFuture = AuthService.getCurrentUser()
+          .then<UserModel?>((u) => u)
+          .catchError((_) => null);
+      final channelsFuture = ChannelService.getPublicChannels(forceRefresh: true)
+          .then<List<ChannelModel>>((c) => c)
+          .catchError((_) => const <ChannelModel>[]);
+      final subsFuture = ChannelSubscriptionService.getMine();
+
+      final user = await userFuture;
+      final channels = await channelsFuture;
+      final res = await subsFuture;
+
       final all = (res['subscriptions'] as List<dynamic>? ?? [])
           .whereType<ChannelSubscriptionModel>()
           .toList();
-      if (all.isEmpty) return const _ExclusiveBundle.empty();
-
       final feeBased = all.where((s) => s.amount > 0 || s.isPremium).toList();
 
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final windowSec = _kExpiringWindowDays * 86400;
 
-      // Entitled (fetch content): ANY active + not-yet-past-billing membership.
-      final subs = all.where((s) {
+      final activeSubs = all.where((s) {
         if (!s.isActive) return false;
         final nb = s.nextBilling;
         return nb == null || nb > nowSec;
       }).toList();
 
-      // Expired (render a Renew card in place of the shelf). Fee-based only —
-      // fee-free memberships don't have a paywall to renew back into.
       final expired = feeBased.where((s) {
         if (!s.isActive) return true;
         final nb = s.nextBilling;
         return nb != null && nb <= nowSec;
       }).toList();
 
-      // Expiring within N days (banner + still entitled).
-      final expiringSoon = subs.where((s) {
+      final expiringSoon = activeSubs.where((s) {
         final nb = s.nextBilling;
         if (nb == null) return false;
         return nb > nowSec && nb - nowSec <= windowSec;
@@ -393,80 +435,62 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
         });
       }
 
-      // Kick off every channel's movies + series in parallel, cache-first.
-      // The onCached callbacks paint the previously-known list instantly,
-      // then the awaited results overwrite with fresh data.
-      final calls = <Future<List<dynamic>>>[];
-      for (final s in subs) {
-        calls.add(
-          VodService.getChannelMoviesCached(
-            s.channelId,
-            onCached: (m) => _appendExclusiveCached(s, m, series: false),
-          ).catchError((_) => <MovieModel>[]),
-        );
-        calls.add(
-          VodService.getChannelSeriesCached(
-            s.channelId,
-            onCached: (m) => _appendExclusiveCached(s, m, series: true),
-          ).catchError((_) => <SeriesModel>[]),
-        );
+      // Build candidate list of strictly exclusive channels.
+      final candidateById = <String, ChannelModel>{};
+      for (final ch in channels) {
+        if (ch.isExclusive) candidateById[ch.id] = ch;
       }
-      final results = await Future.wait(calls);
+      for (final sub in activeSubs) {
+        if (candidateById.containsKey(sub.channelId)) continue;
+        try {
+          final ch = await ChannelService.getChannelById(sub.channelId);
+          if (ch.isExclusive) {
+            candidateById[ch.id] = ch;
+          }
+        } catch (_) {}
+      }
 
       final movies = <_ExclusiveMovie>[];
       final series = <_ExclusiveSeries>[];
-      for (int i = 0; i < subs.length; i++) {
-        final s = subs[i];
-        final tag = _tagFor(s.channelName);
-        final mList = results[i * 2];
-        final sList = results[i * 2 + 1];
-        for (final m in mList.whereType<MovieModel>()) {
-          movies.add(_ExclusiveMovie(m, s.channelName, tag));
+
+      // Strictly verify per-channel membership before fetching or painting
+      // any exclusive channel content.
+      for (final ch in candidateById.values) {
+        bool entitled = false;
+        if (user != null && ch.ownerId == user.id) {
+          entitled = true;
+        } else {
+          try {
+            final status = await ChannelService.getExclusiveAccessStatus(ch.id);
+            entitled = status.hasActiveEntitlement;
+          } catch (_) {
+            entitled = false;
+          }
         }
-        for (final se in sList.whereType<SeriesModel>()) {
-          series.add(_ExclusiveSeries(se, s.channelName, tag));
+        if (!entitled) continue;
+
+        final tag = _tagFor(ch.name);
+        final results = await Future.wait([
+          VodService.getChannelMoviesCached(ch.id).catchError((_) => <MovieModel>[]),
+          VodService.getChannelSeriesCached(ch.id).catchError((_) => <SeriesModel>[]),
+        ]);
+        for (final m in (results[0] as List).whereType<MovieModel>()) {
+          if (!movies.any((e) => e.movie.id == m.id)) {
+            movies.add(_ExclusiveMovie(m, ch.id, ch.name, tag));
+          }
+        }
+        for (final se in (results[1] as List).whereType<SeriesModel>()) {
+          if (!series.any((e) => e.series.id == se.id)) {
+            series.add(_ExclusiveSeries(se, ch.id, ch.name, tag));
+          }
         }
       }
+
       return _ExclusiveBundle(movies: movies, series: series);
     } catch (_) {
       return const _ExclusiveBundle.empty();
     }
   }
-
-  /// Splice cached exclusive-channel content into the visible list as soon
-  /// as it comes back from SectionCache, so the exclusive shelf paints
-  /// before the network round-trip completes. Dedupes on movie/series id
-  /// per channel so the fresh network response cleanly overwrites without
-  /// leaving orphans.
-  void _appendExclusiveCached(
-    ChannelSubscriptionModel s,
-    List<dynamic> items, {
-    required bool series,
-  }) {
-    if (!mounted || items.isEmpty) return;
-    final tag = _tagFor(s.channelName);
-    setState(() {
-      _loading = false;
-      if (series) {
-        final existing = _exclusiveSeries
-            .where((e) => e.channelName != s.channelName)
-            .toList();
-        for (final it in items.whereType<SeriesModel>()) {
-          existing.add(_ExclusiveSeries(it, s.channelName, tag));
-        }
-        _exclusiveSeries = existing;
-      } else {
-        final existing = _exclusiveMovies
-            .where((e) => e.channelName != s.channelName)
-            .toList();
-        for (final it in items.whereType<MovieModel>()) {
-          existing.add(_ExclusiveMovie(it, s.channelName, tag));
-        }
-        _exclusiveMovies = existing;
-      }
-    });
-  }
-
   static String _tagFor(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return '★';
@@ -500,6 +524,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       physics: const AlwaysScrollableScrollPhysics(),
       headerSliverBuilder: (context, innerBoxIsScrolled) => [
         SliverToBoxAdapter(child: _buildHeader()),
+        const SliverToBoxAdapter(child: DownloadStatsBeacon()),
         if (_shouldShowExpiringBanner)
           SliverToBoxAdapter(child: _buildExpiringBanner()),
         if (_heroes.isNotEmpty)
@@ -793,6 +818,13 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
           _headerIconBtn(
             icon: Icons.history_rounded,
             onTap: () => Navigator.of(context).pushNamed('/watch-history'),
+          ),
+          const SizedBox(width: 8),
+          _headerIconBtn(
+            icon: Icons.download_rounded,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DownloadsScreen()),
+            ),
           ),
           const SizedBox(width: 8),
           _headerPillBtn(
@@ -1122,23 +1154,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
                       ))
                   .toList(),
             ),
-          if (exMovies.isNotEmpty)
-            _posterSection(
-              label: 'Exclusive · your channels',
-              note: '${exMovies.length} titles',
-              exclusive: true,
-              items: exMovies
-                  .map((e) => _PosterItem(
-                        id: 'movie_ex_${e.movie.id}',
-                        title: e.movie.title,
-                        meta: _movieMeta(e.movie),
-                        imageUrl: e.movie.posterUrl,
-                        channelTag: e.tag,
-                        channelName: e.channelName,
-                        onTap: () => _openMovie(e.movie),
-                      ))
-                  .toList(),
-            ),
+          ..._buildExclusiveMovieShelves(exMovies),
           if (pubMovies.isNotEmpty)
             _posterSection(
               label: _labelForPublicMovies(),
@@ -1182,23 +1198,7 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
                       ))
                   .toList(),
             ),
-          if (exSeries.isNotEmpty)
-            _posterSection(
-              label: 'Exclusive · your channels',
-              note: '${exSeries.length} titles',
-              exclusive: true,
-              items: exSeries
-                  .map((e) => _PosterItem(
-                        id: 'series_ex_${e.series.id}',
-                        title: e.series.title,
-                        meta: _seriesMeta(e.series),
-                        imageUrl: e.series.coverUrl,
-                        channelTag: e.tag,
-                        channelName: e.channelName,
-                        onTap: () => _openSeries(e.series),
-                      ))
-                  .toList(),
-            ),
+          ..._buildExclusiveSeriesShelves(exSeries),
           if (pubSeries.isNotEmpty)
             _posterSection(
               label: _labelForPublicSeries(),
@@ -1758,6 +1758,60 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
     );
   }
 
+  List<Widget> _buildExclusiveMovieShelves(List<_ExclusiveMovie> items) {
+    if (items.isEmpty) return const <Widget>[];
+    final grouped = <String, List<_ExclusiveMovie>>{};
+    for (final item in items) {
+      grouped.putIfAbsent(item.channelId, () => <_ExclusiveMovie>[]).add(item);
+    }
+    return grouped.values.map((group) {
+      final channelName = group.first.channelName;
+      return _posterSection(
+        label: channelName,
+        note: '${group.length} ${group.length == 1 ? 'title' : 'titles'}',
+        exclusive: true,
+        items: group
+            .map((e) => _PosterItem(
+                  id: 'movie_ex_${e.channelId}_${e.movie.id}',
+                  title: e.movie.title,
+                  meta: _movieMeta(e.movie),
+                  imageUrl: e.movie.posterUrl,
+                  channelTag: e.tag,
+                  channelName: e.channelName,
+                  onTap: () => _openMovie(e.movie),
+                ))
+            .toList(),
+      );
+    }).toList();
+  }
+
+  List<Widget> _buildExclusiveSeriesShelves(List<_ExclusiveSeries> items) {
+    if (items.isEmpty) return const <Widget>[];
+    final grouped = <String, List<_ExclusiveSeries>>{};
+    for (final item in items) {
+      grouped.putIfAbsent(item.channelId, () => <_ExclusiveSeries>[]).add(item);
+    }
+    return grouped.values.map((group) {
+      final channelName = group.first.channelName;
+      return _posterSection(
+        label: channelName,
+        note: '${group.length} ${group.length == 1 ? 'title' : 'titles'}',
+        exclusive: true,
+        items: group
+            .map((e) => _PosterItem(
+                  id: 'series_ex_${e.channelId}_${e.series.id}',
+                  title: e.series.title,
+                  meta: _seriesMeta(e.series),
+                  imageUrl: e.series.coverUrl,
+                  channelTag: e.tag,
+                  channelName: e.channelName,
+                  onTap: () => _openSeries(e.series),
+                ))
+            .toList(),
+      );
+    }).toList();
+  }
+
   Widget _buildStack(List<Widget> children) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2055,13 +2109,19 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
   void _openMovie(MovieModel movie) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => MovieDetailScreen(movie: movie)),
-    );
+    ).then((_) {
+      _loadContinueWatching();
+      _catchUpKey.currentState?.refreshContinueWatching();
+    });
   }
 
   void _openSeries(SeriesModel series) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => SeriesDetailScreen(series: series)),
-    );
+    ).then((_) {
+      _loadContinueWatching();
+      _catchUpKey.currentState?.refreshContinueWatching();
+    });
   }
 
   // ───────── PHASE 5 RAIL DERIVATIONS ─────────
@@ -2253,21 +2313,31 @@ class _MediaCenterScreenState extends State<MediaCenterScreen>
       try {
         final movie = await VodService.getMovieById(item.movieId!);
         if (!mounted) return;
-        Navigator.of(context).push(
+        await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => MovieDetailScreen(movie: movie),
           ),
         );
+        _loadContinueWatching();
+        _catchUpKey.currentState?.refreshContinueWatching();
       } catch (_) {}
     } else if (item.mediaType == 'episode' && (item.seriesId ?? '').isNotEmpty) {
       try {
-        final series = await VodService.getSeriesById(item.seriesId!);
-        if (!mounted) return;
-        Navigator.of(context).push(
+        await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => SeriesDetailScreen(series: series),
+            builder: (_) => ChannelSeriesDetailScreen(
+              channelId: item.channelId ?? '',
+              series: ChannelSeries(
+                id: item.seriesId!,
+                channelId: item.channelId ?? '',
+                title: item.title,
+                coverUrl: item.posterUrl,
+              ),
+            ),
           ),
         );
+        _loadContinueWatching();
+        _catchUpKey.currentState?.refreshContinueWatching();
       } catch (_) {}
     }
   }
@@ -2316,16 +2386,18 @@ class _PosterItem {
 
 class _ExclusiveMovie {
   final MovieModel movie;
+  final String channelId;
   final String channelName;
   final String tag;
-  const _ExclusiveMovie(this.movie, this.channelName, this.tag);
+  const _ExclusiveMovie(this.movie, this.channelId, this.channelName, this.tag);
 }
 
 class _ExclusiveSeries {
   final SeriesModel series;
+  final String channelId;
   final String channelName;
   final String tag;
-  const _ExclusiveSeries(this.series, this.channelName, this.tag);
+  const _ExclusiveSeries(this.series, this.channelId, this.channelName, this.tag);
 }
 
 class _ExclusiveBundle {

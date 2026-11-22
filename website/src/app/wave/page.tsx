@@ -1947,7 +1947,7 @@ export default function WavePage() {
   const [error, setError] = useState<string | null>(null);
   const [waveAd, setWaveAd] = useState<Advertisement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [autoscroll, setAutoscroll] = useState(false);
+  const [autoscroll, setAutoscroll] = useState(true);
   const [accessDecision, setAccessDecision] = useState<WaveAccessDecision | null>(null);
   const [checkingAccess, setCheckingAccess] = useState(false);
   const [adultConsentSessionAccepted, setAdultConsentSessionAccepted] = useState<boolean>(() => {

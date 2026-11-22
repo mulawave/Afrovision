@@ -674,6 +674,7 @@ export interface Channel {
   stream_status?: string;
   last_checked_at?: string | null;
   provider_metadata?: Record<string, unknown> | null;
+  use_stream_proxy?: boolean;
 }
 
 export interface Category {
@@ -769,7 +770,7 @@ export async function getMyChannelsApi() {
 
 export async function updateChannelApi(
   channelId: string,
-  input: { name?: string; description?: string; category?: string },
+  input: { name?: string; description?: string; category?: string; use_stream_proxy?: boolean },
 ) {
   const res = await api<{ channel: Channel } | ErrorResponse>(`/channels/${channelId}`, {
     method: "PATCH",
@@ -847,6 +848,14 @@ export async function recordChannelViewApi(channelId: string) {
     method: "POST",
     requireAuth: true,
     body: { platform: "web" },
+  });
+}
+
+export async function recordChannelWatchPingApi(channelId: string, seconds: number) {
+  return api(`/channels/${channelId}/watch-ping`, {
+    method: "POST",
+    requireAuth: true,
+    body: { seconds, platform: "web" },
   });
 }
 
@@ -1053,6 +1062,7 @@ export async function updateExternalSourceApi(
     stream_status?: string | null;
     last_checked_at?: string | null;
     provider_metadata?: Record<string, unknown> | null;
+    use_stream_proxy?: boolean;
   },
 ) {
   return api<{ channel: Channel } | ErrorResponse>(

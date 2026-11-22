@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/api/api_service.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/services/kyc_guard_service.dart';
 import '../../../core/services/watch_history_service.dart';
@@ -22,7 +23,9 @@ import '../models/channel_model.dart';
 import '../services/channel_content_service.dart';
 import '../services/channel_service.dart';
 import '../widgets/exclusive_requests_section.dart';
-import 'media_player_screen.dart';
+import 'channel_series_detail_screen.dart';
+import '../../vod/screens/movie_detail_screen.dart';
+import '../../vod/widgets/download_stats_beacon.dart';
 
 enum ChannelSection {
   about,
@@ -113,6 +116,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   // Movies / Series tabs (restored per wips_restoration.md Phase 4).
   List<ChannelMovie> _channelMovies = const <ChannelMovie>[];
   bool _moviesLoading = false;
+  bool _financialsLoading = false;
+  bool _togglingStreamProxy = false;
+  Map<String, dynamic>? _channelFinancials;
+  List<Map<String, dynamic>> _channelSettlements = const <Map<String, dynamic>>[];
   String? _moviesError;
   List<ChannelSeries> _channelSeries = const <ChannelSeries>[];
   bool _seriesLoading = false;
@@ -320,6 +327,7 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
       _loadLibraryUnreadCount();
       _loadChannelWaves();
       _loadChannelMovies();
+      if (_canManage) _loadChannelFinancials();
       _loadChannelSeries();
 
       if (_activeSection == ChannelSection.manage && !_canManage) {
@@ -445,22 +453,30 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     }
   }
 
+  Future<void> _loadChannelFinancials() async {
+    final ch = _channel;
+    if (ch == null || !_canManage || _financialsLoading) return;
+    setState(() => _financialsLoading = true);
+    try {
+      final data = await ApiService.get('/analytics/creator/channel?channel_id=${ch.id}&period=365d');
+      if (!mounted) return;
+      final fin = data['financials'] as Map<String, dynamic>?;
+      final rawSettle = data['settlements'] as List<dynamic>? ?? const [];
+      setState(() {
+        _channelFinancials = fin;
+        _channelSettlements = rawSettle.whereType<Map<String, dynamic>>().toList();
+        _financialsLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _financialsLoading = false);
+    }
+  }
   void _openChannelMovie(ChannelMovie movie) {
-    final url = movie.playableUrl;
-    if (url == null || url.isEmpty) return;
-    Navigator.pushNamed(
-      context,
-      '/media-player',
-      arguments: MediaPlayerArgs(
-        title: movie.title,
-        items: [
-          MediaPlayerItem(
-            id: movie.id,
-            title: movie.title,
-            url: url,
-            duration: movie.duration,
-          ),
-        ],
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MovieDetailScreen(
+          movie: movie.toMovieModel(fallbackChannelId: _channel?.id),
+        ),
       ),
     );
   }
@@ -468,30 +484,12 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
   Future<void> _openChannelSeries(ChannelSeries series) async {
     final channelId = _channel?.id;
     if (channelId == null) return;
-    final detail = await ChannelContentService.getSeriesDetail(channelId, series.id);
-    if (!mounted) return;
-    final episodes = detail?.allEpisodes ?? const <ChannelEpisode>[];
-    final playable = episodes.where((e) => e.hasVideo).toList();
-    if (playable.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No playable episodes yet.')),
-      );
-      return;
-    }
-    Navigator.pushNamed(
-      context,
-      '/media-player',
-      arguments: MediaPlayerArgs(
-        title: series.title,
-        items: playable
-            .map((e) => MediaPlayerItem(
-                  id: e.id,
-                  title: e.title,
-                  subtitle: 'Episode ${e.episodeNumber}',
-                  url: e.playableUrl!,
-                  duration: e.duration,
-                ))
-            .toList(),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChannelSeriesDetailScreen(
+          channelId: channelId,
+          series: series,
+        ),
       ),
     );
   }
@@ -905,7 +903,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (_channel != null) ...[
+
+          if (_channel != null) ...[
+
+            const SizedBox(width: 4),
                   const SizedBox(height: 2),
                   Text(
                     _channel!.category == null
@@ -921,7 +922,10 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
               ],
             ),
           ),
+          const DownloadNavButton(iconColor: AppColors.white),
           if (_channel != null) ...[
+
+            const SizedBox(width: 4),
             const SizedBox(width: 10),
             GestureDetector(
               onTap: () => _showChannelOptionsSheet(_channel!),
@@ -2616,21 +2620,34 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _buildCreatorFinancialSnapshot(ch),
+        const SizedBox(height: 14),
+        _buildStreamProxyCard(ch),
+        const SizedBox(height: 12),
         GestureDetector(
           onTap: () => Navigator.pushNamed(context, '/creator-studio'),
           child: _manageTile(Icons.dashboard_rounded, 'Open Creator Studio'),
         ),
         GestureDetector(
-          onTap: () =>
-              Navigator.pushNamed(context, '/edit-channel', arguments: ch),
+          onTap: () async {
+            final res = await Navigator.pushNamed(
+              context,
+              '/edit-channel',
+              arguments: ch,
+            );
+            if (res == true && mounted) {
+              _loadChannel(ch.id);
+            }
+          },
           child: _manageTile(Icons.edit_rounded, 'Edit Channel Details'),
         ),
         GestureDetector(
           onTap: () => Navigator.pushNamed(
             context,
             '/channel-analytics',
-            arguments: ch.id,
+            arguments: ch,
           ),
           child: _manageTile(Icons.bar_chart_rounded, 'Open Channel Analytics'),
         ),
@@ -2668,6 +2685,310 @@ class _ChannelViewScreenState extends State<ChannelViewScreen>
     );
   }
 
+  Future<void> _toggleStreamProxy(ChannelModel ch, bool enabled) async {
+    if (_togglingStreamProxy) return;
+    setState(() => _togglingStreamProxy = true);
+    try {
+      final updated = await ChannelService.updateChannel(
+        ch.id,
+        useStreamProxy: enabled,
+      );
+      if (!mounted) return;
+      setState(() {
+        _channel = updated;
+        _togglingStreamProxy = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'Server Stream Relay enabled ? viewers can watch without a VPN.'
+                : 'Server Stream Relay disabled ? viewers will connect directly.',
+            style: const TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: const Color(0xFF5FD39A).withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _togglingStreamProxy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString(),
+            style: const TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
+  Widget _buildStreamProxyCard(ChannelModel ch) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: ch.useStreamProxy
+              ? AppColors.orange.withValues(alpha: 0.5)
+              : AppColors.inputBorder,
+        ),
+      ),
+      child: SwitchListTile(
+        value: ch.useStreamProxy,
+        activeThumbColor: AppColors.orange,
+        secondary: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: (ch.useStreamProxy ? AppColors.orange : AppColors.hintText)
+                .withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            Icons.vpn_lock_rounded,
+            color: ch.useStreamProxy ? AppColors.orange : AppColors.hintText,
+            size: 20,
+          ),
+        ),
+        title: const Text(
+          'Relay stream via AfroVision server (No VPN)',
+          style: TextStyle(
+            color: AppColors.white,
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: const Text(
+          'Enable for channels that need a VPN or face ISP blocks. Viewers watch directly without a VPN.',
+          style: TextStyle(color: AppColors.hintText, fontSize: 11.5),
+        ),
+        onChanged: _togglingStreamProxy
+            ? null
+            : (val) => _toggleStreamProxy(ch, val),
+      ),
+    );
+  }
+
+  Widget _buildCreatorFinancialSnapshot(ChannelModel ch) {
+    final fin = _channelFinancials;
+    final totalNgn = (fin?['total_earned_ngn'] as num?)?.toDouble() ?? 0;
+    final totalVpt = (fin?['total_earned_vpt'] as num?)?.toDouble() ?? 0;
+    final giftsNgn = (fin?['gifts_ngn'] as num?)?.toDouble() ?? 0;
+    final giftsVpt = (fin?['gifts_vpt'] as num?)?.toDouble() ?? 0;
+    final subsNgn = (fin?['subscriptions_ngn'] as num?)?.toDouble() ?? 0;
+    final subsVpt = (fin?['subscriptions_vpt'] as num?)?.toDouble() ?? 0;
+    final activeMembers = (fin?['active_exclusive_members'] as num?)?.toInt() ?? 0;
+
+    String fmtNgn(double v) => '?${v.toStringAsFixed(0)}';
+    String fmtVpt(double v) => '${v.toStringAsFixed(2)} vPT';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Nocturne.surfaceRaised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Nocturne.gold.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.account_balance_wallet_rounded, color: Nocturne.gold, size: 18),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Channel Earnings & Settlements',
+                  style: TextStyle(
+                    color: Nocturne.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (_financialsLoading)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Nocturne.gold),
+                )
+              else
+                GestureDetector(
+                  onTap: _loadChannelFinancials,
+                  child: const Icon(Icons.refresh_rounded, color: Nocturne.textMuted, size: 18),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _finStatBox(
+                  'Total Earned',
+                  fmtNgn(totalNgn),
+                  fmtVpt(totalVpt),
+                  Nocturne.gold,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _finStatBox(
+                  'From Gifts',
+                  fmtNgn(giftsNgn),
+                  fmtVpt(giftsVpt),
+                  const Color(0xFF5FD39A),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _finStatBox(
+                  ch.isExclusive ? 'Exclusive Memberships' : 'Subscriptions',
+                  fmtNgn(subsNgn),
+                  fmtVpt(subsVpt),
+                  const Color(0xFF64B5F6),
+                ),
+              ),
+              if (ch.isExclusive) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _finStatBox(
+                    'Active Members',
+                    '$activeMembers',
+                    'Paid & active',
+                    Nocturne.goldLight,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'RECENT SETTLEMENTS',
+            style: TextStyle(
+              color: Nocturne.textFaint,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_channelSettlements.isEmpty)
+            const Text(
+              'No settlements recorded for this channel yet. Gift and membership payouts will appear here automatically.',
+              style: TextStyle(color: Nocturne.textMuted, fontSize: 12),
+            )
+          else
+            ..._channelSettlements.take(6).map((row) {
+              final ngn = (row['amount_ngn'] as num?)?.toDouble() ?? 0;
+              final vpt = (row['amount_vpt'] as num?)?.toDouble() ?? 0;
+              final desc = (row['description'] ?? row['type'] ?? 'Payout').toString();
+              final ts = (row['created_at'] as num?)?.toInt() ?? 0;
+              final dt = ts > 0 ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
+              final dateLabel = dt != null ? '${dt.day}/${dt.month}/${dt.year}' : '';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Nocturne.surfaceInset,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Nocturne.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              desc,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Nocturne.text,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (dateLabel.isNotEmpty)
+                              Text(
+                                dateLabel,
+                                style: const TextStyle(color: Nocturne.textFaint, fontSize: 10.5),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          if (ngn > 0)
+                            Text(
+                              '+${fmtNgn(ngn)}',
+                              style: const TextStyle(
+                                color: Color(0xFF4ADE80),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          if (vpt > 0)
+                            Text(
+                              '+${fmtVpt(vpt)}',
+                              style: const TextStyle(
+                                color: Nocturne.goldLight,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _finStatBox(String label, String primary, String secondary, Color accent) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Nocturne.surfaceInset,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: accent.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Nocturne.textFaint, fontSize: 10.5, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            primary,
+            style: TextStyle(color: accent, fontSize: 16, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            secondary,
+            style: const TextStyle(color: Nocturne.textMuted, fontSize: 10.5),
+          ),
+        ],
+      ),
+    );
+  }
   Widget _manageTile(IconData icon, String label) {
     return Container(
       width: double.infinity,

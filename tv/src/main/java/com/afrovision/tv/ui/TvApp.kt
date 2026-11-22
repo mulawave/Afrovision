@@ -22,7 +22,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.view.KeyEvent
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.afrovision.tv.data.LoadState
+import com.afrovision.tv.data.toMediaCard
+import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -96,10 +105,54 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
         TvSoundManager.volume = viewModel.settings.soundVolume
     }
 
+    // Global number-to-channel dialing from anywhere (Home, Live TV, Player, etc.)
+    var globalDialBuffer by remember { mutableStateOf("") }
+    val allowNumberDial = isReady && isPaired && disabledReason == null &&
+        currentScreen != Screen.Search && currentScreen != Screen.Pairing && currentScreen != Screen.Exclusive
+
+    fun tuneDialedChannel(digits: String) {
+        val number = digits.toIntOrNull() ?: return
+        val publicList = (viewModel.liveChannels as? LoadState.Success)?.data.orEmpty()
+        val exclList = if (viewModel.exclusiveActivated) (viewModel.exclusiveChannels as? LoadState.Success)?.data.orEmpty() else emptyList()
+        val match = (publicList + exclList).firstOrNull { it.channelNumber == number }
+        if (match != null) {
+            TvSoundManager.play("chan")
+            viewModel.playChannel(match.toMediaCard())
+        }
+    }
+
+    LaunchedEffect(globalDialBuffer) {
+        if (globalDialBuffer.isNotEmpty()) {
+            delay(1300)
+            val digits = globalDialBuffer
+            globalDialBuffer = ""
+            tuneDialedChannel(digits)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(nocturne.primaryGradient)
+            .onPreviewKeyEvent { event ->
+                if (!allowNumberDial || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val code = event.nativeKeyEvent.keyCode
+                val digit = when (code) {
+                    in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> code - KeyEvent.KEYCODE_0
+                    in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> code - KeyEvent.KEYCODE_NUMPAD_0
+                    else -> null
+                }
+                if (digit != null) {
+                    globalDialBuffer = (globalDialBuffer + digit).takeLast(4)
+                    TvSoundManager.play("move")
+                    true
+                } else if (globalDialBuffer.isNotEmpty() && (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+                    val digits = globalDialBuffer
+                    globalDialBuffer = ""
+                    tuneDialedChannel(digits)
+                    true
+                } else false
+            }
     ) {
         if (!isReady) {
             SplashScreen()
@@ -156,7 +209,8 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                     modifier = Modifier.width(146.dp),
                     focusTrigger = railFocusTrigger,
                     onRailFocusChanged = { railHasFocus = it },
-                    showExclusive = viewModel.hasExclusiveAccess && viewModel.exclusiveActivated
+                    showExclusive = viewModel.hasExclusiveAccess && viewModel.exclusiveActivated,
+                    downloadsCount = viewModel.downloads.size
                 )
                 AnimatedContent(
                     targetState = currentScreen,
@@ -216,6 +270,24 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        if (globalDialBuffer.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 36.dp, end = 48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(nocturne.background.copy(alpha = 0.92f))
+                    .border(2.dp, nocturne.gold, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 28.dp, vertical = 14.dp)
+            ) {
+                Text(
+                    text = "CH $globalDialBuffer",
+                    color = nocturne.goldLight,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }

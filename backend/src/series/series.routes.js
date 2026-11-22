@@ -17,6 +17,7 @@ const posterUpload = multer({
 
 // ── Public/global ────────────────────────────────────────
 router.get('/series', optionalAuth, viewerController.listPublicSeries);
+router.get('/series/:seriesId', optionalAuth, viewerController.getSeriesById);
 
 // ── Channel-scoped viewer ────────────────────────────────
 router.get('/channels/:channelId/series', optionalAuth, viewerController.listChannelSeries);

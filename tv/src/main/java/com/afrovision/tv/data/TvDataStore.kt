@@ -48,7 +48,7 @@ class TvDataStore(context: Context) {
     val defaultQuality: Flow<String> = dataStore.data.map { it[KEY_DEFAULT_QUALITY] ?: "auto" }
     val subtitlesEnabled: Flow<Boolean> = dataStore.data.map { it[KEY_SUBTITLES] != false }
     val soundEffects: Flow<Boolean> = dataStore.data.map { it[KEY_SOUND_EFFECTS] != false }
-    val soundVolume: Flow<Float> = dataStore.data.map { it[KEY_SOUND_VOLUME] ?: 0.5f }
+    val soundVolume: Flow<Float> = dataStore.data.map { it[KEY_SOUND_VOLUME] ?: 1.0f }
     val hdrPassthrough: Flow<Boolean> = dataStore.data.map { it[KEY_HDR_PASSTHROUGH] == true }
     val safeAreaEnabled: Flow<Boolean> = dataStore.data.map { it[KEY_SAFE_AREA] != false }
     val networkProfile: Flow<String> = dataStore.data.map { it[KEY_NETWORK_PROFILE] ?: "auto" }
@@ -65,6 +65,11 @@ class TvDataStore(context: Context) {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+    val watchedWaveIds: Flow<Set<String>> = dataStore.data.map { data ->
+        val raw = data[KEY_WATCHED_WAVES] ?: ""
+        if (raw.isBlank()) emptySet()
+        else raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     }
 
     suspend fun setToken(value: String) = dataStore.edit { it[KEY_TOKEN] = value }
@@ -106,6 +111,22 @@ class TvDataStore(context: Context) {
         }
     }
 
+    suspend fun markWaveWatched(waveId: String) {
+        if (waveId.isBlank()) return
+        dataStore.edit { prefs ->
+            val current = (prefs[KEY_WATCHED_WAVES] ?: "")
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            val updated = (listOf(waveId) + current.filterNot { it == waveId }).take(500)
+            prefs[KEY_WATCHED_WAVES] = updated.joinToString(",")
+        }
+    }
+
+    suspend fun clearWatchedWaves() {
+        dataStore.edit { it.remove(KEY_WATCHED_WAVES) }
+    }
+
     companion object {
         private val KEY_TOKEN = stringPreferencesKey("auth_token")
         private val KEY_DEVICE_TOKEN = stringPreferencesKey("device_token")
@@ -123,6 +144,7 @@ class TvDataStore(context: Context) {
         private val KEY_NETWORK_PROFILE = stringPreferencesKey("network_profile")
         private val KEY_AUTOPLAY = booleanPreferencesKey("autoplay")
         private val KEY_RECENT_CHANNELS = stringPreferencesKey("recent_channels")
+        private val KEY_WATCHED_WAVES = stringPreferencesKey("watched_wave_ids")
         private val KEY_EXCLUSIVE_PIN_HASH = stringPreferencesKey("exclusive_pin_hash")
         private val KEY_EXCLUSIVE_PIN_SALT = stringPreferencesKey("exclusive_pin_salt")
     }

@@ -365,8 +365,9 @@ private fun CatchUpDetailOverlay(viewModel: TvViewModel, initialItem: CatchUpIte
                     Text(
                         text = item.title,
                         color = nocturne.text,
-                        fontSize = 56.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontSize = 48.sp,
+                        lineHeight = 56.sp,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -374,8 +375,44 @@ private fun CatchUpDetailOverlay(viewModel: TvViewModel, initialItem: CatchUpIte
                     Text(
                         text = buildMetaLine(item),
                         color = nocturne.textFaint,
-                        fontSize = 22.sp
+                        fontSize = 20.sp,
+                        lineHeight = 28.sp
                     )
+
+                    // Top-anchored focusable actions so D-pad Up can always return to the top of the details column
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                    ) {
+                        if (!item.trailerUrl.isNullOrBlank()) {
+                            DetailButton(
+                                label = "Watch Trailer",
+                                accent = true,
+                                icon = androidx.compose.material.icons.Icons.Default.PlayArrow,
+                                onClick = {
+                                    viewModel.clearCatchUpDetail()
+                                    viewModel.play(
+                                        com.afrovision.tv.data.PlayerMedia(
+                                            id = item.id,
+                                            title = "${item.title} - Trailer",
+                                            streamUrl = item.trailerUrl,
+                                            externalUrl = item.trailerUrl,
+                                            isLive = false,
+                                            progress = 0,
+                                            duration = 0,
+                                            mediaType = "trailer"
+                                        )
+                                    )
+                                }
+                            )
+                        }
+                        DetailButton(
+                            label = "Close",
+                            accent = item.trailerUrl.isNullOrBlank(),
+                            icon = Icons.Filled.Info,
+                            onClick = { viewModel.clearCatchUpDetail() }
+                        )
+                    }
 
                     Text(
                         text = item.overview,

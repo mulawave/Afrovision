@@ -108,19 +108,33 @@ class MainActivity : FlutterActivity() {
     // button always report "not supported" without ever really trying. An
     // explicit user tap should just attempt the real OS call and only fail
     // if that call itself throws.
+    private fun safePipRational(w: Int, h: Int): Rational {
+        val safeW = if (w > 0) w else 16
+        val safeH = if (h > 0) h else 9
+        val ratio = safeW.toDouble() / safeH.toDouble()
+        // Android enforces aspect ratio between 1:2.39 and 2.39:1
+        return when {
+            ratio > 2.35 -> Rational(235, 100)
+            ratio < 0.43 -> Rational(43, 100)
+            else -> Rational(safeW, safeH)
+        }
+    }
+
     private fun enterPiP(aspectWidth: Int, aspectHeight: Int): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
 
         return try {
             val builder = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(aspectWidth, aspectHeight))
+                .setAspectRatio(safePipRational(aspectWidth, aspectHeight))
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 builder.setAutoEnterEnabled(true)
                 builder.setSeamlessResizeEnabled(true)
             }
 
-            enterPictureInPictureMode(builder.build())
+            val params = builder.build()
+            setPictureInPictureParams(params)
+            enterPictureInPictureMode(params)
         } catch (_: Exception) {
             false
         }

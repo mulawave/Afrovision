@@ -20,6 +20,7 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
   bool _loading = true;
   String? _error;
   String? _togglingId;
+  String? _togglingProxyId;
   bool _creatorPlanActive = true;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -113,6 +114,55 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
       );
     } finally {
       if (mounted) setState(() => _togglingId = null);
+    }
+  }
+
+  Future<void> _toggleStreamProxy(ChannelModel channel, bool enabled) async {
+    if (_togglingProxyId != null) return;
+    setState(() => _togglingProxyId = channel.id);
+    try {
+      final updated = await ChannelService.updateChannel(
+        channel.id,
+        useStreamProxy: enabled,
+      );
+      if (!mounted) return;
+      setState(() {
+        _channels = _channels
+            .map((c) => c.id == channel.id ? updated : c)
+            .toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'Server Stream Relay enabled for ${channel.name} (No VPN needed).'
+                : 'Server Stream Relay disabled for ${channel.name}.',
+            style: const TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: const Color(0xFF5FD39A).withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString(),
+            style: const TextStyle(color: AppColors.white),
+          ),
+          backgroundColor: AppColors.errorRed.withValues(alpha: 0.9),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _togglingProxyId = null);
     }
   }
 
@@ -540,6 +590,64 @@ class _CreatorStudioScreenState extends State<CreatorStudioScreen>
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          // Server Stream Relay (VPN Bypass) quick toggle
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: channel.useStreamProxy
+                  ? AppColors.orange.withValues(alpha: 0.08)
+                  : AppColors.inputFill.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: channel.useStreamProxy
+                    ? AppColors.orange.withValues(alpha: 0.35)
+                    : AppColors.inputBorder,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.vpn_lock_rounded,
+                  size: 16,
+                  color: channel.useStreamProxy
+                      ? AppColors.orange
+                      : AppColors.hintText,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Server Stream Relay (No VPN)',
+                        style: TextStyle(
+                          color: AppColors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'Route geo/ISP-blocked streams through AfroVision server',
+                        style: TextStyle(
+                          color: AppColors.hintText,
+                          fontSize: 10.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: channel.useStreamProxy,
+                  activeThumbColor: AppColors.orange,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: _togglingProxyId == channel.id
+                      ? null
+                      : (val) => _toggleStreamProxy(channel, val),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           // Action buttons

@@ -90,6 +90,7 @@ private fun ExclusiveContent(viewModel: TvViewModel) {
         if (moviesState !is LoadState.Success) viewModel.loadExclusiveContent()
         if (subsState !is LoadState.Success) viewModel.loadChannelSubscriptions()
         viewModel.loadExclusiveContinueReading()
+        viewModel.refreshContinueWatching()
     }
 
     val movies = (moviesState as? LoadState.Success)?.data.orEmpty()
@@ -137,27 +138,47 @@ private fun ExclusiveContent(viewModel: TvViewModel) {
                     }
                     when (tab) {
                         ExclusiveTab.Movies -> if (movies.isNotEmpty()) {
-                            val moviesById = movies.associateBy { it.id }
-                            item(key = "movies") {
-                                RailRow(
-                                    title = "Exclusive movies",
-                                    subtitle = "${movies.size} titles",
-                                    items = movies.map { it.toMediaCard() },
-                                    cardContent = { card -> PosterCard(item = card, onClick = { moviesById[card.id]?.let { viewModel.selectMovie(it) } }) }
+                            item(key = "movies-header") {
+                                Text(
+                                    text = "Exclusive movies (${movies.size})",
+                                    color = nocturne.text,
+                                    fontSize = 24.sp,
+                                    modifier = Modifier.padding(start = 60.dp, end = 60.dp, top = 24.dp, bottom = 14.dp)
                                 )
+                            }
+                            val rows = movies.chunked(5)
+                            items(rows.size, key = { "ex-movies-row-$it" }) { rowIdx ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 60.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(20.dp)
+                                ) {
+                                    rows[rowIdx].forEach { m ->
+                                        PosterCard(item = m.toMediaCard(), onClick = { viewModel.selectMovie(m) })
+                                    }
+                                }
                             }
                         } else {
                             item(key = "movies-empty") { EmptyTabMessage(if (stillLoading) "Loading…" else "No exclusive movies yet.") }
                         }
                         ExclusiveTab.Series -> if (series.isNotEmpty()) {
-                            val seriesById = series.associateBy { it.id }
-                            item(key = "series") {
-                                RailRow(
-                                    title = "Exclusive series",
-                                    subtitle = "${series.size} titles",
-                                    items = series.map { it.toMediaCard() },
-                                    cardContent = { card -> PosterCard(item = card, onClick = { seriesById[card.id]?.let { viewModel.selectSeries(it) } }) }
+                            item(key = "series-header") {
+                                Text(
+                                    text = "Exclusive series (${series.size})",
+                                    color = nocturne.text,
+                                    fontSize = 24.sp,
+                                    modifier = Modifier.padding(start = 60.dp, end = 60.dp, top = 24.dp, bottom = 14.dp)
                                 )
+                            }
+                            val rows = series.chunked(5)
+                            items(rows.size, key = { "ex-series-row-$it" }) { rowIdx ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 60.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(20.dp)
+                                ) {
+                                    rows[rowIdx].forEach { s ->
+                                        PosterCard(item = s.toMediaCard(), onClick = { viewModel.selectSeries(s) })
+                                    }
+                                }
                             }
                         } else {
                             item(key = "series-empty") { EmptyTabMessage(if (stillLoading) "Loading…" else "No exclusive series yet.") }
@@ -177,15 +198,31 @@ private fun ExclusiveContent(viewModel: TvViewModel) {
             }
         }
 
+        val cwList = (viewModel.homeState.continueWatching as? LoadState.Success)?.data.orEmpty()
         viewModel.selectedMovie?.let { movie ->
+            val cw = cwList.firstOrNull { it.id == movie.id }
+            val savedMs = cw?.let { (it.progress * it.duration).toLong() } ?: 0L
+            val dl = viewModel.downloads.firstOrNull { it.id == movie.id }
             MediaDetailOverlay(
                 title = movie.title,
                 imageUrl = movie.posterUrl,
                 meta = formatMovieDuration(movie.duration),
                 description = movie.description ?: "",
-                playLabel = "Play",
-                canPlay = !movie.streamUrl.isNullOrBlank(),
-                onPlay = { viewModel.play(movie.toMediaCard().toPlayerMedia()); viewModel.clearSelectedMovie() },
+                playLabel = "Stream",
+                canPlay = !movie.streamUrl.isNullOrBlank() || dl?.completed == true,
+                resumeProgressMs = savedMs,
+                tmdb = viewModel.selectedMediaTmdb,
+                downloadItem = dl,
+                onDownload = movie.streamUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                    { viewModel.startDownload(movie.id, movie.title, "movie", url) }
+                },
+                onPauseDownload = { viewModel.pauseDownload(it) },
+                onResumeDownload = { viewModel.resumeDownload(it) },
+                onDeleteDownload = { viewModel.removeDownload(movie.id) },
+                onPlay = {
+                    viewModel.play(movie.toMediaCard().toPlayerMedia().copy(progress = savedMs))
+                    viewModel.clearSelectedMovie()
+                },
                 onDismiss = { viewModel.clearSelectedMovie() }
             )
         }
@@ -193,12 +230,29 @@ private fun ExclusiveContent(viewModel: TvViewModel) {
             MediaDetailOverlay(
                 title = s.title,
                 imageUrl = s.posterUrl,
-                meta = "${s.seasons.size} season${if (s.seasons.size == 1) "" else "s"}",
+                meta = if (s.seasons.isEmpty()) "Loading seasons…" else "${s.seasons.size} season${if (s.seasons.size == 1) "" else "s"}",
                 description = s.description ?: "",
                 playLabel = "Play S1E1",
                 canPlay = firstEpisodePlayerMedia(s) != null,
+                tmdb = viewModel.selectedMediaTmdb,
+                downloads = viewModel.downloads,
+                continueWatching = cwList,
+                onDownloadEpisode = { ep ->
+                    val url = ep.streamUrl?.takeIf { it.isNotBlank() } ?: ep.externalUrl?.takeIf { it.isNotBlank() }
+                    if (url != null) {
+                        viewModel.startDownload(ep.id, "${s.title} - ${ep.title}", "episode", url)
+                    }
+                },
+                onPauseDownload = { viewModel.pauseDownload(it) },
+                onResumeDownload = { viewModel.resumeDownload(it) },
+                onDeleteEpisodeDownload = { viewModel.removeDownload(it) },
                 onPlay = {
                     firstEpisodePlayerMedia(s)?.let { viewModel.play(it) }
+                    viewModel.clearSelectedSeries()
+                },
+                series = s,
+                onPlayEpisode = {
+                    viewModel.play(it)
                     viewModel.clearSelectedSeries()
                 },
                 onDismiss = { viewModel.clearSelectedSeries() }

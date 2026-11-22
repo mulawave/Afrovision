@@ -8,6 +8,7 @@ import { Footer } from "@/components/Footer";
 import { CommunityPoolBar } from "@/components/CommunityPoolBar";
 import { MarqueeTicker } from "@/components/MarqueeTicker";
 import { KycAlertBanner } from "@/components/KycAlertBanner";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { DevApiIndicator } from "@/components/DevApiIndicator";
 import { AndroidAppBanner } from "@/components/AndroidAppBanner";
 import { AuthProvider } from "@/lib/AuthContext";
@@ -93,6 +94,7 @@ fbq('track', 'PageView');`,
             <div className="h-16 lg:h-20" />
             <MarqueeTicker />
             <CommunityPoolBar />
+            <ImpersonationBanner />
             <KycAlertBanner />
             <main className="flex-1">{children}</main>
             <AndroidAppBanner />

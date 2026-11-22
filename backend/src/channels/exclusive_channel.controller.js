@@ -16,6 +16,7 @@ const { buildExclusiveLifecycleMessage } = require('./exclusive_lifecycle.messag
 const { isAdultKycVerified } = require('./exclusive_policy.service');
 const { queueExclusiveSplitException } = require('./exclusive_reconciliation.service');
 const ExclusiveRequestCtrl = require('./exclusive_request.controller');
+const CreatorDailyStats = require('../analytics/creator_daily_stats.model');
 
 const COLLECTION = 'exclusive_channel_access';
 const PIC_ATTEMPTS_COLLECTION = 'exclusive_pic_attempts';
@@ -392,80 +393,105 @@ async function purchaseExclusiveAccess(req, res) {
       creator_vpt_units: creatorVptUnits,
     };
 
+    // Ensure creator wallet exists before crediting payout.
+    await GiftWallet.ensureWallet(channel.owner_id);
     await GiftWallet.adjustNgnBalance(req.userId, -amount);
-    await GiftWallet.adjustNgnBalance(channel.owner_id, creatorCash);
-    if (creatorVptUnits > 0) {
-      await GiftWallet.adjustVptUnits(channel.owner_id, creatorVptUnits);
-    }
 
-    if (communityPoolNgn > 0) {
-      await PoolService.creditPool(communityPoolNgn, 'exclusive_channel_access', {
-        channel_id: channel.id,
-        payer_uid: req.userId,
-        owner_uid: channel.owner_id,
-        reference_id: paymentReference,
-      });
-    }
-
-    if (operationsPoolNgn > 0) {
-      await PoolService.creditOperationsPool(operationsPoolNgn, 'exclusive_channel_access', {
-        channel_id: channel.id,
-        payer_uid: req.userId,
-        owner_uid: channel.owner_id,
-        reference_id: paymentReference,
-      });
-    }
-
-    await distributeReferralVpt({
-      subscriberUid: req.userId,
-      referralPoolNgn,
-      referenceId: paymentReference,
-      channel,
-    });
-
-    // A subscriber keeps the same PIC across renewals; it's always visible
-    // in their account (mobile + website "My PICs"), so it isn't reissued.
+    // Execute creator payout, pool distributions, referral VPT, and PIC issuance
+    // concurrently so the request completes well inside client HTTP timeouts.
     const previousAccess = await ExclusiveAccess.findLatestByUserAndChannel(req.userId, channel.id);
     const pic = previousAccess?.pic || generatePic();
-    const access = await ExclusiveAccess.grantOrRenew({
-      userUid: req.userId,
-      channelId: channel.id,
-      pic,
-      picHash: hashPic(pic),
-      sourcePaymentId: paymentReference,
-      monthlyFeeNgn: amount,
-    });
 
-    // The wallet debit above already happened - a user must never be able
-    // to see a real debit with no matching transaction record. This used
-    // to be fire-and-forget post-processing (best-effort, silently dropped
-    // on failure), which is exactly how a real debit ended up with nothing
-    // in wallet history. Kept synchronous and in the critical path so a
-    // failure here surfaces (falls into the catch below, which queues it
-    // for reconciliation) instead of vanishing.
-    await Ledger.create({
-      uid: req.userId,
-      type: 'EXCLUSIVE_CHANNEL_ACCESS_PAYMENT',
-      direction: 'debit',
-      currency: 'ngn',
-      amount_ngn: amount,
-      status: 'success',
-      channel_id: channel.id,
-      reference_id: paymentReference,
-      meta: {
-        creator_cash: creatorCash,
-        community_pool_ngn: communityPoolNgn,
-        operations_pool_ngn: operationsPoolNgn,
-        referral_pool_ngn: referralPoolNgn,
-        creator_vpt_ngn: creatorVptNgn,
-        creator_vpt_units: creatorVptUnits,
-        access_id: access.id,
-      },
-      description: `Exclusive channel access payment - ${channel.name}`,
-    });
+    const payoutTasks = [
+      GiftWallet.adjustNgnBalance(channel.owner_id, creatorCash),
+      creatorVptUnits > 0 ? GiftWallet.adjustVptUnits(channel.owner_id, creatorVptUnits) : Promise.resolve(),
+      communityPoolNgn > 0
+        ? PoolService.creditPool(communityPoolNgn, 'exclusive_channel_access', {
+            channel_id: channel.id,
+            payer_uid: req.userId,
+            owner_uid: channel.owner_id,
+            reference_id: paymentReference,
+          })
+        : Promise.resolve(),
+      operationsPoolNgn > 0
+        ? PoolService.creditOperationsPool(operationsPoolNgn, 'exclusive_channel_access', {
+            channel_id: channel.id,
+            payer_uid: req.userId,
+            owner_uid: channel.owner_id,
+            reference_id: paymentReference,
+          })
+        : Promise.resolve(),
+      distributeReferralVpt({
+        subscriberUid: req.userId,
+        referralPoolNgn,
+        referenceId: paymentReference,
+        channel,
+      }),
+      ExclusiveAccess.grantOrRenew({
+        userUid: req.userId,
+        channelId: channel.id,
+        pic,
+        picHash: hashPic(pic),
+        sourcePaymentId: paymentReference,
+        monthlyFeeNgn: amount,
+      }),
+      CreatorDailyStats.incrementSubscription(channel.owner_id, {
+        ngn: creatorCash,
+        vpt: creatorVptUnits,
+      }).catch((e) => console.error('[Exclusive] daily stats error:', e.message)),
+    ];
 
-    // ── Access is now granted. Send the response immediately so the
-    // client gets a success even if non-critical post-processing fails. ──
+    const payoutResults = await Promise.all(payoutTasks);
+    const access = payoutResults[5];
+
+    // Write both the subscriber debit ledger and the creator payout credit
+    // ledger synchronously so both wallet history and channel settlements
+    // reflect the transaction immediately.
+    await Promise.all([
+      Ledger.create({
+        uid: req.userId,
+        type: 'EXCLUSIVE_CHANNEL_ACCESS_PAYMENT',
+        direction: 'debit',
+        currency: 'ngn',
+        amount_ngn: amount,
+        status: 'success',
+        channel_id: channel.id,
+        reference_id: paymentReference,
+        meta: {
+          creator_cash: creatorCash,
+          community_pool_ngn: communityPoolNgn,
+          operations_pool_ngn: operationsPoolNgn,
+          referral_pool_ngn: referralPoolNgn,
+          creator_vpt_ngn: creatorVptNgn,
+          creator_vpt_units: creatorVptUnits,
+          access_id: access.id,
+        },
+        description: `Exclusive channel access payment - ${channel.name}`,
+      }),
+      Ledger.create({
+        uid: channel.owner_id,
+        type: 'EXCLUSIVE_CHANNEL_CREATOR_PAYOUT',
+        direction: 'credit',
+        currency: 'ngn',
+        amount_ngn: creatorCash,
+        amount_vpt_units: creatorVptUnits,
+        status: 'success',
+        channel_id: channel.id,
+        reference_id: paymentReference,
+        meta: {
+          gross_amount_ngn: amount,
+          creator_cash: creatorCash,
+          creator_vpt_ngn: creatorVptNgn,
+          creator_vpt_units: creatorVptUnits,
+          community_pool_ngn: communityPoolNgn,
+          operations_pool_ngn: operationsPoolNgn,
+          referral_pool_ngn: referralPoolNgn,
+          payer_uid: req.userId,
+          access_id: access.id,
+        },
+        description: `Exclusive membership payout - ${channel.name}`,
+      }),
+    ]);
     const responsePayload = {
       has_access: true,
       access_id: access.id,

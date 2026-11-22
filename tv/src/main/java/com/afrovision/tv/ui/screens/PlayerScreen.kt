@@ -4,6 +4,8 @@ import android.net.Uri
 import android.util.Log
 import android.view.KeyEvent
 import android.webkit.WebView
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -62,6 +64,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -84,6 +87,7 @@ import com.afrovision.tv.data.LoadState
 import com.afrovision.tv.data.PlayerMedia
 import com.afrovision.tv.data.TvViewModel
 import com.afrovision.tv.data.toMediaCard
+import com.afrovision.tv.player.ChannelViewerSocket
 import com.afrovision.tv.player.LoadMeter
 import com.afrovision.tv.player.PlayerFactory
 import com.afrovision.tv.ui.focus.autoRequestFocus
@@ -106,10 +110,13 @@ fun PlayerScreen(viewModel: TvViewModel) {
     }
 
     val loadMeter = remember { LoadMeter() }
-    val player = remember { PlayerFactory.create(context, loadMeter) }
+    var lastKnownPositionMs by remember(media.id) { mutableLongStateOf(media.progress) }
+    val player = remember { PlayerFactory.create(context, loadMeter, viewModel.settings.networkProfile) }
     var isPlaying by remember { mutableStateOf(true) }
     var showOverlay by remember { mutableStateOf(true) }
     var showSurfer by remember { mutableStateOf(false) }
+    var vodPlaybackSpeed by remember(media.id) { mutableStateOf(1f) }
+    var subtitlesEnabled by remember { mutableStateOf(viewModel.settings.subtitlesOn) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var isTuning by remember { mutableStateOf(true) }
@@ -165,15 +172,21 @@ fun PlayerScreen(viewModel: TvViewModel) {
             }
             return
         }
-        val url = media.streamUrl ?: media.externalUrl ?: return
+        val localOfflinePath = if (!media.isLive) viewModel.getLocalDownloadPath(media.id) else null
+        val rawUrl = media.streamUrl ?: media.externalUrl
+        val url = localOfflinePath?.let { Uri.fromFile(java.io.File(it)).toString() } ?: rawUrl ?: return
         // Matches mobile: a Wave loops by default (autoscroll-to-next is a
         // Waves-screen concept, not a thing this single-item full player
         // does), everything else plays through once.
         player.repeatMode = if (media.mediaType == "wave") Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-        player.setMediaItem(MediaItem.fromUri(url))
+        val resumePosMs = if (!media.isLive) maxOf(lastKnownPositionMs, media.progress) else 0L
+        if (resumePosMs > 0L) {
+            player.setMediaItem(MediaItem.fromUri(url), resumePosMs)
+        } else {
+            player.setMediaItem(MediaItem.fromUri(url))
+        }
         player.prepare()
         player.playWhenReady = true
-        if (media.progress > 0 && !media.isLive) player.seekTo(media.progress)
     }
 
     fun retryTune() {
@@ -249,6 +262,7 @@ fun PlayerScreen(viewModel: TvViewModel) {
                 // A movie/episode retries in place: re-tuning restarted it
                 // from the beginning (or the saved resume point).
                 if (!media.isLive && player.currentMediaItem != null) {
+                    if (player.currentPosition > 0L) lastKnownPositionMs = player.currentPosition
                     Log.e(TV_APP_TAG, "Player error for ${media.title}, retrying in place", error)
                     playbackScope.launch {
                         delay(3000)
@@ -283,6 +297,7 @@ fun PlayerScreen(viewModel: TvViewModel) {
                 (player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY) &&
                 !player.isPlaying
             val pos = player.currentPosition
+            if (!media.isLive && pos > 0L) lastKnownPositionMs = pos
             val bytes = loadMeter.bytes.get()
             val downloading = bytes != lastBytes
             lastBytes = bytes
@@ -333,6 +348,36 @@ fun PlayerScreen(viewModel: TvViewModel) {
     }
     DisposableEffect(media) {
         onDispose { viewModel.saveWatchProgress(media, position, duration) }
+    }
+
+    // Live-viewer presence + watch-time reporting for Admin Live Viewers ("Currently Watching").
+    DisposableEffect(media.id, media.isLive, media.mediaType) {
+        if (media.isLive && media.mediaType == "channel") {
+            ChannelViewerSocket.join(media.id)
+        }
+        onDispose {
+            if (media.isLive && media.mediaType == "channel") {
+                ChannelViewerSocket.leave()
+            }
+        }
+    }
+    LaunchedEffect(media.id, media.isLive, media.mediaType) {
+        if (media.isLive && media.mediaType == "channel") {
+            viewModel.recordChannelView(media.id)
+            while (true) {
+                delay(30_000)
+                viewModel.recordWatchPing(media.id, 30)
+            }
+        }
+    }
+    LaunchedEffect(vodPlaybackSpeed) {
+        player.setPlaybackSpeed(vodPlaybackSpeed)
+    }
+    LaunchedEffect(subtitlesEnabled) {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, !subtitlesEnabled)
+            .build()
     }
 
     // Off air: check the schedule again every minute.
@@ -556,8 +601,27 @@ fun PlayerScreen(viewModel: TvViewModel) {
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
-                        PlayerIconRes(icon = R.drawable.ic_ph_subtitles, onClick = {})
-                        PlayerIconRes(icon = R.drawable.ic_ph_gauge, onClick = {})
+                        PlayerIconRes(
+                            icon = R.drawable.ic_ph_subtitles,
+                            onClick = { subtitlesEnabled = !subtitlesEnabled }
+                        )
+                        if (!media.isLive) {
+                            PlayerIconRes(
+                                icon = R.drawable.ic_ph_gauge,
+                                onClick = {
+                                    val speeds = listOf(1f, 1.25f, 1.5f, 2f)
+                                    val next = (speeds.indexOf(vodPlaybackSpeed) + 1) % speeds.size
+                                    vodPlaybackSpeed = speeds[next]
+                                }
+                            )
+                            if (vodPlaybackSpeed != 1f) {
+                                Text(
+                                    text = "${vodPlaybackSpeed}x",
+                                    color = nocturne.goldLight,
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
                         if (media.isLive) {
                             PlayerIconRes(
                                 icon = R.drawable.ic_ph_television_simple,
@@ -1143,45 +1207,82 @@ private fun TrailerPlayer(viewModel: TvViewModel, media: PlayerMedia) {
     val nocturne = LocalNocturne.current
     val url = media.externalUrl ?: media.streamUrl ?: return run { viewModel.closePlayer() }
     val html = remember(url) { buildEmbedHtml(url) }
+    var showBanner by remember { mutableStateOf(true) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    LaunchedEffect(url) {
+        showBanner = true
+        delay(4000)
+        showBanner = false
+    }
 
     BackHandler { viewModel.closePlayer() }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    val code = event.nativeKeyEvent.keyCode
+                    if (code == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+                        code == android.view.KeyEvent.KEYCODE_ENTER ||
+                        code == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                    ) {
+                        webViewRef?.evaluateJavascript("window.avTogglePlay && window.avTogglePlay()", null)
+                        showBanner = true
+                        true
+                    } else false
+                } else false
+            }
+    ) {
         AndroidView(
             factory = { context ->
                 WebView(context).apply {
+                    setBackgroundColor(android.graphics.Color.BLACK)
                     settings.javaScriptEnabled = true
                     settings.mediaPlaybackRequiresUserGesture = false
-                    settings.userAgentString =
-                        "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                     settings.domStorageEnabled = true
+                    settings.loadWithOverviewMode = true
+                    settings.useWideViewPort = true
+                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    settings.userAgentString =
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                    webChromeClient = WebChromeClient()
                     webViewClient = WebViewClient()
                     loadDataWithBaseURL(
-                        "https://www.youtube-nocookie.com",
+                        "https://afrovision.online",
                         html,
                         "text/html",
                         "UTF-8",
                         null
                     )
+                    webViewRef = this
                 }
+            },
+            onRelease = { wv ->
+                wv.loadUrl("about:blank")
+                wv.destroy()
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(nocturne.background.copy(alpha = 0.45f))
-                .padding(28.dp)
-        ) {
-            Text(
-                text = media.title,
-                color = Color.White,
-                fontSize = 24.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        if (showBanner) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(nocturne.background.copy(alpha = 0.55f))
+                    .padding(horizontal = 36.dp, vertical = 22.dp)
+            ) {
+                Text(
+                    text = media.title,
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -1213,49 +1314,72 @@ private fun extractYouTubeVideoId(url: String): String? {
     }
 }
 
-private fun buildNocookieEmbedUrl(videoId: String): String {
-    return Uri.Builder()
+private fun extractYouTubeChannelId(url: String): String? {
+    return try {
+        val parsed = Uri.parse(url)
+        val segments = parsed.pathSegments
+        val idx = segments.indexOf("channel")
+        if (idx >= 0 && idx + 1 < segments.size) segments[idx + 1] else parsed.getQueryParameter("channel")
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun buildMinimalYouTubeEmbedUrl(url: String): String {
+    val videoId = extractYouTubeVideoId(url)
+    val channelId = extractYouTubeChannelId(url)
+    val builder = Uri.Builder()
         .scheme("https")
-        .authority("www.youtube-nocookie.com")
-        .path("/embed/$videoId")
+        .authority("www.youtube.com")
+    if (!videoId.isNullOrBlank()) {
+        builder.path("/embed/$videoId")
+    } else if (!channelId.isNullOrBlank()) {
+        builder.path("/embed/live_stream").appendQueryParameter("channel", channelId)
+    } else {
+        return url
+    }
+    return builder
         .appendQueryParameter("autoplay", "1")
-        .appendQueryParameter("controls", "1")
+        .appendQueryParameter("controls", "0")
         .appendQueryParameter("mute", "0")
         .appendQueryParameter("playsinline", "1")
         .appendQueryParameter("enablejsapi", "1")
         .appendQueryParameter("rel", "0")
         .appendQueryParameter("iv_load_policy", "3")
         .appendQueryParameter("modestbranding", "1")
-        .appendQueryParameter("origin", "https://www.youtube-nocookie.com")
+        .appendQueryParameter("fs", "0")
+        .appendQueryParameter("disablekb", "1")
+        .appendQueryParameter("origin", "https://afrovision.online")
         .build()
         .toString()
 }
 
 private fun buildEmbedHtml(url: String): String {
-    val videoId = extractYouTubeVideoId(url)
-    val src = if (!videoId.isNullOrBlank()) {
-        buildNocookieEmbedUrl(videoId)
-    } else if (isYouTubeUrl(url)) {
-        url
-    } else {
-        url
-    }
-
+    val src = if (isYouTubeUrl(url)) buildMinimalYouTubeEmbedUrl(url) else url
     return """<!DOCTYPE html>
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-        iframe { width: 100%; height: 100%; border: 0; }
+        #ytplayer { width: 100%; height: 100%; border: 0; }
     </style>
 </head>
 <body>
-    <iframe src="$src" allowfullscreen allow="autoplay; encrypted-media; fullscreen; picture-in-picture"></iframe>
+    <iframe id="ytplayer" src="$src" allowfullscreen allow="autoplay; encrypted-media; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <script>
+        var paused = false;
+        window.avTogglePlay = function() {
+            var f = document.getElementById("ytplayer");
+            if (!f || !f.contentWindow) return;
+            var cmd = paused ? "playVideo" : "pauseVideo";
+            paused = !paused;
+            f.contentWindow.postMessage(JSON.stringify({ event: "command", func: cmd, args: [] }), "*");
+        };
+    </script>
 </body>
 </html>"""
 }
-
 /** How long Up/Down must be idle before the stepped-to channel is tuned. */
 private const val SURF_CONFIRM_DELAY_MS = 700L
 

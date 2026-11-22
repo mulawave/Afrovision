@@ -129,6 +129,58 @@ exports.getEpisodeDetail = async (req, res) => {
 };
 
 /**
+ * GET /series/:seriesId
+ * Standalone series detail by series ID. Resolves the parent channel,
+ * enforces exclusive channel access (owner/admin bypass for drafts), and
+ * returns published seasons + episodes. Used by the website series page.
+ */
+exports.getSeriesById = async (req, res) => {
+  try {
+    const { seriesId } = req.params;
+    const series = await Series.findSeriesById(seriesId);
+    if (!series) {
+      return res.status(404).json({ error: 'Series not found' });
+    }
+
+    const channel = await Channel.findById(series.channel_id);
+    if (!channel || !channel.is_active) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+
+    const access = await checkChannelAccess(channel, req.userId || null);
+    if (!access.allowed) {
+      return res.status(access.status).json({ error: access.message });
+    }
+
+    const isOwnerOrAdmin = req.userId && (req.userRole === 'admin' || channel.owner_id === req.userId);
+    if (series.status !== 'published' && !isOwnerOrAdmin) {
+      return res.status(404).json({ error: 'Series not found' });
+    }
+
+    const seasons = await Series.listSeasonsBySeries(seriesId);
+    const seasonsWithEpisodes = await Promise.all(
+      seasons.map(async (season) => {
+        const episodes = await Series.listEpisodesBySeason(season.id, { onlyPublished: true });
+        const resolvedEpisodes = await Promise.all(
+          episodes.map(async (ep) => {
+            const resolved = { ...ep };
+            if (resolved.hls_url) resolved.hls_url = await resolvePlayableUrl(resolved.hls_url);
+            if (resolved.video_url) resolved.video_url = await resolvePlayableUrl(resolved.video_url);
+            if (resolved.hosted_url) resolved.hosted_url = await resolvePlayableUrl(resolved.hosted_url);
+            return resolved;
+          })
+        );
+        return { ...season, episodes: resolvedEpisodes };
+      })
+    );
+
+    res.json({ success: true, data: { series: { ...series, seasons: seasonsWithEpisodes } } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
  * GET /series
  * Global public feed — published series from public, non-exclusive channels only.
  */

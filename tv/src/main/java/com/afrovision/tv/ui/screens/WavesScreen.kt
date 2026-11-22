@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -119,15 +120,23 @@ fun WavesScreen(viewModel: TvViewModel) {
     // own mount effect would otherwise never retry - only a manual Retry tap
     // would. Landing on the screen should always attempt a fresh load
     // unless it already has real data.
-    LaunchedEffect(Unit) { if (viewModel.waves !is LoadState.Success) viewModel.loadWaves() }
+    LaunchedEffect(Unit) { viewModel.loadWaves() }
+    LaunchedEffect(Unit) {
+        viewModel.refreshContinueWatching()
+    }
     LaunchedEffect(selectedFilter) {
         if (selectedFilter == "Fav" && viewModel.favWaves !is LoadState.Success) viewModel.loadFavWaves()
     }
     LaunchedEffect(Unit) { if (viewModel.marqueeTopics !is LoadState.Success) viewModel.loadMarqueeTopics() }
 
-    val rawWaves = when (waves) {
-        is LoadState.Success -> waves.data
-        else -> emptyList()
+    val initialWatched = remember(selectedFilter) { viewModel.watchedWaveIds.toSet() }
+    val rawWaves = remember(waves, initialWatched) {
+        val list = (waves as? LoadState.Success)?.data ?: emptyList()
+        if (initialWatched.isEmpty()) list
+        else {
+            val unseen = list.filterNot { initialWatched.contains(it.id) }
+            if (unseen.isNotEmpty()) unseen else list
+        }
     }
 
     val recentChannels = (viewModel.homeState.recentChannels as? LoadState.Success)?.data.orEmpty()
@@ -224,16 +233,34 @@ private fun CompactRail(
 ) {
     val nocturne = LocalNocturne.current
     val listState = rememberLazyListState()
+    var slideOffset by remember(items) { mutableStateOf(0) }
+    val displayItems = remember(items, slideOffset) {
+        if (slideOffset == 0 || items.size <= 1) items
+        else {
+            val s = slideOffset % items.size
+            items.drop(s) + items.take(s)
+        }
+    }
 
-    // Gentle continuous auto-slide, like a marquee - purely a cosmetic
-    // scroll of the list position, not a focus move, so it never steals or
-    // fights D-pad focus elsewhere on the screen.
+    // Continuous auto-slide: scrolls forward while overflow exists, wraps back
+    // to 0 at the end, and rotates items with animateItem() when all items fit
+    // in the viewport so even 2-3 channels visibly auto-slide without stealing
+    // D-pad focus.
     if (autoSlide && items.size > 1) {
         LaunchedEffect(items) {
             while (isActive) {
-                delay(2600)
-                val next = (listState.firstVisibleItemIndex + 1) % items.size
-                listState.animateScrollToItem(next)
+                delay(2400)
+                when {
+                    listState.canScrollForward -> {
+                        listState.animateScrollToItem(listState.firstVisibleItemIndex + 1)
+                    }
+                    listState.firstVisibleItemIndex > 0 -> {
+                        listState.animateScrollToItem(0)
+                    }
+                    else -> {
+                        slideOffset = (slideOffset + 1) % items.size
+                    }
+                }
             }
         }
     }
@@ -250,8 +277,12 @@ private fun CompactRail(
             state = listState,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            itemsIndexed(items, key = { _, item -> item.id }) { _, item ->
-                CompactCard(item = item, onClick = { onClick(item) })
+            itemsIndexed(displayItems, key = { _, item -> item.id }) { _, item ->
+                CompactCard(
+                    item = item,
+                    onClick = { onClick(item) },
+                    modifier = Modifier.animateItem()
+                )
             }
         }
     }
@@ -355,14 +386,14 @@ private fun WaveKeyMapCard(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun CompactCard(item: MediaCard, onClick: () -> Unit) {
+private fun CompactCard(item: MediaCard, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val nocturne = LocalNocturne.current
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     LaunchedEffect(focused) { if (focused) TvSoundManager.play("move") }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .width(COMPACT_CARD_WIDTH)
             .height(COMPACT_CARD_HEIGHT)
             .clip(RoundedCornerShape(10.dp))
@@ -497,8 +528,9 @@ internal fun WaveCarousel(
 ) {
     val context = LocalContext.current
     val items = remember(rawWaves) { rawWaves.map { it.toMediaCard() } }
-    var centeredIndex by remember(rawWaves.size) { mutableStateOf(0) }
-    var autoplayEnabled by remember { mutableStateOf(false) }
+    var centeredIndex by remember { mutableStateOf(0) }
+    LaunchedEffect(rawWaves.size) { if (rawWaves.isNotEmpty() && centeredIndex >= rawWaves.size) centeredIndex = 0 }
+    var autoplayEnabled by remember { mutableStateOf(true) }
     var playbackSpeed by remember { mutableStateOf(1f) }
     val hasMore = paginated && viewModel.wavesNextCursor != null
 
@@ -530,152 +562,93 @@ internal fun WaveCarousel(
     }
 
     LaunchedEffect(centeredWave?.id) {
-        centeredWave?.id?.let {
-            viewModel.trackWaveView(it)
-            viewModel.loadPulseMoments(it)
-        }
+        val id = centeredWave?.id ?: return@LaunchedEffect
+        viewModel.trackWaveView(id)
+        viewModel.loadPulseMoments(id)
+        delay(2000)
+        viewModel.markWaveWatched(id)
     }
     val nextWave = rawWaves.getOrNull(centeredIndex + 1)
     LaunchedEffect(nextWave?.id) {
         nextWave?.id?.let { viewModel.loadPulseMoments(it) }
     }
 
-    val slotA = remember { WaveSlot(PlayerFactory.create(context)) }
-    val slotB = remember { WaveSlot(PlayerFactory.create(context)) }
-    var activeIsA by remember { mutableStateOf(true) }
-    val active = if (activeIsA) slotA else slotB
-    val standby = if (activeIsA) slotB else slotA
-    // The listeners below are only ever set up once (DisposableEffect keyed
-    // on the slot objects, which never change identity) - without routing
-    // through rememberUpdatedState, they'd keep checking "is this slot
-    // active" against whatever activeIsA was at that first setup, silently
-    // going stale the moment roles swap on the very first handoff.
-    val activeIsAState = rememberUpdatedState(activeIsA)
-    val currentOnAdvance = rememberUpdatedState({ if (autoplayEnabled) goNext() })
-    // A stuck/broken wave (network error, unplayable stream) should never
-    // just sit there forever, whether or not Autoplay is on - Autoplay only
-    // gates advancing after a wave finishes normally.
+    // Single hardware-safe ExoPlayer instance: TV chipsets frequently
+    // deadlock MediaCodec when two video decoders run simultaneously, and
+    // swapping SurfaceView players caused waves to disappear behind the
+    // previous surface during autoplay.
+    val active = remember { WaveSlot(PlayerFactory.create(context, networkProfile = "low")) }
+    val currentOnAdvance = rememberUpdatedState({
+        centeredWave?.id?.let { viewModel.markWaveWatched(it) }
+        if (autoplayEnabled) goNext()
+    })
     val currentGoNext = rememberUpdatedState({ goNext() })
 
-    DisposableEffect(slotA, slotB) {
-        val listeners = listOf(slotA, slotB).map { slot ->
-            val isThisSlotActive = { slot === (if (activeIsAState.value) slotA else slotB) }
-            val listener = object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_READY) slot.isReady = true
-                    if (playbackState == Player.STATE_ENDED && isThisSlotActive()) currentOnAdvance.value()
+    DisposableEffect(active) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    active.isReady = true
+                    active.errorRetries = 0
                 }
+                if (playbackState == Player.STATE_ENDED) currentOnAdvance.value()
+            }
 
-                override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-                    if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION && isThisSlotActive()) {
-                        slot.waveId?.let { viewModel.trackWaveView(it) }
-                    }
-                }
-
-                // Previously unhandled entirely - a network hiccup or
-                // unplayable stream left the player frozen on that wave
-                // indefinitely with nothing retrying or moving on, which is
-                // exactly what "stuck there" on a weak connection looks
-                // like. Retry twice (covers a transient blip), then skip
-                // the wave instead of leaving the screen dead.
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    if (!isThisSlotActive()) return
-                    if (slot.errorRetries < 2) {
-                        slot.errorRetries++
-                        slot.player.prepare()
-                    } else {
-                        currentGoNext.value()
-                    }
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+                    active.waveId?.let { viewModel.trackWaveView(it) }
                 }
             }
-            slot.player.addListener(listener)
-            slot.player.volume = 0f
-            slot to listener
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                if (active.errorRetries < 2) {
+                    active.errorRetries++
+                    active.player.prepare()
+                    active.player.playWhenReady = true
+                } else {
+                    active.errorRetries = 0
+                    currentGoNext.value()
+                }
+            }
         }
+        active.player.addListener(listener)
+        active.player.volume = 1f
         onDispose {
-            listeners.forEach { (slot, listener) -> slot.player.removeListener(listener) }
-            slotA.player.release()
-            slotB.player.release()
+            active.player.removeListener(listener)
+            active.player.release()
         }
     }
 
     LaunchedEffect(viewModel.settings.defaultQuality) {
-        PlayerFactory.applyQualityCap(slotA.player, context, viewModel.settings.defaultQuality)
-        PlayerFactory.applyQualityCap(slotB.player, context, viewModel.settings.defaultQuality)
+        PlayerFactory.applyQualityCap(active.player, context, viewModel.settings.defaultQuality)
     }
     LaunchedEffect(playbackSpeed) {
-        slotA.player.setPlaybackSpeed(playbackSpeed)
-        slotB.player.setPlaybackSpeed(playbackSpeed)
+        active.player.setPlaybackSpeed(playbackSpeed)
     }
     LaunchedEffect(autoplayEnabled) {
-        val mode = if (autoplayEnabled) Player.REPEAT_MODE_OFF else Player.REPEAT_MODE_ONE
-        slotA.player.repeatMode = mode
-        slotB.player.repeatMode = mode
+        active.player.repeatMode = if (autoplayEnabled) Player.REPEAT_MODE_OFF else Player.REPEAT_MODE_ONE
     }
 
-    // The core handoff: promote an already-prepared standby instead of
-    // cold-starting whenever possible, THEN preload the wave after next
-    // into whatever is standby afterward - both steps live in one effect
-    // now. They used to be two separate LaunchedEffects that each
-    // independently recomputed `active`/`standby` from `activeIsA` at the
-    // top of this composable - both fire in the same recomposition when
-    // centeredWave AND nextWave change together (which is every normal
-    // advance), and the second one's `standby` was a STALE snapshot from
-    // before the first one's promotion, pointing at the exact same physical
-    // player the first effect had just promoted to active. It would then
-    // immediately mute it, pause it, and swap its media item out for the
-    // wave after next - silencing audio, desyncing the EKG (still showing
-    // the promoted wave's duration/moments against now-different playing
-    // content), and effectively skipping a wave, all in the same instant.
-    LaunchedEffect(centeredWave?.id, nextWave?.id) {
+    LaunchedEffect(centeredWave?.id) {
         val wave = centeredWave ?: return@LaunchedEffect
-        val newStandby: WaveSlot
-        when {
-            standby.waveId == wave.id -> {
-                standby.setAudioEnabled(true)
-                standby.player.volume = 1f
-                standby.player.playWhenReady = true
-                active.player.playWhenReady = false
-                active.player.volume = 0f
-                active.setAudioEnabled(false)
-                newStandby = active
-                activeIsA = !activeIsA
-            }
-            active.waveId != wave.id -> {
-                val url = wave.streamUrl
-                if (!url.isNullOrBlank()) {
-                    active.isReady = false
-                    active.errorRetries = 0
-                    active.waveId = wave.id
-                    active.setAudioEnabled(true)
-                    active.player.setMediaItem(MediaItem.fromUri(url))
-                    active.player.prepare()
-                    active.player.playWhenReady = true
-                    active.player.volume = 1f
-                }
-                newStandby = standby
-            }
-            else -> {
-                newStandby = standby
-            }
-        }
-
-        val target = nextWave
-        if (target != null && newStandby.waveId != target.id) {
-            val url = target.streamUrl
-            if (!url.isNullOrBlank()) {
-                newStandby.isReady = false
-                newStandby.errorRetries = 0
-                newStandby.waveId = target.id
-                newStandby.setAudioEnabled(false)
-                newStandby.player.volume = 0f
-                newStandby.player.playWhenReady = false
-                newStandby.player.setMediaItem(MediaItem.fromUri(url))
-                newStandby.player.prepare()
-            }
-        }
+        val url = wave.streamUrl
+        if (url.isNullOrBlank()) return@LaunchedEffect
+        if (active.waveId == wave.id && active.isReady) return@LaunchedEffect
+        active.isReady = false
+        active.errorRetries = 0
+        active.waveId = wave.id
+        active.setAudioEnabled(true)
+        active.player.stop()
+        active.player.clearMediaItems()
+        active.player.setMediaItem(MediaItem.fromUri(url))
+        active.player.prepare()
+        active.player.volume = 1f
+        active.player.playWhenReady = true
     }
-
     var positionMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(active) {
         while (isActive) {
@@ -795,37 +768,41 @@ internal fun WaveCarousel(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 16.dp, bottom = 16.dp)
+                            .padding(top = 12.dp, bottom = 12.dp)
                             .height(1.dp)
                             .background(LocalNocturne.current.gold.copy(alpha = 0.45f))
                     )
                 }
-                if (continueWatching.isNotEmpty()) {
-                    CompactRail(
-                        title = "Continue watching",
-                        items = continueWatching,
-                        onClick = { viewModel.play(it.toPlayerMedia()) }
+
+                // Descriptions card first on the row, then Continue watching (horizontally scrollable, max 4 cards).
+                val continueTopFour = remember(continueWatching) { continueWatching.take(4) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    WaveKeyMapCard(
+                        modifier = Modifier.width(300.dp)
                     )
-                } else {
-                    Text(
-                        text = "Continue watching",
-                        color = LocalNocturne.current.text,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    )
-                    CompactPlaceholderRow(note = "Items you didn't complete from Movies & Series will appear here.")
+                    Column(modifier = Modifier.weight(1f)) {
+                        if (continueTopFour.isNotEmpty()) {
+                            CompactRail(
+                                title = "Continue watching",
+                                items = continueTopFour,
+                                onClick = { viewModel.playContinueWatching(it) }
+                            )
+                        } else {
+                            Text(
+                                text = "Continue watching",
+                                color = LocalNocturne.current.text,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            CompactPlaceholderRow(note = "Items you didn't complete from Movies & Series will appear here.")
+                        }
+                    }
                 }
-                // Fills the remaining leftover space above "Up next" (which
-                // stays pinned to the bottom via the Spacer below,
-                // regardless of how tall this card ends up) - a quick guide
-                // to what each action-bar icon does, for anyone new to a
-                // social feed on a TV remote.
-                WaveKeyMapCard(modifier = Modifier.padding(top = 18.dp))
-                // Only the two quick-access rows above belong up here -
-                // this spacer absorbs whatever vertical space they don't
-                // use, so "Up next" and its rail always sit at the very
-                // bottom of this column, bottoms flush with NowPlayingPanel.
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = "Up next",
@@ -974,8 +951,8 @@ private fun NowPlayingPanel(
                 }
             },
             update = {
-                it.player = slot.player
-                it.alpha = if (slot.isReady) 1f else 0f
+                if (it.player !== slot.player) it.player = slot.player
+                it.alpha = 1f
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -1107,7 +1084,7 @@ private fun UpNextCard(
     Box(
         modifier = Modifier
             .width(UP_NEXT_WIDTH)
-            .height(UP_NEXT_HEIGHT)
+            .requiredHeight(UP_NEXT_HEIGHT)
             .clip(RoundedCornerShape(14.dp))
             .background(nocturne.surface)
             .border(if (isUpNext) 2.dp else 1.dp, borderColor, RoundedCornerShape(14.dp))
@@ -1220,7 +1197,12 @@ private fun WaveActionBar(
             iconRes = R.drawable.ic_ph_caret_left,
             label = "Back",
             highlighted = false,
-            onClick = { TvSoundManager.play("toggle"); onGoBack() },
+            onClick = {
+                if (canGoBack) {
+                    TvSoundManager.play("toggle")
+                    onGoBack()
+                }
+            },
             enabled = canGoBack,
             modifier = if (firstButtonFocusRequester != null) Modifier.focusRequester(firstButtonFocusRequester) else Modifier
         )
@@ -1362,7 +1344,7 @@ private fun WaveActionButton(
                 if (focused) nocturne.gold else if (highlighted) nocturne.accent700 else Color.Transparent,
                 RoundedCornerShape(14.dp)
             )
-            .clickable(interactionSource = interactionSource, indication = null, enabled = enabled, onClick = debouncedOnClick)
+            .clickable(interactionSource = interactionSource, indication = null, enabled = true, onClick = debouncedOnClick)
             .padding(horizontal = 18.dp, vertical = 10.dp)
     ) {
         // Plain, muted icons read as decoration rather than controls on a

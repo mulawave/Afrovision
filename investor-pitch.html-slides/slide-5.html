@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+.slide { width: 1920px; height: 1080px; overflow: hidden; position: relative; background-color: #050a30; }
+.bg-texture { position: absolute; inset: 0; background-image: repeating-linear-gradient(60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px), repeating-linear-gradient(-60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px); }
+.left-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: linear-gradient(180deg, #f39517 0%, #233dff 100%); }
+.top-border { position: absolute; top: 0; left: 6px; right: 0; height: 3px; background: linear-gradient(90deg, #f39517 0%, #233dff 60%, transparent 100%); }
+.logo-wrap { position: absolute; top: 36px; left: 52px; }
+.logo-wrap img { width: 150px; }
+.slide-label { position: absolute; top: 52px; right: 72px; font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 3px; text-transform: uppercase; }
+.left-col { position: absolute; left: 80px; top: 118px; width: 740px; }
+.section-tag { font-size: 14px; letter-spacing: 6px; color: #233dff; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+.heading { font-family: 'Playfair Display', serif; font-size: 72px; font-weight: 900; color: #f39517; line-height: 1.05; margin-bottom: 12px; }
+.divider { width: 80px; height: 3px; background: linear-gradient(90deg, #f39517, #233dff); margin-bottom: 28px; }
+.body-text { font-size: 22px; color: #c8b58f; line-height: 1.7; font-weight: 300; margin-bottom: 36px; }
+.market-items { display: flex; flex-direction: column; gap: 18px; }
+.m-item { display: flex; align-items: flex-start; gap: 16px; }
+.m-dot { width: 10px; height: 10px; border-radius: 50%; background: #f39517; margin-top: 8px; flex-shrink: 0; }
+.m-text { font-size: 20px; color: #ffffff; line-height: 1.5; }
+.m-text span { color: #f39517; font-weight: 700; }
+/* Right big stats */
+.right-col { position: absolute; right: 80px; top: 100px; width: 860px; display: flex; flex-direction: column; gap: 24px; }
+.big-stat { background: rgba(35,61,255,0.07); border: 1px solid rgba(35,61,255,0.2); border-left: 4px solid #f39517; padding: 28px 36px; display: flex; align-items: center; gap: 28px; }
+.big-stat-num { font-size: 64px; font-weight: 900; color: #f39517; line-height: 1; min-width: 220px; }
+.big-stat-right .big-stat-title { font-size: 22px; font-weight: 700; color: #ffffff; margin-bottom: 6px; }
+.big-stat-right .big-stat-sub { font-size: 17px; color: #c8b58f; line-height: 1.5; }
+.bottom-bar { position: absolute; bottom: 0; left: 6px; right: 0; height: 52px; background: rgba(35,61,255,0.08); border-top: 1px solid rgba(35,61,255,0.2); display: flex; align-items: center; justify-content: space-between; padding: 0 80px; }
+.b-left { font-size: 14px; color: #528ff1; letter-spacing: 2px; }
+.b-right { font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<section class="slide" style="width:1920px;height:1080px;overflow:hidden;position:relative;">
+  <div class="bg-texture"></div>
+  <div class="left-bar"></div>
+  <div class="top-border"></div>
+  <div class="logo-wrap"><img src="/home/user/afrovision-materials/investor-pitch.html-slides/assets/logo.png" alt="AfroVision"/></div>
+  <div class="slide-label">05 / 10</div>
+  <div class="left-col">
+    <div class="section-tag">Market Opportunity</div>
+    <div class="heading">Africa Is Ready for This</div>
+    <div class="divider"></div>
+    <div class="body-text">The intersection of Africa's streaming boom, female empowerment movement, and appetite for authentic local content has created a clear whitespace — and AfroVision is positioned directly in it.</div>
+    <div class="market-items">
+      <div class="m-item"><div class="m-dot"></div><div class="m-text">Africa's streaming market growing at <span>over 20% YoY</span> — one of the fastest in the world</div></div>
+      <div class="m-item"><div class="m-dot"></div><div class="m-text">BBNaija, Big Brother Africa &amp; Naija Got Talent demonstrate <span>massive demand</span> for African reality content</div></div>
+      <div class="m-item"><div class="m-dot"></div><div class="m-text">Female-focused business content is <span>the fastest growing content category</span> among African millennials</div></div>
+      <div class="m-item"><div class="m-dot"></div><div class="m-text">Maiden edition = <span>first-mover advantage</span> in a completely unoccupied format</div></div>
+    </div>
+  </div>
+  <div class="right-col">
+    <div class="big-stat">
+      <div class="big-stat-num">1.4B+</div>
+      <div class="big-stat-right">
+        <div class="big-stat-title">Total African Population</div>
+        <div class="big-stat-sub">The addressable audience for this program spans the entire continent — with Nigeria as the launch market</div>
+      </div>
+    </div>
+    <div class="big-stat">
+      <div class="big-stat-num">54</div>
+      <div class="big-stat-right">
+        <div class="big-stat-title">Countries, One Platform</div>
+        <div class="big-stat-sub">AfroVision's digital-first model allows pan-African reach from day one, with no distribution overhead</div>
+      </div>
+    </div>
+    <div class="big-stat">
+      <div class="big-stat-num">₦300M</div>
+      <div class="big-stat-right">
+        <div class="big-stat-title">Maximum Title Sponsorship</div>
+        <div class="big-stat-sub">Multi-tier sponsorship model from ₦10M to ₦300M creates flexible, scalable revenue stacking</div>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <div class="b-left">AfroVision Challenge: The Amazons</div>
+    <div class="b-right">Confidential — For Investor Review</div>
+  </div>
+</section>
+</body>
+</html>

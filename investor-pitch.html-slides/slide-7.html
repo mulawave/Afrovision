@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+.slide { width: 1920px; height: 1080px; overflow: hidden; position: relative; background-color: #050a30; }
+.bg-texture { position: absolute; inset: 0; background-image: repeating-linear-gradient(60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px), repeating-linear-gradient(-60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px); }
+.left-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: linear-gradient(180deg, #f39517 0%, #233dff 100%); }
+.top-border { position: absolute; top: 0; left: 6px; right: 0; height: 3px; background: linear-gradient(90deg, #f39517 0%, #233dff 60%, transparent 100%); }
+.logo-wrap { position: absolute; top: 36px; left: 52px; }
+.logo-wrap img { width: 150px; }
+.slide-label { position: absolute; top: 52px; right: 72px; font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 3px; }
+.left-col { position: absolute; left: 80px; top: 118px; width: 700px; }
+.section-tag { font-size: 14px; letter-spacing: 6px; color: #233dff; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+.heading { font-family: 'Playfair Display', serif; font-size: 68px; font-weight: 900; color: #f39517; margin-bottom: 10px; }
+.divider { width: 80px; height: 3px; background: linear-gradient(90deg, #f39517, #233dff); margin-bottom: 26px; }
+.body-text { font-size: 21px; color: #c8b58f; line-height: 1.7; font-weight: 300; margin-bottom: 32px; }
+.demo-row { display: flex; flex-direction: column; gap: 16px; }
+.demo-item { display: flex; align-items: center; gap: 16px; }
+.demo-label { font-size: 16px; letter-spacing: 3px; color: #528ff1; text-transform: uppercase; font-weight: 600; min-width: 140px; }
+.demo-bar-wrap { flex: 1; height: 8px; background: rgba(82,143,241,0.15); border-radius: 4px; }
+.demo-bar { height: 8px; border-radius: 4px; background: linear-gradient(90deg, #f39517, #233dff); }
+.demo-pct { font-size: 18px; font-weight: 700; color: #ffffff; min-width: 60px; text-align: right; }
+/* Right: audience cards */
+.right-col { position: absolute; right: 80px; top: 100px; width: 860px; display: flex; flex-direction: column; gap: 22px; }
+.aud-card { background: rgba(35,61,255,0.07); border: 1px solid rgba(35,61,255,0.2); border-left: 4px solid #f39517; padding: 24px 32px; }
+.aud-card-title { font-size: 20px; font-weight: 700; color: #ffffff; margin-bottom: 8px; }
+.aud-card-body { font-size: 17px; color: #c8b58f; line-height: 1.55; }
+.aud-card-body span { color: #f39517; font-weight: 600; }
+.comps-row { display: flex; gap: 14px; margin-top: 8px; flex-wrap: wrap; }
+.comp-tag { padding: 6px 14px; background: rgba(35,61,255,0.15); border: 1px solid rgba(35,61,255,0.3); font-size: 14px; color: #528ff1; letter-spacing: 1px; }
+.bottom-bar { position: absolute; bottom: 0; left: 6px; right: 0; height: 52px; background: rgba(35,61,255,0.08); border-top: 1px solid rgba(35,61,255,0.2); display: flex; align-items: center; justify-content: space-between; padding: 0 80px; }
+.b-left { font-size: 14px; color: #528ff1; letter-spacing: 2px; }
+.b-right { font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<section class="slide" style="width:1920px;height:1080px;overflow:hidden;position:relative;">
+  <div class="bg-texture"></div>
+  <div class="left-bar"></div>
+  <div class="top-border"></div>
+  <div class="logo-wrap"><img src="/home/user/afrovision-materials/investor-pitch.html-slides/assets/logo.png" alt="AfroVision"/></div>
+  <div class="slide-label">07 / 10</div>
+  <div class="left-col">
+    <div class="section-tag">Audience &amp; Reach</div>
+    <div class="heading">Who's Watching</div>
+    <div class="divider"></div>
+    <div class="body-text">AfroVision's audience mirrors the massive, proven markets created by Africa's biggest reality formats — but with a business-minded edge that commands higher engagement and premium sponsor attention.</div>
+    <div class="demo-row">
+      <div class="demo-item">
+        <div class="demo-label">Age 18–24</div>
+        <div class="demo-bar-wrap"><div class="demo-bar" style="width:72%"></div></div>
+        <div class="demo-pct">72%</div>
+      </div>
+      <div class="demo-item">
+        <div class="demo-label">Age 25–34</div>
+        <div class="demo-bar-wrap"><div class="demo-bar" style="width:52%"></div></div>
+        <div class="demo-pct">52%</div>
+      </div>
+      <div class="demo-item">
+        <div class="demo-label">Nigeria</div>
+        <div class="demo-bar-wrap"><div class="demo-bar" style="width:60%"></div></div>
+        <div class="demo-pct">60%</div>
+      </div>
+      <div class="demo-item">
+        <div class="demo-label">Pan-Africa</div>
+        <div class="demo-bar-wrap"><div class="demo-bar" style="width:40%"></div></div>
+        <div class="demo-pct">40%</div>
+      </div>
+    </div>
+  </div>
+  <div class="right-col">
+    <div class="aud-card">
+      <div class="aud-card-title">Core Audience — Proven Market</div>
+      <div class="aud-card-body">Fans of <span>Big Brother Naija, Big Brother Africa, and Naija Got Talent</span> — audiences that have demonstrated enormous appetite for African reality content and sustained viewership through full seasons.</div>
+      <div class="comps-row">
+        <div class="comp-tag">BBNaija</div>
+        <div class="comp-tag">Big Brother Africa</div>
+        <div class="comp-tag">Naija Got Talent</div>
+      </div>
+    </div>
+    <div class="aud-card">
+      <div class="aud-card-title">Gender Distribution</div>
+      <div class="aud-card-body">Content created for women, viewed by everyone. <span>Male and female audiences</span> tune in — women for aspiration and representation, men for the drama of high-stakes decision-making.</div>
+    </div>
+    <div class="aud-card">
+      <div class="aud-card-title">Business-Engaged Viewers</div>
+      <div class="aud-card-body">Unlike entertainment-only formats, The Amazons attracts viewers who are <span>actively interested in entrepreneurship</span>, business news, and African economic growth — a highly attractive segment for sponsors.</div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <div class="b-left">AfroVision Challenge: The Amazons</div>
+    <div class="b-right">Confidential — For Investor Review</div>
+  </div>
+</section>
+</body>
+</html>

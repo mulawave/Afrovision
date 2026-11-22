@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../core/api/api_service.dart';
 import '../../../core/services/section_cache.dart';
 import '../models/movie_model.dart';
@@ -288,6 +290,19 @@ class VodService {
     return EpisodeDetailResponse.fromJson(data);
   }
 
+  static final Map<String, WatchProgress> _progressMemory =
+      <String, WatchProgress>{};
+
+  static String _progKey(String mediaType, String mediaId) =>
+      'vod_prog_${mediaType}_$mediaId';
+
+  /// Synchronous lookup of the latest known progress (from Continue Watching,
+  /// getProgress, or saveProgress).
+  static WatchProgress? getCachedProgressSync(
+      String mediaType, String mediaId) {
+    return _progressMemory['${mediaType}_$mediaId'];
+  }
+
   /// PUT /progress/:mediaType/:mediaId
   static Future<void> saveProgress(
     String mediaType,
@@ -295,6 +310,25 @@ class VodService {
     int positionSeconds,
     int durationSeconds,
   ) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final wp = WatchProgress(
+      positionSeconds: positionSeconds,
+      durationSeconds: durationSeconds,
+      updatedAt: now,
+    );
+    _progressMemory['${mediaType}_$mediaId'] = wp;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _progKey(mediaType, mediaId),
+        jsonEncode({
+          'position_seconds': positionSeconds,
+          'duration_seconds': durationSeconds,
+          'updated_at': now,
+        }),
+      );
+    } catch (_) {}
+
     await ApiService.put(
       '/progress/$mediaType/$mediaId',
       {
@@ -309,11 +343,34 @@ class VodService {
     String mediaType,
     String mediaId,
   ) async {
+    final memKey = '${mediaType}_$mediaId';
+    WatchProgress? local = _progressMemory[memKey];
+    if (local == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_progKey(mediaType, mediaId));
+        if (raw != null) {
+          local = WatchProgress.fromJson(
+              jsonDecode(raw) as Map<String, dynamic>);
+          _progressMemory[memKey] = local;
+        }
+      } catch (_) {}
+    }
+
     try {
-      final data = await ApiService.get('/progress/$mediaType/$mediaId', noCache: true);
-      return WatchProgress.fromJson(data);
+      final data =
+          await ApiService.get('/progress/$mediaType/$mediaId', noCache: true);
+      final remote = WatchProgress.fromJson(data);
+      if (remote.positionSeconds > 0) {
+        if (local == null ||
+            (remote.updatedAt ?? 0) >= (local.updatedAt ?? 0)) {
+          _progressMemory[memKey] = remote;
+          return remote;
+        }
+      }
+      return local ?? (remote.positionSeconds > 0 ? remote : null);
     } catch (_) {
-      return null;
+      return local;
     }
   }
 
@@ -326,11 +383,31 @@ class VodService {
     int limit = 20,
   }) async {
     try {
-      final data = await ApiService.get('/progress/me?limit=$limit', noCache: true);
+      final data =
+          await ApiService.get('/progress/me?limit=$limit', noCache: true);
       await SectionCache.write(_continueWatchingKey, jsonEncode(data));
-      return _parseContinueWatching(data);
+      final items = _parseContinueWatching(data);
+      _ingestContinueWatchingIntoMemory(items);
+      return items;
     } catch (_) {
       return const <ContinueWatchingItem>[];
+    }
+  }
+
+  static void _ingestContinueWatchingIntoMemory(
+      List<ContinueWatchingItem> items) {
+    for (final item in items) {
+      final id = item.mediaType == 'episode' ? item.episodeId : item.movieId;
+      if (id == null || id.isEmpty || item.positionSeconds <= 0) continue;
+      final memKey = '${item.mediaType}_$id';
+      final existing = _progressMemory[memKey];
+      if (existing == null || item.updatedAt >= (existing.updatedAt ?? 0)) {
+        _progressMemory[memKey] = WatchProgress(
+          positionSeconds: item.positionSeconds,
+          durationSeconds: item.durationSeconds,
+          updatedAt: item.updatedAt,
+        );
+      }
     }
   }
 
@@ -343,8 +420,10 @@ class VodService {
       final raw = await SectionCache.readStale(_continueWatchingKey);
       if (raw != null) {
         try {
-          onCached(_parseContinueWatching(
-              jsonDecode(raw) as Map<String, dynamic>));
+          final cached = _parseContinueWatching(
+              jsonDecode(raw) as Map<String, dynamic>);
+          _ingestContinueWatchingIntoMemory(cached);
+          onCached(cached);
         } catch (_) {}
       }
     }
@@ -367,6 +446,7 @@ class ContinueWatchingItem {
   final String? movieId;
   final String? seriesId;
   final String? episodeId;
+  final String? channelId;
   final String title;
   final String? episodeTitle;
   final String? posterUrl;
@@ -379,6 +459,7 @@ class ContinueWatchingItem {
     this.movieId,
     this.seriesId,
     this.episodeId,
+    this.channelId,
     required this.title,
     this.episodeTitle,
     this.posterUrl,
@@ -397,6 +478,7 @@ class ContinueWatchingItem {
       movieId: json['movie_id'] as String?,
       seriesId: json['series_id'] as String?,
       episodeId: json['episode_id'] as String?,
+      channelId: json['channel_id'] as String?,
       title: (json['title'] ?? '').toString(),
       episodeTitle: json['episode_title'] as String?,
       posterUrl: json['poster_url'] as String?,

@@ -12,6 +12,10 @@ async function getJwtSecret() {
   return secret;
 }
 
+async function generateImpersonationToken(targetUserId, adminUserId) {
+  const secret = await getJwtSecret();
+  return jwt.sign({ userId: targetUserId, impersonatedBy: adminUserId, isImpersonation: true }, secret, { expiresIn: '2h' });
+}
 async function generateToken(userId) {
   const secret = await getJwtSecret();
   return jwt.sign({ userId }, secret, { expiresIn: '7d' });
@@ -66,11 +70,28 @@ async function authenticateToken(req, res, next) {
     if (payload.scope && !isScopeAllowed(payload.scope, req)) {
       return res.status(401).json({ error: 'Token not valid for this route' });
     }
-    req.userId = payload.userId;
-    req.tokenScope = payload.scope || null;
-    req.user = await User.findById(payload.userId);
-    if (!req.user) {
-      return res.status(401).json({ error: 'Invalid or expired token' });
+
+    if (payload.kind === 'tv_device') {
+      const distributionModel = require('../distribution/distribution.model');
+      const device = await distributionModel.findDeviceById(payload.deviceId);
+      if (!device || !device.owner_user_id) {
+        return res.status(401).json({ error: 'TV device not linked to an account' });
+      }
+      req.userId = device.owner_user_id;
+      req.isTvDevice = true;
+      req.tvDeviceId = device.id;
+      req.tokenScope = payload.scope || null;
+      req.user = await User.findById(device.owner_user_id);
+      if (!req.user) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+    } else {
+      req.userId = payload.userId;
+      req.tokenScope = payload.scope || null;
+      req.user = await User.findById(payload.userId);
+      if (!req.user) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
     }
     if (req.user.is_banned && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'ACCOUNT_BANNED', message: 'Your account has been banned. Contact support.' });
@@ -96,9 +117,21 @@ async function optionalAuth(req, res, next) {
     const payload = await verifyToken(token);
     // Scoped partner tokens never identify a user on optional-auth routes.
     if (!payload.scope) {
-      req.userId = payload.userId;
-      req.user = await User.findById(payload.userId);
-      req.userRole = req.user?.role || null;
+      if (payload.kind === 'tv_device') {
+        const distributionModel = require('../distribution/distribution.model');
+        const device = await distributionModel.findDeviceById(payload.deviceId);
+        if (device && device.owner_user_id) {
+          req.userId = device.owner_user_id;
+          req.isTvDevice = true;
+          req.tvDeviceId = device.id;
+          req.user = await User.findById(device.owner_user_id);
+          req.userRole = req.user?.role || null;
+        }
+      } else {
+        req.userId = payload.userId;
+        req.user = await User.findById(payload.userId);
+        req.userRole = req.user?.role || null;
+      }
     }
   } catch (_) {
     // Invalid token — proceed without auth
@@ -113,4 +146,4 @@ function requireAdminRole(req, res, next) {
   next();
 }
 
-module.exports = { generateToken, generateScopedToken, verifyToken, authenticateToken, optionalAuth, requireAdminRole };
+module.exports = { generateToken, generateImpersonationToken, generateScopedToken, verifyToken, authenticateToken, optionalAuth, requireAdminRole };

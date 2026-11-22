@@ -33,6 +33,7 @@ import '../../broadcast/services/channel_library_service.dart';
 import '../../broadcast/services/broadcast_service.dart';
 import '../../channel/models/channel_model.dart';
 import '../../channel/services/channel_service.dart';
+import '../../vod/services/vod_stream_proxy.dart';
 import '../models/wave_model.dart';
 import '../services/wave_service.dart';
 
@@ -109,7 +110,7 @@ class _WaveScreenState extends State<WaveScreen> {
   bool _loading = true;
   bool _loadingMore = false;
   bool _isCreator = false;
-  bool _autoscroll = false;
+  bool _autoscroll = true;
   // Transient key that, when non-null, renders the "Autoscroll enabled" badge.
   int? _autoscrollBadgeKey;
   String _autoscrollBadgeLabel = 'Autoscroll enabled';
@@ -787,7 +788,7 @@ class _WaveScreenState extends State<WaveScreen> {
     }
   }
 
-  void _preloadWaveVideo(WaveModel wave) {
+  Future<void> _preloadWaveVideo(WaveModel wave) async {
     if (_videoControllers.containsKey(wave.id) ||
         _initializingWaveIds.contains(wave.id)) {
       return;
@@ -804,7 +805,7 @@ class _WaveScreenState extends State<WaveScreen> {
     // Also count controllers that are still initializing to avoid limit bypass.
     // CRITICAL: If this is the active wave and we're at the limit, evict the
     // farthest non-active wave's controller to make room.
-    const maxConcurrentControllers = 3;
+    const maxConcurrentControllers = 2;
     final isActive = _isActiveWave(wave.id);
     if ((_videoControllers.length + _initializingControllerCount) >=
         maxConcurrentControllers) {
@@ -835,8 +836,20 @@ class _WaveScreenState extends State<WaveScreen> {
 
     VideoPlayerController controller;
     try {
+      String effectiveUrl = wave.videoUrl;
+      if (VodStreamProxy.isEligibleUrl(effectiveUrl)) {
+        try {
+          final registered = await VodStreamProxy.instance.register(effectiveUrl);
+          if (!mounted) {
+            _initializingControllerCount--;
+            _initializingWaveIds.remove(wave.id);
+            return;
+          }
+          effectiveUrl = registered.localUrl;
+        } catch (_) {}
+      }
       controller = VideoPlayerController.networkUrl(
-        Uri.parse(wave.videoUrl),
+        Uri.parse(effectiveUrl),
         videoPlayerOptions: VideoPlayerOptions(
           mixWithOthers: false,
           allowBackgroundPlayback: false,
@@ -844,6 +857,7 @@ class _WaveScreenState extends State<WaveScreen> {
       );
     } catch (e) {
       _initializingControllerCount--;
+      _initializingWaveIds.remove(wave.id);
       _failedWaveIds.add(wave.id);
       debugPrint(
         '[WaveScreen] Failed to create video controller for ${wave.id}: $e',

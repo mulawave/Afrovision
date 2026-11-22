@@ -19,6 +19,7 @@ import '../widgets/flash_screen_overlay.dart';
 import '../../interactions/widgets/gift_overlay.dart';
 import '../../interactions/widgets/gift_sheet.dart';
 import '../../interactions/widgets/live_chat_panel.dart';
+import '../../interactions/services/live_chat_service.dart';
 import '../../interactions/services/interaction_service.dart';
 import '../../interactions/models/interaction_models.dart';
 import '../../channel/models/channel_model.dart';
@@ -144,6 +145,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   // ── Background / PiP state ────────────────────────────────────────────────
   bool _isInBackground = false;
   bool _isInPiPMode = false;
+  bool _enteringPiP = false;
+  String? _proxyFallbackTriedChannelId;
   // Set to true before popping to floating mode so dispose() doesn't kill
   // the controllers that the floating overlay is still using.
   bool _isHandedOffToFloat = false;
@@ -192,9 +195,24 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     // PiP layout and restore the full UI when the user expands the window.
     PipService.setModeChangedCallback((isInPiP) {
       if (!mounted) return;
-      setState(() => _isInPiPMode = isInPiP);
-      if (!isInPiP) {
-        // Restored to full screen — restart polling and watchdog.
+      setState(() {
+        _isInPiPMode = isInPiP;
+        _enteringPiP = false;
+      });
+      if (isInPiP) {
+        // Android fires inactive/paused before onPictureInPictureModeChanged(true).
+        // Immediately keep the video surface active and playing inside the PiP window.
+        _isInBackground = false;
+        _stoppedInBackground = false;
+        _player?.setAppActive(true);
+        _player?.play();
+        if (_externalRuntimeMode == 'youtube' && _ytWebViewController != null) {
+          _ytWebViewController!.runJavaScript(
+            'try{document.getElementById("yt").contentWindow.postMessage(\'{"event":"command","func":"playVideo","args":[]}\', "*");}catch(e){}',
+          ).catchError((_) {});
+        }
+      } else {
+        // Restored to full screen - restart polling and watchdog.
         if (_channelId != null && _eventTimer == null) _startEventPolling();
         _startFreezeWatchdog();
       }
@@ -314,6 +332,7 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     if (!_isHandedOffToFloat) unawaited(_stopPlaybackForRetune());
     _eventTimer?.cancel();
     _watchPingTimer?.cancel();
+    _viewerPresenceService?.dispose();
     _hideControlsTimer?.cancel();
     _tuneInStepTimer?.cancel();
     _liveViewerTimer?.cancel();
@@ -337,6 +356,8 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
   /// screen is alive, so the admin live-viewers dashboard can show real
   /// "hours watched" totals. Best-effort — failures are swallowed since this
   /// must never interrupt playback.
+  LiveChatService? _viewerPresenceService;
+
   void _startWatchPing(String channelId) {
     _watchPingTimer?.cancel();
     _watchPingTimer = Timer.periodic(_watchPingInterval, (_) {
@@ -345,6 +366,13 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         _watchPingInterval.inSeconds,
       ).catchError((_) {});
     });
+
+    // Also join Socket.IO channel room for real-time Admin Live Viewers
+    // presence even when the Live Chat panel is closed.
+    _viewerPresenceService?.dispose();
+    final presence = LiveChatService();
+    _viewerPresenceService = presence;
+    presence.connect(channelId).catchError((_) {});
   }
 
   // ─── App lifecycle: resync on resume ───
@@ -363,17 +391,14 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
       if (_channelId != null && _eventTimer == null) _startEventPolling();
       _startFreezeWatchdog();
     } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
+      // Never pause playback while entering or currently inside Picture-in-Picture.
+      if (_isInPiPMode || _enteringPiP) return;
       _isInBackground = true;
-      // Floating-mode background hand-off is handled by FloatingPlayerService.
-      // Pause the in-app controllers (PiP keeps playing in its own window).
       _player?.setAppActive(false);
-      if (!_isInPiPMode) {
-        _player?.pause();
-        _pauseYouTubePlayback();
-        _stoppedInBackground = true;
-      }
+      _player?.pause();
+      _pauseYouTubePlayback();
+      _stoppedInBackground = true;
       _eventTimer?.cancel();
       _eventTimer = null;
       _freezeWatchdogTimer?.cancel();
@@ -1372,6 +1397,30 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         return;
       }
 
+      final relayUrl = currentChannel != null ? _buildStreamProxyUrl(currentChannel.id) : '';
+      final canTryProxyFallback =
+          currentChannel != null &&
+          currentChannel.hasExternalSource &&
+          !currentChannel.isExternalYouTube &&
+          relayUrl.isNotEmpty &&
+          !url.contains('/stream-proxy') &&
+          _proxyFallbackTriedChannelId != currentChannel.id;
+      if (canTryProxyFallback) {
+        _proxyFallbackTriedChannelId = currentChannel.id;
+        if (!mounted) return;
+        setState(() {
+          _error = null;
+          _loading = true;
+        });
+        await _playExternalStream(
+          relayUrl,
+          0,
+          0,
+          0,
+          formatHint: _formatHintFor(_externalRuntimeMode),
+        );
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _error = BroadcastPlayer.sanitizeError(e);
@@ -1435,8 +1484,11 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
         runtimeMode == 'url') {
       // External streams are continuous feeds, so avoid schedule-based
       // program window sync/end checks that can retrigger "tuning" loops.
+      final effectiveUrl = channel.useStreamProxy
+          ? _buildStreamProxyUrl(channel.id)
+          : playbackUrl;
       await _playExternalStream(
-        playbackUrl,
+        effectiveUrl,
         0,
         0,
         0,
@@ -1500,6 +1552,14 @@ class _ChannelPlayerScreenState extends State<ChannelPlayerScreen>
     return isLoop ? advanced % durationSec : advanced.clamp(0, durationSec);
   }
 
+  /// Builds the authenticated backend stream-relay URL for a channel.
+  /// Routes HLS/direct streams through AfroVision server so viewers do not need a VPN.
+  String _buildStreamProxyUrl(String channelId) {
+    final base = AppConfig.baseUrl.endsWith('/')
+        ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1)
+        : AppConfig.baseUrl;
+    return '$base/channels/$channelId/stream-proxy';
+  }
   String _resolvePlaybackUrl(String rawUrl) {
     final trimmed = rawUrl.trim();
     if (trimmed.isEmpty) return trimmed;
@@ -2570,7 +2630,9 @@ iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
       // check reflects an AppOps flag some OEM skins leave revoked by
       // default even when PiP itself works fine, which made this button
       // always report "not supported" without ever actually trying.
+      _enteringPiP = true;
       final entered = await PipService.enter();
+      if (!entered) _enteringPiP = false;
       if (!entered && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

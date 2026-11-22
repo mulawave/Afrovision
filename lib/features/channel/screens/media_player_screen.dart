@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../core/media/afrovision_video_controller.dart';
 import '../../../core/media/playback_focus.dart';
 import '../../../core/services/video_cache_service.dart';
+import '../../vod/widgets/download_stats_beacon.dart';
 
 /// Single playable item for the media player (movie or episode).
 class MediaPlayerItem {
@@ -81,6 +83,7 @@ class _MediaPlayerScreenState extends State<MediaPlayerScreen> {
   Timer? _countdownTimer;
   bool _hasAutoAdvanced = false;
   double? _dragPosition;
+  double? _lastDoubleTapX;
 
   @override
   void didChangeDependencies() {
@@ -265,6 +268,7 @@ class _MediaPlayerScreenState extends State<MediaPlayerScreen> {
 
   @override
   void dispose() {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     _countdownTimer?.cancel();
     _disposeController();
     super.dispose();
@@ -287,6 +291,9 @@ class _MediaPlayerScreenState extends State<MediaPlayerScreen> {
           _args.title,
           style: const TextStyle(color: Colors.white, fontSize: 16),
         ),
+        actions: const [
+          DownloadNavButton(iconColor: Colors.white),
+        ],
       ),
       body: _error != null
           ? _buildError()
@@ -298,6 +305,25 @@ class _MediaPlayerScreenState extends State<MediaPlayerScreen> {
                     // Video surface
                     GestureDetector(
                       onTap: _togglePlayPause,
+                      onDoubleTapDown: (d) =>
+                          _lastDoubleTapX = d.localPosition.dx,
+                      onDoubleTap: () {
+                        final w = MediaQuery.of(context).size.width;
+                        final x = _lastDoubleTapX ?? (w / 2);
+                        final pos = ctrl.value.position;
+                        final dur = ctrl.value.duration;
+                        if (x < w / 3) {
+                          final next = pos - const Duration(seconds: 10);
+                          ctrl.seekTo(
+                              next < Duration.zero ? Duration.zero : next);
+                        } else if (x > (w * 2) / 3) {
+                          final next = pos + const Duration(seconds: 10);
+                          ctrl.seekTo(
+                              dur > Duration.zero && next > dur ? dur : next);
+                        } else {
+                          _togglePlayPause();
+                        }
+                      },
                       child: Center(
                         child: AspectRatio(
                           aspectRatio: value.aspectRatio > 0
@@ -441,7 +467,7 @@ class _MediaPlayerScreenState extends State<MediaPlayerScreen> {
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
               Text(
-                _formatDuration(value.duration),
+                '-${_formatDuration(Duration(milliseconds: (durationMs - effectivePosition).clamp(0, durationMs)))}',
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ],

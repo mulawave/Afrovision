@@ -191,7 +191,13 @@ class AfrovisionVideoController extends ChangeNotifier {
         bufferSize: isLive ? MpvBufferConfig.liveBufferSize : MpvBufferConfig.vodBufferSize,
       ),
     );
-    _videoController = VideoController(_player!);
+    _videoController = VideoController(
+      _player!,
+      configuration: const VideoControllerConfiguration(
+        hwdec: 'mediacodec-copy',
+        enableHardwareAcceleration: true,
+      ),
+    );
 
     // Subscribe to state streams and translate to ChangeNotifier pattern.
     _playingSub = _player!.stream.playing.listen((playing) {
@@ -303,7 +309,7 @@ class AfrovisionVideoController extends ChangeNotifier {
 
     // Open with a hard timeout — if MPV can't start demuxing in 30s the URL
     // or network is unusable.
-    await _player!.open(media, play: false).timeout(
+    await _player!.open(media, play: !isLive).timeout(
       const Duration(seconds: 30),
       onTimeout: () {
         throw TimeoutException('Afrovision open timed out after 30s');
@@ -314,13 +320,13 @@ class AfrovisionVideoController extends ChangeNotifier {
 
     // Wait for MPV to know the frame dimensions — confirms demuxing/decoding
     // has actually started (fails fast on a dead/unusable stream).
-    final firstWidth = await _player!.stream.width
+    final firstWidth = !isLive ? 1 : await _player!.stream.width
         .firstWhere((w) => (w ?? 0) > 0)
         .timeout(
           const Duration(seconds: 10),
           onTimeout: () => 0,
         );
-    if (firstWidth == null || firstWidth <= 0) {
+    if (isLive && (firstWidth == null || firstWidth <= 0)) {
       throw TimeoutException('Afrovision first frame timed out after 10s');
     }
 
@@ -337,7 +343,7 @@ class AfrovisionVideoController extends ChangeNotifier {
     // Without this, `_isInitialized` (and thus the caller's loading spinner)
     // can flip before anything is drawn, producing a black screen that only
     // clears once the user taps the surface and forces a relayout.
-    await _videoController!.waitUntilFirstFrameRendered.timeout(
+    if (isLive) await _videoController!.waitUntilFirstFrameRendered.timeout(
       const Duration(seconds: 10),
       onTimeout: () {},
     );

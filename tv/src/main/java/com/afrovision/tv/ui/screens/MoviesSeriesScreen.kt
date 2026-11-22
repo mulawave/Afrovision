@@ -37,6 +37,8 @@ import com.afrovision.tv.data.api.model.Movie
 import com.afrovision.tv.data.api.model.Series
 import com.afrovision.tv.data.toMediaCard
 import com.afrovision.tv.data.toPlayerMedia
+import com.afrovision.tv.ui.components.HeroBanner
+import com.afrovision.tv.ui.components.HeroSlide
 import com.afrovision.tv.ui.components.PosterCard
 import com.afrovision.tv.ui.components.RailRow
 import com.afrovision.tv.ui.sound.TvSoundManager
@@ -67,6 +69,7 @@ fun MoviesSeriesScreen(viewModel: TvViewModel) {
     // data; this one was the one exception.
     LaunchedEffect(Unit) {
         if (ms.movies !is LoadState.Success || ms.series !is LoadState.Success) viewModel.loadMoviesSeries()
+        viewModel.refreshContinueWatching()
     }
     LaunchedEffect(tab) { sortChip = "All" }
 
@@ -85,11 +88,78 @@ fun MoviesSeriesScreen(viewModel: TvViewModel) {
     val continueWatchingSeries = continueWatching.filter { it.mediaType == "episode" }
     val moviesById = movies.associateBy { it.id }
     val seriesById = series.associateBy { it.id }
+    var heroIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val heroItems = remember(tab, movies, series) {
+        if (tab == MsTab.Movies) movies.take(5) else emptyList()
+    }
+    val heroSeriesItems = remember(tab, series) {
+        if (tab == MsTab.Series) series.take(5) else emptyList()
+    }
+    val catchUpItems = remember(viewModel.catchUp) {
+        val home = (viewModel.catchUp as? LoadState.Success)?.data
+        if (home == null) emptyList()
+        else home.hero + listOfNotNull(home.episodeSpotlight) + home.rails.flatMap { it.items }
+    }
+    val heroSlides = remember(tab, heroItems, heroSeriesItems, catchUpItems) {
+        if (tab == MsTab.Movies) {
+            heroItems.map { m ->
+                val tmdbMatch = catchUpItems.firstOrNull { it.title.equals(m.title, ignoreCase = true) }
+                HeroSlide(
+                    title = m.title,
+                    subtitle = m.description.orEmpty().ifBlank { tmdbMatch?.overview ?: formatMovieDuration(m.duration) },
+                    badge = "FEATURED MOVIE",
+                    primaryLabel = "Stream",
+                    secondaryLabel = "Details",
+                    imageUrl = tmdbMatch?.backdropUrl?.takeIf { it.isNotBlank() } ?: m.posterUrl
+                )
+            }
+        } else {
+            heroSeriesItems.map { s ->
+                val tmdbMatch = catchUpItems.firstOrNull { it.title.equals(s.title, ignoreCase = true) }
+                val seasonMeta = "${s.seasons.size} season${if (s.seasons.size == 1) "" else "s"}"
+                HeroSlide(
+                    title = s.title,
+                    subtitle = s.description.orEmpty().ifBlank { tmdbMatch?.overview ?: seasonMeta },
+                    badge = "FEATURED SERIES",
+                    primaryLabel = "Episodes",
+                    secondaryLabel = "Details",
+                    imageUrl = tmdbMatch?.backdropUrl?.takeIf { it.isNotBlank() } ?: s.posterUrl
+                )
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(nocturne.primaryGradient)) {
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
+            if (heroSlides.isNotEmpty()) {
+                item {
+                    HeroBanner(
+                        slides = heroSlides,
+                        onPlay = {
+                            if (tab == MsTab.Movies) {
+                                heroItems.getOrNull(heroIndex)?.let { m ->
+                                    val cw = continueWatching.firstOrNull { it.id == m.id }
+                                    val savedMs = cw?.let { (it.progress * it.duration).toLong() } ?: 0L
+                                    viewModel.play(m.toMediaCard().toPlayerMedia().copy(progress = savedMs))
+                                }
+                            } else {
+                                heroSeriesItems.getOrNull(heroIndex)?.let { viewModel.selectSeries(it) }
+                            }
+                        },
+                        onInfo = {
+                            if (tab == MsTab.Movies) {
+                                heroItems.getOrNull(heroIndex)?.let { viewModel.selectMovie(it) }
+                            } else {
+                                heroSeriesItems.getOrNull(heroIndex)?.let { viewModel.selectSeries(it) }
+                            }
+                        },
+                        onIndexChange = { heroIndex = it },
+                        heroHeight = 420.dp
+                    )
+                }
+            }
             item {
-                Column(modifier = Modifier.padding(start = 60.dp, end = 60.dp, top = 60.dp)) {
+                Column(modifier = Modifier.padding(start = 60.dp, end = 60.dp, top = if (heroSlides.isEmpty()) 60.dp else 28.dp)) {
                     Text(text = "Movies & Series", color = nocturne.text, fontSize = 52.sp)
                     Text(
                         text = "$total titles on demand",
@@ -143,14 +213,29 @@ fun MoviesSeriesScreen(viewModel: TvViewModel) {
         }
 
         viewModel.selectedMovie?.let { movie ->
+            val cw = (viewModel.homeState.continueWatching as? LoadState.Success)?.data?.firstOrNull { it.id == movie.id }
+            val savedMs = cw?.let { (it.progress * it.duration).toLong() } ?: 0L
+            val dl = viewModel.downloads.firstOrNull { it.id == movie.id }
             MediaDetailOverlay(
                 title = movie.title,
                 imageUrl = movie.posterUrl,
                 meta = formatMovieDuration(movie.duration),
                 description = movie.description ?: "",
-                playLabel = "Play",
-                canPlay = !movie.streamUrl.isNullOrBlank(),
-                onPlay = { viewModel.play(movie.toMediaCard().toPlayerMedia()); viewModel.clearSelectedMovie() },
+                playLabel = "Stream",
+                canPlay = !movie.streamUrl.isNullOrBlank() || dl?.completed == true,
+                resumeProgressMs = savedMs,
+                tmdb = viewModel.selectedMediaTmdb,
+                downloadItem = dl,
+                onDownload = movie.streamUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                    { viewModel.startDownload(movie.id, movie.title, "movie", url) }
+                },
+                onPauseDownload = { viewModel.pauseDownload(it) },
+                onResumeDownload = { viewModel.resumeDownload(it) },
+                onDeleteDownload = { viewModel.removeDownload(movie.id) },
+                onPlay = {
+                    viewModel.play(movie.toMediaCard().toPlayerMedia().copy(progress = savedMs))
+                    viewModel.clearSelectedMovie()
+                },
                 onDismiss = { viewModel.clearSelectedMovie() }
             )
         }
@@ -158,12 +243,29 @@ fun MoviesSeriesScreen(viewModel: TvViewModel) {
             MediaDetailOverlay(
                 title = series.title,
                 imageUrl = series.posterUrl,
-                meta = "${series.seasons.size} season${if (series.seasons.size == 1) "" else "s"}",
+                meta = if (series.seasons.isEmpty()) "Loading seasons…" else "${series.seasons.size} season${if (series.seasons.size == 1) "" else "s"}",
                 description = series.description ?: "",
                 playLabel = "Play S1E1",
                 canPlay = firstEpisodePlayerMedia(series) != null,
+                tmdb = viewModel.selectedMediaTmdb,
+                downloads = viewModel.downloads,
+                continueWatching = continueWatching,
+                onDownloadEpisode = { ep ->
+                    val url = ep.streamUrl?.takeIf { it.isNotBlank() } ?: ep.externalUrl?.takeIf { it.isNotBlank() }
+                    if (url != null) {
+                        viewModel.startDownload(ep.id, "${series.title} - ${ep.title}", "episode", url)
+                    }
+                },
+                onPauseDownload = { viewModel.pauseDownload(it) },
+                onResumeDownload = { viewModel.resumeDownload(it) },
+                onDeleteEpisodeDownload = { viewModel.removeDownload(it) },
                 onPlay = {
                     firstEpisodePlayerMedia(series)?.let { viewModel.play(it) }
+                    viewModel.clearSelectedSeries()
+                },
+                series = series,
+                onPlayEpisode = {
+                    viewModel.play(it)
                     viewModel.clearSelectedSeries()
                 },
                 onDismiss = { viewModel.clearSelectedSeries() }
@@ -205,7 +307,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.movieRails(
             RailRow(
                 title = "Continue watching",
                 items = continueWatching,
-                cardContent = { item -> PosterCard(item = item, onClick = { viewModel.play(item.toPlayerMedia()) }) }
+                cardContent = { item -> PosterCard(item = item, onClick = { viewModel.playContinueWatching(item) }) }
             )
         }
     }
@@ -230,13 +332,26 @@ private fun androidx.compose.foundation.lazy.LazyListScope.movieRails(
         }
     }
     if (shaped.isNotEmpty()) {
+        val gridTitle = when (sortChip) { "New" -> "New movies"; "Trending" -> "Trending movies"; else -> "All Movies" }
         item {
-            RailRow(
-                title = when (sortChip) { "New" -> "New movies"; "Trending" -> "Trending movies"; else -> "Popular on AfroVision" },
-                subtitle = "${shaped.size} titles",
-                items = shaped.map { it.toMediaCard() },
-                cardContent = { item -> PosterCard(item = item, onClick = { onOpenMovie(item) }) }
+            Text(
+                text = "$gridTitle (${shaped.size})",
+                color = LocalNocturne.current.text,
+                fontSize = 24.sp,
+                modifier = Modifier.padding(start = 60.dp, end = 60.dp, top = 28.dp, bottom = 14.dp)
             )
+        }
+        val rows = shaped.chunked(5)
+        items(rows.size) { rowIdx ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 60.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                rows[rowIdx].forEach { m ->
+                    val card = m.toMediaCard()
+                    PosterCard(item = card, onClick = { onOpenMovie(card) })
+                }
+            }
         }
     }
     emptyOrLoadingState(isLoading, error, movies.isEmpty(), "movies", onRetry = { viewModel.loadMoviesSeries() })
@@ -262,7 +377,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.seriesRails(
             RailRow(
                 title = "Continue watching",
                 items = continueWatching,
-                cardContent = { item -> PosterCard(item = item, onClick = { viewModel.play(item.toPlayerMedia()) }) }
+                cardContent = { item -> PosterCard(item = item, onClick = { viewModel.playContinueWatching(item) }) }
             )
         }
     }
@@ -277,13 +392,26 @@ private fun androidx.compose.foundation.lazy.LazyListScope.seriesRails(
         }
     }
     if (shaped.isNotEmpty()) {
+        val gridTitle = if (sortChip == "New") "New series" else "All Series"
         item {
-            RailRow(
-                title = if (sortChip == "New") "New series" else "Series for you",
-                subtitle = "${shaped.size} titles",
-                items = shaped.map { it.toMediaCard() },
-                cardContent = { item -> PosterCard(item = item, onClick = { onOpenSeries(item) }) }
+            Text(
+                text = "$gridTitle (${shaped.size})",
+                color = LocalNocturne.current.text,
+                fontSize = 24.sp,
+                modifier = Modifier.padding(start = 60.dp, end = 60.dp, top = 28.dp, bottom = 14.dp)
             )
+        }
+        val rows = shaped.chunked(5)
+        items(rows.size) { rowIdx ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 60.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                rows[rowIdx].forEach { s ->
+                    val card = s.toMediaCard()
+                    PosterCard(item = card, onClick = { onOpenSeries(card) })
+                }
+            }
         }
     }
     emptyOrLoadingState(isLoading, error, series.isEmpty(), "series", onRetry = { viewModel.loadMoviesSeries() })

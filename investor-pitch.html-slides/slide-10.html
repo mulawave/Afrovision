@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+.slide { width: 1920px; height: 1080px; overflow: hidden; position: relative; background-color: #050a30; }
+.bg-texture { position: absolute; inset: 0; background-image: repeating-linear-gradient(60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px), repeating-linear-gradient(-60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px); }
+.bg-glow { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 1000px; height: 1000px; background: radial-gradient(circle, rgba(35,61,255,0.10) 0%, transparent 65%); }
+.left-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: linear-gradient(180deg, #f39517 0%, #233dff 100%); }
+.top-border { position: absolute; top: 0; left: 6px; right: 0; height: 3px; background: linear-gradient(90deg, #f39517 0%, #233dff 60%, transparent 100%); }
+.logo-wrap { position: absolute; top: 48px; left: 50%; transform: translateX(-50%); }
+.logo-wrap img { width: 200px; }
+.center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 200px; }
+.pre { font-size: 16px; letter-spacing: 8px; color: #528ff1; text-transform: uppercase; font-weight: 600; margin-bottom: 28px; margin-top: 60px; }
+.quote { font-family: 'Playfair Display', serif; font-size: 68px; font-weight: 900; color: #ffffff; line-height: 1.2; margin-bottom: 16px; }
+.quote span { color: #f39517; }
+.h-line { width: 200px; height: 3px; background: linear-gradient(90deg, transparent, #f39517, #233dff, transparent); margin: 28px auto; }
+.sub-text { font-size: 26px; color: #c8b58f; font-weight: 300; font-style: italic; max-width: 900px; line-height: 1.5; margin-bottom: 48px; }
+.cta-row { display: flex; gap: 28px; align-items: center; margin-bottom: 16px; }
+.cta-btn { padding: 18px 56px; background: #f39517; color: #050a30; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 3px; }
+.cta-url { font-size: 20px; color: #528ff1; letter-spacing: 2px; }
+.bottom-bar { position: absolute; bottom: 0; left: 6px; right: 0; height: 52px; background: rgba(243,149,23,0.08); border-top: 1px solid rgba(243,149,23,0.25); display: flex; align-items: center; justify-content: center; gap: 60px; padding: 0 80px; }
+.b-item { font-size: 15px; color: #c8b58f; letter-spacing: 2px; text-transform: uppercase; }
+.b-item span { color: #f39517; }
+</style>
+</head>
+<body>
+<section class="slide" style="width:1920px;height:1080px;overflow:hidden;position:relative;">
+  <div class="bg-texture"></div>
+  <div class="bg-glow"></div>
+  <div class="left-bar"></div>
+  <div class="top-border"></div>
+  <div class="logo-wrap"><img src="/home/user/afrovision-materials/investor-pitch.html-slides/assets/logo.png" alt="AfroVision"/></div>
+  <div class="center">
+    <div class="pre">The Opportunity Is Now</div>
+    <div class="quote">"You're not investing in a show.<br/>You're entering an <span>economic pipeline.</span>"</div>
+    <div class="h-line"></div>
+    <div class="sub-text">AfroVision Challenge: The Amazons — Maiden Edition. Africa's first high-intensity business reality program for women. The platform is built. The format is ready. The continent is watching.</div>
+    <div class="cta-row">
+      <div class="cta-btn">Get Involved</div>
+      <div class="cta-url">afrovision.online/register</div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <div class="b-item">Maiden Edition — <span>Open Now</span></div>
+    <div class="b-item">Women Only — <span>Ages 18–30</span></div>
+    <div class="b-item">5 Co-Founders Will <span>Emerge</span></div>
+  </div>
+</section>
+</body>
+</html>

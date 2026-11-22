@@ -77,9 +77,15 @@ fun SettingsScreen(viewModel: TvViewModel) {
                 ) {
                     SettingRow(
                         icon = R.drawable.ic_ph_wifi_high,
-                        label = "Network & streaming",
-                        subtitle = "Adaptive HLS, buffer size, data saver · ${settings.defaultQuality}"
+                        label = "Streaming quality",
+                        subtitle = "Choose your preferred cap or uncapped ? ${settings.defaultQuality.uppercase()}"
                     ) { viewModel.setDefaultQuality(cycle(settings.defaultQuality)); TvSoundManager.play("toggle") }
+
+                    SettingRow(
+                        icon = R.drawable.ic_ph_gauge,
+                        label = "Buffer & network profile",
+                        subtitle = "Read-ahead buffer size for smooth playback ? ${settings.networkProfile.uppercase()}"
+                    ) { viewModel.setNetworkProfile(cycleBufferProfile(settings.networkProfile)); TvSoundManager.play("toggle") }
 
                     SettingRow(
                         icon = R.drawable.ic_ph_television_simple,
@@ -115,8 +121,19 @@ fun SettingsScreen(viewModel: TvViewModel) {
                     SettingRow(
                         icon = R.drawable.ic_ph_speaker_high,
                         label = "Sound effects",
-                        subtitle = "Navigation ticks, focus and select cues · ${if (settings.soundEffects) "on" else "off"}, ${(settings.soundVolume * 100).toInt()}%"
+                        subtitle = "Navigation ticks, focus and select cues - ${if (settings.soundEffects) "ON" else "OFF"}"
                     ) { viewModel.setSoundEffects(!settings.soundEffects); TvSoundManager.play("toggle") }
+
+                    SettingRow(
+                        icon = R.drawable.ic_ph_speaker_high,
+                        label = "Sound effects volume",
+                        subtitle = "Tap to adjust freely (0% to 100%) - ${(settings.soundVolume * 100).toInt()}%"
+                    ) {
+                        val currentPct = ((settings.soundVolume * 10).toInt() * 10).coerceIn(0, 100)
+                        val nextPct = if (currentPct >= 100) 0 else currentPct + 10
+                        viewModel.setSoundVolume(nextPct / 100f)
+                        TvSoundManager.play("select")
+                    }
 
                     SettingRow(
                         icon = R.drawable.ic_ph_info,
@@ -225,8 +242,17 @@ private fun SettingRow(
 }
 
 private fun cycle(quality: String): String = when (quality) {
-    "auto" -> "720p"
+    "auto" -> "480p"
+    "480p" -> "720p"
     "720p" -> "1080p"
-    "1080p" -> "480p"
+    "1080p" -> "uncapped"
+    else -> "auto"
+}
+
+private fun cycleBufferProfile(profile: String): String = when (profile) {
+    "auto" -> "balanced"
+    "balanced" -> "high"
+    "high" -> "maximum"
+    "maximum" -> "low"
     else -> "auto"
 }

@@ -20,7 +20,7 @@ interface NavLink {
 
 const NAV_LINKS: NavLink[] = [
   { label: "Home", href: "/" },
-  { label: "Live", href: "/live" },
+  //{ label: "Live", href: "/live" },
   { label: "Wave", href: "/wave" },
   { label: "Channels", href: "/channels" },
    {
@@ -44,9 +44,17 @@ const NAV_LINKS: NavLink[] = [
      // { label: "Downloads", href: "/downloads" },
     ],
   },
+  {
+    label: "Opportunities",
+    href: "#",
+    children: [
+      { label: "AFVC", href: "/challenge" },
+      { label: "Spotlight", href: "/advertiser" },
+      { label: "Build With Us", href: "/sponsorship" },
+      //{ label: "Downloads", href: "/downloads" },
+    ],
+  },
   { label: "Pricing", href: "/pricing" },
-  { label: "Challenge", href: "/challenge" },
-  { label: "Advertise", href: "/advertiser" },
   { label: "Updates", href: "/updates" },
 ];
 

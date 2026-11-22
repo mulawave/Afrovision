@@ -8,6 +8,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../../core/media/playback_focus.dart';
 import '../../../core/services/app_preferences_service.dart';
+import '../../../core/services/pip_service.dart';
 import '../../../core/services/player_settings_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../channel/services/channel_service.dart';
@@ -17,6 +18,7 @@ import '../models/series_model.dart';
 import '../models/vod_playback_args.dart';
 import '../services/vod_cache_service.dart';
 import '../services/vod_service.dart';
+import '../widgets/download_stats_beacon.dart';
 
 /// VOD player for movies and series episodes.
 ///
@@ -35,7 +37,7 @@ class VodPlayerScreen extends StatefulWidget {
 }
 
 class _VodPlayerScreenState extends State<VodPlayerScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late VodPlaybackArgs _args;
   VodPlayerController? _controller;
   WebViewController? _embedController;
@@ -57,6 +59,9 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
   String? _nextEpisodeId;
   bool _isAutoPlayEnabled = true;
   bool _autoAdvancing = false;
+  double? _lastDoubleTapX;
+  bool _isInPiPMode = false;
+  bool _enteringPiP = false;
 
   @override
   void initState() {
@@ -69,12 +74,52 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     AppPreferencesService.autoplayNext.then((v) {
       if (mounted) setState(() => _isAutoPlayEnabled = v);
     });
+    WidgetsBinding.instance.addObserver(this);
+    PipService.setModeChangedCallback((isInPiP) {
+      if (!mounted) return;
+      setState(() {
+        _isInPiPMode = isInPiP;
+        _enteringPiP = false;
+        if (isInPiP) _controlsVisible = false;
+      });
+      if (isInPiP) {
+        // Ensure playback keeps running smoothly inside the PiP window.
+        _controller?.play();
+      }
+    });
+    unawaited(PipService.setAutoEnterEnabled(true));
     _initialize();
     _startControlsTimer();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      if (_isInPiPMode || _enteringPiP) return;
+      _saveProgress();
+    }
+  }
+
+  Future<void> _enterPiP() async {
+    _enteringPiP = true;
+    final ar = _controller?.aspectRatio ?? (16 / 9);
+    final w = (ar * 100).round().clamp(45, 230);
+    final entered = await PipService.enter(aspectWidth: w, aspectHeight: 100);
+    if (!entered) {
+      _enteringPiP = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Picture-in-Picture is not available on this device')),
+        );
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    PipService.setModeChangedCallback((_) {});
+    unawaited(PipService.setAutoEnterEnabled(false));
     _saveProgress();
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
@@ -82,6 +127,7 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     final embed = _embedController;
     if (embed != null) PlaybackFocus.instance.abandon(embed);
     _embedController = null;
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -150,10 +196,13 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
 
     try {
       await PlayerSettingsService.instance.initialize();
+      // If the caller supplied an explicit start position (e.g. Replay from
+      // the beginning), it overrides any saved resume progress.
+      final start = _args.startPositionSeconds ?? _resumePosition;
       await _controller!.initialize(
         videoUrl: videoUrl,
         localFilePath: localFilePath,
-        startPositionSeconds: _resumePosition,
+        startPositionSeconds: start,
         userHlsBps: PlayerSettingsService.instance.current.quality.bps,
       );
       // VodPlayerController swallows its own initialize() errors (logs and
@@ -447,7 +496,8 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
 
   Future<void> _saveProgress() async {
     final position = _controller?.position.inSeconds ?? 0;
-    final duration = _controller?.duration.inSeconds ?? _args.duration;
+    final ctrlDur = _controller?.duration.inSeconds ?? 0;
+    final duration = ctrlDur > 0 ? ctrlDur : _args.duration;
     if (position <= 0) return;
 
     try {
@@ -527,9 +577,20 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_isInPiPMode) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: SizedBox.expand(
+          child: _controller != null
+              ? _controller!.buildVideo(fit: BoxFit.contain)
+              : Container(color: Colors.black),
+        ),
+      );
+    }
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, _) {
+        SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
         if (didPop) _saveProgress();
       },
       child: Scaffold(
@@ -552,7 +613,7 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
       return WebViewWidget(controller: _embedController!);
     }
 
-    final vc = _controller?.videoController;
+    final vc = (_controller != null && _controller!.isInitialized) ? _controller : null;
     if (vc == null) {
       return Container(color: Colors.black);
     }
@@ -560,6 +621,21 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     final aspect = _controller!.aspectRatio > 0 ? _controller!.aspectRatio : 16 / 9;
     return GestureDetector(
       onTap: _toggleControls,
+      onDoubleTapDown: (d) => _lastDoubleTapX = d.localPosition.dx,
+      onDoubleTap: () {
+        final w = MediaQuery.of(context).size.width;
+        final x = _lastDoubleTapX ?? (w / 2);
+        if (x < w / 3) {
+          _controller?.seekBackward(10);
+          _saveProgress();
+        } else if (x > (w * 2) / 3) {
+          _controller?.seekForward(10);
+          _saveProgress();
+        } else {
+          _controller?.togglePlayPause();
+          _saveProgress();
+        }
+      },
       child: Center(
         child: AspectRatio(
           aspectRatio: aspect,
@@ -609,6 +685,21 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
   Widget _buildControls() {
     return GestureDetector(
       onTap: _toggleControls,
+      onDoubleTapDown: (d) => _lastDoubleTapX = d.localPosition.dx,
+      onDoubleTap: () {
+        final w = MediaQuery.of(context).size.width;
+        final x = _lastDoubleTapX ?? (w / 2);
+        if (x < w / 3) {
+          _controller?.seekBackward(10);
+          _saveProgress();
+        } else if (x > (w * 2) / 3) {
+          _controller?.seekForward(10);
+          _saveProgress();
+        } else {
+          _controller?.togglePlayPause();
+          _saveProgress();
+        }
+      },
       child: AnimatedOpacity(
         opacity: _controlsVisible ? 1.0 : 0.0,
         duration: const Duration(milliseconds: 200),
@@ -663,6 +754,12 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
               onPressed: _showEpisodesSheet,
             ),
           _buildDownloadButton(),
+          const DownloadNavButton(iconColor: AppColors.white),
+          IconButton(
+            icon: const Icon(Icons.picture_in_picture_alt_rounded, color: AppColors.white),
+            tooltip: 'Picture-in-Picture',
+            onPressed: _enterPiP,
+          ),
           IconButton(
             icon: const Icon(Icons.settings, color: AppColors.white),
             onPressed: _showSettingsSheet,
@@ -707,8 +804,10 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
   Widget _buildBottomBar() {
     final position = _controller?.position ?? Duration.zero;
     final duration = _controller?.duration ?? Duration.zero;
+    final buffered = _controller?.bufferedPosition ?? Duration.zero;
     final max = duration.inSeconds.toDouble();
     final value = position.inSeconds.clamp(0, duration.inSeconds).toDouble();
+    final bufferedVal = buffered.inSeconds.clamp(0, duration.inSeconds).toDouble();
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 24),
@@ -726,7 +825,7 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildSeekBar(value, max),
+            _buildSeekBar(value, bufferedVal, max),
             Row(
               children: [
                 IconButton(
@@ -739,7 +838,7 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
                   onPressed: _controller?.togglePlayPause,
                 ),
                 Text(
-                  '${_formatDuration(position)} / ${_formatDuration(duration)}',
+                  '${_formatDuration(position)} / -${_formatDuration(duration > position ? duration - position : Duration.zero)}',
                   style: const TextStyle(color: AppColors.white, fontSize: 12),
                 ),
                 const Spacer(),
@@ -771,21 +870,25 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     );
   }
 
-  Widget _buildSeekBar(double value, double max) {
+  Widget _buildSeekBar(double value, double buffered, double max) {
+    final safeMax = max > 0 ? max : 1.0;
     return SliderTheme(
       data: SliderThemeData(
         activeTrackColor: AppColors.orange,
-        inactiveTrackColor: AppColors.inputBorder,
+        secondaryActiveTrackColor: Colors.white.withValues(alpha: 0.45),
+        inactiveTrackColor: Colors.white.withValues(alpha: 0.16),
         thumbColor: AppColors.orange,
         overlayColor: AppColors.orange.withValues(alpha: 0.2),
-        trackHeight: 3,
+        trackHeight: 3.5,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
       ),
       child: Slider(
-        value: value,
-        max: max > 0 ? max : 1,
+        value: value.clamp(0.0, safeMax),
+        secondaryTrackValue: buffered.clamp(0.0, safeMax),
+        max: safeMax,
         onChanged: (v) {
           _controller?.seekTo(Duration(seconds: v.toInt()));
+          _saveProgress();
         },
       ),
     );
@@ -805,7 +908,8 @@ class _VodPlayerScreenState extends State<VodPlayerScreen>
     final isFull = MediaQuery.of(context).orientation == Orientation.landscape;
     if (isFull) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     } else {
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,

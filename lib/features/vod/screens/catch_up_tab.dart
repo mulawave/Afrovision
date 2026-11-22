@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/nocturne_theme.dart';
 import '../../../core/utils/image_cache_key.dart';
 import '../models/catch_up_models.dart';
+import '../models/series_model.dart';
 import '../models/vod_playback_args.dart';
 import '../services/catch_up_service.dart';
 import '../services/vod_service.dart';
@@ -92,7 +93,9 @@ class CatchUpTabState extends State<CatchUpTab>
   }
 
   /// Pull-to-refresh entry point used by the parent Media Center.
-  Future<void> refresh() => _load();
+  Future<void> refresh() => Future.wait([_load(), _loadContinueWatching()]);
+
+  Future<void> refreshContinueWatching() => _loadContinueWatching();
 
   Future<void> _doLoad({required bool showLoading}) async {
     try {
@@ -412,23 +415,28 @@ class CatchUpTabState extends State<CatchUpTab>
       try {
         final movie = await VodService.getMovieById(item.movieId!);
         if (!mounted) return;
-        Navigator.of(context).push(
+        await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => MovieDetailScreen(movie: movie),
           ),
         );
+        _loadContinueWatching();
       } catch (_) {}
     } else if (item.mediaType == 'episode' &&
         (item.seriesId ?? '').isNotEmpty) {
-      try {
-        final series = await VodService.getSeriesById(item.seriesId!);
-        if (!mounted) return;
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => SeriesDetailScreen(series: series),
-          ),
-        );
-      } catch (_) {}
+      final series = SeriesModel(
+        id: item.seriesId!,
+        channelId: item.channelId ?? '',
+        title: item.title,
+        coverUrl: item.posterUrl,
+        createdAt: 0,
+      );
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SeriesDetailScreen(series: series),
+        ),
+      );
+      _loadContinueWatching();
     }
   }
 

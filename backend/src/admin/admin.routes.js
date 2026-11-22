@@ -104,6 +104,7 @@ router.post('/users/:uid/unban-withdrawal', authenticateToken, optionalReason, c
 router.post('/users/:uid/ban-channel-creation', authenticateToken, requireReason, ctrl.banChannelCreation);
 router.post('/users/:uid/unban-channel-creation', authenticateToken, optionalReason, ctrl.unbanChannelCreation);
 router.post('/users/:uid/debit', authenticateToken, requireReason, ctrl.debitUserAssets);
+router.post('/users/:uid/impersonate', authenticateToken, requireReason, ctrl.impersonateUser);
 router.get('/wallets', authenticateToken, ctrl.listWallets);
 
 // Channel control

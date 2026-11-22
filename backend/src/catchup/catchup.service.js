@@ -392,14 +392,25 @@ async function getHome() {
   });
 }
 
-async function getDetail(type, id) {
-  return withCache(`detail_${type}_${id}`, async () => {
+async function getDetail(type, id, title = null) {
+  const cacheId = id || `title_${String(title || '').toLowerCase().trim()}`;
+  return withCache(`detail_${type}_${cacheId}`, async () => {
     try {
       const settings = await getSettings();
       const auth = tmdbAuth(settings);
       if (!auth) return { success: false, error: 'IMDb/TMDB not configured' };
 
       const kind = type === 'series' ? 'tv' : 'movie';
+      let resolvedId = id;
+      if (!resolvedId && title) {
+        const searchRes = await tmdbFetch(`/search/${kind}`, { query: title }, auth);
+        const first = searchRes?.results?.[0];
+        if (!first?.id) {
+          return { success: false, error: 'No matching title found on TMDB' };
+        }
+        resolvedId = String(first.id);
+      }
+
       const [
         detailRes,
         creditsRes,
@@ -407,11 +418,11 @@ async function getDetail(type, id) {
         videosRes,
         recsRes,
       ] = await Promise.allSettled([
-        tmdbFetch(`/${kind}/${id}`, {}, auth),
-        tmdbFetch(`/${kind}/${id}/credits`, {}, auth),
-        tmdbFetch(`/${kind}/${id}/${type === 'series' ? 'content_ratings' : 'release_dates'}`, {}, auth),
-        tmdbFetch(`/${kind}/${id}/videos`, {}, auth),
-        tmdbFetch(`/${kind}/${id}/recommendations`, {}, auth),
+        tmdbFetch(`/${kind}/${resolvedId}`, {}, auth),
+        tmdbFetch(`/${kind}/${resolvedId}/credits`, {}, auth),
+        tmdbFetch(`/${kind}/${resolvedId}/${type === 'series' ? 'content_ratings' : 'release_dates'}`, {}, auth),
+        tmdbFetch(`/${kind}/${resolvedId}/videos`, {}, auth),
+        tmdbFetch(`/${kind}/${resolvedId}/recommendations`, {}, auth),
       ]);
 
       const detail = unwrapTmdb(detailRes);

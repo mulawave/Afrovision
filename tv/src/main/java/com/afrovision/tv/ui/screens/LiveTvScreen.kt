@@ -13,7 +13,12 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -90,7 +95,7 @@ fun LiveTvScreen(viewModel: TvViewModel) {
             dialBuffer = ""
             if (match != null) {
                 TvSoundManager.play("chan")
-                viewModel.play(match.toMediaCard().toPlayerMedia())
+                viewModel.playChannel(match.toMediaCard())
             }
         }
     }
@@ -148,8 +153,12 @@ fun LiveTvScreen(viewModel: TvViewModel) {
                             )
                         }
                         Spacer26()
-                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            categories.forEach { filter ->
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(end = 40.dp)
+                        ) {
+                            items(categories, key = { it }) { filter ->
                                 FilterChip(
                                     label = filter,
                                     selected = filter == selectedFilter,
@@ -165,16 +174,23 @@ fun LiveTvScreen(viewModel: TvViewModel) {
                         }
                     } else {
                         Column(
-                            modifier = Modifier.padding(start = 60.dp, end = 60.dp, top = 32.dp),
+                            modifier = Modifier.fillMaxWidth().padding(start = 60.dp, end = 60.dp, top = 32.dp),
                             verticalArrangement = Arrangement.spacedBy(28.dp)
                         ) {
                             pageItems.chunked(COLUMNS).forEach { rowItems ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(22.dp)
+                                ) {
                                     rowItems.forEach { channel ->
                                         LiveChannelCard(
                                             item = channel,
-                                            onClick = { viewModel.play(channel.toPlayerMedia()) }
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { viewModel.playChannel(channel) }
                                         )
+                                    }
+                                    repeat(COLUMNS - rowItems.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
                                     }
                                 }
                             }
@@ -218,7 +234,7 @@ private fun ChannelDialHud(buffer: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun LiveChannelCard(item: MediaCard, onClick: () -> Unit) {
+private fun LiveChannelCard(item: MediaCard, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val nocturne = LocalNocturne.current
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
@@ -238,11 +254,11 @@ private fun LiveChannelCard(item: MediaCard, onClick: () -> Unit) {
     } else Modifier
     val isLive = item.badge.equals("LIVE", ignoreCase = true)
 
-    Column(horizontalAlignment = Alignment.Start) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.Start) {
         Box(
             modifier = Modifier
-                .width(336.dp)
-                .height(182.dp)
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
                 .scale(scale)
                 .then(glow)
                 .clip(RoundedCornerShape(14.dp))

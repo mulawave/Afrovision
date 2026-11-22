@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+.slide { width: 1920px; height: 1080px; overflow: hidden; position: relative; background-color: #050a30; }
+.bg-texture { position: absolute; inset: 0; background-image: repeating-linear-gradient(60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px), repeating-linear-gradient(-60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px); }
+.left-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: linear-gradient(180deg, #f39517 0%, #233dff 100%); }
+.top-border { position: absolute; top: 0; left: 6px; right: 0; height: 3px; background: linear-gradient(90deg, #f39517 0%, #233dff 60%, transparent 100%); }
+.logo-wrap { position: absolute; top: 36px; left: 52px; }
+.logo-wrap img { width: 150px; }
+.slide-label { position: absolute; top: 52px; right: 72px; font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 3px; }
+.center-content { position: absolute; left: 80px; right: 80px; top: 118px; }
+.section-tag { font-size: 14px; letter-spacing: 6px; color: #233dff; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+.heading { font-family: 'Playfair Display', serif; font-size: 68px; font-weight: 900; color: #f39517; margin-bottom: 8px; }
+.sub { font-size: 22px; color: #c8b58f; font-style: italic; }
+.divider { width: 80px; height: 3px; background: linear-gradient(90deg, #f39517, #233dff); margin-top: 18px; }
+/* Ask items */
+.ask-grid { position: absolute; top: 320px; left: 80px; right: 80px; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.ask-item { background: rgba(35,61,255,0.07); border: 1px solid rgba(35,61,255,0.2); border-left: 4px solid #f39517; padding: 32px 36px; }
+.ask-num { font-size: 14px; letter-spacing: 4px; color: #233dff; text-transform: uppercase; font-weight: 600; margin-bottom: 10px; }
+.ask-title { font-size: 26px; font-weight: 800; color: #ffffff; margin-bottom: 14px; }
+.ask-body { font-size: 19px; color: #c8b58f; line-height: 1.6; }
+.ask-body span { color: #f39517; font-weight: 600; }
+.bottom-bar { position: absolute; bottom: 0; left: 6px; right: 0; height: 52px; background: rgba(35,61,255,0.08); border-top: 1px solid rgba(35,61,255,0.2); display: flex; align-items: center; justify-content: space-between; padding: 0 80px; }
+.b-left { font-size: 14px; color: #528ff1; letter-spacing: 2px; }
+.b-right { font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<section class="slide" style="width:1920px;height:1080px;overflow:hidden;position:relative;">
+  <div class="bg-texture"></div>
+  <div class="left-bar"></div>
+  <div class="top-border"></div>
+  <div class="logo-wrap"><img src="/home/user/afrovision-materials/investor-pitch.html-slides/assets/logo.png" alt="AfroVision"/></div>
+  <div class="slide-label">09 / 10</div>
+  <div class="center-content">
+    <div class="section-tag">The Ask</div>
+    <div class="heading">What We're Building Together</div>
+    <div class="sub">Investment in AfroVision Challenge is investment in Africa's next generation of women-led enterprises</div>
+    <div class="divider"></div>
+  </div>
+  <div class="ask-grid">
+    <div class="ask-item">
+      <div class="ask-num">01 — Production</div>
+      <div class="ask-title">Fund the Maiden Edition</div>
+      <div class="ask-body">Initial investment funds production of Season 1 — The Amazons. Digital-first production keeps costs lean while maximising quality and reach. <span>High production value, controlled budget.</span></div>
+    </div>
+    <div class="ask-item">
+      <div class="ask-num">02 — Growth</div>
+      <div class="ask-title">Platform Expansion</div>
+      <div class="ask-body">Accelerate AfroVision app growth, audience acquisition, and community reward pool infrastructure. <span>Every viewer added increases sponsor value.</span></div>
+    </div>
+    <div class="ask-item">
+      <div class="ask-num">03 — IP</div>
+      <div class="ask-title">Build a Multi-Season IP</div>
+      <div class="ask-body">The Amazons is a scalable format. Investment in Season 1 secures early positioning in a franchise with <span>multi-season, multi-country expansion potential.</span></div>
+    </div>
+    <div class="ask-item">
+      <div class="ask-num">04 — Impact</div>
+      <div class="ask-title">Create 5 Co-Founders per Season</div>
+      <div class="ask-body">Each season produces 5 new women-led businesses — backed, visible, and launched. <span>Measurable social impact at scale,</span> compounding with every edition.</div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <div class="b-left">AfroVision Challenge: The Amazons</div>
+    <div class="b-right">Confidential — For Investor Review</div>
+  </div>
+</section>
+</body>
+</html>

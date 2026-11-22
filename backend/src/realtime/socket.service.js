@@ -143,9 +143,14 @@ function registerJoinHandler(socket) {
       return;
     }
 
-    const access = await ChatService.ensureChatAccess(socket.data.userId, channelId);
-    if (!access.ok) {
-      ack({ ok: false, error: access.error, code: access.code, status: access.status });
+    const Channel = require('../channels/channel.model');
+    const channel = await Channel.findById(channelId);
+    if (!channel) {
+      ack({ ok: false, error: 'Channel not found', code: 'CHANNEL_NOT_FOUND', status: 404 });
+      return;
+    }
+    if (!channel.is_active) {
+      ack({ ok: false, error: 'Channel is not active', code: 'CHANNEL_DISABLED', status: 403 });
       return;
     }
 

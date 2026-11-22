@@ -4,6 +4,7 @@ const ctrl = require('./channel.controller');
 const premiumCtrl = require('./premium_stream.controller');
 const exclusiveCtrl = require('./exclusive_channel.controller');
 const exclusiveRequestCtrl = require('./exclusive_request.controller');
+const streamProxyCtrl = require('./stream_proxy.controller');
 const { blockMinors, blockChannelCreationBan } = require('../users/restriction.middleware');
 const { upload, uploadSingleToGCS, uploadFieldsToGCS } = require('../utils/upload');
 
@@ -47,6 +48,7 @@ router.get('/:id/access', authenticateToken, premiumCtrl.checkAccess);
 router.post('/:id/pay', authenticateToken, premiumCtrl.payForAccess);
 router.post('/:id/request-premium', authenticateToken, premiumCtrl.requestPremiumElevation);
 router.get('/:id/live-stats', optionalAuth, ctrl.getLiveStats);
+router.get('/:id/stream-proxy', optionalAuth, streamProxyCtrl.proxyChannelStream);
 router.post('/:id/view', authenticateToken, ctrl.recordView);
 router.post('/:id/watch-ping', authenticateToken, ctrl.recordWatchPing);
 router.post('/:id/recheck-source', authenticateToken, ctrl.recheckStreamHealth);

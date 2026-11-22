@@ -1,5 +1,11 @@
 # AfroVision — GitHub Copilot Instructions
 
+## Zero-Mediocrity & Component Conformity Rule (MANDATORY ? ALL PLATFORMS)
+
+1. **No Amateur or Half-Baked Work**: Every agent must put in full effort to deliver a solid, production-grade design and architecture for every task. Never ship cramped dialogs, broken focus/D-pad navigation, distorted buttons, missing management controls (such as Pause/Resume/Cancel/Delete on downloads), or unstudied platform flows.
+2. **Study Existing Flows First**: Before building or overhauling a feature on any platform (TV, Web, Admin, Mobile), agents MUST study the complete reference implementation on the other platforms (especially Mobile `lib/features/` and Backend controllers) so all states, edge cases, metadata (e.g. TMDB backdrops/cast/ratings), and user journeys match in completeness.
+3. **Standard Component Behaviour & Conformity**: All interactive components must conform to platform standards (D-pad focusability in every direction on TV, non-wrapping horizontal button rows, badge counters on nav items where applicable, real-time progress indicators, and full error/loading/empty states).
+
 ## Design Rules (MANDATORY — apply to ALL screens and components)
 
 1. **Background Gradient**: Every screen MUST use `AppColors.primaryGradient` (lightBlue → darkBlue, top → bottom) as its background. No exceptions.

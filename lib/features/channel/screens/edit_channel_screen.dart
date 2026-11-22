@@ -27,6 +27,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
   ChannelModel? _channel;
   bool _uploadingLogo = false;
   bool _uploadingBanner = false;
+  bool _useStreamProxy = false;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -63,6 +64,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
         _descController.text = args.description ?? '';
         _categoryController.text = args.category ?? '';
         _streamSourceMode = args.streamSourceMode;
+        _useStreamProxy = args.useStreamProxy;
         _externalUrlController.text = args.externalUrl ?? '';
         _exclusiveFeeController.text = args.exclusiveMonthlyFeeNgn > 0
             ? args.exclusiveMonthlyFeeNgn.toStringAsFixed(0)
@@ -117,6 +119,7 @@ class _EditChannelScreenState extends State<EditChannelScreen>
         category: _categoryController.text.trim().isNotEmpty
             ? _categoryController.text.trim()
             : null,
+        useStreamProxy: _useStreamProxy,
       );
       // Persist external source settings whenever the mode or URL may have changed.
       final urlChanged =
@@ -569,8 +572,33 @@ class _EditChannelScreenState extends State<EditChannelScreen>
                 .toList(),
           ),
 
-          // URL input — visible for all non-native modes
-          if (_streamSourceMode != 'native') ...[
+          // Server Stream Relay (VPN Bypass) — always visible in Stream Source card
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.inputFill,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _useStreamProxy
+                    ? AppColors.orange.withValues(alpha: 0.5)
+                    : AppColors.inputBorder,
+              ),
+            ),
+            child: SwitchListTile(
+              value: _useStreamProxy,
+              activeThumbColor: AppColors.orange,
+              title: const Text(
+                'Relay stream via AfroVision server (No VPN)',
+                style: TextStyle(color: AppColors.white, fontSize: 13.5, fontWeight: FontWeight.w600),
+              ),
+              subtitle: const Text(
+                'Enable for streams that require a VPN or face ISP blocks. Viewers can watch directly without a VPN.',
+                style: TextStyle(color: AppColors.hintText, fontSize: 11.5),
+              ),
+              onChanged: (v) => setState(() => _useStreamProxy = v),
+            ),
+          ),
+        if (_streamSourceMode != 'native') ...[
             const SizedBox(height: 14),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,

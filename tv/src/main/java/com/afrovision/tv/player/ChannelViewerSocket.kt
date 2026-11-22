@@ -29,7 +29,7 @@ object ChannelViewerSocket {
         if (currentChannelId == channelId && socket?.connected() == true) return
         leave()
 
-        val token = TokenHolder.token
+        val token = TokenHolder.deviceToken.ifBlank { TokenHolder.token }
         if (token.isBlank()) return
 
         try {

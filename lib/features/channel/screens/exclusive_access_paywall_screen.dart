@@ -243,7 +243,7 @@ class _ExclusiveAccessPaywallScreenState
   /// "not yet granted" even though it's about to succeed, so retry a few
   /// times with a short delay before accepting the failure as final.
   Future<bool> _recheckAccessAfterError() async {
-    for (var attempt = 0; attempt < 3; attempt++) {
+    for (var attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) {
         await Future.delayed(const Duration(seconds: 2));
         if (!mounted) return false;
@@ -252,6 +252,20 @@ class _ExclusiveAccessPaywallScreenState
         final status = await ChannelService.getExclusiveAccessStatus(_channelId!);
         if (!mounted) return false;
         if (status.hasActiveEntitlement) {
+          // Also recover the issued PIC so the user can enter immediately.
+          try {
+            final picsRes = await ChannelService.getMyPics();
+            final pics = picsRes['pics'] as List<dynamic>? ?? const [];
+            for (final entry in pics.whereType<Map<String, dynamic>>()) {
+              if (entry['channel_id'] == _channelId && (entry['pic'] ?? '').toString().isNotEmpty) {
+                final pic = entry['pic'].toString();
+                _picController.text = pic;
+                await PicStorageService.savePic(_channelId!, pic);
+                break;
+              }
+            }
+          } catch (_) {}
+          if (!mounted) return true;
           setState(() {
             _status = status;
             _state = _ExclusiveState.purchaseSuccess;

@@ -438,6 +438,81 @@ async function getChannelAnalytics(req, res) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
+    // ?? Per-channel financial snapshot & settlement history (gifts + subscriptions + exclusive)
+    let finGiftsNgn = 0;
+    let finGiftsVpt = 0;
+    let finSubsNgn = 0;
+    let finSubsVpt = 0;
+    let activeExclusiveMembers = 0;
+    const settlements = [];
+    try {
+      const [ledgerSnap, exclSnap] = await Promise.all([
+        db.collection('ledger')
+          .where('uid', '==', channel.owner_id)
+          .where('channel_id', '==', channel_id)
+          .get()
+          .catch(() => ({ docs: [] })),
+        db.collection('exclusive_channel_access')
+          .where('channel_id', '==', channel_id)
+          .where('status', '==', 'active')
+          .get()
+          .catch(() => ({ docs: [] })),
+      ]);
+
+      const nowMs = Date.now();
+      for (const doc of exclSnap.docs) {
+        const d = doc.data() || {};
+        const exp = Number(d.expires_at || 0);
+        if (exp === 0 || exp > nowMs) activeExclusiveMembers++;
+      }
+
+      const creditRows = [];
+      for (const doc of ledgerSnap.docs) {
+        const d = doc.data() || {};
+        if (d.direction !== 'credit') continue;
+        const type = String(d.type || '').toUpperCase();
+        const ngn = Number(d.amount_ngn || 0);
+        const vpt = Number(d.amount_vpt_units || d.amount_vpt || 0);
+        const createdAt = Number(d.created_at || 0);
+        if (type.includes('GIFT')) {
+          finGiftsNgn += ngn;
+          finGiftsVpt += vpt;
+        } else if (type.includes('SUB') || type.includes('EXCLUSIVE') || type.includes('PREMIUM')) {
+          finSubsNgn += ngn;
+          finSubsVpt += vpt;
+        } else {
+          finSubsNgn += ngn;
+          finSubsVpt += vpt;
+        }
+        creditRows.push({
+          id: doc.id,
+          type,
+          category: type.includes('GIFT') ? 'gift' : (type.includes('EXCLUSIVE') ? 'exclusive' : 'subscription'),
+          description: d.description || type,
+          amount_ngn: Math.round(ngn * 100) / 100,
+          amount_vpt: Math.round(vpt * 10000) / 10000,
+          status: d.status || 'success',
+          created_at: createdAt,
+        });
+      }
+      creditRows.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      settlements.push(...creditRows.slice(0, 25));
+    } catch (finErr) {
+      console.error('[Analytics] channel financials error:', finErr.message);
+    }
+
+    const effectiveGiftsNgn = Math.max(Math.round(totalGiftsNgn), Math.round(finGiftsNgn));
+    const effectiveGiftsVpt = Math.max(Math.round(totalGiftsVpt), Math.round(finGiftsVpt));
+    const financials = {
+      gifts_ngn: effectiveGiftsNgn,
+      gifts_vpt: effectiveGiftsVpt,
+      subscriptions_ngn: Math.round(finSubsNgn),
+      subscriptions_vpt: Math.round(finSubsVpt * 100) / 100,
+      total_earned_ngn: Math.round(effectiveGiftsNgn + finSubsNgn),
+      total_earned_vpt: Math.round((effectiveGiftsVpt + finSubsVpt) * 100) / 100,
+      active_exclusive_members: activeExclusiveMembers,
+      settlements_count: settlements.length,
+    };
     return res.json({
       channel_id,
       period,
@@ -459,6 +534,8 @@ async function getChannelAnalytics(req, res) {
       },
       viewer_activity_by_hour: hourBuckets,
       timeline,
+      financials,
+      settlements,
       demographics: {
         gender: genderDemographics,
         age_groups: ageGroups,

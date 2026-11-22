@@ -16,6 +16,7 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -61,6 +62,7 @@ object PlayerFactory {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -91,14 +93,17 @@ object PlayerFactory {
     // surfaces as an error (ExoPlayer's default is 3).
     private const val LOAD_RETRY_COUNT = 8
 
-    fun create(context: Context, loadMeter: LoadMeter? = null): ExoPlayer {
+    fun create(context: Context, loadMeter: LoadMeter? = null, networkProfile: String = "auto"): ExoPlayer {
+        val (minBuf, maxBuf, startBuf, rebuf) = when (networkProfile.lowercase()) {
+            "low" -> intArrayOf(20_000, 60_000, 1_500, 4_000)
+            "balanced" -> intArrayOf(45_000, 120_000, 2_500, 6_000)
+            "high" -> intArrayOf(60_000, 180_000, 3_000, 8_000)
+            "maximum" -> intArrayOf(90_000, 240_000, 3_500, 10_000)
+            else -> intArrayOf(MIN_BUFFER_MS, MAX_BUFFER_MS, BUFFER_FOR_PLAYBACK_MS, BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
+        }
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                MIN_BUFFER_MS,
-                MAX_BUFFER_MS,
-                BUFFER_FOR_PLAYBACK_MS,
-                BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
-            )
+            .setBufferDurationsMs(minBuf, maxBuf, startBuf, rebuf)
+            .setBackBuffer(30_000, true)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -139,6 +144,7 @@ object PlayerFactory {
         "480p" -> 1_000_000
         "720p" -> 3_000_000
         "1080p" -> 6_000_000
+        "uncapped" -> Int.MAX_VALUE
         else -> null // "auto"
     }
 
@@ -150,6 +156,10 @@ object PlayerFactory {
      * "auto" really does mean unconstrained/best available.
      */
     fun applyQualityCap(player: ExoPlayer, context: Context, qualitySetting: String) {
+        if (qualitySetting.equals("uncapped", ignoreCase = true)) {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearVideoSizeConstraints().setMaxVideoBitrate(Int.MAX_VALUE).build()
+            return
+        }
         val explicitCap = bitrateCapFor(qualitySetting)
         val cap = explicitCap ?: run {
             val isMetered = try {

@@ -21,6 +21,7 @@ class VodPlaybackArgs {
   final EpisodeModel? episode;
   final String? nextEpisodeId;
   final String? previousEpisodeId;
+  final int? startPositionSeconds;
 
   const VodPlaybackArgs({
     required this.mediaType,
@@ -38,6 +39,7 @@ class VodPlaybackArgs {
     this.episode,
     this.nextEpisodeId,
     this.previousEpisodeId,
+    this.startPositionSeconds,
   });
 
   factory VodPlaybackArgs.fromMovie(MovieModel movie) {

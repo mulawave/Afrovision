@@ -1,3 +1,4 @@
+const { generateImpersonationToken } = require('../utils/jwt');
 const User = require('../users/user.model');
 const crypto = require('crypto');
 const Plan = require('../subscriptions/plan.model');
@@ -2413,7 +2414,59 @@ async function getActiveMarqueeTopics(req, res) {
   }
 }
 
+/**
+ * POST /admin/users/:uid/impersonate
+ * Issues a short-lived (2h) audited JWT allowing an admin to open the
+ * AfroVision website signed in as the target user for account inspection
+ * and support troubleshooting. Admins cannot impersonate other admins.
+ */
+async function impersonateUser(req, res) {
+  try {
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    const targetUid = req.params.uid;
+    if (!targetUid) {
+      return res.status(400).json({ error: 'Target user ID is required' });
+    }
+    if (targetUid === req.userId) {
+      return res.status(400).json({ error: 'You are already signed in as this account' });
+    }
+    const target = await User.findById(targetUid);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (target.role === 'admin') {
+      return res.status(403).json({ error: 'Cannot impersonate another admin account' });
+    }
+    const reason = (req.adminReason || req.body?.reason || '').toString().trim();
+    const token = await generateImpersonationToken(target.id, req.userId);
+    await AuditService.logAction(req.userId, 'admin_impersonate_user', target.id, {
+      reason,
+      target_email: target.email || null,
+      target_name: target.name || null,
+      admin_email: req.user.email || null,
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      token,
+      expires_in_seconds: 7200,
+      user: {
+        id: target.id,
+        email: target.email || null,
+        name: target.name || '',
+        role: target.role || 'viewer',
+      },
+      website_url: process.env.WEBSITE_BASE_URL || 'https://afrovision.online',
+    });
+  } catch (err) {
+    console.error('[Admin] impersonateUser error:', err.message);
+    return res.status(500).json({ error: 'Failed to create user session' });
+  }
+}
 module.exports = {
+  impersonateUser,
   setRole,
   setPremium,
   setKyc,

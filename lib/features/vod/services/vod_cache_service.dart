@@ -8,12 +8,38 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Snapshot of global download activity for the Download Stats Beacon.
+class DownloadBeaconState {
+  final int activeCount;
+  final int queuedCount;
+  final int pendingCount;
+  final int completedCount;
+  final int failedCount;
+  final double overallPercent;
+  final String? activeTitle;
+
+  const DownloadBeaconState({
+    this.activeCount = 0,
+    this.queuedCount = 0,
+    this.pendingCount = 0,
+    this.completedCount = 0,
+    this.failedCount = 0,
+    this.overallPercent = 0,
+    this.activeTitle = '',
+  });
+
+  bool get hasActivity =>
+      activeCount > 0 || queuedCount > 0 || pendingCount > 0 || failedCount > 0;
+}
+
 /// Generalized offline cache for VOD (movies and series episodes).
 ///
 /// Supports:
 ///   - Direct MP4 / progressive files (`hosted_url`, `external_url`)
 ///   - HLS streams by downloading a selected variant's playlist + segments and
 ///     rewriting the playlist to point at local files.
+///   - Pause, Resume, Cancel, batch operations, and strict serial episode
+///     completion ordering per series.
 ///
 /// Cache keys are `{mediaType}_{mediaId}` (e.g. `movie_uuid`, `episode_uuid`).
 class VodCacheService {
@@ -37,8 +63,24 @@ class VodCacheService {
 
   final Set<String> _cachedKeys = <String>{};
   final Set<String> _downloadingKeys = <String>{};
+  final Set<String> _queuedKeys = <String>{};
+  final Set<String> _pausedKeys = <String>{};
+  final Set<String> _cancelledKeys = <String>{};
   final Map<String, String> _failedKeys = <String, String>{};
+  final Map<String, http.Client> _activeClients = <String, http.Client>{};
+  final Map<String, DownloadProgress> _latestProgress =
+      <String, DownloadProgress>{};
+  final Map<String, CachedVodItem> _activeItems = <String, CachedVodItem>{};
+  final Map<String, String> _activeSeriesIds = <String, String>{};
+  final Map<String, int> _activeEpisodeNumbers = <String, int>{};
+  final List<Completer<void>> _orderWaiters = <Completer<void>>[];
+  final Map<String, int> _remoteSizeCache = <String, int>{};
   final _progressControllers = <String, StreamController<DownloadProgress>>{};
+
+  /// Live notifier for the Download Stats Beacon on Home, Media Center,
+  /// Channel Profile, Episode List, and Player screens.
+  final ValueNotifier<DownloadBeaconState> beaconNotifier =
+      ValueNotifier<DownloadBeaconState>(const DownloadBeaconState());
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -64,6 +106,7 @@ class VodCacheService {
 
     await _rebuildIndex();
     _initialized = true;
+    unawaited(_refreshBeacon());
   }
 
   Future<void> _clearCacheDir() async {
@@ -101,8 +144,13 @@ class VodCacheService {
           continue;
         }
 
-        final localPath = await _localAssetPath(entity);
-        if (localPath != null && await File(localPath).exists()) {
+        final raw = await metaFile.readAsString();
+        final meta = jsonDecode(raw) as Map<String, dynamic>;
+        final fileName = meta['local_file'] as String?;
+        // Never mark partial 'video.part' files as completed downloads.
+        if (fileName == null || fileName == 'video.part') continue;
+        final localPath = p.join(entity.path, fileName);
+        if (await File(localPath).exists()) {
           _cachedKeys.add(key);
         }
       } catch (e) {
@@ -120,19 +168,101 @@ class VodCacheService {
       final raw = await metaFile.readAsString();
       final meta = jsonDecode(raw) as Map<String, dynamic>;
       final fileName = meta['local_file'] as String?;
-      if (fileName == null) return null;
+      if (fileName == null || fileName == 'video.part') return null;
       return p.join(folder.path, fileName);
     } catch (_) {
       return null;
     }
   }
 
-  /// Enumerate every VOD asset currently cached on this device. Reads the
-  /// per-item `meta.json` written by `_writeMeta` so the Library tab can
-  /// render tiles without a network round-trip. Fault-tolerant — a bad
-  /// meta file is skipped.
+  void _notifyOrderWaiters() {
+    final waiters = List<Completer<void>>.from(_orderWaiters);
+    _orderWaiters.clear();
+    for (final c in waiters) {
+      if (!c.isCompleted) c.complete();
+    }
+  }
+
+  /// Returns true if another episode in the same series with a strictly lower
+  /// episode number is currently downloading or queued.
+  bool _hasPrecedingEpisodeDownloading(
+      String currentKey, String? seriesId, int? episodeNumber) {
+    if (seriesId == null ||
+        seriesId.isEmpty ||
+        episodeNumber == null ||
+        episodeNumber <= 0) {
+      return false;
+    }
+    for (final otherKey in _downloadingKeys) {
+      if (otherKey == currentKey) continue;
+      if (_activeSeriesIds[otherKey] == seriesId) {
+        final otherEp = _activeEpisodeNumbers[otherKey];
+        if (otherEp != null && otherEp > 0 && otherEp < episodeNumber) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /// Waits while any preceding episode in the same series is actively
+  /// downloading so that Episode N+1 never downloads ahead of or completes
+  /// before Episode N.
+  Future<void> _waitForPrecedingEpisodes(
+      String key, String? seriesId, int? episodeNumber) async {
+    while (_hasPrecedingEpisodeDownloading(key, seriesId, episodeNumber)) {
+      if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) {
+        return;
+      }
+      _queuedKeys.add(key);
+      unawaited(_refreshBeacon());
+      final completer = Completer<void>();
+      _orderWaiters.add(completer);
+      await completer.future.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
+    }
+    _queuedKeys.remove(key);
+    unawaited(_refreshBeacon());
+  }
+
+  Future<void> _refreshBeacon() async {
+    if (!_initialized) return;
+    int pendingCount = 0;
+    try {
+      final pending = await getPendingResumeItems();
+      pendingCount = pending.length;
+    } catch (_) {}
+
+    double sumPct = 0;
+    int activeWithPct = 0;
+    String? activeTitle;
+
+    for (final k in _downloadingKeys) {
+      final prog = _latestProgress[k];
+      if (prog != null) {
+        sumPct += prog.percent;
+        activeWithPct++;
+      }
+      activeTitle ??= _activeItems[k]?.title ?? k;
+    }
+
+    final avgPct = activeWithPct > 0 ? (sumPct / activeWithPct) : 0.0;
+    beaconNotifier.value = DownloadBeaconState(
+      activeCount: _downloadingKeys.length,
+      queuedCount: _queuedKeys.length,
+      pendingCount: pendingCount,
+      completedCount: _cachedKeys.length,
+      failedCount: _failedKeys.length,
+      overallPercent: avgPct.clamp(0.0, 100.0),
+      activeTitle: activeTitle,
+    );
+  }
+
+  /// Enumerate every VOD asset currently cached on this device.
   Future<List<CachedVodItem>> listAllCached() async {
-    if (!_initialized) return const <CachedVodItem>[];
+    if (!_initialized) await initialize();
     final dir = _cacheDir;
     if (dir == null || !await dir.exists()) return const <CachedVodItem>[];
     final items = <CachedVodItem>[];
@@ -157,12 +287,14 @@ class VodCacheService {
           duration: (meta['duration'] as num?)?.toInt() ?? 0,
           downloadedAt: (meta['downloaded_at'] as num?)?.toInt() ?? 0,
           originalUrl: (meta['original_url'] as String?) ?? '',
+          seriesId: meta['series_id'] as String?,
+          channelId: meta['channel_id'] as String?,
+          seriesTitle: meta['series_title'] as String?,
+          episodeNumber: (meta['episode_number'] as num?)?.toInt(),
+          totalBytes: (meta['total_bytes'] as num?)?.toInt(),
         ));
-      } catch (_) {
-        // Skip corrupt meta entries.
-      }
+      } catch (_) {}
     }
-    // Most recently downloaded first.
     items.sort((a, b) => b.downloadedAt.compareTo(a.downloadedAt));
     return items;
   }
@@ -177,12 +309,90 @@ class VodCacheService {
     return _downloadingKeys.contains(_key(mediaType, mediaId));
   }
 
+  bool isQueued(String mediaType, String mediaId) {
+    return _queuedKeys.contains(_key(mediaType, mediaId));
+  }
+
+  bool isFailed(String mediaType, String mediaId) {
+    final key = _key(mediaType, mediaId);
+    return _failedKeys.containsKey(key) && !_downloadingKeys.contains(key);
+  }
+
   String? lastError(String mediaType, String mediaId) {
     return _failedKeys[_key(mediaType, mediaId)];
   }
 
+  DownloadProgress? currentProgress(String mediaType, String mediaId) {
+    return _latestProgress[_key(mediaType, mediaId)];
+  }
+
+  CachedVodItem? activeItem(String key) => _activeItems[key];
+
+  /// Pause an in-flight download so it can be resumed later from where it stopped.
+  Future<void> pauseDownload(String mediaType, String mediaId) async {
+    final key = _key(mediaType, mediaId);
+    _pausedKeys.add(key);
+    _queuedKeys.remove(key);
+    _activeClients.remove(key)?.close();
+    _downloadingKeys.remove(key);
+    _failedKeys.remove(key);
+    _notifyOrderWaiters();
+    await _refreshBeacon();
+  }
+
+  /// Pause all active downloads.
+  Future<void> pauseAll() async {
+    final keys = _downloadingKeys.toList();
+    for (final key in keys) {
+      final sep = key.indexOf('_');
+      if (sep <= 0) continue;
+      await pauseDownload(key.substring(0, sep), key.substring(sep + 1));
+    }
+  }
+
+  /// Cancel an active or partial download and remove its partial files.
+  Future<void> cancelDownload(String mediaType, String mediaId) async {
+    final key = _key(mediaType, mediaId);
+    _cancelledKeys.add(key);
+    _pausedKeys.remove(key);
+    _queuedKeys.remove(key);
+    _activeClients.remove(key)?.close();
+    _downloadingKeys.remove(key);
+    _failedKeys.remove(key);
+    _latestProgress.remove(key);
+    _activeItems.remove(key);
+    _activeSeriesIds.remove(key);
+    _activeEpisodeNumbers.remove(key);
+    if (_cacheDir != null) {
+      final folder = _folderFor(key);
+      if (await folder.exists()) {
+        try {
+          await folder.delete(recursive: true);
+        } catch (_) {}
+      }
+    }
+    _cachedKeys.remove(key);
+    _notifyOrderWaiters();
+    await _refreshBeacon();
+  }
+
+  /// Cancel all active and pending downloads.
+  Future<void> cancelAll() async {
+    final keys = _downloadingKeys.toList();
+    for (final key in keys) {
+      final sep = key.indexOf('_');
+      if (sep <= 0) continue;
+      await cancelDownload(key.substring(0, sep), key.substring(sep + 1));
+    }
+    final pending = await getPendingResumeItems();
+    for (final item in pending) {
+      await cancelDownload(item.mediaType, item.mediaId);
+    }
+  }
+
   /// Returns the local file path to play, or null if not cached.
   Future<String?> getLocalPath(String mediaType, String mediaId) async {
+    if (!_initialized) await initialize();
     final key = _key(mediaType, mediaId);
     final folder = _folderFor(key);
     if (!await folder.exists()) return null;
@@ -203,28 +413,22 @@ class VodCacheService {
   }
 
   Future<void> _emitProgress(String key, DownloadProgress progress) async {
+    _latestProgress[key] = progress;
     final controller = _progressControllers[key];
     if (controller != null && !controller.isClosed) {
       controller.add(progress);
     }
+    unawaited(_refreshBeacon());
   }
 
   /// Delete a cached download.
   Future<void> delete(String mediaType, String mediaId) async {
-    final key = _key(mediaType, mediaId);
-    final folder = _folderFor(key);
-    if (await folder.exists()) {
-      await folder.delete(recursive: true);
-    }
-    _cachedKeys.remove(key);
-    _failedKeys.remove(key);
+    await cancelDownload(mediaType, mediaId);
   }
 
   String _key(String mediaType, String mediaId) => '${mediaType}_$mediaId';
 
   /// Public entry point: download a movie or episode for offline playback.
-  /// [url] must be the resolved public playback URL.
-  /// [sourceMode] is 'hosted', 'external_url', 'hls', or 'embed'.
   Future<void> download({
     required String mediaType,
     required String mediaId,
@@ -234,24 +438,83 @@ class VodCacheService {
     String? url,
     required int duration,
     int? targetBps,
+    String? seriesId,
+    String? channelId,
+    String? seriesTitle,
+    int? episodeNumber,
   }) async {
-    if (_cacheDir == null) await initialize();
+    if (!_initialized) await initialize();
+    final key = _key(mediaType, mediaId);
     if (url == null || url.isEmpty) {
-      _failedKeys[_key(mediaType, mediaId)] = 'No video URL available';
+      _failedKeys[key] = 'No video URL available';
+      await _refreshBeacon();
       return;
     }
 
-    final key = _key(mediaType, mediaId);
     if (_cachedKeys.contains(key)) return;
     if (_downloadingKeys.contains(key)) return;
 
-    _downloadingKeys.add(key);
+    _pausedKeys.remove(key);
+    _cancelledKeys.remove(key);
     _failedKeys.remove(key);
+    _downloadingKeys.add(key);
+
+    if (seriesId != null && seriesId.isNotEmpty) {
+      _activeSeriesIds[key] = seriesId;
+    }
+    if (episodeNumber != null && episodeNumber > 0) {
+      _activeEpisodeNumbers[key] = episodeNumber;
+    }
+
+    _activeItems[key] = CachedVodItem(
+      mediaType: mediaType,
+      mediaId: mediaId,
+      title: title,
+      posterUrl: posterUrl,
+      duration: duration,
+      downloadedAt: DateTime.now().millisecondsSinceEpoch,
+      originalUrl: url,
+      seriesId: seriesId,
+      channelId: channelId,
+      seriesTitle: seriesTitle,
+      episodeNumber: episodeNumber,
+    );
 
     final folder = _folderFor(key);
     if (!await folder.exists()) await folder.create(recursive: true);
 
+    // Write meta upfront so even queued/paused items persist for Pending Resume.
+    await _writeMeta(
+      folder: folder,
+      title: title,
+      posterUrl: posterUrl,
+      sourceMode: sourceMode,
+      localFile: 'video.part',
+      originalUrl: url,
+      duration: duration,
+      seriesId: seriesId,
+      channelId: channelId,
+      seriesTitle: seriesTitle,
+      episodeNumber: episodeNumber,
+    );
+    // Ensure a 0-byte video.part file exists immediately so pausing while queued
+    // still registers as a resumable item.
+    final partFile = _partialFile(folder);
+    if (!await partFile.exists()) {
+      await partFile.create(recursive: true);
+    }
+
+    await _refreshBeacon();
+
     try {
+      // Enforce strict serial episode ordering per series: wait if any lower
+      // episode number in the same series is currently downloading.
+      await _waitForPrecedingEpisodes(key, seriesId, episodeNumber);
+
+      if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) {
+        return;
+      }
+
       if (sourceMode == 'hls' || url.toLowerCase().endsWith('.m3u8')) {
         await _downloadHls(
           key: key,
@@ -262,6 +525,10 @@ class VodCacheService {
           folder: folder,
           duration: duration,
           targetBps: targetBps,
+          seriesId: seriesId,
+          channelId: channelId,
+          seriesTitle: seriesTitle,
+          episodeNumber: episodeNumber,
         );
       } else {
         await _downloadDirect(
@@ -272,17 +539,203 @@ class VodCacheService {
           url: url,
           folder: folder,
           duration: duration,
+          seriesId: seriesId,
+          channelId: channelId,
+          seriesTitle: seriesTitle,
+          episodeNumber: episodeNumber,
         );
       }
+
+      if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) {
+        return;
+      }
+
       _cachedKeys.add(key);
       _failedKeys.remove(key);
       await _cleanCacheIfNeeded();
     } catch (e) {
-      debugPrint('[VodCache] Download failed $key: $e');
-      _failedKeys[key] = e.toString();
+      if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) {
+        debugPrint('[VodCache] Download paused/cancelled $key');
+      } else {
+        debugPrint('[VodCache] Download failed $key: $e');
+        _failedKeys[key] = e.toString();
+      }
     } finally {
       _downloadingKeys.remove(key);
+      _queuedKeys.remove(key);
+      _activeClients.remove(key);
+      _activeSeriesIds.remove(key);
+      _activeEpisodeNumbers.remove(key);
+      _notifyOrderWaiters();
+      await _refreshBeacon();
     }
+  }
+
+  /// Returns the total byte size of a cached item, or null if not cached.
+  Future<int?> getCachedSize(String mediaType, String mediaId) async {
+    if (!_initialized) await initialize();
+    final key = _key(mediaType, mediaId);
+    final folder = _folderFor(key);
+    if (!await folder.exists()) return null;
+    final localPath = await _localAssetPath(folder);
+    if (localPath == null) return null;
+    final file = File(localPath);
+    if (!await file.exists()) return null;
+    final stat = await file.stat();
+    return stat.size;
+  }
+
+  /// Returns the cached size, or probes and caches the remote Content-Length
+  /// so episode file sizes are always displayed under each episode row.
+  Future<int?> getOrFetchFileSize(
+    String mediaType,
+    String mediaId,
+    String? url,
+  ) async {
+    if (!_initialized) await initialize();
+    final key = _key(mediaType, mediaId);
+
+    // 1. Completed local file size
+    final cached = await getCachedSize(mediaType, mediaId);
+    if (cached != null && cached > 0) return cached;
+
+    // 2. Active download totalBytes
+    final prog = _latestProgress[key];
+    if (prog != null && prog.totalBytes > 0) return prog.totalBytes;
+
+    // 3. In-memory or SharedPreferences cache
+    if (_remoteSizeCache.containsKey(key)) return _remoteSizeCache[key];
+    final prefSize = _prefs?.getInt('vod_size_$key');
+    if (prefSize != null && prefSize > 0) {
+      _remoteSizeCache[key] = prefSize;
+      return prefSize;
+    }
+
+    // 4. Saved meta.json total_bytes or partial file size
+    final folder = _folderFor(key);
+    if (await folder.exists()) {
+      final metaFile = File(p.join(folder.path, 'meta.json'));
+      if (await metaFile.exists()) {
+        try {
+          final meta =
+              jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+          final tb = (meta['total_bytes'] as num?)?.toInt();
+          if (tb != null && tb > 0) {
+            _remoteSizeCache[key] = tb;
+            return tb;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (url == null || url.isEmpty || url.toLowerCase().endsWith('.m3u8')) {
+      return null;
+    }
+
+    // 5. Probe remote Content-Length via HEAD (or Range 0-0 GET fallback)
+    final client = http.Client();
+    try {
+      final headRes = await client
+          .head(Uri.parse(url), headers: {'User-Agent': _userAgent})
+          .timeout(const Duration(seconds: 8));
+      int len = int.tryParse(headRes.headers['content-length'] ?? '') ?? 0;
+      if (len <= 0) {
+        final rangeRes = await client.get(
+          Uri.parse(url),
+          headers: {'User-Agent': _userAgent, 'Range': 'bytes=0-0'},
+        ).timeout(const Duration(seconds: 8));
+        final cr = rangeRes.headers['content-range'] ?? '';
+        final slash = cr.lastIndexOf('/');
+        if (slash != -1 && slash + 1 < cr.length) {
+          len = int.tryParse(cr.substring(slash + 1).trim()) ?? 0;
+        }
+        if (len <= 0) {
+          len = int.tryParse(rangeRes.headers['content-length'] ?? '') ?? 0;
+        }
+      }
+      if (len > 0) {
+        _remoteSizeCache[key] = len;
+        await _prefs?.setInt('vod_size_$key', len);
+        return len;
+      }
+    } catch (_) {
+    } finally {
+      client.close();
+    }
+    return null;
+  }
+
+  /// Returns true when a partial (interrupted or paused) download exists.
+  bool hasPartialDownload(String mediaType, String mediaId) {
+    final key = _key(mediaType, mediaId);
+    if (!_initialized) return false;
+    if (_cachedKeys.contains(key)) return false;
+    if (_downloadingKeys.contains(key)) return false;
+    final folder = _folderFor(key);
+    return _partialFile(folder).existsSync();
+  }
+
+  /// Returns the byte count downloaded so far for a partial download.
+  int partialDownloadedBytes(String mediaType, String mediaId) {
+    final key = _key(mediaType, mediaId);
+    if (!_initialized) return 0;
+    final folder = _folderFor(key);
+    final f = _partialFile(folder);
+    if (!f.existsSync()) return 0;
+    try {
+      return f.lengthSync();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  File _partialFile(Directory folder) => File(p.join(folder.path, 'video.part'));
+
+  /// Keys of media currently being downloaded.
+  Iterable<String> get downloadingKeys =>
+      _downloadingKeys.toList(growable: false);
+
+  /// Returns cached items that have a partial download (interrupted/paused).
+  Future<List<CachedVodItem>> getPendingResumeItems() async {
+    if (!_initialized) await initialize();
+    final dir = _cacheDir;
+    if (dir == null || !await dir.exists()) return const <CachedVodItem>[];
+    final items = <CachedVodItem>[];
+    await for (final entity in dir.list()) {
+      if (entity is! Directory) continue;
+      final key = p.basename(entity.path);
+      if (_cachedKeys.contains(key)) continue;
+      if (_downloadingKeys.contains(key)) continue;
+      final partial = _partialFile(entity);
+      if (!await partial.exists()) continue;
+      final metaFile = File(p.join(entity.path, 'meta.json'));
+      if (!await metaFile.exists()) continue;
+      try {
+        final raw = await metaFile.readAsString();
+        final meta = jsonDecode(raw) as Map<String, dynamic>;
+        final sep = key.indexOf('_');
+        if (sep <= 0) continue;
+        final mediaType = key.substring(0, sep);
+        final mediaId = key.substring(sep + 1);
+        final partBytes = await partial.length();
+        items.add(CachedVodItem(
+          mediaType: mediaType,
+          mediaId: mediaId,
+          title: (meta['title'] as String?) ?? 'Untitled',
+          posterUrl: meta['poster_url'] as String?,
+          duration: (meta['duration'] as num?)?.toInt() ?? 0,
+          downloadedAt: (meta['downloaded_at'] as num?)?.toInt() ?? 0,
+          originalUrl: (meta['original_url'] as String?) ?? '',
+          seriesId: meta['series_id'] as String?,
+          channelId: meta['channel_id'] as String?,
+          seriesTitle: meta['series_title'] as String?,
+          episodeNumber: (meta['episode_number'] as num?)?.toInt(),
+          downloadedBytes: partBytes,
+          totalBytes: (meta['total_bytes'] as num?)?.toInt(),
+        ));
+      } catch (_) {}
+    }
+    return items;
   }
 
   static const String _userAgent = 'AfroVision/2.0 (Mobile; VOD Cache)';
@@ -295,43 +748,102 @@ class VodCacheService {
     required String url,
     required Directory folder,
     required int duration,
+    String? seriesId,
+    String? channelId,
+    String? seriesTitle,
+    int? episodeNumber,
   }) async {
     final tmpFile = File(p.join(folder.path, 'video.part'));
     final finalFile = File(p.join(folder.path, 'video.mp4'));
 
-    final client = http.Client();
-    try {
-      final streamedResp = await _getWithRetry(client, url);
+    int resumeFrom = 0;
+    if (await tmpFile.exists()) {
+      resumeFrom = await tmpFile.length();
+    }
 
-      if (streamedResp.statusCode != 200) {
-        throw Exception('HTTP ${streamedResp.statusCode}');
+    final client = http.Client();
+    _activeClients[key] = client;
+    try {
+      final headers = <String, String>{};
+      if (resumeFrom > 0) {
+        headers['Range'] = 'bytes=$resumeFrom-';
+      }
+      final streamedResp = await _getWithRetry(client, url, headers: headers);
+
+      final statusCode = streamedResp.statusCode;
+      final isPartial = statusCode == 206;
+      final isOk = statusCode == 200;
+      if (!isPartial && !isOk) {
+        throw Exception('HTTP $statusCode');
       }
 
+      final effectiveResume = isPartial ? resumeFrom : 0;
       final contentLength =
           int.tryParse(streamedResp.headers['content-length'] ?? '') ?? 0;
-      final sink = tmpFile.openWrite();
-      int received = 0;
+      final totalBytes =
+          contentLength > 0 ? effectiveResume + contentLength : 0;
 
-      await streamedResp.stream.forEach((chunk) {
-        sink.add(chunk);
-        received += chunk.length;
-        if (contentLength > 0) {
-          _emitProgress(
-            key,
-            DownloadProgress(
-              percent: (received / contentLength) * 100,
-              downloadedBytes: received,
-              totalBytes: contentLength,
-            ),
-          );
+      if (totalBytes > 0) {
+        _remoteSizeCache[key] = totalBytes;
+        unawaited(_prefs?.setInt('vod_size_$key', totalBytes));
+        await _writeMeta(
+          folder: folder,
+          title: title,
+          posterUrl: posterUrl,
+          sourceMode: sourceMode,
+          localFile: 'video.part',
+          originalUrl: url,
+          duration: duration,
+          seriesId: seriesId,
+          channelId: channelId,
+          seriesTitle: seriesTitle,
+          episodeNumber: episodeNumber,
+          totalBytes: totalBytes,
+        );
+      }
+
+      final mode =
+          isPartial && effectiveResume > 0 ? FileMode.append : FileMode.write;
+      final sink = tmpFile.openWrite(mode: mode);
+      int received = effectiveResume;
+
+      try {
+        await for (final chunk
+            in streamedResp.stream.timeout(const Duration(minutes: 30))) {
+          if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) {
+            break;
+          }
+          sink.add(chunk);
+          received += chunk.length;
+          if (totalBytes > 0) {
+            await _emitProgress(
+              key,
+              DownloadProgress(
+                percent: (received / totalBytes) * 100,
+                downloadedBytes: received,
+                totalBytes: totalBytes,
+              ),
+            );
+          }
         }
-      }).timeout(const Duration(minutes: 30));
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
 
-      await sink.flush();
-      await sink.close();
+      if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) {
+        return;
+      }
 
       if (received < _minValidFileBytes) {
         throw Exception('Downloaded body too small ($received bytes)');
+      }
+
+      // Final serial completion gate: never complete before a preceding
+      // actively downloading episode in the same series.
+      await _waitForPrecedingEpisodes(key, seriesId, episodeNumber);
+      if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) {
+        return;
       }
 
       if (await finalFile.exists()) await finalFile.delete();
@@ -345,19 +857,23 @@ class VodCacheService {
         localFile: 'video.mp4',
         originalUrl: url,
         duration: duration,
+        seriesId: seriesId,
+        channelId: channelId,
+        seriesTitle: seriesTitle,
+        episodeNumber: episodeNumber,
+        totalBytes: received,
       );
 
-      _emitProgress(
+      await _emitProgress(
         key,
         DownloadProgress(
           percent: 100,
           downloadedBytes: received,
-          totalBytes: contentLength,
+          totalBytes: received,
         ),
       );
     } finally {
       client.close();
-      if (await tmpFile.exists()) await tmpFile.delete();
     }
   }
 
@@ -370,8 +886,13 @@ class VodCacheService {
     required Directory folder,
     required int duration,
     int? targetBps,
+    String? seriesId,
+    String? channelId,
+    String? seriesTitle,
+    int? episodeNumber,
   }) async {
     final client = http.Client();
+    _activeClients[key] = client;
     try {
       final masterText = await _fetchText(client, manifestUrl);
       final baseUrl = _baseUrl(manifestUrl);
@@ -380,120 +901,128 @@ class VodCacheService {
       String mediaPlaylistUrl;
 
       if (_isMasterPlaylist(masterText)) {
-        final variant = _selectVariant(masterText, baseUrl, targetBps: targetBps);
-        if (variant == null) {
-          throw Exception('Could not select HLS variant from master playlist');
+        final variantUrl =
+            _selectVariant(masterText, baseUrl, targetBps: targetBps);
+        if (variantUrl == null) {
+          throw Exception('No playable HLS variant found in master playlist');
         }
-        mediaPlaylistUrl = variant;
+        mediaPlaylistUrl = variantUrl;
         mediaPlaylistText = await _fetchText(client, mediaPlaylistUrl);
       } else {
         mediaPlaylistUrl = manifestUrl;
         mediaPlaylistText = masterText;
       }
 
-      final playlistBase = _baseUrl(mediaPlaylistUrl);
+      final mediaBaseUrl = _baseUrl(mediaPlaylistUrl);
       final lines = LineSplitter.split(mediaPlaylistText).toList();
-      final outLines = <String>[];
-      final fileMap = <String, String>{}; // absolute URL -> local file name
-      int segmentIndex = 0;
+      final segmentUrls = <String>[];
+      final mapUrls = <int, String>{};
+
+      for (int i = 0; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (line.isEmpty) continue;
+        if (line.startsWith('#EXT-X-MAP')) {
+          final uri = _extractUri(line, 'URI');
+          if (uri != null) {
+            mapUrls[i] = _resolveUrl(uri, mediaBaseUrl);
+          }
+        } else if (!line.startsWith('#')) {
+          segmentUrls.add(_resolveUrl(line, mediaBaseUrl));
+        }
+      }
+
+      if (segmentUrls.isEmpty) {
+        throw Exception('HLS playlist contains no media segments');
+      }
+
+      final totalSegments = segmentUrls.length + mapUrls.length;
+      int completedSegments = 0;
+      int downloadedBytes = 0;
       int totalBytes = 0;
 
-      // First pass: estimate total bytes and discover map/key/segment URLs.
-      final discoverUrls = <String>[];
-      final mapUrls = <String>[];
-      final keyUrls = <String>[];
-
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed.startsWith('#EXT-X-MAP:URI=')) {
-          final rawUri = _extractUri(trimmed, 'URI=');
-          if (rawUri != null) {
-            final absolute = _resolveUrl(rawUri, playlistBase);
-            mapUrls.add(absolute);
-          }
-        } else if (trimmed.startsWith('#EXT-X-KEY')) {
-          final rawUri = _extractUri(trimmed, 'URI=');
-          if (rawUri != null) {
-            final absolute = _resolveUrl(rawUri, playlistBase);
-            keyUrls.add(absolute);
-          }
-        } else if (trimmed.isNotEmpty &&
-                   !trimmed.startsWith('#') &&
-                   !trimmed.toLowerCase().endsWith('.m3u8')) {
-          final absolute = _resolveUrl(trimmed, playlistBase);
-          discoverUrls.add(absolute);
+      if (segmentUrls.isNotEmpty) {
+        final firstSegSize = await _headSize(client, segmentUrls.first);
+        if (firstSegSize > 0) {
+          totalBytes = firstSegSize * totalSegments;
         }
       }
 
-      final allUrls = [...mapUrls, ...keyUrls, ...discoverUrls];
-
-      // Estimate total size with HEAD requests.
-      for (int i = 0; i < allUrls.length; i += 5) {
-        final batch = allUrls.skip(i).take(5).toList();
-        final sizes = await Future.wait(
-          batch.map((u) => _headSize(client, u)),
+      final localMapFiles = <int, String>{};
+      for (final entry in mapUrls.entries) {
+        if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) return;
+        final localName = _mapFileName(entry.key);
+        final segFile = File(p.join(folder.path, localName));
+        if (!await segFile.exists()) {
+          await _downloadFile(client, entry.value, segFile);
+        }
+        downloadedBytes += await segFile.length();
+        localMapFiles[entry.key] = localName;
+        completedSegments++;
+        await _emitProgress(
+          key,
+          DownloadProgress(
+            percent: (completedSegments / totalSegments) * 100,
+            downloadedBytes: downloadedBytes,
+            totalBytes:
+                totalBytes > 0 ? totalBytes : downloadedBytes * totalSegments,
+          ),
         );
-        totalBytes += sizes.fold(0, (a, b) => a + b);
       }
 
-      int downloadedBytes = 0;
+      final localSegmentNames = <String>[];
+      for (int i = 0; i < segmentUrls.length; i++) {
+        if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) return;
+        final segUrl = segmentUrls[i];
+        final ext = _segmentExtension(segUrl, i);
+        final localName = 'seg_$i$ext';
+        final segFile = File(p.join(folder.path, localName));
+        if (!await segFile.exists()) {
+          await _downloadFile(client, segUrl, segFile);
+        }
+        final segLen = await segFile.length();
+        downloadedBytes += segLen;
+        if (totalBytes == 0 && i == 0 && segLen > 0) {
+          totalBytes = segLen * totalSegments;
+        }
+        localSegmentNames.add(localName);
+        completedSegments++;
+        await _emitProgress(
+          key,
+          DownloadProgress(
+            percent: (completedSegments / totalSegments) * 100,
+            downloadedBytes: downloadedBytes,
+            totalBytes: totalBytes > downloadedBytes
+                ? totalBytes
+                : downloadedBytes,
+          ),
+        );
+      }
 
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed.startsWith('#EXT-X-MAP:URI=')) {
-          final rawUri = _extractUri(trimmed, 'URI=');
-          if (rawUri != null) {
-            final absolute = _resolveUrl(rawUri, playlistBase);
-            final local = fileMap[absolute] ??= _mapFileName(segmentIndex++);
-            await _downloadFile(client, absolute, File(p.join(folder.path, local)));
-            downloadedBytes += await File(p.join(folder.path, local)).length();
-            outLines.add(_replaceUri(line, rawUri, local));
+      await _waitForPrecedingEpisodes(key, seriesId, episodeNumber);
+      if (_pausedKeys.contains(key) || _cancelledKeys.contains(key)) return;
+
+      final outLines = <String>[];
+      int segIdx = 0;
+      for (int i = 0; i < lines.length; i++) {
+        final raw = lines[i];
+        final line = raw.trim();
+        if (line.startsWith('#EXT-X-MAP') && localMapFiles.containsKey(i)) {
+          final oldUri = _extractUri(line, 'URI');
+          if (oldUri != null) {
+            outLines.add(_replaceUri(raw, oldUri, localMapFiles[i]!));
             continue;
           }
-        }
-
-        if (trimmed.startsWith('#EXT-X-KEY')) {
-          final rawUri = _extractUri(trimmed, 'URI=');
-          if (rawUri != null) {
-            final absolute = _resolveUrl(rawUri, playlistBase);
-            final local = fileMap[absolute] ??= 'key_${segmentIndex++}.key';
-            await _downloadFile(client, absolute, File(p.join(folder.path, local)));
-            downloadedBytes += await File(p.join(folder.path, local)).length();
-            outLines.add(_replaceUri(line, rawUri, local));
-            continue;
-          }
-        }
-
-        if (trimmed.isNotEmpty &&
-            !trimmed.startsWith('#') &&
-            !trimmed.toLowerCase().endsWith('.m3u8')) {
-          final absolute = _resolveUrl(trimmed, playlistBase);
-          final ext = _segmentExtension(absolute, segmentIndex);
-          final local = fileMap[absolute] ??= 'segment_${segmentIndex++}$ext';
-          final file = File(p.join(folder.path, local));
-          await _downloadFile(client, absolute, file);
-          final size = await file.length();
-          downloadedBytes += size;
-          outLines.add(local);
-
-          if (totalBytes > 0) {
-            _emitProgress(
-              key,
-              DownloadProgress(
-                percent: (downloadedBytes / totalBytes) * 100,
-                downloadedBytes: downloadedBytes,
-                totalBytes: totalBytes,
-              ),
-            );
-          }
+        } else if (line.isNotEmpty && !line.startsWith('#')) {
+          outLines.add(localSegmentNames[segIdx++]);
           continue;
         }
-
         outLines.add(line);
       }
 
       final localPlaylist = File(p.join(folder.path, 'index.m3u8'));
       await localPlaylist.writeAsString(outLines.join('\n'));
+      final partFile = _partialFile(folder);
+      if (await partFile.exists()) await partFile.delete();
 
       await _writeMeta(
         folder: folder,
@@ -503,14 +1032,19 @@ class VodCacheService {
         localFile: 'index.m3u8',
         originalUrl: manifestUrl,
         duration: duration,
+        seriesId: seriesId,
+        channelId: channelId,
+        seriesTitle: seriesTitle,
+        episodeNumber: episodeNumber,
+        totalBytes: downloadedBytes,
       );
 
-      _emitProgress(
+      await _emitProgress(
         key,
         DownloadProgress(
           percent: 100,
           downloadedBytes: downloadedBytes,
-          totalBytes: totalBytes,
+          totalBytes: downloadedBytes,
         ),
       );
     } finally {
@@ -518,46 +1052,62 @@ class VodCacheService {
     }
   }
 
-  String _baseUrl(String url) {
-    final uri = Uri.parse(url);
-    final lastSlash = uri.path.lastIndexOf('/');
-    if (lastSlash == -1) return '${uri.scheme}://${uri.host}/';
-    return uri.replace(path: uri.path.substring(0, lastSlash + 1)).toString();
-  }
-
-  String _resolveUrl(String raw, String base) {
-    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-    if (raw.startsWith('/')) {
-      final baseUri = Uri.parse(base);
-      return '${baseUri.scheme}://${baseUri.host}$raw';
-    }
-    return base + raw;
-  }
-
-  Future<http.StreamedResponse> _getWithRetry(http.Client client, String url) async {
-    final uri = Uri.parse(url);
-    Exception? lastError;
-    for (int attempt = 0; attempt < 3; attempt++) {
+  Future<http.StreamedResponse> _getWithRetry(
+    http.Client client,
+    String url, {
+    int maxAttempts = 3,
+    Map<String, String>? headers,
+  }) async {
+    Object? lastError;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        final req = http.Request('GET', uri)
-          ..headers['User-Agent'] = _userAgent
-          ..followRedirects = true;
-        final resp = await client
-            .send(req)
-            .timeout(const Duration(seconds: 30));
-        if (resp.statusCode >= 200 && resp.statusCode < 300) return resp;
-        throw Exception('HTTP ${resp.statusCode}');
+        final req = http.Request('GET', Uri.parse(url));
+        req.headers['User-Agent'] = _userAgent;
+        req.headers['Accept'] = '*/*';
+        if (headers != null) req.headers.addAll(headers);
+        final resp =
+            await client.send(req).timeout(const Duration(seconds: 30));
+        if (resp.statusCode == 200 || resp.statusCode == 206) return resp;
+        if (resp.statusCode >= 400 &&
+            resp.statusCode < 500 &&
+            resp.statusCode != 408 &&
+            resp.statusCode != 429) {
+          throw Exception('HTTP ${resp.statusCode} for $url');
+        }
+        lastError = Exception('HTTP ${resp.statusCode}');
       } catch (e) {
-        lastError = e is Exception ? e : Exception('$e');
-        if (attempt < 2) await Future.delayed(Duration(seconds: attempt + 1));
+        lastError = e;
+        if (attempt < maxAttempts) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+          continue;
+        }
       }
     }
-    throw lastError ?? Exception('Download failed for $url');
+    throw lastError ?? Exception('Request failed for $url');
   }
 
   Future<String> _fetchText(http.Client client, String url) async {
     final resp = await _getWithRetry(client, url);
-    return await resp.stream.bytesToString();
+    return resp.stream.bytesToString();
+  }
+
+  String _baseUrl(String url) {
+    final qIdx = url.indexOf('?');
+    final clean = qIdx == -1 ? url : url.substring(0, qIdx);
+    final slash = clean.lastIndexOf('/');
+    if (slash == -1) return clean;
+    return clean.substring(0, slash + 1);
+  }
+
+  String _resolveUrl(String target, String baseUrl) {
+    if (target.startsWith('http://') || target.startsWith('https://')) {
+      return target;
+    }
+    if (target.startsWith('/')) {
+      final uri = Uri.parse(baseUrl);
+      return '${uri.scheme}://${uri.authority}$target';
+    }
+    return '$baseUrl$target';
   }
 
   Future<void> _downloadFile(http.Client client, String url, File file) async {
@@ -604,8 +1154,8 @@ class VodCacheService {
         final res = _extractResolution(trimmed);
         current = _HlsVariant(bandwidth: bw, resolution: res);
       } else if (current != null &&
-                 trimmed.isNotEmpty &&
-                 !trimmed.startsWith('#')) {
+          trimmed.isNotEmpty &&
+          !trimmed.startsWith('#')) {
         final absolute = _resolveUrl(trimmed, baseUrl);
         variants.add(_HlsVariant(
           bandwidth: current.bandwidth,
@@ -620,7 +1170,6 @@ class VodCacheService {
     variants.sort((a, b) => (a.bandwidth ?? 0).compareTo(b.bandwidth ?? 0));
 
     if (targetBps != null) {
-      // Pick the highest variant that does not exceed the target.
       for (int i = variants.length - 1; i >= 0; i--) {
         final bw = variants[i].bandwidth ?? 0;
         if (bw <= targetBps) return variants[i].url;
@@ -628,7 +1177,6 @@ class VodCacheService {
       return variants.first.url;
     }
 
-    // Default to the median variant to balance quality/size.
     return variants[variants.length ~/ 2].url;
   }
 
@@ -655,7 +1203,6 @@ class VodCacheService {
   }
 
   String _replaceUri(String line, String oldUri, String newUri) {
-    // The URI may be double-quoted, single-quoted, or unquoted.
     final q = line.contains('"$oldUri"')
         ? '"'
         : line.contains("'$oldUri'")
@@ -683,6 +1230,11 @@ class VodCacheService {
     required String localFile,
     required String originalUrl,
     required int duration,
+    String? seriesId,
+    String? channelId,
+    String? seriesTitle,
+    int? episodeNumber,
+    int? totalBytes,
   }) async {
     final meta = <String, dynamic>{
       'title': title,
@@ -692,6 +1244,11 @@ class VodCacheService {
       'original_url': originalUrl,
       'duration': duration,
       'downloaded_at': DateTime.now().millisecondsSinceEpoch,
+      if (seriesId != null) 'series_id': seriesId,
+      if (channelId != null) 'channel_id': channelId,
+      if (seriesTitle != null) 'series_title': seriesTitle,
+      if (episodeNumber != null) 'episode_number': episodeNumber,
+      if (totalBytes != null && totalBytes > 0) 'total_bytes': totalBytes,
     };
     final metaFile = File(p.join(folder.path, 'meta.json'));
     await metaFile.writeAsString(jsonEncode(meta), flush: true);
@@ -722,7 +1279,6 @@ class VodCacheService {
     final totalSizeMB = totalSize / (1024 * 1024);
     if (totalSizeMB <= _maxCacheSizeMB) return;
 
-    // Evict oldest until under budget.
     folders.sort((a, b) {
       return a.statSync().modified.compareTo(b.statSync().modified);
     });
@@ -782,6 +1338,12 @@ class CachedVodItem {
   final int duration;
   final int downloadedAt;
   final String originalUrl;
+  final String? seriesId;
+  final String? channelId;
+  final String? seriesTitle;
+  final int? episodeNumber;
+  final int? downloadedBytes;
+  final int? totalBytes;
 
   const CachedVodItem({
     required this.mediaType,
@@ -791,5 +1353,11 @@ class CachedVodItem {
     required this.duration,
     required this.downloadedAt,
     required this.originalUrl,
+    this.seriesId,
+    this.channelId,
+    this.seriesTitle,
+    this.episodeNumber,
+    this.downloadedBytes,
+    this.totalBytes,
   });
 }

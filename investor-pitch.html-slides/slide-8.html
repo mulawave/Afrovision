@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+.slide { width: 1920px; height: 1080px; overflow: hidden; position: relative; background-color: #050a30; }
+.bg-texture { position: absolute; inset: 0; background-image: repeating-linear-gradient(60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px), repeating-linear-gradient(-60deg, rgba(82,143,241,0.03) 0px, rgba(82,143,241,0.03) 1px, transparent 1px, transparent 40px); }
+.left-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: linear-gradient(180deg, #f39517 0%, #233dff 100%); }
+.top-border { position: absolute; top: 0; left: 6px; right: 0; height: 3px; background: linear-gradient(90deg, #f39517 0%, #233dff 60%, transparent 100%); }
+.logo-wrap { position: absolute; top: 36px; left: 52px; }
+.logo-wrap img { width: 150px; }
+.slide-label { position: absolute; top: 52px; right: 72px; font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 3px; }
+.header-area { position: absolute; top: 118px; left: 80px; }
+.section-tag { font-size: 14px; letter-spacing: 6px; color: #233dff; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+.heading { font-family: 'Playfair Display', serif; font-size: 68px; font-weight: 900; color: #f39517; }
+.sub { font-size: 22px; color: #c8b58f; font-style: italic; margin-top: 6px; }
+.divider { width: 80px; height: 3px; background: linear-gradient(90deg, #f39517, #233dff); margin-top: 18px; }
+/* Revenue streams */
+.rev-grid { position: absolute; top: 310px; left: 80px; right: 80px; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 24px; }
+.rev-card { background: rgba(35,61,255,0.07); border: 1px solid rgba(35,61,255,0.2); padding: 28px 24px; border-bottom: 3px solid #f39517; text-align: center; }
+.rev-card-icon { font-size: 32px; font-weight: 900; color: #f39517; margin-bottom: 10px; }
+.rev-card-title { font-size: 19px; font-weight: 700; color: #ffffff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+.rev-card-range { font-size: 28px; font-weight: 900; color: #f39517; margin-bottom: 8px; }
+.rev-card-body { font-size: 15px; color: #c8b58f; line-height: 1.5; }
+/* Totals bar */
+.totals-row { position: absolute; top: 620px; left: 80px; right: 80px; display: flex; gap: 24px; }
+.total-card { flex: 1; background: rgba(243,149,23,0.08); border: 1px solid rgba(243,149,23,0.25); border-top: 3px solid #f39517; padding: 22px 28px; text-align: center; }
+.total-label { font-size: 14px; letter-spacing: 3px; color: #c8b58f; text-transform: uppercase; margin-bottom: 10px; }
+.total-value { font-size: 38px; font-weight: 900; color: #f39517; }
+.season-note { position: absolute; bottom: 62px; left: 80px; right: 80px; background: rgba(35,61,255,0.08); border-left: 4px solid #233dff; padding: 18px 28px; }
+.season-note-text { font-size: 20px; color: #ffffff; font-weight: 300; }
+.season-note-text span { color: #f39517; font-weight: 700; }
+.bottom-bar { position: absolute; bottom: 0; left: 6px; right: 0; height: 52px; background: rgba(35,61,255,0.08); border-top: 1px solid rgba(35,61,255,0.2); display: flex; align-items: center; justify-content: space-between; padding: 0 80px; }
+.b-left { font-size: 14px; color: #528ff1; letter-spacing: 2px; }
+.b-right { font-size: 14px; color: rgba(255,255,255,0.3); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<section class="slide" style="width:1920px;height:1080px;overflow:hidden;position:relative;">
+  <div class="bg-texture"></div>
+  <div class="left-bar"></div>
+  <div class="top-border"></div>
+  <div class="logo-wrap"><img src="/home/user/afrovision-materials/investor-pitch.html-slides/assets/logo.png" alt="AfroVision"/></div>
+  <div class="slide-label">08 / 10</div>
+  <div class="header-area">
+    <div class="section-tag">Revenue Model</div>
+    <div class="heading">Multiple Revenue Streams</div>
+    <div class="sub">Stacked income from day one — with compounding returns across seasons</div>
+    <div class="divider"></div>
+  </div>
+  <div class="rev-grid">
+    <div class="rev-card">
+      <div class="rev-card-icon">T1</div>
+      <div class="rev-card-title">Title Sponsor</div>
+      <div class="rev-card-range">₦150M–₦300M</div>
+      <div class="rev-card-body">Single exclusive naming rights partner. Full brand integration across all episodes, credits, and media.</div>
+    </div>
+    <div class="rev-card">
+      <div class="rev-card-icon">T2</div>
+      <div class="rev-card-title">Category Sponsors</div>
+      <div class="rev-card-range">₦40M–₦80M</div>
+      <div class="rev-card-body">Up to 5 slots — Banking, Telecom, Education. Deep segment integration with product access to participants.</div>
+    </div>
+    <div class="rev-card">
+      <div class="rev-card-icon">T3</div>
+      <div class="rev-card-title">Segment Sponsors</div>
+      <div class="rev-card-range">₦10M–₦25M</div>
+      <div class="rev-card-body">Unlimited stackable slots. Named segments (Pitch Day, Masterclass) — highest volume revenue layer.</div>
+    </div>
+    <div class="rev-card">
+      <div class="rev-card-icon">+</div>
+      <div class="rev-card-title">Platform Revenue</div>
+      <div class="rev-card-range">Recurring</div>
+      <div class="rev-card-body">Streaming subscriptions, community reward pool growth, creator partnerships, and IP licensing across future seasons.</div>
+    </div>
+  </div>
+  <div class="totals-row">
+    <div class="total-card">
+      <div class="total-label">Min. Sponsorship Potential</div>
+      <div class="total-value">₦250M+</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">Max. Sponsorship Potential</div>
+      <div class="total-value">₦700M+</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">Sponsor Slots Available</div>
+      <div class="total-value">Unlimited T3</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">Season Model</div>
+      <div class="total-value">Multi-Season</div>
+    </div>
+  </div>
+  <div class="season-note">
+    <div class="season-note-text">Built for <span>scalable multi-season growth</span> — each season increases platform audience, sponsor value, and IP worth. The maiden edition is the foundation, not the ceiling.</div>
+  </div>
+  <div class="bottom-bar">
+    <div class="b-left">AfroVision Challenge: The Amazons</div>
+    <div class="b-right">Confidential — For Investor Review</div>
+  </div>
+</section>
+</body>
+</html>

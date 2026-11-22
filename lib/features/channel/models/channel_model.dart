@@ -46,6 +46,7 @@ class ChannelModel {
   final String streamStatus;
   final String? lastCheckedAt;
   final Map<String, dynamic>? providerMetadata;
+  final bool useStreamProxy;
 
   ChannelModel({
     required this.id,
@@ -85,6 +86,7 @@ class ChannelModel {
     this.streamStatus = 'unknown',
     this.lastCheckedAt,
     this.providerMetadata,
+    this.useStreamProxy = false,
   });
 
   bool get isPrivate => type == 'private';
@@ -181,6 +183,7 @@ class ChannelModel {
       lastCheckedAt: _asNullableString(json['last_checked_at']),
       providerMetadata: (json['provider_metadata'] as Map?)
           ?.cast<String, dynamic>(),
+      useStreamProxy: _asBool(json['use_stream_proxy']),
     );
   }
 }

@@ -280,6 +280,7 @@ async function update(id, fields) {
   if (fields.logo_url !== undefined) { channel.logo_url = fields.logo_url; updates.logo_url = fields.logo_url; }
   if (fields.banner_url !== undefined) { channel.banner_url = fields.banner_url; updates.banner_url = fields.banner_url; }
   if (fields.type !== undefined) { channel.type = fields.type; updates.type = fields.type; }
+  if (fields.use_stream_proxy !== undefined) { channel.use_stream_proxy = Boolean(fields.use_stream_proxy); updates.use_stream_proxy = channel.use_stream_proxy; }
   if (Object.keys(updates).length > 0) {
     const db = getFirestore();
     await db.collection(COLLECTION).doc(id).update(updates);

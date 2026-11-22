@@ -94,9 +94,13 @@ async function getPublicChannels(req, res) {
         .where('user_uid', '==', req.userId)
         .where('status', '==', 'active')
         .get();
+      const nowMs = Date.now();
       snapshot.docs.forEach((doc) => {
         const data = doc.data();
-        if (data.channel_id) exclusiveChannelIds.add(data.channel_id);
+        const expiresAt = Number(data.expires_at || 0);
+        if (data.channel_id && (expiresAt === 0 || expiresAt > nowMs)) {
+          exclusiveChannelIds.add(data.channel_id);
+        }
       });
     } catch (err) {
       console.error('[Channels] Failed to fetch exclusive accesses:', err.message);
@@ -105,11 +109,15 @@ async function getPublicChannels(req, res) {
 
   const visibleChannels = channels.filter((channel) => {
     if (channel.is_banned) return false;
-    if (channel.type !== 'public') return false;
-    // Include exclusive channels only if the user has active access
+    // Include exclusive channels strictly if the user has active membership
+    // for THIS specific channel (or owns it).
     if (isExclusiveChannel(channel)) {
-      return exclusiveChannelIds.has(channel.id);
+      return (
+        exclusiveChannelIds.has(channel.id) ||
+        (Boolean(req.userId) && channel.owner_id === req.userId)
+      );
     }
+    if (channel.type !== 'public') return false;
     return true;
   });
 
@@ -193,12 +201,23 @@ async function getChannelByNumber(req, res) {
 async function updateChannel(req, res) {
   const channel = await Channel.findById(req.params.id);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
-  if (channel.owner_id !== req.userId) {
+  const user = req.user || await User.findById(req.userId);
+  const isOwner = channel.owner_id === req.userId;
+  const isAdmin = user && user.role === 'admin';
+  if (!isOwner && !isAdmin) {
     return res.status(403).json({ error: 'Not channel owner' });
   }
 
-  // vPT edit gating: configurable via admin settings; never applies to exclusive channel owners
-  if (!isExclusiveChannel(channel)) {
+  const { name, description, category, use_stream_proxy } = req.body;
+  const isProxyOnlyUpdate =
+    name === undefined &&
+    description === undefined &&
+    category === undefined &&
+    use_stream_proxy !== undefined;
+
+  // vPT edit gating: configurable via admin settings; never applies to exclusive channel owners,
+  // admins, or toggling the server stream relay (VPN bypass) setting alone.
+  if (!isExclusiveChannel(channel) && !isAdmin && !isProxyOnlyUpdate) {
     const [feeEnabledRaw, feeAmountRaw] = await Promise.all([
       SettingsService.get('CHANNEL_EDIT_VPT_FEE_ENABLED'),
       SettingsService.getNumber('CHANNEL_EDIT_VPT_FEE'),
@@ -206,7 +225,6 @@ async function updateChannel(req, res) {
     const feeEnabled = feeEnabledRaw !== 'false';
     const feeAmount = (feeAmountRaw != null && Number.isFinite(feeAmountRaw)) ? feeAmountRaw : 500;
     if (feeEnabled) {
-      const user = req.user || await User.findById(req.userId);
       if (user && user.role === 'creator' && user.vpt < feeAmount) {
         return res.status(403).json({
           error: `Insufficient vPT balance. You need at least ₦${feeAmount} vPT to edit a channel.`,
@@ -217,11 +235,11 @@ async function updateChannel(req, res) {
     }
   }
 
-  const { name, description, category } = req.body;
   const updated = await Channel.update(req.params.id, {
     name: name ? sanitize(name) : undefined,
     description: description ? sanitize(description) : undefined,
     category: category ? sanitize(category) : undefined,
+    use_stream_proxy: use_stream_proxy !== undefined ? Boolean(use_stream_proxy) : undefined,
   });
   const owner = await getOwnerSafely(updated.owner_id);
   res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
@@ -294,6 +312,7 @@ async function updateExternalSource(req, res) {
     stream_status,
     last_checked_at,
     provider_metadata,
+    use_stream_proxy,
   } = req.body;
 
   // Block non-native external source assignments when feature is disabled.
@@ -323,7 +342,7 @@ async function updateExternalSource(req, res) {
   // external_url must be a non-empty string when source mode is not native
   const effectiveMode = stream_source_mode || channel.stream_source_mode || 'native';
   if (effectiveMode === 'native') {
-    const updated = await Channel.updateExternalSource(req.params.id, {
+    let updated = await Channel.updateExternalSource(req.params.id, {
       stream_source_mode: 'native',
       external_provider: null,
       external_url: null,
@@ -332,6 +351,9 @@ async function updateExternalSource(req, res) {
       last_checked_at: null,
       provider_metadata: null,
     });
+    if (use_stream_proxy !== undefined) {
+      updated = await Channel.update(req.params.id, { use_stream_proxy: Boolean(use_stream_proxy) });
+    }
 
     const owner = await getOwnerSafely(updated.owner_id);
     return res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
@@ -398,7 +420,7 @@ async function updateExternalSource(req, res) {
     }
   }
 
-  const updated = await Channel.updateExternalSource(req.params.id, Object.keys(resolvedFields).length > 0 ? resolvedFields : {
+  let updated = await Channel.updateExternalSource(req.params.id, Object.keys(resolvedFields).length > 0 ? resolvedFields : {
     stream_source_mode,
     external_provider: external_provider !== undefined ? sanitize(String(external_provider || '')) || null : undefined,
     external_url: external_url !== undefined ? (external_url ? sanitize(String(external_url)).trim() : null) : undefined,
@@ -407,6 +429,9 @@ async function updateExternalSource(req, res) {
     last_checked_at: last_checked_at !== undefined ? (last_checked_at || null) : undefined,
     provider_metadata: provider_metadata !== undefined ? (provider_metadata || null) : undefined,
   });
+  if (use_stream_proxy !== undefined) {
+    updated = await Channel.update(req.params.id, { use_stream_proxy: Boolean(use_stream_proxy) });
+  }
 
   const owner = await getOwnerSafely(updated.owner_id);
   res.json({ channel: await safeEnrichChannel(updated, owner, req.userId) });
@@ -461,6 +486,7 @@ async function enrichChannel(channel, owner, requesterId) {
     stream_status: channel.stream_status || 'unknown',
     last_checked_at: channel.last_checked_at || null,
     provider_metadata: channel.provider_metadata || null,
+    use_stream_proxy: Boolean(channel.use_stream_proxy),
     exclusive_monthly_fee_ngn: Number(channel.exclusive_monthly_fee_ngn || 0),
     exclusive_fee_currency: channel.exclusive_fee_currency || 'NGN',
     exclusive_fee_last_updated_at: channel.exclusive_fee_last_updated_at || null,
@@ -509,6 +535,7 @@ async function safeEnrichChannel(channel, owner, requesterId) {
       stream_status: channel.stream_status || 'unknown',
       last_checked_at: channel.last_checked_at || null,
       provider_metadata: channel.provider_metadata || null,
+      use_stream_proxy: Boolean(channel.use_stream_proxy),
       exclusive_monthly_fee_ngn: Number(channel.exclusive_monthly_fee_ngn || 0),
       exclusive_fee_currency: channel.exclusive_fee_currency || 'NGN',
       exclusive_fee_last_updated_at: channel.exclusive_fee_last_updated_at || null,
@@ -659,7 +686,7 @@ async function recordView(req, res) {
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
     const viewerUid = req.userId;
-    const platform = normalizePlatform(req.body?.platform);
+    const platform = req.isTvDevice ? 'tv' : normalizePlatform(req.body?.platform);
 
     // Record view event in channel_events
     const db = getFirestore();
@@ -713,7 +740,7 @@ async function recordWatchPing(req, res) {
     // Clamp a single ping to a sane ceiling so a malformed/malicious client
     // can't inflate watch-time in one call.
     const safeSeconds = Math.min(seconds, 300);
-    const platform = normalizePlatform(req.body?.platform);
+    const platform = req.isTvDevice ? 'tv' : normalizePlatform(req.body?.platform);
 
     await ChannelStats.addWatchSeconds(channel.id, safeSeconds, platform);
     res.json({ message: 'Watch time recorded' });
