@@ -283,6 +283,17 @@ interface ApiService {
     @GET("/movies/{movieId}")
     suspend fun getMovie(@Path("movieId") movieId: String): com.afrovision.tv.data.api.model.MovieDetailResponse
 
+    @GET("/distribution/tv/series/{seriesId}")
+    suspend fun getTvSeriesById(
+        @Path("seriesId") seriesId: String
+    ): com.afrovision.tv.data.api.model.SeriesDetailResponse
+
+    @GET("/distribution/tv/channels/{channelId}/series/{seriesId}")
+    suspend fun getTvSeriesDetail(
+        @Path("channelId") channelId: String,
+        @Path("seriesId") seriesId: String
+    ): com.afrovision.tv.data.api.model.SeriesDetailResponse
+
     @GET("/series/{seriesId}")
     suspend fun getSeriesById(
         @Path("seriesId") seriesId: String

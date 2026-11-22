@@ -55,6 +55,7 @@ import com.afrovision.tv.data.PlayerMedia
 import com.afrovision.tv.data.api.model.CatchUpItem
 import com.afrovision.tv.data.api.model.Episode
 import com.afrovision.tv.data.api.model.Series
+import com.afrovision.tv.ui.components.PosterCard
 import com.afrovision.tv.ui.components.rememberCacheableImageRequest
 import com.afrovision.tv.ui.sound.TvSoundManager
 import com.afrovision.tv.ui.theme.LocalNocturne
@@ -88,7 +89,12 @@ fun MediaDetailOverlay(
     downloads: List<DownloadItem> = emptyList(),
     onDownloadEpisode: ((Episode) -> Unit)? = null,
     onDeleteEpisodeDownload: ((String) -> Unit)? = null,
-    continueWatching: List<MediaCard> = emptyList()
+    continueWatching: List<MediaCard> = emptyList(),
+    similarItems: List<MediaCard> = emptyList(),
+    onOpenSimilar: ((MediaCard) -> Unit)? = null,
+    seriesDetailLoading: Boolean = false,
+    seriesDetailError: String? = null,
+    onRetrySeries: (() -> Unit)? = null
 ) {
     val nocturne = LocalNocturne.current
     var selectedSeasonIdx by remember(series?.id) { mutableIntStateOf(0) }
@@ -475,13 +481,47 @@ fun MediaDetailOverlay(
                         }
                     }
                 } else if (series != null) {
-                    item(key = "seasons-loading") {
+                    item(key = "seasons-status") {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 60.dp, vertical = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                text = when {
+                                    seriesDetailLoading -> "Loading seasons & episodes…"
+                                    seriesDetailError != null -> seriesDetailError
+                                    else -> "No seasons published yet."
+                                },
+                                color = if (seriesDetailError != null) Color(0xFFFF6B6B) else nocturne.textFaint,
+                                fontSize = 18.sp
+                            )
+                            if (!seriesDetailLoading && onRetrySeries != null) {
+                                EpisodeSmallButton("Retry", onRetrySeries)
+                            }
+                        }
+                    }
+                }
+
+                if (similarItems.isNotEmpty() && onOpenSimilar != null) {
+                    item(key = "more-like-this-header") {
                         Text(
-                            text = "Loading seasons & episodes…",
-                            color = nocturne.textFaint,
-                            fontSize = 18.sp,
-                            modifier = Modifier.padding(horizontal = 60.dp, vertical = 20.dp)
+                            text = "More like this",
+                            color = nocturne.text,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 60.dp, end = 60.dp, top = 24.dp, bottom = 12.dp)
                         )
+                    }
+                    item(key = "more-like-this-row") {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 60.dp),
+                            horizontalArrangement = Arrangement.spacedBy(20.dp)
+                        ) {
+                            itemsIndexed(similarItems.take(12), key = { _, item -> "sim-${item.id}" }) { _, item ->
+                                PosterCard(item = item, onClick = { onOpenSimilar(item) })
+                            }
+                        }
                     }
                 }
             }
@@ -723,8 +763,13 @@ private fun DetailOverlayButton(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                enabled = enabled,
-                onClick = { TvSoundManager.play("select"); onClick() }
+                enabled = true,
+                onClick = {
+                    if (enabled) {
+                        TvSoundManager.play("select")
+                        onClick()
+                    }
+                }
             )
             .padding(horizontal = 24.dp, vertical = 13.dp)
     ) {

@@ -82,6 +82,16 @@ router.get(
   auth.authenticateTvDeviceAsOwner,
   progressCtrl.listMine
 );
+router.get(
+  '/tv/series/:seriesId',
+  auth.authenticateTvDeviceAsOwner,
+  require('../series/series-viewer.controller').getSeriesById
+);
+router.get(
+  '/tv/channels/:channelId/series/:seriesId',
+  auth.authenticateTvDeviceAsOwner,
+  require('../series/series-viewer.controller').getSeriesDetail
+);
 router.put(
   '/tv/watch-progress/:mediaType/:mediaId',
   auth.authenticateTvDeviceAsOwner,

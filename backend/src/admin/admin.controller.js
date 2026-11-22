@@ -2429,17 +2429,11 @@ async function impersonateUser(req, res) {
     if (!targetUid) {
       return res.status(400).json({ error: 'Target user ID is required' });
     }
-    if (targetUid === req.userId) {
-      return res.status(400).json({ error: 'You are already signed in as this account' });
-    }
     const target = await User.findById(targetUid);
     if (!target) {
       return res.status(404).json({ error: 'User not found' });
     }
-    if (target.role === 'admin') {
-      return res.status(403).json({ error: 'Cannot impersonate another admin account' });
-    }
-    const reason = (req.adminReason || req.body?.reason || '').toString().trim();
+    const reason = (req.body?.reason || '').toString().trim();
     const token = await generateImpersonationToken(target.id, req.userId);
     await AuditService.logAction(req.userId, 'admin_impersonate_user', target.id, {
       reason,

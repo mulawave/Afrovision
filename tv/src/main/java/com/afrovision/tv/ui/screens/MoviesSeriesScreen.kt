@@ -232,6 +232,8 @@ fun MoviesSeriesScreen(viewModel: TvViewModel) {
                 onPauseDownload = { viewModel.pauseDownload(it) },
                 onResumeDownload = { viewModel.resumeDownload(it) },
                 onDeleteDownload = { viewModel.removeDownload(movie.id) },
+                similarItems = movies.filter { it.id != movie.id }.take(12).map { it.toMediaCard() },
+                onOpenSimilar = { card -> moviesById[card.id]?.let { viewModel.selectMovie(it) } },
                 onPlay = {
                     viewModel.play(movie.toMediaCard().toPlayerMedia().copy(progress = savedMs))
                     viewModel.clearSelectedMovie()
@@ -239,31 +241,36 @@ fun MoviesSeriesScreen(viewModel: TvViewModel) {
                 onDismiss = { viewModel.clearSelectedMovie() }
             )
         }
-        viewModel.selectedSeries?.let { series ->
+        viewModel.selectedSeries?.let { selected ->
             MediaDetailOverlay(
-                title = series.title,
-                imageUrl = series.posterUrl,
-                meta = if (series.seasons.isEmpty()) "Loading seasons…" else "${series.seasons.size} season${if (series.seasons.size == 1) "" else "s"}",
-                description = series.description ?: "",
+                title = selected.title,
+                imageUrl = selected.posterUrl,
+                meta = if (selected.seasons.isEmpty()) (if (viewModel.seriesDetailLoading) "Loading seasons…" else "0 seasons") else "${selected.seasons.size} season${if (selected.seasons.size == 1) "" else "s"}",
+                description = selected.description ?: "",
                 playLabel = "Play S1E1",
-                canPlay = firstEpisodePlayerMedia(series) != null,
+                canPlay = firstEpisodePlayerMedia(selected) != null,
                 tmdb = viewModel.selectedMediaTmdb,
                 downloads = viewModel.downloads,
                 continueWatching = continueWatching,
                 onDownloadEpisode = { ep ->
                     val url = ep.streamUrl?.takeIf { it.isNotBlank() } ?: ep.externalUrl?.takeIf { it.isNotBlank() }
                     if (url != null) {
-                        viewModel.startDownload(ep.id, "${series.title} - ${ep.title}", "episode", url)
+                        viewModel.startDownload(ep.id, "${selected.title} - ${ep.title}", "episode", url)
                     }
                 },
                 onPauseDownload = { viewModel.pauseDownload(it) },
                 onResumeDownload = { viewModel.resumeDownload(it) },
                 onDeleteEpisodeDownload = { viewModel.removeDownload(it) },
+                similarItems = series.filter { it.id != selected.id }.take(12).map { it.toMediaCard() },
+                onOpenSimilar = { card -> seriesById[card.id]?.let { viewModel.selectSeries(it) } },
+                seriesDetailLoading = viewModel.seriesDetailLoading,
+                seriesDetailError = viewModel.seriesDetailError,
+                onRetrySeries = { viewModel.selectSeries(selected) },
                 onPlay = {
-                    firstEpisodePlayerMedia(series)?.let { viewModel.play(it) }
+                    firstEpisodePlayerMedia(selected)?.let { viewModel.play(it) }
                     viewModel.clearSelectedSeries()
                 },
-                series = series,
+                series = selected,
                 onPlayEpisode = {
                     viewModel.play(it)
                     viewModel.clearSelectedSeries()

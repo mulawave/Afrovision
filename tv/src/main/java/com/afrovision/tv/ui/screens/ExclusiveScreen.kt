@@ -219,6 +219,8 @@ private fun ExclusiveContent(viewModel: TvViewModel) {
                 onPauseDownload = { viewModel.pauseDownload(it) },
                 onResumeDownload = { viewModel.resumeDownload(it) },
                 onDeleteDownload = { viewModel.removeDownload(movie.id) },
+                similarItems = movies.filter { it.id != movie.id }.take(12).map { it.toMediaCard() },
+                onOpenSimilar = { card -> movies.firstOrNull { it.id == card.id }?.let { viewModel.selectMovie(it) } },
                 onPlay = {
                     viewModel.play(movie.toMediaCard().toPlayerMedia().copy(progress = savedMs))
                     viewModel.clearSelectedMovie()
@@ -246,6 +248,11 @@ private fun ExclusiveContent(viewModel: TvViewModel) {
                 onPauseDownload = { viewModel.pauseDownload(it) },
                 onResumeDownload = { viewModel.resumeDownload(it) },
                 onDeleteEpisodeDownload = { viewModel.removeDownload(it) },
+                similarItems = series.filter { it.id != s.id }.take(12).map { it.toMediaCard() },
+                onOpenSimilar = { card -> series.firstOrNull { it.id == card.id }?.let { viewModel.selectSeries(it) } },
+                seriesDetailLoading = viewModel.seriesDetailLoading,
+                seriesDetailError = viewModel.seriesDetailError,
+                onRetrySeries = { viewModel.selectSeries(s) },
                 onPlay = {
                     firstEpisodePlayerMedia(s)?.let { viewModel.play(it) }
                     viewModel.clearSelectedSeries()

@@ -234,6 +234,12 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     var selectedMediaTmdb by mutableStateOf<CatchUpItem?>(null)
         private set
 
+    var seriesDetailLoading by mutableStateOf(false)
+        private set
+
+    var seriesDetailError by mutableStateOf<String?>(null)
+        private set
+
     private val tmdbTitleCache = mutableMapOf<String, CatchUpItem>()
     private val activeDownloadJobs = mutableMapOf<String, Job>()
 
@@ -1074,26 +1080,53 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     // that fails (e.g. exclusive channel, no access) the list item stays.
     fun selectSeries(series: Series) {
         selectedSeries = series
+        seriesDetailError = null
         lookupTmdbForSelected(type = "series", rawTitle = series.title)
-        if (series.seasons.any { it.episodes.isNotEmpty() }) return
+        if (series.seasons.any { it.episodes.isNotEmpty() }) {
+            seriesDetailLoading = false
+            return
+        }
+        seriesDetailLoading = true
         viewModelScope.launch {
             var detail: Series? = null
+            var lastErr: Exception? = null
             val channelId = series.channelId
             if (!channelId.isNullOrBlank()) {
-                detail = runCatching {
-                    api.getSeriesDetail(channelId, series.id).data.series
-                }.getOrNull()
+                try {
+                    detail = if (usesDeviceAuth()) {
+                        api.getTvSeriesDetail(channelId, series.id).data.series
+                    } else {
+                        api.getSeriesDetail(channelId, series.id).data.series
+                    }
+                } catch (e: Exception) {
+                    lastErr = e
+                    Log.w(TV_APP_TAG, "getSeriesDetail failed for ${series.id}", e)
+                }
             }
             if (detail == null || detail.seasons.isEmpty()) {
-                detail = runCatching {
-                    api.getSeriesById(series.id).data.series
-                }.getOrNull() ?: detail
+                try {
+                    val fallback = if (usesDeviceAuth()) {
+                        api.getTvSeriesById(series.id).data.series
+                    } else {
+                        api.getSeriesById(series.id).data.series
+                    }
+                    if (fallback != null) detail = fallback
+                } catch (e: Exception) {
+                    lastErr = e
+                    Log.w(TV_APP_TAG, "getSeriesById failed for ${series.id}", e)
+                }
             }
-            if (detail != null && selectedSeries?.id == series.id) {
-                selectedSeries = if (detail.channelId.isNullOrBlank() && !channelId.isNullOrBlank()) {
-                    detail.copy(channelId = channelId)
+            if (selectedSeries?.id == series.id) {
+                seriesDetailLoading = false
+                if (detail != null) {
+                    selectedSeries = if (detail.channelId.isNullOrBlank() && !channelId.isNullOrBlank()) {
+                        detail.copy(channelId = channelId)
+                    } else {
+                        detail
+                    }
+                    seriesDetailError = null
                 } else {
-                    detail
+                    seriesDetailError = lastErr?.toUserFacingMessage() ?: "Failed to load seasons"
                 }
             }
         }
@@ -1101,6 +1134,8 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun clearSelectedSeries() {
         selectedSeries = null
         selectedMediaTmdb = null
+        seriesDetailLoading = false
+        seriesDetailError = null
     }
 
     private fun lookupTmdbForSelected(type: String, rawTitle: String) {
